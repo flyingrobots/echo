@@ -7,6 +7,13 @@
 
 ### Added
 
+- Runtime-bound private frames can bind strict typed read laws. Actual node and
+  atom types authorize present values, named types authorize absence, and
+  descended reads witness authorized alpha-portal chains before target access.
+  Typed ranges retain whole-bucket limits and untyped entry points cannot bypass
+  a bound law. This remains host-private evaluation without a new admitted
+  effect profile, persisted read image or mutation authority.
+
 - Runtime-bound private frames interpret existing compiled node-atom reads with recorded presence/absence dependencies, shared metering and host-selected apertures. This does not admit a new authored-effect profile.
 
 - Bind private effect evaluation frames to the runtime-selected writer and exact commit parent, refusing substituted histories even when reading coordinates match.

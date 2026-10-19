@@ -137,11 +137,11 @@ pub(crate) fn evaluate_recorded(
     pin: [u8; 32],
     input: &[u8],
     reads: &mut crate::edict_effects::EffectRangeReadSession<'_>,
-    aperture: &[NodeKey],
+    aperture: crate::edict_effects::NodeAperture<'_>,
     meter: &mut crate::edict_pure::evaluate::Meter,
     limits: ReadLimits,
 ) -> Result<ReadResult, crate::edict_effects::EffectFrameError> {
-    ReadView::validate_aperture(aperture)?;
+    aperture.validate()?;
     let (program, input) = prepare(package, pin, input, limits)?;
     let mut access = crate::edict_effects::RecordedNodeAccess { reads, aperture };
     evaluate::run_with_meter(&program, input, &mut access, meter)

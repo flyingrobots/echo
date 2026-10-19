@@ -95,7 +95,7 @@ impl<'a> ReadView<'a> {
         })
     }
 
-    pub(super) fn validate_aperture(aperture: &[NodeKey]) -> Result<(), ReadError> {
+    pub(crate) fn validate_aperture(aperture: &[NodeKey]) -> Result<(), ReadError> {
         if aperture.len() > MAX_APERTURE_NODES || aperture.windows(2).any(|pair| pair[0] >= pair[1])
         {
             return Err(ReadError::InvalidAperture);

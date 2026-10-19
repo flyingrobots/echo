@@ -5,12 +5,17 @@
 //! This is not an installed program profile or admission capability. The host
 //! selects the immutable frontier and policy. No mutation or caller callback is
 //! available. Preparing the basis and policy is outside the per-read budget.
-//! The interpreter, complete footprint law, bounded arena and portal authority
-//! validation still need to be connected before an authored-effect profile ships.
+//! Optional typed laws authorize runtime-bound node, atom, portal and range reads.
+//! Authored effect instructions, package-authenticated policy, canonical read
+//! images, physical arena and admission still precede a shipped effect profile.
 mod frame;
+mod law;
+mod typed_reads;
+pub use law::{EffectFootprintLaw, EffectLawError};
+pub use typed_reads::TypedNodeRead;
 mod node_reads;
 pub use frame::{EffectEvaluationFrame, EffectFrameError, EffectFrameSetupError};
-pub(crate) use node_reads::RecordedNodeAccess;
+pub(crate) use node_reads::{NodeAperture, RecordedNodeAccess};
 
 use crate::edict_pure::evaluate::Meter;
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,17 +45,20 @@ pub enum EffectReadSetupError {
 /// A read failure, without an Action outcome or any mutation authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EffectRangeReadError {
-    /// The selected edge type is outside the host's range-read policy.
+    /// A resolved type or distinct read count is outside the selected read law.
     #[error("range edge type is outside the footprint law")]
     FootprintLawViolation,
-    /// The whole source bucket cannot be scanned within the remaining limits.
+    /// No authorized root-to-target portal chain reaches the requested warp.
+    #[error("requested warp is unreachable from the bound root")]
+    UnreachableWarp,
+    /// Read work, I/O or storage cannot fit within the remaining limits.
     #[error("range read exceeds its budget")]
     BudgetExceeded,
     /// Host storage could not be provisioned despite a successful reservation.
     ///
     /// This is a host fault. It must never become an Action obstruction or a
     /// retained decision; an integrating host must stop the evaluation.
-    #[error("host could not provision reserved range storage")]
+    #[error("host could not provision reserved read storage")]
     HostAllocationFailed,
 }
 
@@ -70,6 +78,9 @@ pub struct EffectRangeReadSession<'a> {
     allocated_bytes: u64,
     readings: BTreeMap<SlotId, SlotReading>,
     footprint: Footprint,
+    law: Option<EffectFootprintLaw>,
+    authorized_reads: BTreeSet<(SlotId, TypeId)>,
+    validated_warps: BTreeSet<crate::WarpId>,
 }
 
 impl<'a> EffectRangeReadSession<'a> {
@@ -134,6 +145,9 @@ impl<'a> EffectRangeReadSession<'a> {
             allocated_bytes: 0,
             readings: BTreeMap::new(),
             footprint: Footprint::default(),
+            law: None,
+            authorized_reads: BTreeSet::new(),
+            validated_warps: BTreeSet::new(),
         }
     }
 
@@ -161,16 +175,51 @@ impl<'a> EffectRangeReadSession<'a> {
     fn read_with_meter(
         &mut self,
         range: OutgoingEdgeRange,
+        shared: Option<&mut Meter>,
+    ) -> Result<Option<Vec<EdgeRecord>>, EffectRangeReadError> {
+        self.read_range_inner(range, shared, None)
+    }
+
+    fn read_range_inner(
+        &mut self,
+        range: OutgoingEdgeRange,
         mut shared: Option<&mut Meter>,
+        absent_type: Option<TypeId>,
     ) -> Result<Option<Vec<EdgeRecord>>, EffectRangeReadError> {
         if !self.allowed_types.contains(&range.edge_type) {
             return Err(EffectRangeReadError::FootprintLawViolation);
         }
+        if absent_type.is_some() {
+            let law = self
+                .law
+                .as_ref()
+                .ok_or(EffectRangeReadError::FootprintLawViolation)?;
+            if !law.ranges.contains(&range.edge_type) {
+                return Err(EffectRangeReadError::FootprintLawViolation);
+            }
+            self.reachable(
+                range.source.warp_id,
+                shared
+                    .as_deref_mut()
+                    .ok_or(EffectRangeReadError::FootprintLawViolation)?,
+            )?;
+        }
         if !self.charge(1, 64, OBSERVATION_STORAGE_BYTES, shared.as_deref_mut()) {
             return Err(EffectRangeReadError::BudgetExceeded);
         }
-        let store = self.frontier.state().store(&range.source.warp_id);
+        let frontier = self.frontier;
+        let store = frontier.state().store(&range.source.warp_id);
         let node = store.and_then(|store| store.node(&range.source.local_id));
+        if let Some(absent_type) = absent_type {
+            self.authorize(
+                SlotId::Node(range.source),
+                node.map_or(absent_type, |node| node.ty),
+                typed_reads::ReadPermission::Node,
+                shared
+                    .as_deref_mut()
+                    .ok_or(EffectRangeReadError::FootprintLawViolation)?,
+            )?;
+        }
         self.readings
             .insert(SlotId::Node(range.source), SlotReading::Node(node.cloned()));
         self.footprint.n_read.insert(range.source);
@@ -186,8 +235,22 @@ impl<'a> EffectRangeReadSession<'a> {
             .checked_mul(2 * EDGE_RECORD_STORAGE_BYTES)
             .and_then(|rows| rows.checked_add(OBSERVATION_STORAGE_BYTES))
             .ok_or(EffectRangeReadError::BudgetExceeded)?;
-        if count > self.max_range_edges || !self.charge(count, bytes, storage, shared) {
+        let limit = self
+            .law
+            .as_ref()
+            .filter(|_| absent_type.is_some())
+            .map_or(self.max_range_edges, |law| {
+                self.max_range_edges.min(law.max_range_edges)
+            });
+        if count > limit || !self.charge(count, bytes, storage, shared.as_deref_mut()) {
             return Err(EffectRangeReadError::BudgetExceeded);
+        }
+        if absent_type.is_some() {
+            self.retain_authorization(
+                SlotId::OutgoingEdges(range),
+                TypeId([0; 32]),
+                shared.ok_or(EffectRangeReadError::FootprintLawViolation)?,
+            )?;
         }
         let (value, observed) = if let Some(bucket) = bucket {
             // Provision both worst-case row buffers before inspecting any edge.

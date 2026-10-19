@@ -19,6 +19,9 @@ pub enum EffectFrameSetupError {
     /// Already-observed resources cannot be imported without accounting for them.
     #[error("read session has already been used")]
     ReadSessionAlreadyUsed,
+    /// A typed law requires an unused runtime-bound frame.
+    #[error("typed law requires an unused runtime-bound frame")]
+    InvalidLawBinding,
     /// Read storage or the operation budget exceeds the fixed effect ceilings.
     #[error("frame resource declaration exceeds the fixed ceiling")]
     ResourceCeilingExceeded,
@@ -37,6 +40,12 @@ pub enum EffectFrameError {
     Read(EffectRangeReadError),
     /// A prior failure ended this frame; no further work or reads are allowed.
     Terminated,
+}
+
+impl From<EffectRangeReadError> for EffectFrameError {
+    fn from(error: EffectRangeReadError) -> Self {
+        Self::Read(error)
+    }
 }
 
 impl From<crate::edict_read::ReadError> for EffectFrameError {
@@ -119,6 +128,60 @@ impl<'a> EffectEvaluationFrame<'a> {
         Ok(frame)
     }
 
+    /// Binds host-selected typed read permissions before any evaluation work.
+    ///
+    /// This does not admit a package or bind the law into package identity.
+    /// # Errors
+    /// Refuses unbound, used, terminated or already law-bound frames.
+    pub fn with_footprint_law(
+        mut self,
+        law: super::EffectFootprintLaw,
+    ) -> Result<Self, EffectFrameSetupError> {
+        if self.evaluation_basis.is_none()
+            || self.terminated
+            || self.reads.law.is_some()
+            || self.consumed() != EchoOperationBudgetV1::new(0, 0, 0)
+            || self.allocated_bytes() != 0
+        {
+            return Err(EffectFrameSetupError::InvalidLawBinding);
+        }
+        self.reads.law = Some(law);
+        Ok(self)
+    }
+
+    /// Resolves a node using its actual type, or the named type for absence.
+    /// # Errors
+    /// Refuses a missing law, unreachable warp, denied type or exhausted limits.
+    /// Any refusal terminates the frame without delivering a node value.
+    pub fn read_typed_node(
+        &mut self,
+        node: crate::NodeKey,
+        absent_type: crate::TypeId,
+    ) -> Result<Option<crate::NodeRecord>, EffectFrameError> {
+        if self.terminated {
+            return Err(EffectFrameError::Terminated);
+        }
+        self.terminated = true;
+        if self.reads.law.is_none() {
+            return Err(EffectRangeReadError::FootprintLawViolation.into());
+        }
+        let result = self
+            .reads
+            .typed_node(node, absent_type, &mut self.meter)
+            .map_err(EffectFrameError::Read);
+        self.terminated = result.is_err();
+        result
+    }
+
+    /// Distinct authorized slot/type pairs, including separately named absence.
+    ///
+    /// This is host-private authorization evidence, not the canonical persisted
+    /// ReadRow image. Permission is rechecked even when a pair was seen before.
+    #[must_use]
+    pub const fn authorized_reads(&self) -> &std::collections::BTreeSet<(SlotId, crate::TypeId)> {
+        &self.reads.authorized_reads
+    }
+
     /// Runtime-selected parent, present only for a host-created bound frame.
     ///
     /// Low-level [`Self::new`] frames remain unbound. This coordinate does not
@@ -141,9 +204,39 @@ impl<'a> EffectEvaluationFrame<'a> {
             return Err(EffectFrameError::Terminated);
         }
         self.terminated = true;
+        if self.reads.law.is_some() {
+            return Err(EffectRangeReadError::FootprintLawViolation.into());
+        }
         let result = self
             .reads
             .read_with_meter(range, Some(&mut self.meter))
+            .map_err(EffectFrameError::Read);
+        self.terminated = result.is_err();
+        result
+    }
+
+    /// Reads a range under both host and typed-law source/edge permissions.
+    ///
+    /// The law's bucket bound intersects the host limit. Matching and
+    /// nonmatching edges consume the same precharged scan budget.
+    /// # Errors
+    /// Refuses missing law, unreachability, denied types or exhausted limits.
+    /// Every refusal terminates the frame before delivering a range value.
+    pub fn read_typed_range(
+        &mut self,
+        range: OutgoingEdgeRange,
+        absent_source_type: crate::TypeId,
+    ) -> Result<Option<Vec<EdgeRecord>>, EffectFrameError> {
+        if self.terminated {
+            return Err(EffectFrameError::Terminated);
+        }
+        self.terminated = true;
+        if self.reads.law.is_none() {
+            return Err(EffectRangeReadError::FootprintLawViolation.into());
+        }
+        let result = self
+            .reads
+            .read_range_inner(range, Some(&mut self.meter), Some(absent_source_type))
             .map_err(EffectFrameError::Read);
         self.terminated = result.is_err();
         result
@@ -197,6 +290,61 @@ impl<'a> EffectEvaluationFrame<'a> {
         pin: [u8; 32],
         input: &[u8],
         aperture: &[crate::NodeKey],
+        limits: crate::edict_read::ReadLimits,
+    ) -> Result<Vec<u8>, EffectFrameError> {
+        if self.reads.law.is_some() {
+            if self.terminated {
+                return Err(EffectFrameError::Terminated);
+            }
+            self.terminated = true;
+            return Err(EffectRangeReadError::FootprintLawViolation.into());
+        }
+        self.evaluate_read_aperture(
+            package,
+            pin,
+            input,
+            super::NodeAperture::Untyped(aperture),
+            limits,
+        )
+    }
+
+    /// Evaluates a pinned bounded-read package under typed host permissions.
+    ///
+    /// Present records authorize their actual types; named node types authorize
+    /// absence only. Portal chains are authorized before target resolution.
+    /// # Errors
+    /// Refuses missing law, invalid aperture, denied types/reachability, authored
+    /// obstructions and resource failures. Every refusal terminates the frame.
+    pub fn evaluate_typed_read(
+        &mut self,
+        package: &[u8],
+        pin: [u8; 32],
+        input: &[u8],
+        aperture: &[super::TypedNodeRead],
+        limits: crate::edict_read::ReadLimits,
+    ) -> Result<Vec<u8>, EffectFrameError> {
+        if self.reads.law.is_none() {
+            if self.terminated {
+                return Err(EffectFrameError::Terminated);
+            }
+            self.terminated = true;
+            return Err(EffectRangeReadError::FootprintLawViolation.into());
+        }
+        self.evaluate_read_aperture(
+            package,
+            pin,
+            input,
+            super::NodeAperture::Typed(aperture),
+            limits,
+        )
+    }
+
+    fn evaluate_read_aperture(
+        &mut self,
+        package: &[u8],
+        pin: [u8; 32],
+        input: &[u8],
+        aperture: super::NodeAperture<'_>,
         mut limits: crate::edict_read::ReadLimits,
     ) -> Result<Vec<u8>, EffectFrameError> {
         if self.terminated {

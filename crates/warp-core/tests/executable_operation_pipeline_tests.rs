@@ -152,6 +152,11 @@ fn fixture_host_with_attachment(
     }
     let state = WorldlineState::from_root_store(store, root_id)
         .expect("the fixture state has one lawful root");
+    let (host, head_key) = fixture_runtime_host(state);
+    (host, head_key, nodes)
+}
+
+fn fixture_runtime_host(state: WorldlineState) -> (TrustedRuntimeHost, WriterHeadKey) {
     let worldline_id = WorldlineId::from_bytes(digest("operation-fixture-worldline"));
     let head_key = WriterHeadKey {
         worldline_id,
@@ -185,7 +190,7 @@ fn fixture_host_with_attachment(
         .build();
     let host = TrustedRuntimeHost::new(runtime, engine)
         .expect("the trusted Echo runtime host initializes");
-    (host, head_key, nodes)
+    (host, head_key)
 }
 
 fn fixture_host_with_two_worldlines() -> (TrustedRuntimeHost, WriterHeadKey, WriterHeadKey, NodeKey)
@@ -5628,4 +5633,887 @@ fn recorded_effect_frame_refuses_invalid_apertures_before_reading() {
     );
     assert!(frame.readings().is_empty());
     assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+}
+
+// Typed-law witnesses use real runtime-owned frontiers and the retained compiler package.
+fn effect_law_value(
+    nodes: &[warp_core::TypeId],
+    atoms: &[warp_core::TypeId],
+    portals: &[warp_core::TypeId],
+    max_reads: u64,
+) -> CanonicalValueV1 {
+    use CanonicalValueV1 as V;
+    let mut fields = Vec::new();
+    for (name, ids) in [
+        ("read_node_types", nodes),
+        ("write_node_types", &[][..]),
+        ("atom_types", atoms),
+        ("range_edge_types", &[][..]),
+        ("write_edge_types", &[][..]),
+        ("portal_owner_types", portals),
+    ] {
+        let mut ids = ids.to_vec();
+        ids.sort_unstable();
+        fields.push((
+            V::Text(name.into()),
+            V::Array(ids.iter().map(|id| V::Bytes(id.0.to_vec())).collect()),
+        ));
+    }
+    for (name, count) in [
+        ("max_reads", max_reads),
+        ("max_writes", 0),
+        ("max_range_edges", 0),
+    ] {
+        fields.push((V::Text(name.into()), V::Integer(i128::from(count))));
+    }
+    V::Map(fields)
+}
+
+fn typed_effect_frame(
+    host: &TrustedRuntimeHost,
+    head: WriterHeadKey,
+    law: CanonicalValueV1,
+) -> warp_core::edict_effects::EffectEvaluationFrame<'_> {
+    let law = warp_core::edict_effects::EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&law).expect("law bytes"),
+    )
+    .expect("valid law");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    host.effect_evaluation_frame_v1(
+        basis,
+        &[],
+        65536,
+        EchoOperationBudgetV1::new(100000, 16777216, 0),
+        effect_frame_limits(),
+    )
+    .expect("bound frame")
+    .with_footprint_law(law)
+    .expect("unused law-bound frame")
+}
+
+#[test]
+fn typed_effect_node_reads_authorize_actual_types_and_keep_named_absence_distinct() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let (host, head, root) = fixture_host();
+    let actual = make_type_id("operation-fixture-node");
+    let a = make_type_id("absent-a");
+    let b = make_type_id("absent-b");
+    let c = make_type_id("absent-c");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[actual], &[], &[], 1));
+    assert_eq!(
+        frame.read_typed_node(root, a).expect("actual type wins"),
+        Some(NodeRecord { ty: actual })
+    );
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(root), actual)));
+    let mut denied = typed_effect_frame(&host, head, effect_law_value(&[a], &[], &[], 1));
+    assert_eq!(
+        denied.read_typed_node(root, a),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(denied.readings().is_empty());
+    assert_eq!(
+        denied.read_typed_node(root, actual),
+        Err(EffectFrameError::Terminated)
+    );
+
+    let mut zero = typed_effect_frame(&host, head, effect_law_value(&[actual], &[], &[], 0));
+    assert_eq!(
+        zero.read_typed_node(root, actual),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(zero.readings().is_empty());
+
+    let absent = NodeKey {
+        local_id: make_node_id("typed-missing"),
+        ..root
+    };
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[a, b, c], &[], &[], 2));
+    for ty in [a, a, b] {
+        assert_eq!(frame.read_typed_node(absent, ty), Ok(None));
+    }
+    assert_eq!(frame.authorized_reads().len(), 2);
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(absent), a)));
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(absent), b)));
+    assert_eq!(
+        frame.read_typed_node(absent, c),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert_eq!(frame.authorized_reads().len(), 2);
+}
+
+#[test]
+fn typed_effect_compiled_reads_check_actual_atom_type_and_reject_untyped_bypass() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, TypedNodeRead};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let atom_type = make_type_id("operation-fixture-atom");
+    let aperture = [TypedNodeRead {
+        node: root,
+        absent_node_type: make_type_id("irrelevant-when-present"),
+    }];
+    let (package, pin) = recorded_read_package();
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[node_type], &[atom_type], &[], 2),
+    );
+    assert_eq!(
+        frame
+            .evaluate_typed_read(
+                &package,
+                pin,
+                &recorded_read_input(root, b"before"),
+                &aperture,
+                recorded_read_limits()
+            )
+            .expect("compiled read"),
+        encode_canonical_cbor_v1(&CanonicalValueV1::Bytes(b"before".to_vec()))
+            .expect("typed-law fixture and independently encoded witness")
+    );
+    assert_eq!(frame.authorized_reads().len(), 2);
+    let mut denied = typed_effect_frame(&host, head, effect_law_value(&[node_type], &[], &[], 2));
+    assert_eq!(
+        denied.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(root, b"before"),
+            &aperture,
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert_eq!(
+        denied.readings().len(),
+        1,
+        "the unauthorized atom is never retained"
+    );
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[node_type], &[atom_type], &[], 2),
+    );
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(root, b"before"),
+            &[root],
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+}
+
+#[test]
+fn typed_effect_unreachable_warp_is_refused_before_target_resolution() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[node_type], &[], &[], 4));
+    assert_eq!(
+        frame.read_typed_node(
+            NodeKey {
+                warp_id: make_warp_id("unregistered"),
+                ..root
+            },
+            node_type
+        ),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::UnreachableWarp
+        ))
+    );
+    assert!(frame.readings().is_empty());
+}
+
+#[test]
+fn typed_effect_law_refuses_noncanonical_sets_shapes_and_oversized_counts() {
+    use warp_core::edict_effects::{EffectFootprintLaw, EffectLawError};
+    use CanonicalValueV1 as V;
+    let base = effect_law_value(&[], &[], &[], 0);
+    let V::Map(fields) = base else { unreachable!() };
+    for (name, invalid) in [
+        ("max_reads", V::Integer(4097)),
+        ("max_writes", V::Integer(257)),
+        ("max_range_edges", V::Integer(65537)),
+        ("max_reads", V::Integer(-1)),
+        (
+            "read_node_types",
+            V::Array(vec![V::Bytes(vec![2; 32]), V::Bytes(vec![1; 32])]),
+        ),
+        (
+            "atom_types",
+            V::Array(vec![V::Bytes(vec![1; 32]), V::Bytes(vec![1; 32])]),
+        ),
+        ("portal_owner_types", V::Array(vec![V::Bytes(vec![1; 31])])),
+    ] {
+        let mut bad = fields.clone();
+        bad.iter_mut()
+            .find(|(key, _)| *key == V::Text(name.into()))
+            .expect("typed-law fixture and independently encoded witness")
+            .1 = invalid;
+        assert_eq!(
+            EffectFootprintLaw::from_canonical_bytes(
+                &encode_canonical_cbor_v1(&V::Map(bad))
+                    .expect("typed-law fixture and independently encoded witness")
+            ),
+            Err(EffectLawError::InvalidLaw),
+            "{name}"
+        );
+    }
+    let mut missing = fields.clone();
+    missing.pop();
+    assert_eq!(
+        EffectFootprintLaw::from_canonical_bytes(
+            &encode_canonical_cbor_v1(&V::Map(missing))
+                .expect("typed-law fixture and independently encoded witness")
+        ),
+        Err(EffectLawError::InvalidLaw)
+    );
+    let mut extra = fields;
+    extra.push((V::Text("extra".into()), V::Integer(0)));
+    assert_eq!(
+        EffectFootprintLaw::from_canonical_bytes(
+            &encode_canonical_cbor_v1(&V::Map(extra))
+                .expect("typed-law fixture and independently encoded witness")
+        ),
+        Err(EffectLawError::InvalidLaw)
+    );
+    assert_eq!(
+        EffectFootprintLaw::from_canonical_bytes(&[0xbf, 0xff]),
+        Err(EffectLawError::InvalidLaw)
+    );
+}
+
+fn typed_portal_fixture(
+    beta: bool,
+    depth: usize,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, Vec<NodeKey>) {
+    use warp_core::{
+        AttachmentKey, EdgeRecord, PortalInit, TickCommitStatus, WarpOp, WarpTickPatchV1,
+    };
+    let (host, head, root) = fixture_host();
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("typed-law fixture and independently encoded witness")
+        .state()
+        .warp_state()
+        .clone();
+    let mut owner = root;
+    let mut owners = Vec::new();
+    for index in 0..depth {
+        owners.push(owner);
+        let child = NodeKey {
+            warp_id: make_warp_id(&format!("typed-child-{index}")),
+            local_id: make_node_id("child-root"),
+        };
+        let mut ops = Vec::new();
+        let portal = if beta {
+            let edge = warp_core::EdgeKey {
+                warp_id: owner.warp_id,
+                local_id: warp_core::make_edge_id("beta-portal-edge"),
+            };
+            state
+                .store_mut(&owner.warp_id)
+                .expect("typed-law fixture and independently encoded witness")
+                .insert_edge(
+                    owner.local_id,
+                    EdgeRecord {
+                        id: edge.local_id,
+                        from: owner.local_id,
+                        to: owner.local_id,
+                        ty: make_type_id("beta-edge"),
+                    },
+                );
+            AttachmentKey::edge_beta(edge)
+        } else {
+            AttachmentKey::node_alpha(owner)
+        };
+        ops.push(WarpOp::OpenPortal {
+            key: portal,
+            child_warp: child.warp_id,
+            child_root: child.local_id,
+            init: PortalInit::Empty {
+                root_record: NodeRecord {
+                    ty: make_type_id("operation-child-node"),
+                },
+            },
+        });
+        WarpTickPatchV1::new(0, [0; 32], TickCommitStatus::Committed, vec![], vec![], ops)
+            .apply_to_state(&mut state)
+            .expect("lawful portal");
+        state
+            .store_mut(&child.warp_id)
+            .expect("typed-law fixture and independently encoded witness")
+            .set_node_attachment(
+                child.local_id,
+                Some(AttachmentValue::Atom(AtomPayload::new(
+                    make_type_id("operation-fixture-atom"),
+                    Bytes::from_static(b"before"),
+                ))),
+            );
+        owner = child;
+    }
+    let (host, head) =
+        fixture_runtime_host(WorldlineState::new(state, root).expect("portal state"));
+    (host, head, owner, owners)
+}
+
+#[test]
+fn typed_effect_portal_chain_is_witnessed_root_first_and_reused_at_the_same_parent() {
+    use warp_core::edict_effects::TypedNodeRead;
+    use warp_core::{AttachmentKey, SlotId};
+    let (host, head, target, owners) = typed_portal_fixture(false, 2);
+    let child_type = make_type_id("operation-child-node");
+    let law = effect_law_value(
+        &[child_type],
+        &[make_type_id("operation-fixture-atom")],
+        &[make_type_id("operation-fixture-node"), child_type],
+        6,
+    );
+    let mut frame = typed_effect_frame(&host, head, law);
+    let (package, pin) = recorded_read_package();
+    assert_eq!(
+        frame
+            .evaluate_typed_read(
+                &package,
+                pin,
+                &recorded_read_input(target, b"before"),
+                &[TypedNodeRead {
+                    node: target,
+                    absent_node_type: child_type
+                }],
+                recorded_read_limits()
+            )
+            .expect("descended compiled read"),
+        encode_canonical_cbor_v1(&CanonicalValueV1::Bytes(b"before".to_vec()))
+            .expect("typed-law fixture and independently encoded witness")
+    );
+    for owner in owners {
+        assert!(frame.readings().contains_key(&SlotId::Node(owner)));
+        assert_eq!(
+            frame
+                .readings()
+                .get(&SlotId::Attachment(AttachmentKey::node_alpha(owner))),
+            Some(&warp_core::SlotReading::Attachment(Some(
+                AttachmentValue::Descend(if owner.warp_id == make_warp_id("operation-fixture") {
+                    make_warp_id("typed-child-0")
+                } else {
+                    target.warp_id
+                })
+            )))
+        );
+    }
+    assert_eq!(frame.authorized_reads().len(), 6);
+    let before = frame.consumed();
+    assert_eq!(
+        frame.read_typed_node(target, child_type),
+        Ok(Some(NodeRecord { ty: child_type }))
+    );
+    assert_eq!(
+        frame.consumed().steps() - before.steps(),
+        1,
+        "validated immutable portals are reused"
+    );
+    assert_eq!(frame.consumed().read_bytes() - before.read_bytes(), 64);
+}
+
+#[test]
+fn typed_effect_portal_permissions_precede_descended_data_and_beta_owner_reads() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let child_type = make_type_id("operation-child-node");
+    for beta in [false, true] {
+        let (host, head, target, _) = typed_portal_fixture(beta, 1);
+        let portal_types = if beta {
+            vec![make_type_id("operation-fixture-node")]
+        } else {
+            vec![]
+        };
+        let mut frame = typed_effect_frame(
+            &host,
+            head,
+            effect_law_value(&[child_type], &[], &portal_types, 4),
+        );
+        assert_eq!(
+            frame.read_typed_node(target, child_type),
+            Err(EffectFrameError::Read(
+                EffectRangeReadError::FootprintLawViolation
+            ))
+        );
+        assert!(
+            frame.readings().is_empty(),
+            "neither the unauthorized owner nor the target is retained"
+        );
+    }
+}
+
+fn typed_range_frame(
+    host: &TrustedRuntimeHost,
+    head: WriterHeadKey,
+    node_type: warp_core::TypeId,
+    edge_type: warp_core::TypeId,
+    max_edges: u64,
+) -> warp_core::edict_effects::EffectEvaluationFrame<'_> {
+    use CanonicalValueV1 as V;
+    let V::Map(mut fields) = effect_law_value(&[node_type], &[], &[], 2) else {
+        unreachable!()
+    };
+    for (name, value) in [
+        (
+            "range_edge_types",
+            V::Array(vec![V::Bytes(edge_type.0.to_vec())]),
+        ),
+        ("max_range_edges", V::Integer(i128::from(max_edges))),
+    ] {
+        fields
+            .iter_mut()
+            .find(|(key, _)| *key == V::Text(name.into()))
+            .expect("typed-law fixture and independently encoded witness")
+            .1 = value;
+    }
+    let law = warp_core::edict_effects::EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&V::Map(fields))
+            .expect("typed-law fixture and independently encoded witness"),
+    )
+    .expect("typed-law fixture and independently encoded witness");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("typed-law fixture and independently encoded witness");
+    host.effect_evaluation_frame_v1(
+        basis,
+        &[edge_type],
+        65536,
+        EchoOperationBudgetV1::new(100000, 16777216, 0),
+        effect_frame_limits(),
+    )
+    .expect("typed-law fixture and independently encoded witness")
+    .with_footprint_law(law)
+    .expect("typed-law fixture and independently encoded witness")
+}
+
+#[test]
+fn typed_effect_ranges_enforce_source_types_whole_bucket_limits_and_no_untyped_bypass() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    use warp_core::{OutgoingEdgeRange, SlotId, TypeId};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let edge_type = make_type_id("typed-range");
+    let range = OutgoingEdgeRange {
+        source: root,
+        edge_type,
+    };
+    let mut frame = typed_range_frame(&host, head, node_type, edge_type, 3);
+    assert_eq!(
+        frame.read_typed_range(range, make_type_id("unused-if-present")),
+        Ok(Some(vec![]))
+    );
+    assert!(frame
+        .authorized_reads()
+        .contains(&(SlotId::OutgoingEdges(range), TypeId([0; 32]))));
+    let mut denied = typed_range_frame(&host, head, make_type_id("wrong-owner-type"), edge_type, 3);
+    assert_eq!(
+        denied.read_typed_range(range, node_type),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(denied.readings().is_empty());
+    let mut denied = typed_range_frame(&host, head, node_type, edge_type, 3);
+    assert_eq!(
+        denied.read_range(range),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert_eq!(denied.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("typed-law fixture and independently encoded witness")
+        .state()
+        .warp_state()
+        .clone();
+    for (index, ty) in [
+        edge_type,
+        make_type_id("distractor"),
+        make_type_id("distractor"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        state
+            .store_mut(&root.warp_id)
+            .expect("typed-law fixture and independently encoded witness")
+            .insert_edge(
+                root.local_id,
+                warp_core::EdgeRecord {
+                    id: warp_core::make_edge_id(&format!("typed-range-{index}")),
+                    from: root.local_id,
+                    to: root.local_id,
+                    ty,
+                },
+            );
+    }
+    let (host, head) = fixture_runtime_host(
+        WorldlineState::new(state, root)
+            .expect("typed-law fixture and independently encoded witness"),
+    );
+    let mut frame = typed_range_frame(&host, head, node_type, edge_type, 1);
+    assert_eq!(
+        frame.read_typed_range(range, node_type),
+        Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+    );
+    assert_eq!(
+        frame.readings().len(),
+        1,
+        "the whole bucket refuses before any edge observation"
+    );
+    let mut frame = typed_range_frame(&host, head, node_type, edge_type, 3);
+    assert_eq!(
+        frame
+            .read_typed_range(range, node_type)
+            .expect("typed-law fixture and independently encoded witness")
+            .expect("typed-law fixture and independently encoded witness")
+            .len(),
+        1
+    );
+    assert_eq!(
+        frame.consumed(),
+        EchoOperationBudgetV1::new(4, 256, 0),
+        "nonmatching edges count"
+    );
+}
+
+#[test]
+fn typed_effect_atom_absence_uses_named_type_and_present_mismatch_uses_actual_type() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, TypedNodeRead};
+    use warp_core::edict_read::{ReadError, ReadObstruction};
+    use warp_core::{AttachmentKey, SlotId};
+    let node_type = make_type_id("operation-fixture-node");
+    let atom_type = make_type_id("operation-fixture-atom");
+    let (package, pin) = recorded_read_package();
+    for allow in [true, false] {
+        let (host, head, nodes) = fixture_host_with_attachment(1, None);
+        let node = nodes[0];
+        let atom_types = if allow { vec![atom_type] } else { vec![] };
+        let mut frame = typed_effect_frame(
+            &host,
+            head,
+            effect_law_value(&[node_type], &atom_types, &[], 2),
+        );
+        let error = frame.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b""),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: node_type,
+            }],
+            recorded_read_limits(),
+        );
+        if allow {
+            assert!(matches!(
+                error,
+                Err(EffectFrameError::BoundedRead(ReadError::Obstructed {
+                    cause: ReadObstruction::Missing,
+                    ..
+                }))
+            ));
+            assert!(frame.authorized_reads().contains(&(
+                SlotId::Attachment(AttachmentKey::node_alpha(node)),
+                atom_type
+            )));
+            assert_eq!(
+                frame
+                    .readings()
+                    .get(&SlotId::Attachment(AttachmentKey::node_alpha(node))),
+                Some(&warp_core::SlotReading::Attachment(None))
+            );
+        } else {
+            assert_eq!(
+                error,
+                Err(EffectFrameError::Read(
+                    EffectRangeReadError::FootprintLawViolation
+                ))
+            );
+            assert_eq!(frame.readings().len(), 1);
+        }
+    }
+    let (host, head, node) = fixture_host();
+    let mut input = decode_canonical_cbor_v1(&recorded_read_input(node, b"before"))
+        .expect("typed-law fixture and independently encoded witness");
+    let CanonicalValueV1::Map(fields) = &mut input else {
+        unreachable!()
+    };
+    let (_, CanonicalValueV1::Map(address)) = fields
+        .iter_mut()
+        .find(|(key, _)| *key == CanonicalValueV1::Text("address".into()))
+        .expect("typed-law fixture and independently encoded witness")
+    else {
+        unreachable!()
+    };
+    address
+        .iter_mut()
+        .find(|(key, _)| *key == CanonicalValueV1::Text("typeId".into()))
+        .expect("typed-law fixture and independently encoded witness")
+        .1 = CanonicalValueV1::Bytes(make_type_id("unadmitted-requested-type").0.to_vec());
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[node_type], &[atom_type], &[], 2),
+    );
+    assert!(matches!(
+        frame.evaluate_typed_read(
+            &package,
+            pin,
+            &encode_canonical_cbor_v1(&input)
+                .expect("typed-law fixture and independently encoded witness"),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: node_type
+            }],
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::BoundedRead(ReadError::Obstructed {
+            cause: ReadObstruction::TypeMismatch,
+            ..
+        }))
+    ));
+    assert!(frame.authorized_reads().contains(&(
+        SlotId::Attachment(AttachmentKey::node_alpha(node)),
+        atom_type
+    )));
+}
+
+#[test]
+fn typed_effect_portal_authorization_does_not_grant_ordinary_node_read_permission() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let (host, head, target, owners) = typed_portal_fixture(false, 1);
+    let parent_type = make_type_id("operation-fixture-node");
+    let child_type = make_type_id("operation-child-node");
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[child_type], &[], &[parent_type], 3),
+    );
+    assert_eq!(
+        frame.read_typed_node(target, child_type),
+        Ok(Some(NodeRecord { ty: child_type }))
+    );
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(owners[0]), parent_type)));
+    assert_eq!(
+        frame.read_typed_node(owners[0], parent_type),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        )),
+        "deduplication must not bypass the permission role"
+    );
+}
+
+#[test]
+fn typed_effect_portal_resolutions_keep_atomic_budget_and_storage_prefixes() {
+    use warp_core::edict_effects::{EffectFootprintLaw, EffectFrameError, EffectRangeReadError};
+    let (host, head, target, owners) = typed_portal_fixture(false, 1);
+    let parent_type = make_type_id("operation-fixture-node");
+    let child_type = make_type_id("operation-child-node");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("typed-law fixture and independently encoded witness");
+    for (steps, bytes, storage, want_steps, want_bytes, want_storage) in [
+        (1, 1024, 16777216, 1, 64, 256),
+        (10, 128, 16777216, 2, 128, 448),
+        (10, 1024, 512, 2, 128, 448),
+    ] {
+        let law = EffectFootprintLaw::from_canonical_bytes(
+            &encode_canonical_cbor_v1(&effect_law_value(&[child_type], &[], &[parent_type], 4))
+                .expect("typed-law fixture and independently encoded witness"),
+        )
+        .expect("typed-law fixture and independently encoded witness");
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(steps, bytes, 0),
+                warp_core::edict_pure::EvaluationLimits {
+                    max_allocated_bytes: storage,
+                    ..effect_frame_limits()
+                },
+            )
+            .expect("typed-law fixture and independently encoded witness")
+            .with_footprint_law(law)
+            .expect("typed-law fixture and independently encoded witness");
+        assert_eq!(
+            frame.read_typed_node(target, child_type),
+            Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+        );
+        assert_eq!(
+            frame.consumed(),
+            EchoOperationBudgetV1::new(want_steps, want_bytes, 0)
+        );
+        assert_eq!(frame.allocated_bytes(), want_storage);
+        assert!(!frame
+            .readings()
+            .contains_key(&warp_core::SlotId::Node(target)));
+        if want_steps == 2 {
+            assert!(frame
+                .readings()
+                .contains_key(&warp_core::SlotId::Node(owners[0])));
+        }
+        assert_eq!(
+            frame.read_typed_node(target, child_type),
+            Err(EffectFrameError::Terminated)
+        );
+    }
+}
+
+#[test]
+fn typed_effect_law_cannot_be_installed_after_work_or_on_an_unbound_frame() {
+    use warp_core::edict_effects::{EffectFootprintLaw, EffectFrameSetupError};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let bytes = encode_canonical_cbor_v1(&effect_law_value(&[node_type], &[], &[], 1))
+        .expect("typed-law fixture and independently encoded witness");
+    let law = || {
+        EffectFootprintLaw::from_canonical_bytes(&bytes)
+            .expect("typed-law fixture and independently encoded witness")
+    };
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[node_type], &[], &[], 1));
+    frame
+        .read_typed_node(root, node_type)
+        .expect("typed-law fixture and independently encoded witness");
+    assert!(matches!(
+        frame.with_footprint_law(law()),
+        Err(EffectFrameSetupError::InvalidLawBinding)
+    ));
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("typed-law fixture and independently encoded witness");
+    let reads = warp_core::edict_effects::EffectRangeReadSession::new(
+        frontier,
+        &[],
+        0,
+        EchoOperationBudgetV1::new(100, 1000, 0),
+    );
+    let frame = warp_core::edict_effects::EffectEvaluationFrame::new(reads, effect_frame_limits())
+        .expect("typed-law fixture and independently encoded witness");
+    assert!(matches!(
+        frame.with_footprint_law(law()),
+        Err(EffectFrameSetupError::InvalidLawBinding)
+    ));
+}
+
+#[test]
+fn typed_effect_direct_portal_atom_probe_requires_portal_owner_permission() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, TypedNodeRead};
+    use warp_core::edict_read::{ReadError, ReadObstruction};
+    let (host, head, _, owners) = typed_portal_fixture(false, 1);
+    let owner = owners[0];
+    let ty = make_type_id("operation-fixture-node");
+    let (package, pin) = recorded_read_package();
+    for allow in [true, false] {
+        let (nodes, portals) = if allow {
+            (vec![], vec![ty])
+        } else {
+            (vec![ty], vec![])
+        };
+        let mut frame = typed_effect_frame(&host, head, effect_law_value(&nodes, &[], &portals, 2));
+        let result = frame.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(owner, b""),
+            &[TypedNodeRead {
+                node: owner,
+                absent_node_type: ty,
+            }],
+            recorded_read_limits(),
+        );
+        if allow {
+            assert!(matches!(
+                result,
+                Err(EffectFrameError::BoundedRead(ReadError::Obstructed {
+                    cause: ReadObstruction::AtomRequired,
+                    ..
+                }))
+            ));
+            assert_eq!(frame.authorized_reads().len(), 2);
+            assert!(frame.authorized_reads().contains(&(
+                warp_core::SlotId::Attachment(warp_core::AttachmentKey::node_alpha(owner)),
+                ty
+            )));
+        } else {
+            assert_eq!(
+                result,
+                Err(EffectFrameError::Read(
+                    EffectRangeReadError::FootprintLawViolation
+                ))
+            );
+            assert!(frame.readings().is_empty());
+        }
+    }
+}
+
+#[test]
+fn typed_effect_compiled_apertures_refuse_duplicate_and_unordered_declarations_before_work() {
+    use warp_core::edict_effects::{EffectFrameError, TypedNodeRead};
+    let (host, head, root) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let node = TypedNodeRead {
+        node: root,
+        absent_node_type: ty,
+    };
+    let other = TypedNodeRead {
+        node: NodeKey {
+            local_id: make_node_id("another-declaration"),
+            ..root
+        },
+        absent_node_type: ty,
+    };
+    let mut descending = vec![node, other];
+    descending.sort_by_key(|declaration| std::cmp::Reverse(declaration.node));
+    let (package, pin) = recorded_read_package();
+    for aperture in [vec![node, node], descending, vec![node; 65537]] {
+        let mut frame = typed_effect_frame(&host, head, effect_law_value(&[ty], &[], &[], 4));
+        assert_eq!(
+            frame.evaluate_typed_read(
+                &package,
+                pin,
+                &recorded_read_input(root, b"before"),
+                &aperture,
+                recorded_read_limits()
+            ),
+            Err(EffectFrameError::BoundedRead(
+                warp_core::edict_read::ReadError::InvalidAperture
+            ))
+        );
+        assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+        assert!(frame.readings().is_empty());
+    }
 }

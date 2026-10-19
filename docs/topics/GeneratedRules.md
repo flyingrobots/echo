@@ -410,9 +410,9 @@ or grant invocation authority. A frame constructed by this host method exposes
 its full `evaluation_basis`; low-level `EffectEvaluationFrame::new` frames expose
 `None` and cannot mint a runtime-bound coordinate from caller-supplied storage.
 This is private host composition, not an installed or admitted effect profile.
-The state-root/by-key caveat of the low-level reading coordinate, complete
-node/atom/portal authorization and recovery obligations remain as described
-above and below.
+The state-root/by-key caveat of the low-level reading coordinate and the
+package-admission and recovery obligations remain as described above and below.
+The optional typed mode below constrains runtime-bound reads separately.
 
 A runtime-bound frame can also run an unchanged
 `compiler-produced-bounded-read/v1` package through `evaluate_read`. It uses the
@@ -440,18 +440,71 @@ by earlier reads and computations. Every refusal or host fault terminates the
 frame. Failed observation reservations add no read/storage charge, and host
 allocation failure while provisioning precharged atom bytes remains a host
 fault rather than an authored obstruction. Standalone bounded-read accounting
-and outputs are unchanged. This path still uses a trusted-host node aperture;
-it does not implement the complete typed node/atom/portal footprint law or
-interpret outgoing-range instructions. It grants no application mutation or
-admission authority.
+and outputs are unchanged. This legacy entry point uses an untyped trusted-host
+node aperture. It is refused before work or observation after a typed law is
+bound to the frame. It grants no application mutation or admission authority.
+
+An unused runtime-bound frame can bind an `EffectFootprintLaw` through
+`with_footprint_law`. The decoder requires canonical CBOR with exactly the nine
+footprint-law fields: six type-id sets and `max_reads`, `max_writes`, and
+`max_range_edges`. Set arrays contain distinct, strictly ascending 32-byte IDs;
+unsorted or repeated entries are refused rather than normalized. Zero counts
+are allowed. Read, write and whole-bucket ceilings are 4096, 256 and 65536.
+Decoding is bounded to 16 MiB and occurs during trusted-host preparation. The
+write permissions are validated as data but grant no write API. Binding refuses
+an unbound frame, previous work, a prior failure, or replacement of an existing
+law. These are host-selected permissions, not an authenticated package policy
+or admission token.
+
+Typed mode provides `read_typed_node`, `read_typed_range`, and
+`evaluate_typed_read`. Present nodes and atoms are authorized by their actual
+stored types. `TypedNodeRead::absent_node_type` authorizes node absence only;
+absent atoms use the requested atom type. A present, authorized atom with a
+different requested type still yields the existing authored type-mismatch
+obstruction. Node and atom permissions are checked before retaining or
+returning their values. Raw slot readings retain authorized resolved values;
+`authorized_reads` additionally retains distinct slot/type pairs, so absence
+under two named types does not collapse into one authorization. `max_reads`
+bounds those pairs after deduplication. Permission roles are checked on every
+resolution even when a pair already exists: a portal-owner permission does not
+permit an ordinary node read. Range pairs carry a zero read type, since their
+edge type is already in the range key. Range edge types must pass both the
+host's policy and the law before any state access. Source nodes use their
+actual or absent type, and the law's bucket ceiling intersects the host limit.
+Legacy untyped range and compiled-read entry points cannot bypass a bound law.
+
+Before a typed read resolves a descended-warp target, it follows bounded
+instance metadata back to the root or a previously validated ancestor. It then
+resolves and authorizes alpha portals root-first. Each portal contributes its
+actual owner-node and descent-attachment observations, both authorized by
+`portal_owner_types`. Edge-owned or non-alpha portals are refused before an
+owner record is read. Unknown, cyclic or disconnected chains report
+`UnreachableWarp`; no target value is resolved. A validated chain is reusable
+within the frame's immutable parent. This cache never grants a different
+permission role. The low-level untyped session retains its existing by-key
+behavior.
+
+Typed resolutions keep the existing atomic observation and payload charges.
+Each new authorization pair reserves 64 additional logical storage bytes. Each
+uncached reverse-metadata hop costs one step, 64 read bytes and 256 logical
+storage bytes before extending its bounded chain/cycle indexes; actual portal
+owner and attachment resolutions separately cost one step, 64 read bytes and
+128 observation bytes each. These are private-frame charges, not a shipped
+operation-profile recipe or a physical allocator limit. Failed charges change
+neither meter. Any law, reachability, resource or authored failure ends the
+frame. Accepted authorization pairs can precede a later payload-budget failure;
+they are host-private authorization evidence, not the persisted canonical
+`ReadRow` image. The executable-operation pipeline tests exercise real bound
+frontiers, compiled reads, nested alpha portals, beta refusal, distinct named
+absence, role separation, whole-bucket limits and atomic failure prefixes.
 
 This is trusted-host composition of pinned pure packages and recorded reads.
 It provides no mutation or admission path and is not a compiler-authored
 effect-program format. Package/input decoding remains bounded host preparation.
 Logical value-storage reservations bound the row buffers and observation count;
 policy preparation, indexes and allocator overhead remain host storage. The
-physical interpreter arena, complete node/atom footprint law, portal-chain
-authority, authored outgoing-range/effect instructions, derived effects and
+physical interpreter arena, package-authenticated footprint law, persisted typed
+read images, authored outgoing-range/effect instructions, derived effects and
 installed-profile validation remain required before a new authored-effect profile can ship.
 Existing package profiles and graph accessors are unchanged.
 

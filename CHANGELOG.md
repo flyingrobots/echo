@@ -5,6 +5,20 @@
 
 ## Unreleased
 
+### Fixed
+
+- The native pure interpreter evaluates bounded UTF-8 byte predicates with
+  complete aperture charging and typed Boolean values. Native provider judgments
+  independently validate matching helper/read guards and their bounded scan work.
+
+- Pure evaluation executes compiler-produced negated input guards, including
+  authored no-op refusal after checked byte-range predicates, with bounded
+  decoding, combined traversal and deterministic step accounting.
+
+- Pure evaluation accepts compiler-produced conjunctive input guards instead of
+  rejecting their `all` predicate shape as an invalid artifact. Conjunctions
+  retain deterministic short-circuit metering and combined traversal limits.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used

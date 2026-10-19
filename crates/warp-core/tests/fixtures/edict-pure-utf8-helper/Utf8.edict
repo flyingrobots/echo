@@ -1,0 +1,12 @@
+package jedit.text.replace_range@1;
+use lawpack jedit.text@1 digest "sha256:f385072314ea57af5b66cad9eb4119b51e456df2050ea0c9a6302c7693212dc1" as text;
+fn checkedUtf8(bytes: Bytes<max=1048576>) -> Bool {
+  return if isUtf8(bytes) && !(false == true) then true else false;
+}
+type Input = { bytes: Bytes<max=1048576>, };
+type Output = { valid: Bool, };
+intent replaceRange(input: Input) returns Output
+ profile text.replaceRange basis none budget <= text.replaceRangeBudget {
+ let valid = checkedUtf8(input.bytes);
+ return { valid };
+}

@@ -80,6 +80,11 @@ harness = false
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[bench]]
+name = "scene_fixtures"
+harness = false
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[bench]]
 name = "wal_record_cost"
 harness = false
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
@@ -195,6 +200,10 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[test]]
 name = "trusted_runtime_host_loop_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "scene_fixture_tests"
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[test]]

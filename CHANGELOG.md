@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- F5 benchmark validation rejects observations from a different executed
+  workload, including runs without a pinned script golden.
+
 - Stale-basis Action corroboration (#837) reads every slot a retained tick
   wrote, not only its declared `out_slots`. Runtime-ingress materialization
   writes the event node, its intent attachment and its kind edge outside any

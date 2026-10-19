@@ -53,7 +53,7 @@ const PINNED_CARGO_COMMIT: &str = "840b83a10fb0e039a83f4d70ad032892c287570a";
 
 /// Reviewed identity that the portable promotion command is permitted to install.
 pub(crate) const APPROVED_CHECKED_COMPONENT_SHA256: &str =
-    "5f16b46c0f2e346541c518f978e0f48a374b8e17719e049063f2af18a6a18193";
+    "04d5162202ca2ce9b4496c3eff5b7b249d31b33d72e97a23f2e2a86f8d4ed93e";
 pub(crate) const CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
 

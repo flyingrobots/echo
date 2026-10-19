@@ -1,15 +1,15 @@
 {
   "edict": "561981d9652f447cafbf602a884acee4efb23e51",
   "edictMergedMain": "1d287ef519bab56fcdf6cd5435d5bdaaa01428c5",
-  "echoComponentSource": "ac89f3c466de2a76faf9e880056726d75dd09daa",
-  "echoPublicationSnapshot": "362ebc1dc0422797186bff1b5b25caedb376b542",
+  "echoComponentSource": "80991bcfe8c7348b8d376627e6b5eb7cdb38e1a9",
+  "echoPublicationSnapshot": "f7a395527144dba87a5f07b6bdf53a40a49af7a4",
   "providerPublication": "source-functions-v1",
   "providerPackage": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:d686431917990b951c5836dc0efd81d618bf3daa385f72c91fe4cab6c41b65fa"
+    "digest": "sha256:9de5d063fec20abee3f3a37f6259c19bf8fed57abba0eca8f65137182c34a21b"
   },
   "componentSha256": {
-    "lowerer": "5f16b46c0f2e346541c518f978e0f48a374b8e17719e049063f2af18a6a18193",
+    "lowerer": "04d5162202ca2ce9b4496c3eff5b7b249d31b33d72e97a23f2e2a86f8d4ed93e",
     "verifier": "3451e95a7d084d4874c30833f90f5c21012e8341f35ed0f0888d4d268a768b11"
   },
   "packagePin": "a8774d9e8ba5dbe1e4eaffee4ec8f10f7b80ee9812b5569e8c2d290e57de9443",

@@ -210,6 +210,15 @@ What is implemented today is a conservative subset:
   Tick fields, and recovery recomputes the rule from retained history. A failed
   dependency is reported as `BasisChanged`.
 
+The interval write set includes both each retained replay patch's declared
+`out_slots` and every record slot written by its operations. This includes
+runtime-ingress materialization, whose writes occur outside rule footprints.
+Node and edge deletion include their removed attachment slots; portal creation
+includes its portal attachment and child root. A missing replay patch or a
+warp-instance upsert or deletion makes the interval write set unknown, so the
+scoped exception is unavailable and the whole-frontier rule applies. This
+corroboration change does not change patch encodings, digests, or roots.
+
 Every other Action follows the whole-frontier rule below.
 
 Today an Action carries its whole `EchoOperationEvaluationBasisV1`: writer head

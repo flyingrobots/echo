@@ -721,9 +721,33 @@ nonempty-text rule. Effect package steps must be positive and byte budgets may
 be zero. Preparation is outside evaluation metering and does not provision the
 physical evaluation arena.
 
-This is byte binding and contract preparation. Compiler bytes and upstream
-identities do not infer verifier approval or validate the compiled instruction
-language. Static preparation does not grant invocation or mutation authority.
+The `compiled_program` payload uses one current
+`echo.compiler-produced-effect-program/v1` artifact bundle with exactly
+`schema`, `intent`, `core_artifact`, `target_ir_artifact`, and
+`lawpack_exports_artifact`. The three artifacts are exact canonical CBOR bytes;
+opaque bytes, an unbundled Core module, extra fields, and noncanonical nested
+encodings refuse. There is no alternate historical decoder.
+
+Preparation recomputes the Edict canonical SHA-256 identities for Core, Target
+IR and exports and checks them against the package closure and program. The
+Target IR must name the same Core coordinate and SHA-256 Core identity. Only
+the current ordered Target IR schema is accepted. The selected bundle intent
+must name the package operation; its Core output type must equal the program's
+output type. The Core and Target IR must agree on operation profile, input
+constraints, evaluation budget, optional basis and result. Instruction IDs are
+nonempty and unique across step, requirement and pure-binding collections;
+execution order must contain each ID exactly once. Artifact roots and selected
+Core intent/body fields have exact shapes.
+
+These checks establish artifact binding and structural order, not full Core or
+Target IR instruction semantics. In particular they do not authenticate the
+source closure, validate the lowering relation, establish verifier approval,
+interpret instructions, or prove that an application graph schema corresponds
+to compiler exports. Instruction typing, effect lowering, resource execution
+and the physical arena remain required. Static preparation grants no invocation
+or mutation authority. The retained compiler-artifact test uses captured public
+JSONL compiler artifacts; it does not claim a successful effect application
+build or an accepted effect verifier report.
 
 ### Current invocation input, basis and owner grant admission
 

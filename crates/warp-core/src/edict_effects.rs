@@ -9,6 +9,7 @@
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
 //! logical meters. Compiled effect instructions, a physical evaluation arena,
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
+mod compiled_program;
 mod package;
 pub use package::{EffectPackageError, EffectProgram};
 mod frame;

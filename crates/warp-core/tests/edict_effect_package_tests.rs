@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! V2 byte binding and executable-law validation, before installation.
+//! Current compiler-artifact binding and executable-law preparation.
 #![cfg(feature = "trusted_runtime")]
 #![allow(clippy::expect_used, clippy::panic)]
 use echo_edict_canonical::CanonicalValueV1 as V;
@@ -42,7 +42,7 @@ fn current_package_binds_program_and_executes_its_schema_relations() {
             .as_effect_program()
             .expect("effect program")
             .compiled_program(),
-        [0xa0]
+        encoded(&compiler_program())
     );
 }
 #[test]
@@ -215,8 +215,41 @@ fn declaration_boundaries_accept_zero_io_and_allocation_and_preserve_current_coo
         set(&mut p, key, V::Integer(0));
     }
     set(&mut p, "output_type", text(&"é".repeat(512)));
+    let mut core = compiled_core();
+    set(&mut core, "coordinate", text(&"x".repeat(1016)));
+    let V::Map(ref mut fields) = core else {
+        panic!("core map")
+    };
+    let intents = &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &text("intents"))
+        .expect("intents")
+        .1;
+    let V::Map(intents) = intents else {
+        panic!("intents map")
+    };
+    set(&mut intents[0].1, "output", text(&"é".repeat(512)));
+    set(
+        &mut p,
+        "compiled_program",
+        V::Bytes(encoded(&compiled_bundle(
+            &core,
+            &compiled_target(&core),
+            &compiled_exports(),
+            "update@1",
+        ))),
+    );
+    set(
+        &mut p,
+        "target_ir_identity",
+        artifact_identity("edict.target-ir.artifact/v1", &compiled_target(&core)),
+    );
     let mut v = package(&p);
-    set(&mut v, "operation_coordinate", text(&"x".repeat(1025)));
+    set(
+        &mut v,
+        "operation_coordinate",
+        text(&format!("{}.update@1", "x".repeat(1016))),
+    );
     let prepared = prepare(&v).expect("zero byte limits and current package coordinate shape");
     assert_eq!(
         prepared
@@ -288,3 +321,278 @@ fn a_new_pin_can_bind_changed_laws_but_cannot_reuse_the_old_contract_identity() 
 }
 #[path = "edict_effect_package_tests/invocation.rs"]
 mod invocation;
+
+#[test]
+fn repinning_cannot_turn_opaque_or_noncanonical_compiler_bytes_into_an_effect_program() {
+    // Removing compiled-Core validation admits these malformed programs even
+    // after the surrounding publication has a newly matching package pin.
+    for compiled in [
+        vec![],
+        vec![0xa0],
+        vec![0xa1],
+        vec![0xf6],
+        vec![0x18, 0],
+        vec![0, 0],
+    ] {
+        let mut p = program();
+        set(&mut p, "compiled_program", V::Bytes(compiled));
+        assert!(
+            prepare(&package(&p)).is_err(),
+            "opaque compiler bytes must refuse even with a new publication pin"
+        );
+    }
+}
+
+#[test]
+fn compiler_core_identity_operation_and_output_cannot_be_rebound_by_a_new_package_pin() {
+    let p = program();
+    for (key, value) in [
+        ("operation_coordinate", text("app.other@1")),
+        ("operation_coordinate", text("application.update@1")),
+    ] {
+        let mut value_package = package(&p);
+        set(&mut value_package, key, value);
+        refused(&value_package);
+    }
+    let mut p = program();
+    set(&mut p, "output_type", text("app.Other"));
+    refused(&package(&p));
+    let mut v = package(&program());
+    let V::Map(ref mut fields) = v else {
+        panic!("package")
+    };
+    let closure = &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &text("semantic_closure"))
+        .expect("closure")
+        .1;
+    set(closure, "core_identity", id(33));
+    refused(&v);
+}
+
+#[test]
+fn retained_public_compiler_core_binds_without_a_bridge_specific_instruction_language() {
+    // These artifacts were captured during a public Edict JSONL build attempt,
+    // rather than manufactured by the bridge fixture builder. This witnesses
+    // canonical artifact binding, not a successful build, execution or verifier approval.
+    let bytes = hex::decode(
+        include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/core.hex")
+            .trim(),
+    )
+    .expect("retained compiler artifact");
+    let core = echo_edict_canonical::decode_canonical_cbor_v1(&bytes).expect("Core");
+    let V::Map(fields) = &core else {
+        panic!("Core map")
+    };
+    let get = |key| {
+        &fields
+            .iter()
+            .find(|(name, _)| name == &text(key))
+            .expect("Core field")
+            .1
+    };
+    let V::Text(coordinate) = get("coordinate") else {
+        panic!("coordinate")
+    };
+    let V::Map(intents) = get("intents") else {
+        panic!("intents")
+    };
+    let [(V::Text(name), V::Map(intent))] = intents.as_slice() else {
+        panic!("one intent")
+    };
+    let output = intent
+        .iter()
+        .find(|(key, _)| key == &text("output"))
+        .expect("output")
+        .1
+        .clone();
+    let mut p = program();
+    let target = echo_edict_canonical::decode_canonical_cbor_v1(
+        &hex::decode(
+            include_str!(
+                "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/06-target-ir.hex"
+            )
+            .trim(),
+        )
+        .expect("target bytes"),
+    )
+    .expect("Target IR");
+    let exports=echo_edict_canonical::decode_canonical_cbor_v1(&hex::decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex").trim()).expect("exports bytes")).expect("exports");
+    let bundle_bytes = encoded(&compiled_bundle(&core, &target, &exports, name));
+    set(&mut p, "compiled_program", V::Bytes(bundle_bytes.clone()));
+    set(
+        &mut p,
+        "target_ir_identity",
+        artifact_identity("edict.target-ir.artifact/v1", &target),
+    );
+    set(&mut p, "output_type", output);
+    let mut v = package(&p);
+    set(
+        &mut v,
+        "operation_coordinate",
+        text(&format!("{coordinate}.{name}")),
+    );
+    let prepared = prepare(&v).expect("real compiler Core bound to its operation and type");
+    assert_eq!(
+        prepared
+            .program()
+            .as_effect_program()
+            .expect("effect")
+            .compiled_program(),
+        bundle_bytes
+    );
+}
+
+fn bound_compiler_package(core: &V, target: &V, exports: &V, intent: &str) -> V {
+    let mut p = program();
+    set(
+        &mut p,
+        "compiled_program",
+        V::Bytes(encoded(&compiled_bundle(core, target, exports, intent))),
+    );
+    set(
+        &mut p,
+        "target_ir_identity",
+        artifact_identity("edict.target-ir.artifact/v1", target),
+    );
+    package(&p)
+}
+fn selected_target_mut(target: &mut V) -> &mut V {
+    let V::Map(fields) = target else {
+        panic!("target")
+    };
+    let V::Map(intents) = &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &text("intents"))
+        .expect("intents")
+        .1
+    else {
+        panic!("intent map")
+    };
+    &mut intents[0].1
+}
+#[test]
+fn repinned_target_still_requires_exact_core_result_budget_profile_constraints_and_order() {
+    let core = compiled_core();
+    let exports = compiled_exports();
+    for (key, value) in [
+        (
+            "result",
+            map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([
+                        ("kind", text("int")),
+                        ("width", text("U32")),
+                        ("value", V::Integer(43)),
+                    ]),
+                ),
+            ]),
+        ),
+        (
+            "coreEvaluationBudget",
+            map([
+                ("maxSteps", V::Integer(2)),
+                ("maxAllocatedBytes", V::Integer(16 * 1024 * 1024)),
+                ("maxOutputBytes", V::Integer(65536)),
+            ]),
+        ),
+        ("operationProfile", text("different.profile/v1")),
+        ("inputConstraints", V::Array(vec![map([])])),
+        ("executionOrder", V::Array(vec![text("unknown")])),
+    ] {
+        let mut target = compiled_target(&core);
+        set(selected_target_mut(&mut target), key, value);
+        refused(&bound_compiler_package(
+            &core, &target, &exports, "update@1",
+        ));
+    }
+    for (steps, order) in [
+        (vec![map([("id", text("s"))])], vec![]),
+        (vec![map([("id", text("s"))])], vec![text("s"), text("s")]),
+        (
+            vec![map([("id", text("s"))]), map([("id", text("s"))])],
+            vec![text("s")],
+        ),
+        (vec![map([("id", text(""))])], vec![text("")]),
+    ] {
+        let mut target = compiled_target(&core);
+        let selected = selected_target_mut(&mut target);
+        set(selected, "steps", V::Array(steps));
+        set(selected, "executionOrder", V::Array(order));
+        refused(&bound_compiler_package(
+            &core, &target, &exports, "update@1",
+        ));
+    }
+    let mut target = compiled_target(&core);
+    set(&mut target, "sourceCoreCoordinate", text("other"));
+    refused(&bound_compiler_package(
+        &core, &target, &exports, "update@1",
+    ));
+    let mut target = compiled_target(&core);
+    set(
+        &mut target,
+        "semanticClosure",
+        map([
+            (
+                "sourceCore",
+                map([
+                    ("id", text("app")),
+                    ("digest", V::Array(vec![text("sha256"), id(7)])),
+                ]),
+            ),
+            ("lawpacks", V::Array(vec![])),
+        ]),
+    );
+    refused(&bound_compiler_package(
+        &core, &target, &exports, "update@1",
+    ));
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &exports,
+        "other",
+    ));
+}
+
+#[test]
+fn compiled_artifact_claims_and_nested_canonical_bytes_cannot_be_substituted() {
+    for key in [
+        "core_identity",
+        "target_ir_identity",
+        "application_schema_identity",
+    ] {
+        let mut v = package(&program());
+        let V::Map(fields) = &mut v else {
+            panic!("package")
+        };
+        let closure = &mut fields
+            .iter_mut()
+            .find(|(key, _)| key == &text("semantic_closure"))
+            .expect("closure")
+            .1;
+        set(closure, key, id(7));
+        refused(&v);
+    }
+    for key in [
+        "core_artifact",
+        "target_ir_artifact",
+        "lawpack_exports_artifact",
+    ] {
+        let mut bundle = compiler_program();
+        let V::Bytes(mut bytes) = get(&bundle, key).clone() else {
+            panic!("artifact")
+        };
+        bytes.push(0);
+        set(&mut bundle, key, V::Bytes(bytes));
+        let mut p = program();
+        set(&mut p, "compiled_program", V::Bytes(encoded(&bundle)));
+        refused(&package(&p));
+    }
+    let mut bundle = compiler_program();
+    add(&mut bundle, "extra", V::Null);
+    let mut p = program();
+    set(&mut p, "compiled_program", V::Bytes(encoded(&bundle)));
+    refused(&package(&p));
+}

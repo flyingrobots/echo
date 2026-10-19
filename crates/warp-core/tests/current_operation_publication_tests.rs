@@ -26,7 +26,6 @@ fn current_package_codec_prepares_effects_without_a_parallel_package_definition(
         .program()
         .as_effect_program()
         .expect("effect program kind");
-    assert_eq!(effect.compiled_program(), [0xa0]);
     assert!(effect
         .graph_schema()
         .allows_atom(TypeId([1; 32]), TypeId([2; 32])));

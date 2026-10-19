@@ -2336,6 +2336,18 @@ impl ExecutableOperationPackage {
         }
         #[cfg(feature = "trusted_runtime")]
         if let Some(effect) = self.program.as_effect_program() {
+            effect
+                .validate_compiled_binding(
+                    &self.operation_coordinate,
+                    self.semantic_closure.core_identity,
+                    self.semantic_closure.application_schema_identity,
+                )
+                .map_err(|_| {
+                    invalid_structure(
+                        "compiled Core, selected operation and semantic closure disagree",
+                    )
+                })?;
+
             if self.semantic_closure.target_ir_identity != effect.target_ir_identity()
                 || self.application_result_projection.is_some()
             {

@@ -157,7 +157,7 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
         .expect("install");
     let before = owner.runtime_wal().expect("wal").frames().len();
     let mut p = program();
-    set(&mut p, "compiled_program", V::Bytes(vec![0xa1]));
+    set(&mut p, "max_input_bytes", V::Integer(65535));
     let bytes = encoded(&package(&p));
     let token = owner
         .admit_echo_operation_package(
@@ -169,7 +169,7 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
             ),
             bytes,
         )
-        .expect("new pinned meaning");
+        .expect("new pinned input contract");
     assert!(owner
         .install_admitted_echo_operation_package(token)
         .is_err());

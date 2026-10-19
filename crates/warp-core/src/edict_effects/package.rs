@@ -23,6 +23,7 @@ pub enum EffectPackageError {
 pub struct EffectProgram {
     value: Value,
     compiled: Vec<u8>,
+    compiled_contract: super::compiled_program::CompiledProgram,
     schema: EffectGraphSchema,
     law: EffectFootprintLaw,
     target_ir: [u8; 32],
@@ -95,6 +96,10 @@ impl EffectProgram {
         Ok(Self {
             value: value.clone(),
             compiled: bytes(field(value, "compiled_program")?)?.to_vec(),
+            compiled_contract: super::compiled_program::CompiledProgram::parse(bytes(field(
+                value,
+                "compiled_program",
+            )?)?)?,
             schema,
             law,
             target_ir: hash(field(value, "target_ir_identity")?)?,
@@ -105,6 +110,20 @@ impl EffectProgram {
             max_allocated_bytes,
         })
     }
+    pub(crate) fn validate_compiled_binding(
+        &self,
+        operation: &str,
+        core_identity: [u8; 32],
+        exports_identity: [u8; 32],
+    ) -> Result<(), EvaluationError> {
+        self.compiled_contract.validate_binding(
+            operation,
+            core_identity,
+            self.target_ir,
+            exports_identity,
+            &self.output_type,
+        )
+    }
     pub(crate) fn to_value(&self) -> Value {
         self.value.clone()
     }
@@ -114,7 +133,8 @@ impl EffectProgram {
     pub(crate) const fn footprint_identity(&self) -> [u8; 32] {
         self.footprint
     }
-    /// Compiler bytes whose instruction language still requires validation.
+    /// Canonical Core/Target IR/exports bundle bound to the selected intent.
+    /// Instruction semantics and execution still require validation.
     #[must_use]
     pub fn compiled_program(&self) -> &[u8] {
         &self.compiled

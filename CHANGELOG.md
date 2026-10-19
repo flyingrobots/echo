@@ -7,6 +7,14 @@
 
 ### Changed
 
+- Authored-effect payloads now bind a single canonical compiler-artifact bundle
+  containing Core, ordered Target IR and exports. Fresh package pins cannot
+  admit opaque bytes, false artifact identities, a different selected operation
+  or output type, inconsistent Core/Target metadata, or invalid instruction
+  ordering. This replaces the opaque-byte placeholder; full instruction
+  semantics and authored-effect execution remain unfinished.
+
+
 - Invocations now use one `EchoOperationInvocation`, codec, owner policy and
   admitted token for fixed and authored-effect program kinds. The current
   schema has an explicit kind and no invented anchor for effects; historical

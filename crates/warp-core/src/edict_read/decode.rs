@@ -232,6 +232,16 @@ fn closure(
     source: &Value,
 ) -> Result<(), Error> {
     let closure = field(package, "semantic_closure")?;
+    let source_domain = if matches!(source, Value::Bytes(_)) {
+        "edict.source/v1"
+    } else {
+        echo_edict_canonical::source_closure::source_closure_root_v1(
+            source,
+            text_field(core, "coordinate")?,
+        )
+        .map_err(|_| Error::InvalidArtifact)?;
+        "edict.source-closure/v1"
+    };
     for (key, domain, value) in [
         ("core_identity", "edict.core.module/v1", core),
         ("target_ir_identity", "edict.target-ir.artifact/v1", target),
@@ -241,7 +251,7 @@ fn closure(
             exports,
         ),
         ("lawpack_identity", "edict.lawpack/v1", lawpack),
-        ("edict_source_identity", "edict.source/v1", source),
+        ("edict_source_identity", source_domain, source),
     ] {
         if bytes(field(closure, key)?)?
             != digest(domain, value).map_err(|_| Error::InvalidArtifact)?

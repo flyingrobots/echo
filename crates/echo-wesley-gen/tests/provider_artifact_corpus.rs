@@ -36,11 +36,12 @@ const CONTRACT_CDDL: &[u8] =
 const CONTRACT_MANIFEST: &[u8] =
     include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 
-const GENERATOR_SOURCE_PATHS: [&str; 20] = [
+const GENERATOR_SOURCE_PATHS: [&str; 21] = [
     "Cargo.lock",
     "Cargo.toml",
     "crates/echo-edict-canonical/Cargo.toml",
     "crates/echo-edict-canonical/src/lib.rs",
+    "crates/echo-edict-canonical/src/source_closure.rs",
     "crates/echo-registry-api/Cargo.toml",
     "crates/echo-registry-api/src/lib.rs",
     "crates/echo-registry-api/src/provider.rs",

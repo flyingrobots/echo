@@ -49,7 +49,7 @@ impl AssetSpec {
     }
 }
 
-const ASSETS: [AssetSpec; 42] = [
+const ASSETS: [AssetSpec; 46] = [
     AssetSpec::new(
         "edict-provider/contracts/ordered/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/ordered/edict-provider-contracts.cddl",
@@ -67,12 +67,24 @@ const ASSETS: [AssetSpec; 42] = [
         "schemas/edict-provider/contracts/source-functions-v1/manifest.json",
     ),
     AssetSpec::new(
+        "edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl",
+        "schemas/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl",
+    ),
+    AssetSpec::new(
+        "edict-provider/contracts/source-modules-v1/manifest.json",
+        "schemas/edict-provider/contracts/source-modules-v1/manifest.json",
+    ),
+    AssetSpec::new(
         "edict-provider/contracts/v1/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl",
     ),
     AssetSpec::new(
         "edict-provider/contracts/v1/manifest.json",
         "schemas/edict-provider/contracts/v1/manifest.json",
+    ),
+    AssetSpec::new(
+        "edict-provider/echo-provider-semantics-source-modules-v1.json",
+        "schemas/edict-provider/echo-provider-semantics-source-modules-v1.json",
     ),
     AssetSpec::new(
         "edict-provider/echo-provider-semantics-v1.json",
@@ -215,6 +227,10 @@ const ASSETS: [AssetSpec; 42] = [
     AssetSpec::new(
         "repository/crates/echo-edict-canonical/src/lib.rs.source",
         "crates/echo-edict-canonical/src/lib.rs",
+    ),
+    AssetSpec::new(
+        "repository/crates/echo-edict-canonical/src/source_closure.rs.source",
+        "crates/echo-edict-canonical/src/source_closure.rs",
     ),
     AssetSpec::new(
         "repository/crates/echo-registry-api/Cargo.toml.source",

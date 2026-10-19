@@ -30,12 +30,12 @@ fn pack(publication: ProviderContractPublicationV1) -> AdmittedProviderContractP
             include_bytes!("../assets/v1/edict-provider/contracts/ordered/manifest.json"),
         ),
         ProviderContractPublicationV1::SourceFunctions => (
-            include_bytes!(
-                "../../../schemas/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl"
-            ),
-            include_bytes!(
-                "../../../schemas/edict-provider/contracts/source-functions-v1/manifest.json"
-            ),
+            include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl"),
+            include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/manifest.json"),
+        ),
+        ProviderContractPublicationV1::SourceModules => (
+            include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl"),
+            include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/manifest.json"),
         ),
     };
     admit_provider_contract_pack_for_publication_v1(publication, schema, manifest)
@@ -83,6 +83,7 @@ fn each_matching_publication_generates_its_bound_schema() {
         ProviderContractPublicationV1::PureBindings,
         ProviderContractPublicationV1::OrderedInstructions,
         ProviderContractPublicationV1::SourceFunctions,
+        ProviderContractPublicationV1::SourceModules,
     ] {
         let bound = pack(publication);
         let input = build_provider_generation_input_v1(SOURCE, &bound, SETTINGS)
@@ -102,5 +103,17 @@ fn source_function_generation_rejects_every_other_publication_in_both_directions
     ] {
         rejects_crossed_publication(ProviderContractPublicationV1::SourceFunctions, other);
         rejects_crossed_publication(other, ProviderContractPublicationV1::SourceFunctions);
+    }
+}
+
+#[test]
+fn source_module_generation_rejects_every_other_publication_in_both_directions() {
+    for other in [
+        ProviderContractPublicationV1::PureBindings,
+        ProviderContractPublicationV1::OrderedInstructions,
+        ProviderContractPublicationV1::SourceFunctions,
+    ] {
+        rejects_crossed_publication(ProviderContractPublicationV1::SourceModules, other);
+        rejects_crossed_publication(other, ProviderContractPublicationV1::SourceModules);
     }
 }

@@ -317,6 +317,21 @@ Action parent-state validation indexes verification obligations by exact worldli
 
 Each validation call retains one replay cursor per needed worldline and one transient Tick simulation. Replay-patch applications stay within two history sweeps. This bounds repeated prefix work and private snapshot retention; it does not claim linear elapsed time. State hashing and Tick simulation still depend on graph size. Test-only counters measure applied patches and logical retained data without becoming causal authority.
 
+## Inspecting a receipt coordinate
+
+`echo-cli --format json wal submission-posture` projects a matching recovered
+receipt into named `receipt_coordinate` fields: its identity digest,
+worldline, worldline and global ticks, commit, submission, ticket, and receipt
+content digest. The existing `receipt_ref` remains the hex-encoded canonical
+coordinate. Both come from the recovered receipt; neither grants admission or
+changes history. A coordinate can name a rejected or obstructed decision.
+Without a matching receipt, including an envelope conflict, the structured
+coordinate is `null`.
+
+The CLI integration tests compare all named fields with a real host-produced
+receipt after filesystem recovery and check pending, unknown, conflicting,
+rejected, and obstructed postures.
+
 ## Recovery Postures
 
 The useful postures are:

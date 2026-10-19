@@ -1542,7 +1542,11 @@ fn validate_artifact_source(
 fn validate_schema_bindings(
     bindings: &[ProviderManifestSchemaBindingV1],
 ) -> Result<(), ProviderPackageError> {
-    let expected = schema_binding_specs();
+    let mut expected = schema_binding_specs().to_vec();
+    if bindings.len() == EXPECTED_SCHEMA_BINDING_COUNT + 1 {
+        expected.push(("edict.source-closure/v1", "source-closure"));
+        expected.sort_unstable();
+    }
     if bindings.len() != expected.len() {
         return Err(ProviderPackageError::new(
             ProviderPackageErrorKind::SchemaBindingMismatch,

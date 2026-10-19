@@ -27,18 +27,32 @@ fn main() -> Result<()> {
             .next()
             .context("expected a new output directory")?,
     );
+    let source_modules = match arguments.next() {
+        None => false,
+        Some(option) if option == "--source-modules" => true,
+        Some(_) => bail!("expected a new output directory and optional --source-modules"),
+    };
     if arguments.next().is_some() || output.exists() {
-        bail!("expected exactly one new output directory");
+        bail!("expected a new output directory and optional --source-modules");
     }
-    let contracts = admit_provider_contract_pack_for_publication_v1(
-        ProviderContractPublicationV1::SourceFunctions,
-        include_bytes!(
-            "../assets/v1/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl"
-        ),
-        include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/manifest.json"),
-    )?;
+    let (publication, schema, manifest, source): (_, &[u8], &[u8], &[u8]) = if source_modules {
+        (
+            ProviderContractPublicationV1::SourceModules,
+            include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl"),
+            include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/manifest.json"),
+            include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-source-modules-v1.json"),
+        )
+    } else {
+        (
+            ProviderContractPublicationV1::SourceFunctions,
+            include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl"),
+            include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/manifest.json"),
+            include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json"),
+        )
+    };
+    let contracts = admit_provider_contract_pack_for_publication_v1(publication, schema, manifest)?;
     let input = build_provider_generation_input_v1(
-        include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json"),
+        source,
         &contracts,
         include_bytes!("../assets/v1/edict-provider/generation-settings-v1.json"),
     )?;

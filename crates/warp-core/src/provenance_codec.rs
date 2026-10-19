@@ -5,6 +5,10 @@
 use bytes::Bytes;
 use thiserror::Error;
 
+#[cfg(test)]
+#[path = "provenance_codec/range_tests.rs"]
+mod range_tests;
+
 use crate::{
     attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue},
     clock::{GlobalTick, WorldlineTick},
@@ -455,6 +459,11 @@ fn push_slot(out: &mut Vec<u8>, slot: SlotId) {
             push_hash(out, warp_id.as_bytes());
             push_u64(out, port);
         }
+        SlotId::OutgoingEdges(range) => {
+            out.push(5);
+            push_node_key(out, range.source);
+            push_hash(out, range.edge_type.as_bytes());
+        }
     }
 }
 
@@ -833,6 +842,10 @@ impl<'a> RetainedProvenanceCursor<'a> {
             2 => Ok(SlotId::Edge(self.read_edge_key()?)),
             3 => Ok(SlotId::Attachment(self.read_attachment_key()?)),
             4 => Ok(SlotId::Port((WarpId(self.read_hash()?), self.read_u64()?))),
+            5 => Ok(SlotId::OutgoingEdges(crate::footprint::OutgoingEdgeRange {
+                source: self.read_node_key()?,
+                edge_type: TypeId(self.read_hash()?),
+            })),
             tag => Err(unknown_tag("slot", tag)),
         }
     }

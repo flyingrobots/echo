@@ -291,7 +291,8 @@ pub use engine_impl::{
 pub use execution_evidence::{ExecutionEvidenceKey, ExecutionFootprintEvidence};
 pub use execution_graph_view::ExecutionGraphView;
 pub use footprint::{
-    pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
+    pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, OutgoingEdgeRange,
+    OutgoingEdgeRangeSet, PortKey, PortSet, WarpScopedPortKey,
 };
 pub use footprint_guard::{FootprintViolation, FootprintViolationWithPanic, ViolationKind};
 pub use graph::{DeleteNodeError, GraphStore};

@@ -14,6 +14,10 @@
   that upserts or deletes a warp instance now makes the interval's writes
   unknown, so a stale Action across it keeps the whole-frontier rule.
 
+- Outgoing-edge bucket iterators expose their exact remaining length without
+  inspecting edges, so bounded readers can precharge the entire source bucket
+  before filtering by type.
+
 - The native pure interpreter evaluates bounded UTF-8 byte predicates with
   complete aperture charging and typed Boolean values. Native provider judgments
   independently validate matching helper/read guards and their bounded scan work.
@@ -143,6 +147,15 @@
   nothing.
 
 ### Added
+
+- Outgoing-edge range claims retain source WARP, source node and edge type in
+  footprint union and scheduler reservation, including observed empty ranges.
+  Range-bearing operation footprint identities bind both range axes separately;
+  footprints without ranges keep their V1 identities. Range slots survive patch
+  identity, retained provenance and native Tick input/output metadata. Historical
+  host range readings replay a selected prefix and preserve edge relabeling,
+  movement and deletion. This does not implement the authored operation effect
+  bridge.
 
 - Native Edict provider judgments accept the distinct bounded source-closure
   artifact, preserve its identity and refuse mixed or relabelled source forms.

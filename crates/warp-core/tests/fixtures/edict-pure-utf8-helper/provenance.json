@@ -1,0 +1,21 @@
+{
+  "edict": "13092ea675231cbd4c62ba33e7fe7684e0c49a4b",
+  "echoPublicationSnapshot": "d8bded8b5295896af0560e68211cf6e3f41c35a8",
+  "providerPublication": "source-functions-v1",
+  "providerPackage": {
+    "coordinate": "echo.edict-provider@1",
+    "digest": "sha256:4111cbd6159a0bc1e4168c19e810466e3163f9f0166fcfa6c645370b86fd1f47"
+  },
+  "componentSha256": {
+    "lowerer": "79066cfc740da4463fd20baec36fe18c6cfb346917fed475b4ef7119fda9408a",
+    "verifier": "577c69937594c0aff2461dd60d43507e1f6ce0903ca2b17ff02919d73efd9b28"
+  },
+  "packagePin": "e0c6f66f78f302216de650127b6b35c8d9489f87c45a6d3da36714f8921fbf70",
+  "files": {
+    "Utf8.edict": "2dae87fa9b75b340746cf1eb01226d48575a7e0f377926221d5ac0a72074dbc0",
+    "edict.lawpack.json": "ce13d5993e9b80517538e85bad39ed825ecaf466692063ffd99d17248a68cc66",
+    "executable-operation-package.cbor": "d6ebd536a53ecc7304e842e2f3f2d00d477229a5bca656114e67fb0d0e44aad5",
+    "verification-report.cbor": "eaad31a640233c326aba2277b959949f5a46da76d200e42b83758f7c7f34da57"
+  },
+  "builder": "sha256:b58697ad3d09257d8d59cbb87868e3a4145efe52931d918b948bb4999d083c85"
+}

@@ -151,3 +151,95 @@ fn public_utf8_replacement_refuses_each_host_resource_aperture() {
         assert_eq!(evaluate(&package, pin, &input, limits), Err(error));
     }
 }
+
+#[test]
+fn public_utf8_source_helper_returns_literal_booleans_and_enforces_full_scan_bound() {
+    let package = hex::decode(
+        include_str!("../fixtures/edict-pure-utf8-helper/executable-operation-package.cbor.hex")
+            .trim(),
+    )
+    .unwrap();
+    let pin: [u8; 32] =
+        hex::decode("e0c6f66f78f302216de650127b6b35c8d9489f87c45a6d3da36714f8921fbf70")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    assert_eq!(
+        digest("echo.operation-package/v1", &decode(&package).unwrap()).unwrap(),
+        pin
+    );
+    let report = decode(
+        &hex::decode(
+            include_str!("../fixtures/edict-pure-utf8-helper/verification-report.cbor.hex").trim(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(field(&report, "outcome"), &Value::Text("accepted".into()));
+    assert_eq!(
+        field(field(&report, "package"), "digest"),
+        &Value::Array(vec![
+            Value::Text("sha256".into()),
+            Value::Bytes(pin.to_vec())
+        ])
+    );
+    let limits = EvaluationLimits {
+        max_steps: 8_388_608,
+        ..limits()
+    };
+    let input = |bytes: &[u8]| {
+        encode(&Value::Map(vec![(
+            Value::Text("bytes".into()),
+            Value::Bytes(bytes.to_vec()),
+        )]))
+        .unwrap()
+    };
+    for (bytes, want) in [
+        (&b""[..], true),
+        (&b"A\0B"[..], true),
+        ("λ🙂".as_bytes(), true),
+        (&[0xf4, 0x8f, 0xbf, 0xbf][..], true),
+        (&[0x80][..], false),
+        (&[0xc0, 0x80][..], false),
+        (&[0xe2, 0x82][..], false),
+        (&[0xed, 0xa0, 0x80][..], false),
+        (&[0xf4, 0x90, 0x80, 0x80][..], false),
+    ] {
+        let supplied = input(bytes);
+        let result = evaluate(&package, pin, &supplied, limits).unwrap();
+        assert_eq!(
+            field(&decode(&result.output).unwrap(), "valid"),
+            &Value::Bool(want)
+        );
+        assert_eq!(result, evaluate(&package, pin, &supplied, limits).unwrap());
+    }
+    let mut full = vec![b'a'; 1_048_576];
+    for want in [true, false] {
+        if !want {
+            full[1_048_575] = 0xff;
+        }
+        let supplied = input(&full);
+        let result = evaluate(&package, pin, &supplied, limits).unwrap();
+        assert_eq!(
+            field(&decode(&result.output).unwrap(), "valid"),
+            &Value::Bool(want)
+        );
+        assert_eq!(
+            evaluate(
+                &package,
+                pin,
+                &supplied,
+                EvaluationLimits {
+                    max_steps: 1_048_575,
+                    ..limits
+                }
+            ),
+            Err(EvaluationError::StepBudgetExceeded)
+        );
+    }
+    full.push(b'a');
+    assert_eq!(
+        evaluate(&package, pin, &input(&full), limits),
+        Err(EvaluationError::InvalidInput)
+    );
+}

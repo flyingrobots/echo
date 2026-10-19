@@ -443,6 +443,16 @@ computation on the selected existing provider route; native strict-helper/read
 judgment tests provide separate evidence. It does not establish a persistent rope,
 a decided Tick, atomic effects, recovery or final pinned integration.
 
+The companion fixture in `crates/warp-core/tests/fixtures/edict-pure-utf8-helper`
+selects the explicit source-function publication using the guarded Docker publisher
+with copied read-only sources. The public compiler then invokes both promoted
+components and retains their unchanged accepted package/report. A byte-parameter
+helper exercises UTF-8 validation, Boolean equality, conjunction, negation and
+Boolean return. Literal tests cover small valid/invalid values, valid and invalid
+full 1 MiB inputs, an over-bound input and insufficient scan work. Publication,
+component and package identities are recorded in its provenance. These are private
+computation witnesses and confer no mutation or causal-history authority.
+
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
 The paired nominal-ID and variable-payload equality witnesses in

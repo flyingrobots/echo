@@ -51,6 +51,10 @@ use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
 use crate::worldline_state::WorldlineState;
 use crate::ContractInverseHandler;
+
+#[cfg(test)]
+#[path = "engine_impl/range_tests.rs"]
+mod range_tests;
 use std::sync::Arc;
 
 const RUNTIME_INGRESS_EVENT_TYPE: &str = "runtime/ingress/event";
@@ -3230,6 +3234,12 @@ pub(crate) fn footprints_conflict(
     {
         return true;
     }
+    if a.r_write.intersects(&b.r_write)
+        || a.r_write.intersects(&b.r_read)
+        || b.r_write.intersects(&a.r_read)
+    {
+        return true;
+    }
     if a.a_write.intersects(&b.a_write)
         || a.a_write.intersects(&b.a_read)
         || b.a_write.intersects(&a.a_read)
@@ -3348,6 +3358,13 @@ fn extend_slots_from_footprint(
     for key in fp.e_write.iter() {
         in_slots.insert(SlotId::Edge(*key));
         out_slots.insert(SlotId::Edge(*key));
+    }
+    for key in fp.r_read.iter() {
+        in_slots.insert(SlotId::OutgoingEdges(*key));
+    }
+    for key in fp.r_write.iter() {
+        in_slots.insert(SlotId::OutgoingEdges(*key));
+        out_slots.insert(SlotId::OutgoingEdges(*key));
     }
 
     // Attachments (already warp-scoped via AttachmentKey)
@@ -3526,6 +3543,8 @@ mod tests {
                     a_write.insert(key);
                 }
                 crate::Footprint {
+                    r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+                    r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
                     n_read: crate::NodeSet::default(),
                     n_write: crate::NodeSet::default(),
                     e_read: crate::EdgeSet::default(),
@@ -3566,6 +3585,8 @@ mod tests {
             a_write.insert(key);
         }
         crate::Footprint {
+            r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+            r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
             n_read: crate::NodeSet::default(),
             n_write: crate::NodeSet::default(),
             e_read: crate::EdgeSet::default(),
@@ -3660,6 +3681,8 @@ mod tests {
                     local_id: *scope,
                 }));
                 crate::Footprint {
+                    r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+                    r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
                     n_read,
                     n_write: crate::NodeSet::default(),
                     e_read: crate::EdgeSet::default(),

@@ -56,6 +56,8 @@ pub enum SlotId {
     Attachment(AttachmentKey),
     /// Boundary port value (warp-scoped: `(WarpId, PortKey)`).
     Port(WarpScopedPortKey),
+    /// All outgoing edges of one type from one source, including an empty range.
+    OutgoingEdges(crate::footprint::OutgoingEdgeRange),
 }
 
 impl SlotId {
@@ -65,6 +67,7 @@ impl SlotId {
             Self::Edge(_) => 2,
             Self::Attachment(_) => 3,
             Self::Port(_) => 4,
+            Self::OutgoingEdges(_) => 5,
         }
     }
 }
@@ -86,6 +89,7 @@ impl Ord for SlotId {
             (Self::Edge(a), Self::Edge(b)) => a.cmp(&b),
             (Self::Attachment(a), Self::Attachment(b)) => a.cmp(&b),
             (Self::Port(a), Self::Port(b)) => a.cmp(&b),
+            (Self::OutgoingEdges(a), Self::OutgoingEdges(b)) => a.cmp(&b),
             // SAFETY: tag comparison above guarantees matching variants.
             _ => unreachable!("tag mismatch in SlotId::cmp"),
         }
@@ -1026,6 +1030,12 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
                 h.update(&[4u8]);
                 h.update(&warp_id.0);
                 h.update(&port_key.to_le_bytes());
+            }
+            SlotId::OutgoingEdges(range) => {
+                h.update(&[5]);
+                h.update(range.source.warp_id.as_bytes());
+                h.update(range.source.local_id.as_bytes());
+                h.update(range.edge_type.as_bytes());
             }
         }
     }

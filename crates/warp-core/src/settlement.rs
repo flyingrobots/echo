@@ -566,6 +566,12 @@ fn canonical_slot_bytes(slot: &SlotId) -> Vec<u8> {
             bytes.extend_from_slice(warp_id.as_bytes());
             bytes.extend_from_slice(&port_key.to_le_bytes());
         }
+        SlotId::OutgoingEdges(range) => {
+            bytes.push(5);
+            bytes.extend_from_slice(range.source.warp_id.as_bytes());
+            bytes.extend_from_slice(range.source.local_id.as_bytes());
+            bytes.extend_from_slice(range.edge_type.as_bytes());
+        }
     }
     bytes
 }
@@ -1171,6 +1177,7 @@ enum RevalidationSlotValue {
     Edge(Option<EdgeRecord>),
     Attachment(Option<AttachmentValue>),
     Port(WarpScopedPortKey),
+    OutgoingEdges(Option<Vec<EdgeRecord>>),
 }
 
 fn overlap_slots_are_clean(
@@ -1213,6 +1220,9 @@ fn revalidation_slot_value(state: &WorldlineState, slot: &SlotId) -> Revalidatio
                 .cloned(),
         }),
         SlotId::Port(port) => RevalidationSlotValue::Port(port),
+        SlotId::OutgoingEdges(range) => RevalidationSlotValue::OutgoingEdges(
+            crate::slot_reading::materialized_outgoing_edges(state.warp_state(), range),
+        ),
     }
 }
 

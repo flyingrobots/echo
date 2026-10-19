@@ -39,6 +39,10 @@ fn encoded_field_offset(bytes: &[u8], field: &[u8]) -> usize {
 }
 
 fn fixture_entry() -> ProvenanceEntry {
+    fixture_entry_with_ranges(false)
+}
+
+fn fixture_entry_with_ranges(include_ranges: bool) -> ProvenanceEntry {
     let worldline_id = WorldlineId::from_bytes(digest("worldline"));
     let root_warp = make_warp_id("root");
     let child_warp = make_warp_id("child");
@@ -122,22 +126,34 @@ fn fixture_entry() -> ProvenanceEntry {
             value: None,
         },
     ];
+    let mut in_slots = vec![
+        SlotId::Node(root_node),
+        SlotId::Edge(edge_key),
+        SlotId::Attachment(root_attachment),
+        SlotId::Port((root_warp, 41)),
+    ];
+    let mut out_slots = vec![
+        SlotId::Node(sibling_node),
+        SlotId::Edge(edge_key),
+        SlotId::Attachment(edge_attachment),
+        SlotId::Port((root_warp, 42)),
+    ];
+    if include_ranges {
+        in_slots.push(SlotId::OutgoingEdges(warp_core::OutgoingEdgeRange {
+            source: root_node,
+            edge_type,
+        }));
+        out_slots.push(SlotId::OutgoingEdges(warp_core::OutgoingEdgeRange {
+            source: sibling_node,
+            edge_type,
+        }));
+    }
     let patch = WarpTickPatchV1::new(
         17,
         digest("rule-pack"),
         TickCommitStatus::Committed,
-        vec![
-            SlotId::Node(root_node),
-            SlotId::Edge(edge_key),
-            SlotId::Attachment(root_attachment),
-            SlotId::Port((root_warp, 41)),
-        ],
-        vec![
-            SlotId::Node(sibling_node),
-            SlotId::Edge(edge_key),
-            SlotId::Attachment(edge_attachment),
-            SlotId::Port((root_warp, 42)),
-        ],
+        in_slots,
+        out_slots,
         ops,
     );
     let parent = ProvenanceRef {
@@ -147,12 +163,6 @@ fn fixture_entry() -> ProvenanceEntry {
     };
     let state_root = digest("state-root");
     let patch_digest = patch.digest();
-    let commit_hash = compute_commit_hash_v2(
-        &state_root,
-        &[parent.commit_hash],
-        &patch_digest,
-        patch.policy_id(),
-    );
     let receipt = TickReceipt::try_from_retained_parts(
         TxId::from_raw(8),
         vec![TickReceiptEntry {
@@ -164,6 +174,23 @@ fn fixture_entry() -> ProvenanceEntry {
         vec![Vec::new()],
     )
     .expect("fixture receipt parts should be parallel");
+    let receipt = if include_ranges {
+        receipt
+            .with_bound_attribution(vec![warp_core::TickSubmissionAttribution {
+                submission_id: digest("range-submission"),
+                decision: warp_core::TickSubmissionDecision::ReceiptEntries(vec![0]),
+            }])
+            .expect("bound range receipt")
+    } else {
+        receipt
+    };
+    let commit_hash = warp_core::compute_commit_hash_for_receipt(
+        &state_root,
+        &[parent.commit_hash],
+        &patch_digest,
+        patch.policy_id(),
+        Some(&receipt),
+    );
     let decision_digest = receipt.digest();
     ProvenanceEntry::local_commit(
         worldline_id,
@@ -252,35 +279,52 @@ fn fixture_contract() -> ContractEvidenceIdentity {
 
 #[test]
 fn replayable_state_delta_round_trips_every_operation_and_slot_variant() {
-    let entry = fixture_entry();
-    let receipt_digest = fixture_receipt_digest(&entry);
-    let contract = fixture_contract();
-    let record = WalRuntimeStateDeltaRecord::from_provenance_entry(
-        receipt_digest,
-        Some(warp_core::InstalledInvocationEvidence::LegacyContract(
-            contract.clone(),
-        )),
-        entry.clone(),
-    )
-    .expect("canonical local commit should be retainable");
-    let bytes = record
-        .to_payload_bytes()
-        .expect("validated record should encode");
-    let decoded = WalRuntimeStateDeltaRecord::from_payload_bytes(&bytes)
-        .expect("retained state delta should decode");
+    for entry in [fixture_entry(), fixture_entry_with_ranges(true)] {
+        let receipt_digest = fixture_receipt_digest(&entry);
+        let contract = fixture_contract();
+        let record = WalRuntimeStateDeltaRecord::from_provenance_entry(
+            receipt_digest,
+            Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+                contract.clone(),
+            )),
+            entry.clone(),
+        )
+        .expect("canonical local commit should be retainable");
+        let bytes = record
+            .to_payload_bytes()
+            .expect("validated record should encode");
+        let magic = if entry.tick_receipt.as_ref().expect("receipt").binds_commit() {
+            b"EPRV0003"
+        } else {
+            b"EPRV0001"
+        };
+        assert_eq!(&bytes[..8], b"ERSD0001");
+        let provenance_offset = encoded_field_offset(&bytes, magic);
+        let length_offset = provenance_offset
+            .checked_sub(8)
+            .expect("entry length prefix");
+        let entry_length = u64::from_le_bytes(
+            bytes[length_offset..provenance_offset]
+                .try_into()
+                .expect("eight-byte entry length"),
+        );
+        assert_eq!(entry_length, (bytes.len() - provenance_offset) as u64);
+        let decoded = WalRuntimeStateDeltaRecord::from_payload_bytes(&bytes)
+            .expect("retained state delta should decode");
 
-    assert_eq!(decoded.receipt_digest(), receipt_digest);
-    assert_eq!(
-        decoded.contract(),
-        Some(&warp_core::InstalledInvocationEvidence::LegacyContract(
-            contract
-        ))
-    );
-    assert_eq!(decoded.provenance_entry(), &entry);
-    assert_eq!(
-        decoded.to_payload_bytes().expect("decoded record encodes"),
-        bytes
-    );
+        assert_eq!(decoded.receipt_digest(), receipt_digest);
+        assert_eq!(
+            decoded.contract(),
+            Some(&warp_core::InstalledInvocationEvidence::LegacyContract(
+                contract
+            ))
+        );
+        assert_eq!(decoded.provenance_entry(), &entry);
+        assert_eq!(
+            decoded.to_payload_bytes().expect("decoded record encodes"),
+            bytes
+        );
+    }
 }
 
 #[test]
@@ -455,5 +499,39 @@ fn replayable_state_delta_rejects_corrupt_commitment_and_non_local_event() {
     assert_eq!(
         WalRuntimeStateDeltaRecord::from_provenance_entry(digest("receipt"), None, non_local),
         Err(RetainedProvenanceError::UnsupportedEventKind)
+    );
+}
+
+#[test]
+fn retained_range_substitution_refuses_the_original_patch_commitment() {
+    let entry = fixture_entry_with_ranges(true);
+    let record = WalRuntimeStateDeltaRecord::from_provenance_entry(
+        fixture_receipt_digest(&entry),
+        None,
+        entry.clone(),
+    )
+    .expect("retained range entry");
+    let mut bytes = record.to_payload_bytes().expect("range encoding");
+    let patch = entry.patch.as_ref().expect("patch");
+    let range = patch
+        .in_slots
+        .iter()
+        .find_map(|slot| match slot {
+            SlotId::OutgoingEdges(key) => Some(key),
+            _ => None,
+        })
+        .expect("range slot");
+    let key_bytes = [
+        vec![5],
+        range.source.warp_id.as_bytes().to_vec(),
+        range.source.local_id.as_bytes().to_vec(),
+        range.edge_type.as_bytes().to_vec(),
+    ]
+    .concat();
+    let offset = encoded_field_offset(&bytes, &key_bytes);
+    bytes[offset + 96] ^= 1;
+    assert_eq!(
+        WalRuntimeStateDeltaRecord::from_payload_bytes(&bytes),
+        Err(RetainedProvenanceError::NonCanonicalPatch)
     );
 }

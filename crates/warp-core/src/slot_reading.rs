@@ -11,6 +11,11 @@
 //!
 //! The index is derived from patches and can always be rebuilt from them. It
 //! is a reading aid, never an authority.
+//!
+//! Outgoing-edge ranges are aggregates rather than absolute single-op writes.
+//! Their historical host reading clones the initial state and replays the
+//! selected prefix. It is not an indexed constant-cost or metered interpreter
+//! read; point-slot readings retain the indexed path.
 
 use std::collections::BTreeMap;
 
@@ -21,6 +26,10 @@ use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::tick_patch::{PortalInit, SlotId, WarpOp, WarpTickPatchV1};
 use crate::warp_state::WarpState;
+
+#[cfg(test)]
+#[path = "slot_reading/range_tests.rs"]
+mod range_tests;
 
 /// Position of one operation in a lane's patch sequence: tick index, then
 /// operation index within that tick's canonical operation order.
@@ -35,6 +44,8 @@ pub enum SlotReading {
     Edge(Option<EdgeRecord>),
     /// An attachment value, or `None` when the slot holds no attachment.
     Attachment(Option<AttachmentValue>),
+    /// Canonically ordered matching edges; `None` means the source is absent.
+    OutgoingEdges(Option<Vec<EdgeRecord>>),
 }
 
 /// Reasons a slot reading cannot be produced.
@@ -57,6 +68,9 @@ pub enum SlotReadingError {
     /// The supplied patches are not the patches the index was built from.
     #[error("the supplied patches do not match the index")]
     PatchMismatch,
+    /// A range's selected historical prefix could not be replayed.
+    #[error("range history could not be replayed")]
+    InvalidRangeHistory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,8 +97,8 @@ pub struct SlotWriteIndex {
 /// A [`SlotWriteIndex`] bound to the patches it was built from and the
 /// boundary those patches apply to.
 ///
-/// Binding checks every patch digest once. Reads then cost no more than the
-/// index lookup.
+/// Binding checks every patch digest once. Point reads use the index; range
+/// reads replay the selected prefix over an owned copy of the initial state.
 #[derive(Debug, Clone, Copy)]
 pub struct SlotReader<'a> {
     index: &'a SlotWriteIndex,
@@ -212,7 +226,7 @@ impl SlotReader<'_> {
     ///
     /// Returns [`SlotReadingError`] when the cursor lies beyond the indexed
     /// ticks, the slot is a port slot, or an attachment key pairs an owner
-    /// with a plane that owner does not have.
+    /// with a plane that owner does not have, or a range history prefix cannot replay.
     pub fn read(&self, slot: SlotId, cursor: usize) -> Result<SlotReading, SlotReadingError> {
         let Self {
             index,
@@ -222,6 +236,18 @@ impl SlotReader<'_> {
         let available = index.tick_count();
         if cursor > available {
             return Err(SlotReadingError::CursorBeyondHistory { cursor, available });
+        }
+        if matches!(slot, SlotId::OutgoingEdges(_)) {
+            let mut state = initial.clone();
+            for patch in patches
+                .get(..cursor)
+                .ok_or(SlotReadingError::PatchMismatch)?
+            {
+                patch
+                    .apply_to_state(&mut state)
+                    .map_err(|_| SlotReadingError::InvalidRangeHistory)?;
+            }
+            return materialized_slot(&state, slot).ok_or(SlotReadingError::UnsupportedSlot);
         }
         if let SlotId::Attachment(key) = slot {
             if !key.is_plane_valid() {
@@ -300,6 +326,9 @@ pub(crate) fn materialized_slot(state: &WarpState, slot: SlotId) -> Option<SlotR
                 .cloned(),
         }),
         SlotId::Port(_) => return None,
+        SlotId::OutgoingEdges(range) => {
+            SlotReading::OutgoingEdges(materialized_outgoing_edges(state, range))
+        }
     })
 }
 
@@ -308,6 +337,7 @@ const fn absent(slot: SlotId) -> SlotReading {
         SlotId::Node(_) => SlotReading::Node(None),
         SlotId::Edge(_) => SlotReading::Edge(None),
         SlotId::Attachment(_) | SlotId::Port(_) => SlotReading::Attachment(None),
+        SlotId::OutgoingEdges(_) => SlotReading::OutgoingEdges(None),
     }
 }
 
@@ -320,7 +350,23 @@ const fn slot_warp(slot: SlotId) -> Option<WarpId> {
             AttachmentOwner::Edge(edge) => edge.warp_id,
         }),
         SlotId::Port(_) => None,
+        SlotId::OutgoingEdges(range) => Some(range.source.warp_id),
     }
+}
+
+pub(crate) fn materialized_outgoing_edges(
+    state: &WarpState,
+    range: crate::footprint::OutgoingEdgeRange,
+) -> Option<Vec<EdgeRecord>> {
+    let store = state.store(&range.source.warp_id)?;
+    store.node(&range.source.local_id)?;
+    let mut rows: Vec<_> = store
+        .edges_from(&range.source.local_id)
+        .filter(|edge| edge.ty == range.edge_type)
+        .cloned()
+        .collect();
+    rows.sort_by_key(|edge| edge.id);
+    Some(rows)
 }
 
 /// Slots whose value `op` sets, including values it clears as a consequence.

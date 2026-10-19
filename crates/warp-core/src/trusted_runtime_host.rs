@@ -64,7 +64,7 @@ use crate::{
         SchedulerEchoOperationCandidateV1,
     },
     provider_contract::admit_provider_contract_package_v1,
-    AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackage,
+    AdmittedEchoOperationInvocation, AdmittedExecutableOperationPackage,
     AdmittedProviderContractPackageV1, CausalAnchorAdmissionRequest, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
     CausalFrontierRef, CausalReceiptHistoryObstruction, CausalReceiptHistoryPage,
@@ -73,8 +73,8 @@ use crate::{
     ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionError,
     EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
     EchoOperationCommitErrorV1, EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
-    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
-    EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionError,
+    EchoOperationInvocationAdmissionErrorKind, EchoOperationInvocationAdmissionPolicy,
     EchoOperationPreparationV1, EchoOperationReceiptV1, EchoOperationTerminalPostureV1, Engine,
     IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
     IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
@@ -158,7 +158,7 @@ pub enum TrustedRuntimeHostError {
     EchoOperationActionAdmissionPolicyUnavailable,
     /// Runtime-owned admission refused a durably accepted executable Action.
     #[error("trusted runtime host executable-operation Action admission error: {0}")]
-    EchoOperationActionAdmission(#[from] EchoOperationInvocationAdmissionErrorV1),
+    EchoOperationActionAdmission(#[from] EchoOperationInvocationAdmissionError),
     /// Executable-operation installation conflicted with installed authority.
     #[error("trusted runtime host executable-operation installation error: {0}")]
     EchoOperationInstallation(#[from] EchoOperationInstallationErrorV1),
@@ -866,12 +866,12 @@ pub struct TrustedRuntimeHost {
     runtime_wal: Option<TrustedRuntimeWal>,
     causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
-    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
+    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicy>,
     echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
     pending_echo_operation_actions: BTreeSet<Hash>,
-    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocation>,
     echo_operation_action_admission_obstructions:
-        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKind>,
 }
 
 /// Owned decomposition of a [`TrustedRuntimeHost`].
@@ -887,12 +887,12 @@ pub struct TrustedRuntimeHostParts {
     runtime_wal: Option<TrustedRuntimeWal>,
     causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
-    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
+    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicy>,
     echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
     pending_echo_operation_actions: BTreeSet<Hash>,
-    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocation>,
     echo_operation_action_admission_obstructions:
-        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKind>,
 }
 
 impl TrustedRuntimeHostParts {
@@ -1069,7 +1069,7 @@ impl TrustedRuntimeHost {
     /// executable-operation Actions before scheduler selection.
     pub fn install_echo_operation_action_admission_policy_v1(
         &mut self,
-        policy: EchoOperationInvocationAdmissionPolicyV1,
+        policy: EchoOperationInvocationAdmissionPolicy,
     ) {
         self.echo_operation_action_admission_policy = Some(policy);
         self.requeue_obstructed_echo_operation_actions_v1();
@@ -1091,7 +1091,7 @@ impl TrustedRuntimeHost {
     pub fn echo_operation_action_admission_obstruction_v1(
         &self,
         submission_id: &Hash,
-    ) -> Option<EchoOperationInvocationAdmissionErrorKindV1> {
+    ) -> Option<EchoOperationInvocationAdmissionErrorKind> {
         self.echo_operation_action_admission_obstructions
             .get(submission_id)
             .copied()
@@ -1230,11 +1230,11 @@ impl TrustedRuntimeHost {
     /// Admission checks exact installed package identity, public operation
     /// coordinate, authority profile and grant, delegated budget, and current
     /// parent basis. It does not evaluate or mutate the graph.
-    pub fn admit_echo_operation_invocation_v1(
+    pub fn admit_echo_operation_invocation(
         &self,
-        policy: &EchoOperationInvocationAdmissionPolicyV1,
+        policy: &EchoOperationInvocationAdmissionPolicy,
         canonical_invocation_bytes: &[u8],
-    ) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+    ) -> Result<AdmittedEchoOperationInvocation, EchoOperationInvocationAdmissionError> {
         let (package_id, claimed_basis) = decode_invocation_route_v1(canonical_invocation_bytes)?;
         let current_basis = self
             .echo_operation_evaluation_basis_v1(
@@ -1272,7 +1272,7 @@ impl TrustedRuntimeHost {
     #[doc(hidden)]
     pub fn prepare_echo_operation_v1(
         &self,
-        admitted: AdmittedEchoOperationInvocationV1,
+        admitted: AdmittedEchoOperationInvocation,
     ) -> EchoOperationPreparationV1 {
         let current_basis = self.echo_operation_evaluation_basis_v1(
             admitted.evaluation_basis().writer_head(),
@@ -2007,7 +2007,7 @@ impl TrustedRuntimeHost {
     fn admit_pending_echo_operation_actions_v1(
         &mut self,
         staging: &mut TicketedIngressStagingRollback,
-    ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
+    ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocation>, TrustedRuntimeHostError> {
         if self.pending_echo_operation_actions.is_empty() {
             return Ok(self.admitted_echo_operation_actions.clone());
         }
@@ -7267,7 +7267,7 @@ fn provider_contract_host_admission_digest(
 
 fn echo_operation_action_admission_digest(
     submission: &IntentSubmissionRecord,
-    admitted: &AdmittedEchoOperationInvocationV1,
+    admitted: &AdmittedEchoOperationInvocation,
 ) -> Hash {
     echo_operation_action_admission_digest_from_parts(
         submission,

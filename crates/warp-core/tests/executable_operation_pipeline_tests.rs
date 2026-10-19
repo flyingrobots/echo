@@ -24,12 +24,12 @@ use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKind, EchoOperationAdmissionPolicy,
     EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationBasisV1,
-    EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
-    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
-    EchoOperationProgram, EchoOperationSemanticClosure, EchoOperationTerminalPostureV1,
-    EngineBuilder, ExecutableOperationPackage, GraphStore, HeadEligibility, InboxPolicy,
-    IngressTarget, InstalledEchoOperation, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
+    EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1, EchoOperationInvocation,
+    EchoOperationInvocationAdmissionErrorKind, EchoOperationInvocationAdmissionPolicy,
+    EchoOperationObstructionKindV1, EchoOperationPreparationV1, EchoOperationProgram,
+    EchoOperationSemanticClosure, EchoOperationTerminalPostureV1, EngineBuilder,
+    ExecutableOperationPackage, GraphStore, HeadEligibility, InboxPolicy, IngressTarget,
+    InstalledEchoOperation, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
     RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
     WriterHead, WriterHeadKey, ACTION_BATCH_CANDIDATE_LIMIT_V1,
@@ -559,8 +559,8 @@ fn application_basis() -> EchoOperationApplicationBasisV1 {
     )
 }
 
-fn invocation_policy() -> EchoOperationInvocationAdmissionPolicyV1 {
-    EchoOperationInvocationAdmissionPolicyV1::new(
+fn invocation_policy() -> EchoOperationInvocationAdmissionPolicy {
+    EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -575,7 +575,7 @@ fn canonical_invocation(
     replacement: Vec<u8>,
     budget: EchoOperationBudgetV1,
 ) -> Vec<u8> {
-    EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         basis,
@@ -678,7 +678,7 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -694,13 +694,13 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the generated-style invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo independently admits the installed operation invocation");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Prepared(prepared) = preparation else {
@@ -864,7 +864,7 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         let basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the current basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             basis,
@@ -876,8 +876,8 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         );
         let bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -945,7 +945,7 @@ fn a_prepared_program_cannot_substitute_for_installation_authority() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted = evaluating_host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &bytes)
         .expect("the installed operation invocation is admitted");
     let EchoOperationPreparationV1::Prepared(prepared) =
         evaluating_host.prepare_echo_operation_v1(admitted)
@@ -1032,7 +1032,7 @@ fn identical_program_bytes_do_not_merge_admitted_operation_identities() {
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
             );
             let admitted = host
-                .admit_echo_operation_invocation_v1(&invocation_policy(), &invocation)
+                .admit_echo_operation_invocation(&invocation_policy(), &invocation)
                 .expect("the exact package-specific invocation is admitted");
             let EchoOperationPreparationV1::Prepared(prepared) =
                 host.prepare_echo_operation_v1(admitted)
@@ -1278,16 +1278,16 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
     );
 
     let malformed = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &[0xff])
+        .admit_echo_operation_invocation(&invocation_policy(), &[0xff])
         .expect_err("malformed invocation bytes fail before routing");
     assert_eq!(
         malformed.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation
+        EchoOperationInvocationAdmissionErrorKind::MalformedInvocation
     );
 
     let wrong_profile = host
-        .admit_echo_operation_invocation_v1(
-            &EchoOperationInvocationAdmissionPolicyV1::new(
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
                 digest("wrong-authority-profile"),
                 digest("fixture-authority-grant"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1297,12 +1297,12 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         .expect_err("runtime authority policy remains independent of package identity");
     assert_eq!(
         wrong_profile.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::AuthorityProfileMismatch
+        EchoOperationInvocationAdmissionErrorKind::AuthorityProfileMismatch
     );
 
     let wrong_grant = host
-        .admit_echo_operation_invocation_v1(
-            &EchoOperationInvocationAdmissionPolicyV1::new(
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
                 digest("fixture-authority-profile"),
                 digest("wrong-authority-grant"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1312,7 +1312,7 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         .expect_err("the operation package does not confer an invocation grant");
     assert_eq!(
         wrong_grant.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::AuthorityGrantMismatch
+        EchoOperationInvocationAdmissionErrorKind::AuthorityGrantMismatch
     );
 
     let over_budget_bytes = canonical_invocation(
@@ -1327,11 +1327,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(17, 4_096, 4_096),
     );
     let over_budget = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &over_budget_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &over_budget_bytes)
         .expect_err("delegation cannot exceed package or runtime policy");
     assert_eq!(
         over_budget.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded
+        EchoOperationInvocationAdmissionErrorKind::BudgetExceeded
     );
 
     let below_minimum_bytes = canonical_invocation(
@@ -1346,11 +1346,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(1, 1, 1),
     );
     let below_minimum = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &below_minimum_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &below_minimum_bytes)
         .expect_err("delegation below the program minimum fails during admission");
     assert_eq!(
         below_minimum.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded
+        EchoOperationInvocationAdmissionErrorKind::BudgetExceeded
     );
 
     let unbounded_basis_read_bytes = canonical_invocation(
@@ -1365,14 +1365,14 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(4, 64, 32),
     );
     let unbounded_basis_read = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &unbounded_basis_read_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &unbounded_basis_read_bytes)
         .expect_err("basis corroboration must fit inside the delegated read budget");
     assert_eq!(
         unbounded_basis_read.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded
+        EchoOperationInvocationAdmissionErrorKind::BudgetExceeded
     );
 
-    let wrong_operation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let wrong_operation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         "echo.fixture.DifferentOperation.v1",
         basis,
@@ -1388,11 +1388,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
     .to_canonical_bytes()
     .expect("the structurally valid wrong operation invocation encodes");
     let wrong_operation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &wrong_operation)
+        .admit_echo_operation_invocation(&invocation_policy(), &wrong_operation)
         .expect_err("a package digest does not confer another operation coordinate");
     assert_eq!(
         wrong_operation.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::OperationCoordinateMismatch
+        EchoOperationInvocationAdmissionErrorKind::OperationCoordinateMismatch
     );
 
     let uncorroborated_basis = host
@@ -1416,11 +1416,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let uncorroborated_basis = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &uncorroborated_basis_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &uncorroborated_basis_bytes)
         .expect_err("Echo must corroborate the application basis from current graph state");
     assert_eq!(
         uncorroborated_basis.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 }
 
@@ -1478,7 +1478,7 @@ fn private_evaluation_returns_typed_obstructions_without_parent_mutation() {
 
     for (invocation_bytes, expected_kind) in cases {
         let admitted = host
-            .admit_echo_operation_invocation_v1(&invocation_policy(), &invocation_bytes)
+            .admit_echo_operation_invocation(&invocation_policy(), &invocation_bytes)
             .expect("structurally lawful input reaches private evaluation");
         let EchoOperationPreparationV1::Obstructed(obstruction) =
             host.prepare_echo_operation_v1(admitted)
@@ -1500,11 +1500,11 @@ fn private_evaluation_returns_typed_obstructions_without_parent_mutation() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let error = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &unresolved_basis)
+        .admit_echo_operation_invocation(&invocation_policy(), &unresolved_basis)
         .expect_err("Echo must independently resolve the claimed application basis");
     assert_eq!(
         error.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 
     let state = host
@@ -1541,21 +1541,21 @@ fn obstruction_identity_binds_the_exact_invocation_admission() {
         b"after".to_vec(),
         EchoOperationBudgetV1::new(8, 512, 512),
     );
-    let first_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let first_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
-    let second_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let second_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(32, 8_192, 8_192),
     );
 
     let obstruct = |host: &mut TrustedRuntimeHost,
-                    policy: &EchoOperationInvocationAdmissionPolicyV1| {
+                    policy: &EchoOperationInvocationAdmissionPolicy| {
         let admitted = host
-            .admit_echo_operation_invocation_v1(policy, &invocation_bytes)
+            .admit_echo_operation_invocation(policy, &invocation_bytes)
             .expect("both runtime policies admit the same invocation bytes");
         let EchoOperationPreparationV1::Obstructed(obstruction) =
             host.prepare_echo_operation_v1(admitted)
@@ -1606,7 +1606,7 @@ fn identical_admitted_basis_and_inputs_produce_identical_consequences() {
             EchoOperationBudgetV1::new(16, 4_096, 4_096),
         );
         let admitted = host
-            .admit_echo_operation_invocation_v1(&invocation_policy(), &bytes)
+            .admit_echo_operation_invocation(&invocation_policy(), &bytes)
             .expect("the exact invocation is admitted");
         let EchoOperationPreparationV1::Prepared(prepared) =
             host.prepare_echo_operation_v1(admitted)
@@ -1829,7 +1829,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         let evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the exact basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             evaluation_basis,
@@ -1841,8 +1841,8 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         );
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1868,7 +1868,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         let second_evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, second_application_basis)
             .expect("Echo resolves the retained non-genesis parent basis");
-        let second_invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let second_invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             second_evaluation_basis,
@@ -1882,8 +1882,8 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             .to_canonical_bytes()
             .expect("the second invocation encodes");
         let second_admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1990,7 +1990,7 @@ fn create_from_absence_commits_one_new_node_and_attachment_patch() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2002,13 +2002,13 @@ fn create_from_absence_commits_one_new_node_and_attachment_patch() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo independently admits the create-from-absence invocation");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Prepared(prepared) = preparation else {
@@ -2071,7 +2071,7 @@ fn create_from_absence_refuses_when_the_node_already_exists() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2083,13 +2083,13 @@ fn create_from_absence_refuses_when_the_node_already_exists() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo independently admits the invocation");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2139,7 +2139,7 @@ fn update_precondition_still_refuses_when_the_node_is_absent() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2152,17 +2152,17 @@ fn update_precondition_still_refuses_when_the_node_is_absent() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the update invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let error = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect_err("the update profile must reject a missing node at admission");
     assert_eq!(
         error.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 }
 
@@ -2191,7 +2191,7 @@ fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2203,13 +2203,13 @@ fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo admits the invocation -- node type is not an admission-time check");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2241,7 +2241,7 @@ fn create_from_absence_refuses_when_the_node_exists_without_its_attachment() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2253,13 +2253,13 @@ fn create_from_absence_refuses_when_the_node_exists_without_its_attachment() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo admits the invocation -- a bare node still corroborates as absent");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2291,7 +2291,7 @@ fn create_from_absence_cannot_commit_after_its_parent_basis_changes() {
         let basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the current basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
             installed.package_id(),
             installed.operation_coordinate(),
             basis,
@@ -2302,8 +2302,8 @@ fn create_from_absence_cannot_commit_after_its_parent_basis_changes() {
         );
         let bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -2379,7 +2379,7 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
         let evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the exact current parent basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
             installed.package_id(),
             installed.operation_coordinate(),
             evaluation_basis,
@@ -2390,8 +2390,8 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
         );
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -2485,7 +2485,7 @@ fn create_from_absence_refuses_when_the_attachment_exists_without_its_node() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2497,13 +2497,13 @@ fn create_from_absence_refuses_when_the_attachment_exists_without_its_node() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect(
             "Echo admits the invocation -- the orphaned attachment honestly \
              corroborates as present, matching this invocation's claimed basis",
@@ -2553,7 +2553,7 @@ fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attac
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, claimed_absent_basis)
         .expect("Echo resolves a basis for the claimed proposition");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2565,17 +2565,17 @@ fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attac
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let error = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect_err("a dishonest absence claim against a real orphaned attachment must refuse");
     assert_eq!(
         error.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 }
 
@@ -2604,7 +2604,7 @@ fn create_from_absence_charges_the_node_record_against_the_write_budget() {
     // 64 (node type + attachment type) + replacement.len() = 71: the correct
     // requirement. This budget sits strictly between the two.
     let insufficient_for_node_record = EchoOperationBudgetV1::new(3, 64, 70);
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2616,13 +2616,13 @@ fn create_from_absence_charges_the_node_record_against_the_write_budget() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("admission's coarser check does not itself meter the write charge");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2661,7 +2661,7 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2674,13 +2674,13 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the update invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo admits the invocation -- node type is not an admission-time check");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -3370,7 +3370,7 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
                     )
                     .expect("the exact absent-node basis resolves");
                 let invocation =
-                    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                    EchoOperationInvocation::anchored_node_attachment_create_if_absent(
                         installed.package_id(),
                         installed.operation_coordinate(),
                         basis,
@@ -3411,7 +3411,7 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
                         )
                         .expect("the delayed basis resolves");
                     stale_invocation = Some(
-                        EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                        EchoOperationInvocation::anchored_node_attachment_create_if_absent(
                             installed.package_id(),
                             installed.operation_coordinate(),
                             basis,
@@ -3749,7 +3749,7 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
             .echo_operation_evaluation_basis_v1(head_key, application_basis())
             .expect("Echo resolves the current exact parent basis");
         let unavailable_invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            EchoOperationInvocation::anchored_node_attachment_compare_and_set(
                 unavailable_package_id,
                 "echo.fixture.Unavailable.v1",
                 evaluation_basis,
@@ -3800,7 +3800,7 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
         ));
         assert_eq!(
             host.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
-            Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+            Some(EchoOperationInvocationAdmissionErrorKind::OperationUnavailable)
         );
         assert!(host
             .echo_operation_action_outcome_v1(&unavailable_submission_id)
@@ -3827,7 +3827,7 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
     assert!(steps.is_empty());
     assert_eq!(
         recovered.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
-        Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+        Some(EchoOperationInvocationAdmissionErrorKind::OperationUnavailable)
     );
     assert!(recovered
         .tick_once()
@@ -3870,7 +3870,7 @@ fn run_until_idle_continues_after_admission_only_progress() {
     let mut unavailable_envelopes = Vec::new();
     for ordinal in 0..4096_u32 {
         let unavailable_invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            EchoOperationInvocation::anchored_node_attachment_compare_and_set(
                 unavailable_package_id,
                 "echo.fixture.BoundedUnavailable.v1",
                 evaluation_basis,
@@ -3945,22 +3945,21 @@ fn action_outcome_attribution_ignores_application_controlled_scope_collisions() 
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis())
         .expect("Echo resolves the current exact parent basis");
-    let obstructed_invocation =
-        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
-            installed.package_id(),
-            installed.operation_coordinate(),
-            evaluation_basis,
-            digest("fixture-authority-grant"),
-            EchoOperationBudgetV1::new(16, 4_096, 4_096),
-            colliding_scope,
-            warp_core::echo_operation_atom_value_digest_v1(
-                make_type_id("operation-fixture-atom"),
-                b"before",
-            ),
-            b"must-not-appear".to_vec(),
-        )
-        .to_canonical_bytes()
-        .expect("the scope-collision invocation is canonical");
+    let obstructed_invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        colliding_scope,
+        warp_core::echo_operation_atom_value_digest_v1(
+            make_type_id("operation-fixture-atom"),
+            b"before",
+        ),
+        b"must-not-appear".to_vec(),
+    )
+    .to_canonical_bytes()
+    .expect("the scope-collision invocation is canonical");
     let obstructed_envelope = warp_core::echo_operation_action_envelope_v1(
         IngressTarget::ExactHead { key: head_key },
         obstructed_invocation,
@@ -4593,7 +4592,7 @@ fn creation_action_invocation(
             warp_core::echo_operation_anchored_node_absent_application_basis_v1(node),
         )
         .expect("Echo resolves the creation basis");
-    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -7186,4 +7185,212 @@ fn shared_catalog_preserves_action_execution_and_recovery_in_both_program_instal
             .expect("recovery");
         assert_eq!(recovered.certificate.recovered_indexes_root, root);
     }
+}
+
+#[test]
+fn current_invocation_admits_effect_grants_without_an_invented_anchor() {
+    use current_effect_publication_fixture as publication;
+    use warp_core::EchoOperationInvocationAdmissionErrorKind as Refusal;
+    use warp_core::{EchoOperationInvocation, EchoOperationInvocationAdmissionPolicy};
+    let (mut host, head, _) = fixture_host();
+    let installed = install_effect_catalog_fixture(&mut host);
+    let input = publication::encoded(&CanonicalValueV1::Integer(42));
+    let app_basis = EchoOperationApplicationBasisV1::new(
+        publication::hash(
+            b"echo:operation-profile:v1\0",
+            b"echo.operation.basis.edict-effect/v1",
+        ),
+        publication::hash(b"echo:operation-edict-effect-basis:v1\0", &input),
+    );
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, app_basis)
+        .expect("actual parent");
+    let basis_value = publication::map([
+        (
+            "worldline_id",
+            CanonicalValueV1::Bytes(head.worldline_id.as_bytes().to_vec()),
+        ),
+        (
+            "head_id",
+            CanonicalValueV1::Bytes(head.head_id.as_bytes().to_vec()),
+        ),
+        (
+            "worldline_tick",
+            CanonicalValueV1::Integer(i128::from(basis.worldline_tick().as_u64())),
+        ),
+        ("commit_global_tick", CanonicalValueV1::Null),
+        (
+            "state_root",
+            CanonicalValueV1::Bytes(basis.state_root().to_vec()),
+        ),
+        (
+            "commit_id",
+            CanonicalValueV1::Bytes(basis.commit_id().to_vec()),
+        ),
+        (
+            "application_basis_schema_identity",
+            CanonicalValueV1::Bytes(app_basis.schema_identity().to_vec()),
+        ),
+        (
+            "application_basis_value_identity",
+            CanonicalValueV1::Bytes(app_basis.value_identity().to_vec()),
+        ),
+    ]);
+    let bytes = publication::encoded(&publication::map([
+        ("schema", publication::text("echo.operation-invocation/v1")),
+        ("kind", publication::text("edict-effect-program/v1")),
+        (
+            "package_id",
+            CanonicalValueV1::Bytes(installed.package_identity().to_vec()),
+        ),
+        (
+            "operation_coordinate",
+            publication::text(installed.operation_coordinate()),
+        ),
+        ("authority_grant_identity", publication::id(9)),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(1)),
+                ("read_bytes", CanonicalValueV1::Integer(0)),
+                ("write_bytes", CanonicalValueV1::Integer(0)),
+            ]),
+        ),
+        ("evaluation_basis", basis_value),
+        ("application_input_bytes", CanonicalValueV1::Bytes(input)),
+    ]));
+    let policy = EchoOperationInvocationAdmissionPolicy::new(
+        [8; 32],
+        [9; 32],
+        EchoOperationBudgetV1::new(1, 0, 0),
+    );
+    let admitted = host
+        .admit_echo_operation_invocation(&policy, &bytes)
+        .expect("independent grant and exact parent");
+    assert_eq!(admitted.invocation().anchor_node(), None);
+    let decoded = EchoOperationInvocation::from_canonical_bytes(&bytes).expect("current codec");
+    assert_eq!(decoded.to_canonical_bytes().expect("canonical"), bytes);
+    let refused = host
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
+                [8; 32],
+                [10; 32],
+                EchoOperationBudgetV1::new(1, 0, 0),
+            ),
+            &bytes,
+        )
+        .expect_err("a claimed grant is not an owner admission");
+    assert_eq!(
+        refused.kind(),
+        warp_core::EchoOperationInvocationAdmissionErrorKind::AuthorityGrantMismatch
+    );
+    for (profile, grant, budget, expected) in [
+        (
+            [7; 32],
+            [9; 32],
+            EchoOperationBudgetV1::new(1, 0, 0),
+            Refusal::AuthorityProfileMismatch,
+        ),
+        (
+            [8; 32],
+            [9; 32],
+            EchoOperationBudgetV1::new(0, 0, 0),
+            Refusal::BudgetExceeded,
+        ),
+    ] {
+        let rejected = host
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(profile, grant, budget),
+                &bytes,
+            )
+            .expect_err("independent owner restriction");
+        assert_eq!(rejected.kind(), expected);
+    }
+    for (key, value, expected) in [
+        (
+            "package_id",
+            publication::id(77),
+            Refusal::OperationUnavailable,
+        ),
+        (
+            "operation_coordinate",
+            publication::text("app.other@1"),
+            Refusal::OperationCoordinateMismatch,
+        ),
+        (
+            "application_input_bytes",
+            CanonicalValueV1::Bytes(publication::encoded(&CanonicalValueV1::Integer(43))),
+            Refusal::ApplicationInputMismatch,
+        ),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(2)),
+                ("read_bytes", CanonicalValueV1::Integer(0)),
+                ("write_bytes", CanonicalValueV1::Integer(0)),
+            ]),
+            Refusal::BudgetExceeded,
+        ),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(1)),
+                ("read_bytes", CanonicalValueV1::Integer(1)),
+                ("write_bytes", CanonicalValueV1::Integer(0)),
+            ]),
+            Refusal::BudgetExceeded,
+        ),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(1)),
+                ("read_bytes", CanonicalValueV1::Integer(0)),
+                ("write_bytes", CanonicalValueV1::Integer(1)),
+            ]),
+            Refusal::BudgetExceeded,
+        ),
+    ] {
+        let mut altered = decode_canonical_cbor_v1(&bytes).expect("fixture map");
+        publication::set(&mut altered, key, value);
+        let rejected = host
+            .admit_echo_operation_invocation(&policy, &publication::encoded(&altered))
+            .expect_err("substitution refused");
+        assert_eq!(rejected.kind(), expected, "{key}");
+    }
+    for key in [
+        "state_root",
+        "commit_id",
+        "head_id",
+        "application_basis_schema_identity",
+    ] {
+        let mut altered = decode_canonical_cbor_v1(&bytes).expect("fixture map");
+        let CanonicalValueV1::Map(ref mut entries) = altered else {
+            panic!("map")
+        };
+        let parent = &mut entries
+            .iter_mut()
+            .find(|(key, _)| key == &publication::text("evaluation_basis"))
+            .expect("parent")
+            .1;
+        publication::set(parent, key, publication::id(99));
+        assert!(
+            host.admit_echo_operation_invocation(&policy, &publication::encoded(&altered))
+                .is_err(),
+            "forged {key}"
+        );
+    }
+    match host.prepare_echo_operation_v1(admitted) {
+        EchoOperationPreparationV1::Obstructed(obstruction) => assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::OperationUnavailable
+        ),
+        EchoOperationPreparationV1::Prepared(_) => {
+            panic!("grant admission must not manufacture an effect execution")
+        }
+    }
+    assert_eq!(
+        host.echo_operation_evaluation_basis_v1(head, app_basis)
+            .expect("unchanged runtime parent"),
+        basis
+    );
 }

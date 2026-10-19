@@ -76,7 +76,7 @@ require_literal "$readme" 'These corridors are not one pipeline with optional so
 require_literal "$readme" 'The current Wesley compatibility path is:'
 require_literal "$readme" 'The current Edict provider-v1 compatibility path is:'
 require_literal "$readme" 'The current executable-operation runtime slice is:'
-require_literal "$readme" 'installed data-only EchoOperationProgramV1'
+require_literal "$readme" 'installed data-only EchoOperationProgram'
 require_literal "$readme" 'The first two paths are callback-shaped compatibility infrastructure.'
 require_literal "$readme" 'The host supplies no application matcher, executor, or'
 require_literal "$readme" 'Deterministic runtime judgments'

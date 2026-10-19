@@ -4,7 +4,6 @@
 #![cfg(feature = "trusted_runtime")]
 #![allow(clippy::expect_used, clippy::panic)]
 use echo_edict_canonical::CanonicalValueV1 as V;
-use warp_core::edict_effects::EffectPackageError;
 use warp_core::ExecutableOperationPackage;
 use warp_core::TypeId;
 #[path = "common/edict_effect_publication.rs"]

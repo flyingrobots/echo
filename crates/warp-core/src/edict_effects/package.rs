@@ -17,9 +17,6 @@ pub enum EffectPackageError {
     /// The publication has malformed or inconsistent fields or profiles.
     #[error("invalid effect package")]
     InvalidPackage,
-    /// The invocation has malformed or inconsistent package, input or basis fields.
-    #[error("invalid effect invocation")]
-    InvalidInvocation,
 }
 /// Prepared authored-effect program payload, without execution authority.
 #[derive(Debug, Clone, PartialEq, Eq)]

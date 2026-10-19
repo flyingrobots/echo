@@ -24,11 +24,11 @@ use warp_core::{
     echo_operation_action_envelope_v1, echo_operation_anchored_node_application_basis_v1,
     echo_operation_atom_value_digest_v1, echo_operation_package_id_v1, make_edge_id, make_head_id,
     make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
-    EchoOperationAdmissionPolicy, EchoOperationBudgetV1, EchoOperationInvocationAdmissionPolicyV1,
-    EchoOperationInvocationV1, EdgeRecord, EngineBuilder, GraphStore, InboxPolicy, IngressEnvelope,
-    IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost,
-    TrustedRuntimeWalConfig, TypeId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey,
+    EchoOperationAdmissionPolicy, EchoOperationBudgetV1, EchoOperationInvocation,
+    EchoOperationInvocationAdmissionPolicy, EdgeRecord, EngineBuilder, GraphStore, InboxPolicy,
+    IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode, SchedulerKind,
+    TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey,
 };
 
 const OPERATION: &str = "examples.cas_echo@1.updateCell";
@@ -239,7 +239,7 @@ impl Scene {
         host.install_admitted_echo_operation_package(admitted)
             .expect("the package is installed");
         host.install_echo_operation_action_admission_policy_v1(
-            EchoOperationInvocationAdmissionPolicyV1::new(
+            EchoOperationInvocationAdmissionPolicy::new(
                 profile("cas.echo.authority.local-demo/v1"),
                 GRANT,
                 budget(),
@@ -286,7 +286,7 @@ impl Scene {
         ]))
         .expect("application input encodes");
         let invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input(
+            EchoOperationInvocation::anchored_node_attachment_compare_and_set_with_application_input(
                 echo_operation_package_id_v1(&self.package),
                 OPERATION,
                 basis,

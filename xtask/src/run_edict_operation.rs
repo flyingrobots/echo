@@ -25,7 +25,7 @@ use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionPolicy,
     EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationResultV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
+    EchoOperationInvocation, EchoOperationInvocationAdmissionPolicy,
     EchoOperationObstructionKindV1, EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId,
     NodeKey, NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, TypeId, WorldlineId, WorldlineRuntime,
@@ -265,7 +265,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         b"echo:edict-operation-runner-authority-grant:v1\0",
         &package_id.as_hash(),
     );
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         package.authority_profile_identity,
         authority_grant_identity,
         package.budget,
@@ -1182,7 +1182,7 @@ fn invocation(
     let evaluation_basis = fixture
         .host
         .echo_operation_evaluation_basis_v1(fixture.head, application_basis)?;
-    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+    EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
         package_id,
         &package.operation_coordinate,
         evaluation_basis,

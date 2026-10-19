@@ -7,6 +7,15 @@
 
 ### Changed
 
+- Invocations now use one `EchoOperationInvocation`, codec, owner policy and
+  admitted token for fixed and authored-effect program kinds. The current
+  schema has an explicit kind and no invented anchor for effects; historical
+  invocation schemas and the duplicate effect decoder were removed. Owner
+  admission checks installed meaning, independent grants, all budget axes,
+  canonical input binding and the actual exact parent. Authored-effect Action
+  execution remains unfinished and refuses explicitly.
+
+
 - Installation now uses one `InstalledEchoOperation`, runtime-owner API, engine
   catalog, retained record codec and recovery collection for all program kinds.
   The duplicate effect installation module and schema-version dispatch were

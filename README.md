@@ -172,6 +172,12 @@ ingress boundary, support provider-native reads, or turn package metadata into
 runtime authority. Echo separately retains the Wesley compatibility path for
 host-constructed `InstalledContractPackage` values.
 
+Current operation invocations use one `EchoOperationInvocation` codec and owner
+admission API across program kinds. Authored-effect invocations bind canonical
+input to an actual exact parent and an independent owner grant, without a fixed
+node anchor. Their compiled instruction execution and Action integration remain
+unfinished and refuse explicitly. See the [current invocation contract](docs/topics/GeneratedRules.md#current-invocation-input-basis-and-owner-grant-admission).
+
 Separately, Echo can now admit and install an exact canonical
 `ExecutableOperationPackage`, admit an exact-basis invocation under explicit
 authority and delegated budget, evaluate its data-only

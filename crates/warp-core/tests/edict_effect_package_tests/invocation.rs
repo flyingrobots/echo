@@ -2,11 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Invocation byte/basis binding without runtime authority admission.
 use super::*;
-use warp_core::edict_effects::EffectInvocationV2;
+use warp_core::EchoOperationInvocation;
 fn invocation(input: Vec<u8>) -> V {
     let package_bytes = encoded(&package(&program()));
     map([
-        ("schema", text("echo.operation-invocation/v2")),
+        ("schema", text("echo.operation-invocation/v1")),
+        ("kind", text("edict-effect-program/v1")),
         ("authority_grant_identity", id(9)),
         (
             "delegated_budget",
@@ -43,8 +44,8 @@ fn invocation(input: Vec<u8>) -> V {
         ),
     ])
 }
-fn check(v: &V) -> Result<EffectInvocationV2, EffectPackageError> {
-    EffectInvocationV2::prepare(
+fn check(v: &V) -> Result<EchoOperationInvocation, warp_core::EchoOperationArtifactErrorV1> {
+    EchoOperationInvocation::prepare(
         &encoded(v),
         &prepare(&package(&program())).expect("package"),
     )
@@ -65,13 +66,16 @@ fn basis_set(v: &mut V, k: &str, x: V) {
 fn invocation_binds_canonical_input_and_retains_the_exact_v1_parent_basis() {
     let value = invocation(encoded(&V::Integer(42)));
     let bytes = encoded(&value);
-    let prepared = check(&value).expect("valid V2 invocation");
-    assert_eq!(prepared.canonical_bytes(), bytes);
+    let prepared = check(&value).expect("valid current invocation");
+    assert_eq!(prepared.to_canonical_bytes().expect("canonical"), bytes);
     assert_eq!(
-        prepared.identity(),
-        hash(b"echo:operation-invocation:v2\0", &bytes)
+        prepared.identity().expect("identity").as_hash(),
+        hash(b"echo:operation-invocation:v1\0", &bytes)
     );
-    assert_eq!(prepared.application_input_bytes(), encoded(&V::Integer(42)));
+    assert_eq!(
+        prepared.application_input_bytes(),
+        Some(encoded(&V::Integer(42)).as_slice())
+    );
     assert_eq!(prepared.evaluation_basis().state_root(), [7; 32]);
     assert_eq!(prepared.evaluation_basis().commit_id(), [5; 32]);
     assert_eq!(prepared.authority_grant_identity(), [9; 32]);
@@ -103,7 +107,7 @@ fn altered_input_cannot_keep_its_predecessors_basis_digest() {
 #[test]
 fn invocation_refuses_cross_version_cross_package_and_cross_operation_substitution() {
     for (k, v) in [
-        ("schema", text("echo.operation-invocation/v1")),
+        ("schema", text("echo.operation-invocation/v2")),
         ("package_id", id(5)),
         ("operation_coordinate", text("app.other@1")),
         ("authority_grant_identity", V::Bytes(vec![9; 31])),
@@ -112,7 +116,7 @@ fn invocation_refuses_cross_version_cross_package_and_cross_operation_substituti
         set(&mut value, k, v);
         assert!(check(&value).is_err());
     }
-    for k in ["node", "replacement_bytes", "extra"] {
+    for k in ["node", "node_id", "warp_id", "replacement_bytes", "extra"] {
         let mut value = invocation(encoded(&V::Integer(42)));
         add(&mut value, k, id(1));
         assert!(check(&value).is_err());
@@ -193,14 +197,15 @@ fn input_uses_the_selected_packages_smaller_ceiling_and_exact_outer_bytes() {
             ),
         );
         assert_eq!(
-            EffectInvocationV2::prepare(&encoded(&value), &selected).is_ok(),
+            EchoOperationInvocation::prepare(&encoded(&value), &selected).is_ok(),
             accepts
         );
     }
     let mut bytes = encoded(&invocation(encoded(&V::Integer(42))));
     bytes.push(0);
-    assert!(
-        EffectInvocationV2::prepare(&bytes, &prepare(&package(&program())).expect("original"))
-            .is_err()
-    );
+    assert!(EchoOperationInvocation::prepare(
+        &bytes,
+        &prepare(&package(&program())).expect("original")
+    )
+    .is_err());
 }

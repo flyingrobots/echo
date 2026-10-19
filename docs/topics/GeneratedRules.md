@@ -34,10 +34,9 @@ preserve. This decision supersedes the V1-preservation and dual-version
 installation/recovery direction in proposal #889, earlier compatibility
 promises, and any historical decision that would require old and new versions
 of the same structure to coexist in a main crate. The implementation sections
-below describe the branch's current behavior, including its still-present
-V1/V2 duplication; that duplication does not satisfy this policy. A completed
-authored-effect bridge must replace it with one current format and update
-the compiler, runtime, tests, and consumers together.
+below describe the current consolidation. Any remaining parallel historical
+implementations must be replaced while updating the compiler, runtime, tests,
+and consumers together.
 
 ## Current Implementation
 
@@ -724,29 +723,42 @@ physical evaluation arena.
 
 This is byte binding and contract preparation. Compiler bytes and upstream
 identities do not infer verifier approval or validate the compiled instruction
-language. The invocation definitions described below still require consolidation under the one-current-
-version policy. Preparation does not grant invocation or mutation authority.
+language. Static preparation does not grant invocation or mutation authority.
 
-### V2 invocation input and basis preparation
+### Current invocation input, basis and owner grant admission
 
-`EffectInvocationV2::prepare` checks an exact canonical V2 invocation against a
-prepared current publication. Only its seven specified fields are accepted. The
-package identity and operation coordinate must match the publication. The
-application input must itself be canonical CBOR and fit that program's declared
-input ceiling, including the input's CBOR framing bytes. The delegated budget
-requires at least one step and cannot exceed any package budget axis.
+`EchoOperationInvocation` is the sole current invocation representation and
+codec. All program kinds use `echo.operation-invocation/v1` with an explicit
+`kind` field. Fixed compare-and-set and create-if-absent kinds retain their
+actual node anchor and optional projected input. Authored-effect invocations
+require canonical application input and carry no node anchor or replacement
+bytes. Unknown fields, old kind-specific invocation schemas, and the former
+V2 schema refuse. Historical decoders and compatibility aliases were removed.
+Observation envelopes remain a separate fixed-operation reading precondition;
+nested envelopes and effect observation wrappers refuse.
 
-The invocation retains the existing V1 evaluation-basis map. Its application
-basis schema is the effect-basis profile, and its application basis value is
-BLAKE3 over `echo:operation-edict-effect-basis:v1\0`, the input byte length as a
-little-endian u64, and the exact input bytes. An input change requires a new
-basis digest and changes the versioned V2 invocation identity. The decoder
-reuses V1's basis parser without changing its encoding or identity recipe.
+`EchoOperationInvocation::prepare` checks the selected publication identity,
+operation, program kind, input contract and each package budget axis. Effect
+input must fit the selected program's declared ceiling, including CBOR framing.
+The effect application-basis schema is the effect-basis profile. Its value is
+BLAKE3 over `echo:operation-edict-effect-basis:v1\0`, the input length as a
+little-endian u64, and the exact input bytes. All kinds share the current
+invocation identity domain. Static preparation establishes neither runtime
+freshness nor a grant.
 
-This is static preparation. It retains a claimed grant identity and parent;
-it does not verify a grant, establish installation, resolve the current
-frontier or admit an Action. Runtime-owned authority checks and evaluation at
-the named parent remain required before effects can be accepted.
+`TrustedRuntimeHost::admit_echo_operation_invocation` resolves the installed
+package and the actual current worldline parent. The common owner policy checks
+the independent authority profile and grant identity, delegated package and
+policy budgets, input binding and exact parent evidence. The admitted token
+retains the current invocation, including the absence of an effect anchor.
+Admission does not execute the compiled program or mutate the graph.
+
+Authored-effect Action execution remains unfinished. Scheduler admission and
+Action recovery inspection explicitly refuse that unsupported execution path;
+the direct preparation seam yields an obstruction rather than a fabricated
+successful patch. Fixed-operation Action evaluation and recovery continue to
+use their real anchors. Compiled instruction execution, the physical arena,
+derived effects, Tick integration and effect decision recovery remain required.
 
 ### Runtime-owner package policy admission
 

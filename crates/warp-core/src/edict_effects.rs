@@ -4,12 +4,11 @@
 //!
 //! Current publications and effect invocations can be prepared, and the runtime
 //! owner can admit package policy and retain/install its catalog evidence. None
-//! of those crossings grants invocation rights or enables effect execution.
+//! of those package crossings grants invocation rights or enables effect execution.
+//! The common owner invocation API separately checks grants and exact parents.
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
 //! logical meters. Compiled effect instructions, a physical evaluation arena,
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
-mod invocation;
-pub use invocation::EffectInvocationV2;
 mod package;
 pub use package::{EffectPackageError, EffectProgram};
 mod frame;

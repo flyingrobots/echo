@@ -365,6 +365,9 @@ pub(crate) fn predicate(
     meter.step(depth)?;
     let (op, left, right) = match predicate {
         Predicate::Compare { op, left, right } => (op, left, right),
+        Predicate::Not(value) => {
+            return self::predicate(value, locals, helpers, meter, depth + 1).map(|value| !value);
+        }
         Predicate::All(values) => {
             for value in values {
                 if !self::predicate(value, locals, helpers, meter, depth + 1)? {

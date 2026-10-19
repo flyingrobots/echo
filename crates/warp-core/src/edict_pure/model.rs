@@ -58,6 +58,7 @@ pub(crate) enum Predicate {
         right: Expr,
     },
     All(Vec<Predicate>),
+    Not(Box<Predicate>),
 }
 
 #[derive(Debug, PartialEq, Eq)]

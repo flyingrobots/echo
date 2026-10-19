@@ -215,6 +215,12 @@ impl Parser<'_> {
 
     pub fn predicate(&mut self, value: &Value, depth: usize) -> Result<Predicate, Error> {
         self.enter(depth)?;
+        if text_field(value, "kind")? == "not" {
+            exact_fields(value, &["kind", "value"])?;
+            return Ok(Predicate::Not(Box::new(
+                self.predicate(field(value, "value")?, depth + 1)?,
+            )));
+        }
         if text_field(value, "kind")? == "all" {
             exact_fields(value, &["kind", "values"])?;
             let values = array(field(value, "values")?)?;

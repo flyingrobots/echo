@@ -68,6 +68,8 @@ pub mod domain;
 )]
 mod echo_operation;
 #[cfg(feature = "trusted_runtime")]
+pub mod edict_effects;
+#[cfg(feature = "trusted_runtime")]
 pub mod edict_pure;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_read;

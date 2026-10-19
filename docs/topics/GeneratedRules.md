@@ -343,6 +343,31 @@ keys survive patch identity, retained provenance encoding and native Tick
 metadata. This does not admit a new authored-effect profile or qualify a
 generated package for release.
 
+Under `trusted_runtime`, `edict_effects::EffectRangeReadSession` provides a
+host recording primitive for the effect interpreter under construction. The
+host selects an immutable frontier, allowed range edge types and a whole-bucket
+limit. Setup hashes the real state into a worldline/tick/state-root basis and
+indexes the policy outside the per-read budget. This reading coordinate is not
+an admitted commit-parent identity: the reachable state root alone does not
+bind unreachable by-key data. Admission must also bind the writer head and
+commit identity. A forbidden type fails before per-read state lookup, charging
+or recording. An allowed read first charges one step and
+64 read bytes to resolve the source node, recording presence or absence. If the
+source exists, the exact bucket length is checked against the edge limit, then
+charged in full at one step and 64 read bytes per edge before inspecting any
+edge. Nonmatching types count. A refused charge adds nothing to consumption;
+the already-observed source node remains recorded when a later scan refuses.
+Successful reads retain the source node and the full source/type range,
+including empty and absent ranges; matching edge records are ordered by edge
+ID. These are real values observed at the selected basis, not caller claims.
+
+This trusted-host primitive has no mutation or admission path. Its returned
+values and transcript use host-owned materializations, not the future bounded
+interpreter arena. Complete node/atom footprint law, portal-chain authority,
+allocation accounting, interpreted read instructions, derived effects and
+installed-profile validation remain required before a new authored-effect
+profile can ship. Existing package profiles and graph accessors are unchanged.
+
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.
 

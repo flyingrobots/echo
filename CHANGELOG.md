@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### Added
+
+- Trusted-host range-read sessions record real source-node and range values at
+  an immutable basis, including absence and empty ranges. They reject forbidden
+  types before access and charge whole buckets before inspection. This is read
+  infrastructure for the unfinished authored-effect interpreter, without new
+  installation or mutation authority.
+
 ### Fixed
 
 - Outgoing-edge bucket iterators expose their exact remaining length without

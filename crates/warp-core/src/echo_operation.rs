@@ -525,20 +525,20 @@ impl EchoOperationBudgetV1 {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct EchoOperationBudgetMeterV1 {
+pub(crate) struct EchoOperationBudgetMeterV1 {
     delegated: EchoOperationBudgetV1,
     consumed: EchoOperationBudgetV1,
 }
 
 impl EchoOperationBudgetMeterV1 {
-    const fn new(delegated: EchoOperationBudgetV1) -> Self {
+    pub(crate) const fn new(delegated: EchoOperationBudgetV1) -> Self {
         Self {
             delegated,
             consumed: EchoOperationBudgetV1::new(0, 0, 0),
         }
     }
 
-    fn charge(&mut self, steps: u64, read_bytes: u64, write_bytes: u64) -> bool {
+    pub(crate) fn charge(&mut self, steps: u64, read_bytes: u64, write_bytes: u64) -> bool {
         let Some(next_steps) = self.consumed.steps.checked_add(steps) else {
             return false;
         };
@@ -556,7 +556,7 @@ impl EchoOperationBudgetMeterV1 {
         true
     }
 
-    const fn consumed(self) -> EchoOperationBudgetV1 {
+    pub(crate) const fn consumed(self) -> EchoOperationBudgetV1 {
         self.consumed
     }
 }

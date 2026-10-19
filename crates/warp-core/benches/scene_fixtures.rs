@@ -60,18 +60,35 @@ fn main() {
     );
 
     for tier in [think_append::S, think_append::M] {
-        run_f5(tier, SEED, ROUNDS);
+        run_f5(tier, SEED, ROUNDS, "legacy-reachable-v1", think_append::run);
+    }
+    // The experimental application-root commitment profile (M2).
+    #[cfg(feature = "application_root_profile")]
+    for tier in [think_append::S, think_append::M] {
+        run_f5(tier, SEED, ROUNDS, "application-radix-v0", |tier, seed| {
+            think_append::run_with_profile(
+                tier,
+                seed,
+                warp_core::application_root::CommitmentProfile::ApplicationRadixV0,
+            )
+        });
     }
 }
 
-fn run_f5(tier: think_append::Tier, seed: u64, rounds: usize) {
+fn run_f5(
+    tier: think_append::Tier,
+    seed: u64,
+    rounds: usize,
+    profile: &str,
+    execute: fn(think_append::Tier, u64) -> think_append::Observation,
+) {
     let spec = think_append::workload(tier, seed);
     let script = think_append::script(tier, seed);
     let digest = hex32(&think_append::script_digest(&script));
     let expect = think_append::expectation(tier, Some(&digest));
     let workload_id = spec.workload_id();
     println!(
-        "F5 tier={} seed={seed} workload_id={} expectation_id={} script_digest={digest}",
+        "F5 tier={} profile={profile} seed={seed} workload_id={} expectation_id={} script_digest={digest}",
         tier.name,
         hex32(&workload_id),
         hex32(&expect.expectation_id(&workload_id))
@@ -96,7 +113,7 @@ fn run_f5(tier: think_append::Tier, seed: u64, rounds: usize) {
     let mut per_append = Vec::new();
     let mut comparable = true;
     for round in 1..=rounds {
-        let obs = think_append::run(tier, seed);
+        let obs = execute(tier, seed);
         let class = think_append::validate(tier, &script, &expect, &obs);
         let a = &obs.accounting;
         println!(
@@ -128,7 +145,7 @@ fn run_f5(tier: think_append::Tier, seed: u64, rounds: usize) {
         let committed = tier.appends as f64;
         let append_p50 = median_ms(appends);
         println!(
-            "F5 tier={} summary valid_rounds={rounds} append_p50_ms={append_p50:.2} \
+            "F5 tier={} profile={profile} summary valid_rounds={rounds} append_p50_ms={append_p50:.2} \
              per_append_p50_ms={:.4} useful_throughput_appends_per_s={:.0} replay_p50_ms={:.2}",
             tier.name,
             median_ms(per_append),
@@ -137,7 +154,7 @@ fn run_f5(tier: think_append::Tier, seed: u64, rounds: usize) {
         );
     } else {
         println!(
-            "F5 tier={} summary withheld: not every round was valid",
+            "F5 tier={} profile={profile} summary withheld: not every round was valid",
             tier.name
         );
     }

@@ -435,8 +435,26 @@ pub struct Timings {
 
 /// Executes the fixture through the trusted host.
 pub fn run(tier: Tier, seed: u64) -> Observation {
+    run_from(tier, seed, initial_state(tier))
+}
+
+/// Executes the fixture on a worldline with commitment profile `profile`
+/// (M2, experimental).
+#[cfg(feature = "application_root_profile")]
+pub fn run_with_profile(
+    tier: Tier,
+    seed: u64,
+    profile: warp_core::application_root::CommitmentProfile,
+) -> Observation {
+    run_from(
+        tier,
+        seed,
+        initial_state(tier).with_commitment_profile(profile),
+    )
+}
+
+fn run_from(tier: Tier, seed: u64, initial: WorldlineState) -> Observation {
     let script = script(tier, seed);
-    let initial = initial_state(tier);
     let base = initial.clone();
     let worldline_id = WorldlineId::from_bytes(WORLDLINE);
     let mut runtime = WorldlineRuntime::new();

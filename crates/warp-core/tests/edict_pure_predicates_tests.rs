@@ -23,12 +23,15 @@ fn field<'a>(value: &'a Value, name: &str) -> &'a Value {
         .1
 }
 fn input(start: u64, end: u64) -> Vec<u8> {
+    input_with_replacement(start, end, "λ\r\n".as_bytes())
+}
+fn input_with_replacement(start: u64, end: u64, replacement: &[u8]) -> Vec<u8> {
     encode(&Value::Map(
         [
             ("bufferId", Value::Bytes(vec![1; 32])),
             ("basisHeadId", Value::Bytes(vec![2; 32])),
             ("text", Value::Bytes(b"0123456789abcdef".to_vec())),
-            ("replacement", Value::Bytes("λ\r\n".as_bytes().to_vec())),
+            ("replacement", Value::Bytes(replacement.to_vec())),
             ("startByte", Value::Integer(start.into())),
             ("endByte", Value::Integer(end.into())),
         ]
@@ -79,6 +82,69 @@ fn public_compiler_conjunction_executes_and_rejects_each_failed_range_guard() {
     for (start, end) in [(11, 7), (7, 17), (17, 17), (0, u64::MAX)] {
         assert_eq!(
             evaluate(&bytes, pin, &input(start, end), limits()),
+            Err(EvaluationError::InputConstraintFailed("where.0".into()))
+        );
+    }
+}
+
+#[test]
+fn public_compiler_negation_rejects_unchanged_text_after_checked_range() {
+    let bytes = hex::decode(
+        include_str!("fixtures/edict-pure-negation/executable-operation-package.cbor.hex").trim(),
+    )
+    .unwrap();
+    let pin: [u8; 32] =
+        hex::decode("54ed142d19a230398da34a4754d3650842943401338678579833d725da785dd9")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    assert_eq!(
+        digest("echo.operation-package/v1", &decode(&bytes).unwrap()).unwrap(),
+        pin
+    );
+    let report = decode(
+        &hex::decode(
+            include_str!("fixtures/edict-pure-negation/verification-report.cbor.hex").trim(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(field(&report, "outcome"), &Value::Text("accepted".into()));
+    assert_eq!(
+        field(field(&report, "package"), "digest"),
+        &Value::Array(vec![
+            Value::Text("sha256".into()),
+            Value::Bytes(pin.to_vec())
+        ])
+    );
+    for (start, end, replacement, expected) in [
+        (7, 11, &b"X"[..], &b"0123456Xbcdef"[..]),
+        (7, 11, &b""[..], &b"0123456bcdef"[..]),
+        (0, 0, &b"A"[..], &b"A0123456789abcdef"[..]),
+    ] {
+        let supplied = input_with_replacement(start, end, replacement);
+        let result = evaluate(&bytes, pin, &supplied, limits()).unwrap();
+        assert_eq!(
+            field(&decode(&result.output).unwrap(), "updatedText"),
+            &Value::Bytes(expected.to_vec())
+        );
+        assert_eq!(result, evaluate(&bytes, pin, &supplied, limits()).unwrap());
+    }
+    for (start, end, replacement) in [
+        (7, 11, &b"789a"[..]),
+        (0, 0, &b""[..]),
+        (16, 16, &b""[..]),
+        (0, 16, &b"0123456789abcdef"[..]),
+        (11, 7, &b"X"[..]),
+        (7, 17, &b"X"[..]),
+    ] {
+        assert_eq!(
+            evaluate(
+                &bytes,
+                pin,
+                &input_with_replacement(start, end, replacement),
+                limits()
+            ),
             Err(EvaluationError::InputConstraintFailed("where.0".into()))
         );
     }

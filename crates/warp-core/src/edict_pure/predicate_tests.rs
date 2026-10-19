@@ -156,3 +156,76 @@ fn conjunction_decoder_and_combined_depth_refuse_exact_boundary_overruns() {
         }
     }
 }
+
+fn not(value: Value) -> Value {
+    map([("kind", Value::Text("not".into())), ("value", value)])
+}
+#[test]
+fn negation_inverts_truth_and_charges_each_wrapper() -> Result<(), Error> {
+    for (wire, expected, steps) in [
+        (not(wire_compare(1, 1)), false, 6),
+        (not(wire_compare(1, 2)), true, 6),
+        (not(not(wire_compare(1, 1))), true, 7),
+        (
+            all(vec![not(wire_compare(1, 2)), wire_compare(2, 2)]),
+            true,
+            12,
+        ),
+    ] {
+        let value = parse(&wire, MAX_PROGRAM_NODES)?;
+        check_roots(&BTreeMap::new(), [], [&value])?;
+        let mut meter = Meter::new(limits(steps));
+        assert_eq!(
+            predicate(&value, &BTreeMap::new(), &BTreeMap::new(), &mut meter, 0)?,
+            expected
+        );
+        assert_eq!(meter.usage().0, steps);
+        assert_eq!(
+            predicate(
+                &value,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &mut Meter::new(limits(steps - 1)),
+                0
+            ),
+            Err(Error::StepBudgetExceeded)
+        );
+    }
+    Ok(())
+}
+#[test]
+fn negation_decoder_refuses_malformed_children_and_limit_overruns() {
+    for wire in [
+        map([("kind", Value::Text("not".into()))]),
+        map([
+            ("kind", Value::Text("not".into())),
+            ("value", wire_compare(1, 1)),
+            ("extra", Value::Integer(0)),
+        ]),
+        not(Value::Integer(0)),
+        not(map([("kind", Value::Text("unknown".into()))])),
+    ] {
+        assert_eq!(parse(&wire, MAX_PROGRAM_NODES), Err(Error::InvalidArtifact));
+    }
+    assert_eq!(
+        parse(&not(wire_compare(1, 1)), 1),
+        Err(Error::UnsupportedProgram)
+    );
+    for (wrappers, accepted) in [(63, true), (64, false)] {
+        let mut wire = wire_compare(1, 1);
+        for index in 0..wrappers {
+            wire = if index % 2 == 0 {
+                not(wire)
+            } else {
+                all(vec![wire])
+            };
+        }
+        let result = parse(&wire, MAX_PROGRAM_NODES)
+            .and_then(|value| check_roots(&BTreeMap::new(), [], [&value]));
+        if accepted {
+            assert_eq!(result, Ok(()));
+        } else {
+            assert_eq!(result, Err(Error::UnsupportedProgram));
+        }
+    }
+}

@@ -35,6 +35,8 @@ use warp_core::{
 
 const RULE_NAME: &str = "bench/work";
 static WORK: AtomicU64 = AtomicU64::new(0);
+/// Hashed once, so the executor's time is its work and its write.
+static RESULT_TYPE: std::sync::OnceLock<warp_core::TypeId> = std::sync::OnceLock::new();
 
 fn work_rule() -> RewriteRule {
     let id: Hash = {
@@ -57,7 +59,7 @@ fn work_rule() -> RewriteRule {
                 local_id: *n,
             }),
             value: Some(AttachmentValue::Atom(AtomPayload::new(
-                make_type_id("bench/work-result"),
+                *RESULT_TYPE.get_or_init(|| make_type_id("bench/work-result")),
                 bytes::Bytes::copy_from_slice(&value),
             ))),
         });

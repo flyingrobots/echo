@@ -1,0 +1,8 @@
+root commit_with_receipt: 3327 samples, blake3 996 (29.9%)
+   427  12.8%  warp_core::engine_impl::Engine::commit_with_receipt
+   282   8.5%  warp_core::tick_patch::encode_slots
+   280   8.4%  warp_core::receipt::compute_tick_receipt_digest
+     4   0.1%  warp_core::tick_patch::compute_patch_digest_v2
+     1   0.0%  warp_core::receipt::TickReceipt::new
+     1   0.0%  warp_core::engine_impl::Engine::compute_rule_pack_id
+     1   0.0%  warp_core::snapshot::compute_state_root_with

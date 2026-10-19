@@ -105,7 +105,10 @@ fn percentile(sorted: &[Duration], p: f64) -> f64 {
 fn main() {
     let sizes = setting_list("ECHO_BENCH_REWRITES", &[1, 100, 10_000]);
     let works = setting_list("ECHO_BENCH_WORK", &[0, 100, 1_000]);
-    let workers = setting_list("ECHO_BENCH_WORKERS", &[1, 2, 4, 8, 16, 18, 32, 64, 128, 256]);
+    let workers = setting_list(
+        "ECHO_BENCH_WORKERS",
+        &[1, 2, 4, 8, 16, 18, 32, 64, 128, 256],
+    );
     let rounds = setting_list("ECHO_BENCH_ROUNDS", &[15])[0];
     println!("| rewrites | hashes/rewrite | workers | commit p50 ms | commit p90 ms |");
     println!("| ---: | ---: | ---: | ---: | ---: |");
@@ -117,15 +120,29 @@ fn main() {
                 for _ in 0..rounds {
                     let root = make_node_id("bench-root");
                     let mut store = GraphStore::default();
-                    store.insert_node(root, NodeRecord { ty: make_type_id("bench-root") });
+                    store.insert_node(
+                        root,
+                        NodeRecord {
+                            ty: make_type_id("bench-root"),
+                        },
+                    );
                     let ids: Vec<NodeId> = (0..n)
                         .map(|i| make_node_id(&format!("bench-entity-{i}")))
                         .collect();
                     for id in &ids {
-                        store.insert_node(*id, NodeRecord { ty: make_type_id("bench-entity") });
+                        store.insert_node(
+                            *id,
+                            NodeRecord {
+                                ty: make_type_id("bench-entity"),
+                            },
+                        );
                     }
-                    let mut engine = EngineBuilder::new(store, root).workers(worker_count).build();
-                    engine.register_rule(work_rule()).expect("the rule registers");
+                    let mut engine = EngineBuilder::new(store, root)
+                        .workers(worker_count)
+                        .build();
+                    engine
+                        .register_rule(work_rule())
+                        .expect("the rule registers");
                     let tx = engine.begin();
                     for id in &ids {
                         engine.apply(tx, RULE_NAME, id).expect("the rule applies");

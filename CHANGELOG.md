@@ -27,6 +27,11 @@
 
 ### Changed
 
+- An engine tick with one execution worker, the default, runs it on the
+  calling thread instead of spawning and joining a scoped thread. On F5
+  tier M under the application-root profile this cut an append from 274 ms
+  to 173 ms; several workers still each get a thread. Results are
+  unchanged. See `docs/studies/stack-profile.md`.
 - Engine ticks no longer attribute footprint-conflict rejections while they
   commit. `Engine::footprint_blockers` derives the blocking applied entries on
   demand from the tick's starting state, so a contended tick no longer pays a

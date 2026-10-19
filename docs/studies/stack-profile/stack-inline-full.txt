@@ -1,0 +1,4 @@
+summed test-result lines: passed 2036 failed 3 ignored 10
+test footprint_conflict_is_final_without_hidden_retry ... FAILED
+test serious_external_consumer_fixture_proves_hosted_contract_path ... FAILED
+test special_files_are_rejected_before_a_read_attempt ... FAILED

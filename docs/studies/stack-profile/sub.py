@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # Inclusive samples per function, counting only stacks under ROOT (outermost occurrence).
 import re, sys, collections

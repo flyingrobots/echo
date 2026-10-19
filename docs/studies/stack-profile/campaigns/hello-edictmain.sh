@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # hello-echo's runtime witness with Edict at its origin/main tip, and Echo at main and at the stack.
 # No expected hash is overridden.
 set -u

@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # Combo campaign: M2 alone (2e79511c) vs M2+lazy (e9f29548), without footprint_enforce_release
 # (Edict checks footprints at compile time), then the combo's full suite with every other compatible feature.
 set -u

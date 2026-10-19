@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # For stacks under ROOT, attribute blake3 samples (outermost blake3 frame) to the nearest warp_core ancestor.
 import re, sys, collections

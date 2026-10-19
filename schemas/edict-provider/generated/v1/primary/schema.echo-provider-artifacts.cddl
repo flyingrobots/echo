@@ -994,11 +994,16 @@ generated-artifact-profile = {
   operations: { * tstr => generated-operation },
 }
 
-echo-generated-type = echo-generated-string-alias / echo-generated-record
+echo-generated-type = echo-generated-string-alias / echo-generated-bytes-alias / echo-generated-record
 echo-generated-string-alias = {
   kind: "coreStringAlias",
   maxScalarValues: uint,
   canonical: "raw-utf8",
+}
+echo-generated-bytes-alias = {
+  kind: "coreBytesAlias",
+  minBytes: uint,
+  maxBytes: uint,
 }
 echo-generated-record = {
   kind: "record",

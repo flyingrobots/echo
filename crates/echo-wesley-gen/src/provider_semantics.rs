@@ -160,6 +160,13 @@ pub enum SemanticTypeShape {
         /// Edict Core string canonicalization selected by the alias.
         canonical: CoreStringCanonicalization,
     },
+    /// Echo-owned alias of a bounded Edict Core byte sequence.
+    CoreBytesAlias {
+        /// Inclusive minimum byte length.
+        min_bytes: u64,
+        /// Inclusive maximum byte length.
+        max_bytes: u64,
+    },
     /// Record whose fields form a name-keyed set.
     Record {
         /// Record fields.
@@ -179,6 +186,16 @@ impl SemanticTypeShape {
                 "String<max={max_scalar_values},canonical={}>",
                 canonical.as_str()
             )),
+            Self::CoreBytesAlias {
+                min_bytes,
+                max_bytes,
+            } => Some(if min_bytes == max_bytes {
+                format!("Bytes<exact={min_bytes}>")
+            } else if *min_bytes == 0 {
+                format!("Bytes<max={max_bytes}>")
+            } else {
+                format!("Bytes<min={min_bytes},max={max_bytes}>")
+            }),
             Self::Record { .. } => None,
         }
     }
@@ -196,7 +213,7 @@ impl SemanticTypeShape {
             } => Some(
                 u64::try_from(value.chars().count()).is_ok_and(|count| count <= *max_scalar_values),
             ),
-            Self::Record { .. } => None,
+            Self::CoreBytesAlias { .. } | Self::Record { .. } => None,
         }
     }
 }
@@ -893,6 +910,8 @@ pub enum ProviderSemanticSourceErrorKind {
     UnknownType,
     /// A record type graph was recursive and therefore not bounded.
     UnboundedTypeGraph,
+    /// A byte alias minimum exceeded its maximum.
+    InvalidByteBounds,
     /// An Echo-owned type attempted to claim an Edict Core coordinate.
     CoreTypeAuthorityMismatch,
     /// A write-class reference was absent.
@@ -988,6 +1007,7 @@ impl ProviderSemanticSourceErrorKind {
             Self::FactAuthorityMismatch => "fact-authority-mismatch",
             Self::UnknownType => "unknown-type",
             Self::UnboundedTypeGraph => "unbounded-type-graph",
+            Self::InvalidByteBounds => "invalid-byte-bounds",
             Self::CoreTypeAuthorityMismatch => "core-type-authority-mismatch",
             Self::UnknownWriteClass => "unknown-write-class",
             Self::InvalidWriteClass => "invalid-write-class",
@@ -2007,6 +2027,19 @@ fn validate_type_references(
                 "edict.core/v1",
             ));
         }
+        if let SemanticTypeShape::CoreBytesAlias {
+            min_bytes,
+            max_bytes,
+        } = declaration.shape
+        {
+            if min_bytes > max_bytes {
+                return Err(ProviderSemanticSourceError::new(
+                    ProviderSemanticSourceErrorKind::InvalidByteBounds,
+                    &declaration.identity.coordinate,
+                    "minBytes<=maxBytes",
+                ));
+            }
+        }
         if let SemanticTypeShape::Record { fields } = &declaration.shape {
             ensure_unique_keys("types.fields.name", fields.iter().map(|field| &field.name))?;
             for field in fields {
@@ -2024,8 +2057,12 @@ fn validate_type_references(
         .types
         .iter()
         .filter_map(|declaration| {
-            matches!(declaration.shape, SemanticTypeShape::CoreStringAlias { .. })
-                .then_some(declaration.identity.coordinate.as_str())
+            matches!(
+                declaration.shape,
+                SemanticTypeShape::CoreStringAlias { .. }
+                    | SemanticTypeShape::CoreBytesAlias { .. }
+            )
+            .then_some(declaration.identity.coordinate.as_str())
         })
         .collect::<BTreeSet<_>>();
     loop {
@@ -2056,7 +2093,8 @@ fn validate_type_references(
                     .find(|field| !bounded.contains(field.type_coordinate.as_str()))
                     .map(|field| field.type_coordinate.as_str())
                     .unwrap_or_default(),
-                SemanticTypeShape::CoreStringAlias { .. } => "",
+                SemanticTypeShape::CoreStringAlias { .. }
+                | SemanticTypeShape::CoreBytesAlias { .. } => "",
             };
             return Err(ProviderSemanticSourceError::new(
                 ProviderSemanticSourceErrorKind::UnboundedTypeGraph,

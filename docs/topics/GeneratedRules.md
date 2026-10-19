@@ -739,8 +739,16 @@ the named parent remain required before effects can be accepted.
 ### Runtime-owner V2 package policy admission
 
 `TrustedRuntimeHost::admit_echo_operation_package_v2` crosses the independent
-package-policy boundary. Its `EffectPackageAdmissionPolicyV2` pins the exact
-V2 publication, operation coordinate, authority profile and maximum budget.
+package-policy boundary. The single `EchoOperationAdmissionPolicy` pins exact
+publication identity bytes, operation coordinate, authority profile and maximum
+budget. Both current package admission entry points consume this definition,
+its retained codec and its shared operation/authority/budget checks, and return
+the same `EchoOperationAdmissionError` / `EchoOperationAdmissionErrorKind`
+refusal contract. The old version-specific policy and refusal definitions have
+been removed without compatibility aliases. This is one completed part of the
+format cutover; the separate package and installation definitions below still
+require replacement under the one-current-version policy.
+
 The host prepares the canonical package, checks all four independent policy
 conditions, and returns opaque `AdmittedEffectPackageV2` evidence. Every budget
 axis is checked separately. A matching package pin alone cannot substitute for
@@ -751,15 +759,16 @@ existing `echo:operation-admission-policy:v1\0` recipe with the V2 package pin.
 The package-admission identity uses `echo:operation-package-admission:v2\0`
 followed by the package and policy identities. Two policies admitting the same
 program therefore produce distinct policy/admission evidence while retaining
-the same package identity. V1 identities and policy admission are unchanged.
+the same package identity. A policy pins a raw 32-byte identity; the package
+decoder, rather than the policy type, selects the publication identity domain.
 
 This method is exposed only on the runtime-owner host, under its existing
 `native_rule_bootstrap` and `trusted_runtime` feature boundary. The restricted
 application handle cannot admit a package. The opaque token has no public
 constructor and is not an installation, invocation grant or scheduler Action.
-Compiled effect instruction validation, V2 installation, grant admission,
-evaluation and retained recovery remain necessary before this program can
-execute. This policy crossing does not infer compiler/verifier approval from
+Compiled effect instruction validation, grant admission, evaluation and
+retained decision recovery remain necessary before this program can execute.
+This policy crossing does not infer compiler/verifier approval from
 publication identities or confer graph mutation authority.
 
 ### Runtime-owned V2 installation and retained catalog recovery

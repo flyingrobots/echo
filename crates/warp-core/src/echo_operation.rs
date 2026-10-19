@@ -2368,18 +2368,18 @@ impl EchoOperationArtifactErrorV1 {
 
 /// Independently pinned policy for the package-admission crossing.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EchoOperationAdmissionPolicyV1 {
-    expected_package_id: EchoOperationPackageIdV1,
+pub struct EchoOperationAdmissionPolicy {
+    expected_package_id: Hash,
     expected_operation_coordinate: String,
     expected_authority_profile_identity: Hash,
     maximum_budget: EchoOperationBudgetV1,
 }
 
-impl EchoOperationAdmissionPolicyV1 {
+impl EchoOperationAdmissionPolicy {
     /// Pins the exact package, public operation, authority profile, and budget ceiling.
     #[must_use]
     pub fn exact(
-        expected_package_id: EchoOperationPackageIdV1,
+        expected_package_id: Hash,
         expected_operation_coordinate: impl Into<String>,
         expected_authority_profile_identity: Hash,
         maximum_budget: EchoOperationBudgetV1,
@@ -2392,17 +2392,50 @@ impl EchoOperationAdmissionPolicyV1 {
         }
     }
 
-    fn identity(&self) -> Hash {
+    /// Identity of the independently selected pins and resource ceiling.
+    #[must_use]
+    pub fn identity(&self) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(b"echo:operation-admission-policy:v1\0");
-        hasher.update(&self.expected_package_id.as_hash());
+        hasher.update(&self.expected_package_id);
         hash_len_bytes(&mut hasher, self.expected_operation_coordinate.as_bytes());
         hasher.update(&self.expected_authority_profile_identity);
         hash_budget(&mut hasher, self.maximum_budget);
         hasher.finalize().into()
     }
 
-    fn to_value(&self) -> CanonicalValueV1 {
+    pub(crate) const fn expected_package_identity(&self) -> Hash {
+        self.expected_package_id
+    }
+
+    pub(crate) fn validate_contract(
+        &self,
+        operation_coordinate: &str,
+        authority_profile_identity: Hash,
+        budget: EchoOperationBudgetV1,
+    ) -> Result<(), EchoOperationAdmissionError> {
+        if operation_coordinate != self.expected_operation_coordinate {
+            return Err(admission_error(
+                EchoOperationAdmissionErrorKind::OperationCoordinateMismatch,
+                "package operation coordinate differs from admission policy",
+            ));
+        }
+        if authority_profile_identity != self.expected_authority_profile_identity {
+            return Err(admission_error(
+                EchoOperationAdmissionErrorKind::AuthorityProfileMismatch,
+                "package authority profile differs from admission policy",
+            ));
+        }
+        if !budget.fits_within(self.maximum_budget) {
+            return Err(admission_error(
+                EchoOperationAdmissionErrorKind::BudgetExceedsPolicy,
+                "package budget ceiling exceeds admission policy",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn to_value(&self) -> CanonicalValueV1 {
         map_value([
             (
                 "expected_authority_profile_identity",
@@ -2412,15 +2445,14 @@ impl EchoOperationAdmissionPolicyV1 {
                 "expected_operation_coordinate",
                 text_value(&self.expected_operation_coordinate),
             ),
-            (
-                "expected_package_id",
-                hash_value(self.expected_package_id.as_hash()),
-            ),
+            ("expected_package_id", hash_value(self.expected_package_id)),
             ("maximum_budget", self.maximum_budget.to_value()),
         ])
     }
 
-    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_value(
+        value: CanonicalValueV1,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let mut fields = exact_text_map(
             value,
             &[
@@ -2431,10 +2463,7 @@ impl EchoOperationAdmissionPolicyV1 {
             ],
         )?;
         let policy = Self {
-            expected_package_id: EchoOperationPackageIdV1(take_hash(
-                &mut fields,
-                "expected_package_id",
-            )?),
+            expected_package_id: take_hash(&mut fields, "expected_package_id")?,
             expected_operation_coordinate: take_text(&mut fields, "expected_operation_coordinate")?,
             expected_authority_profile_identity: take_hash(
                 &mut fields,
@@ -2456,7 +2485,7 @@ impl EchoOperationAdmissionPolicyV1 {
 
 /// Stable package-admission refusal categories.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EchoOperationAdmissionErrorKindV1 {
+pub enum EchoOperationAdmissionErrorKind {
     /// Exact package bytes were malformed or unsupported.
     ArtifactInvalid,
     /// Exact package bytes did not match the independently pinned package id.
@@ -2472,16 +2501,16 @@ pub enum EchoOperationAdmissionErrorKindV1 {
 /// One structured package-admission refusal.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error("{kind:?}: {detail}")]
-pub struct EchoOperationAdmissionErrorV1 {
-    kind: EchoOperationAdmissionErrorKindV1,
+pub struct EchoOperationAdmissionError {
+    kind: EchoOperationAdmissionErrorKind,
     detail: String,
     artifact: Option<EchoOperationArtifactErrorV1>,
 }
 
-impl EchoOperationAdmissionErrorV1 {
+impl EchoOperationAdmissionError {
     /// Returns the stable refusal category.
     #[must_use]
-    pub const fn kind(&self) -> EchoOperationAdmissionErrorKindV1 {
+    pub const fn kind(&self) -> EchoOperationAdmissionErrorKind {
         self.kind
     }
 
@@ -2500,7 +2529,7 @@ pub struct AdmittedExecutableOperationPackageV1 {
     package_id: EchoOperationPackageIdV1,
     admission_policy_id: Hash,
     admission_id: EchoOperationPackageAdmissionIdV1,
-    admission_policy: EchoOperationAdmissionPolicyV1,
+    admission_policy: EchoOperationAdmissionPolicy,
 }
 
 /// Installed executable meaning. Installation does not itself authorize an invocation.
@@ -2525,7 +2554,7 @@ pub struct InstalledEchoOperationV1 {
         Option<std::sync::Arc<EchoOperationApplicationResultProjectionV1>>,
     canonical_package_bytes: std::sync::Arc<[u8]>,
     admission_policy_id: Hash,
-    admission_policy: std::sync::Arc<EchoOperationAdmissionPolicyV1>,
+    admission_policy: std::sync::Arc<EchoOperationAdmissionPolicy>,
 }
 
 impl InstalledEchoOperationV1 {
@@ -2586,7 +2615,7 @@ impl InstalledEchoOperationV1 {
     /// Returns the admission policy installed with the package. Every
     /// prepared Action shares it with the registry.
     #[must_use]
-    pub fn admission_policy(&self) -> &EchoOperationAdmissionPolicyV1 {
+    pub fn admission_policy(&self) -> &EchoOperationAdmissionPolicy {
         &self.admission_policy
     }
 
@@ -2623,40 +2652,27 @@ impl EchoOperationInstallationErrorV1 {
 }
 
 pub(crate) fn admit_package_v1(
-    policy: &EchoOperationAdmissionPolicyV1,
+    policy: &EchoOperationAdmissionPolicy,
     canonical_package_bytes: Vec<u8>,
-) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionErrorV1> {
+) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionError> {
     let package_id = echo_operation_package_id_v1(&canonical_package_bytes);
-    if package_id != policy.expected_package_id {
+    if package_id.as_hash() != policy.expected_package_id {
         return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::PackageIdentityMismatch,
+            EchoOperationAdmissionErrorKind::PackageIdentityMismatch,
             "exact package bytes differ from the independently pinned package id",
         ));
     }
     let package = ExecutableOperationPackageV1::from_canonical_bytes(&canonical_package_bytes)
-        .map_err(|artifact| EchoOperationAdmissionErrorV1 {
-            kind: EchoOperationAdmissionErrorKindV1::ArtifactInvalid,
+        .map_err(|artifact| EchoOperationAdmissionError {
+            kind: EchoOperationAdmissionErrorKind::ArtifactInvalid,
             detail: artifact.to_string(),
             artifact: Some(artifact),
         })?;
-    if package.operation_coordinate != policy.expected_operation_coordinate {
-        return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::OperationCoordinateMismatch,
-            "package operation coordinate differs from admission policy",
-        ));
-    }
-    if package.authority_profile_identity != policy.expected_authority_profile_identity {
-        return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::AuthorityProfileMismatch,
-            "package authority profile differs from admission policy",
-        ));
-    }
-    if !package.budget_ceiling.fits_within(policy.maximum_budget) {
-        return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::BudgetExceedsPolicy,
-            "package budget ceiling exceeds admission policy",
-        ));
-    }
+    policy.validate_contract(
+        &package.operation_coordinate,
+        package.authority_profile_identity,
+        package.budget_ceiling,
+    )?;
     let admission_policy_id = policy.identity();
     Ok(AdmittedExecutableOperationPackageV1 {
         package,
@@ -2750,7 +2766,7 @@ pub(crate) fn recover_installation_v1(
         ));
     }
     let admission_policy =
-        EchoOperationAdmissionPolicyV1::from_value(take_field(&mut fields, "admission_policy")?)?;
+        EchoOperationAdmissionPolicy::from_value(take_field(&mut fields, "admission_policy")?)?;
     let admission_policy_id = take_hash(&mut fields, "admission_policy_id")?;
     if admission_policy.identity() != admission_policy_id {
         return Err(invalid_structure(
@@ -7848,11 +7864,11 @@ pub(crate) fn invalid_structure(detail: impl Into<String>) -> EchoOperationArtif
     artifact_error(EchoOperationArtifactErrorKindV1::InvalidStructure, detail)
 }
 
-fn admission_error(
-    kind: EchoOperationAdmissionErrorKindV1,
+pub(crate) fn admission_error(
+    kind: EchoOperationAdmissionErrorKind,
     detail: impl Into<String>,
-) -> EchoOperationAdmissionErrorV1 {
-    EchoOperationAdmissionErrorV1 {
+) -> EchoOperationAdmissionError {
+    EchoOperationAdmissionError {
         kind,
         detail: detail.into(),
         artifact: None,
@@ -8100,8 +8116,8 @@ mod tests {
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
             admit_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    package_id,
+                &EchoOperationAdmissionPolicy::exact(
+                    package_id.as_hash(),
                     operation_coordinate,
                     authority_profile,
                     EchoOperationBudgetV1::new(8, 1_024, 1_024),
@@ -8219,8 +8235,8 @@ mod tests {
             package.application_result_projection = Some(projection);
             let valid = package.to_canonical_bytes().expect("valid package encodes");
             let policy_for = |bytes: &[u8]| {
-                EchoOperationAdmissionPolicyV1::exact(
-                    echo_operation_package_id_v1(bytes),
+                EchoOperationAdmissionPolicy::exact(
+                    echo_operation_package_id_v1(bytes).as_hash(),
                     package.operation_coordinate.clone(),
                     package.authority_profile_identity,
                     package.budget_ceiling,
@@ -8252,7 +8268,7 @@ mod tests {
                 .expect_err("program-incompatible projection must refuse before installation");
             assert_eq!(
                 error.kind(),
-                EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+                EchoOperationAdmissionErrorKind::ArtifactInvalid
             );
             assert_eq!(
                 error.artifact().expect("artifact failure").kind(),
@@ -8287,8 +8303,8 @@ mod tests {
         package.application_result_projection = Some(projection);
         let valid = package.to_canonical_bytes().expect("valid package encodes");
         let policy_for = |bytes: &[u8]| {
-            EchoOperationAdmissionPolicyV1::exact(
-                echo_operation_package_id_v1(bytes),
+            EchoOperationAdmissionPolicy::exact(
+                echo_operation_package_id_v1(bytes).as_hash(),
                 package.operation_coordinate.clone(),
                 package.authority_profile_identity,
                 package.budget_ceiling,
@@ -8325,7 +8341,7 @@ mod tests {
                 .expect_err("an unusable digest path must refuse before installation");
             assert_eq!(
                 error.kind(),
-                EchoOperationAdmissionErrorKindV1::ArtifactInvalid,
+                EchoOperationAdmissionErrorKind::ArtifactInvalid,
                 "{path:?}"
             );
             assert_eq!(
@@ -8974,8 +8990,8 @@ mod tests {
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
             admit_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    package_id,
+                &EchoOperationAdmissionPolicy::exact(
+                    package_id.as_hash(),
                     operation_coordinate,
                     authority_profile,
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -9209,8 +9225,8 @@ mod tests {
         );
         let bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&bytes);
-        let policy = EchoOperationAdmissionPolicyV1::exact(
-            package_id,
+        let policy = EchoOperationAdmissionPolicy::exact(
+            package_id.as_hash(),
             "echo.fixture.Retention.v1",
             digest(7),
             EchoOperationBudgetV1::new(8, 512, 512),
@@ -9297,8 +9313,8 @@ mod tests {
                 "field {field_name}"
             );
         }
-        let substituted_policy = EchoOperationAdmissionPolicyV1::exact(
-            installed.package_id,
+        let substituted_policy = EchoOperationAdmissionPolicy::exact(
+            installed.package_id.as_hash(),
             installed.operation_coordinate.to_string(),
             installed.authority_profile_identity,
             EchoOperationBudgetV1::new(9, 512, 512),

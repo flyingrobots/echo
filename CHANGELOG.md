@@ -5,6 +5,15 @@
 
 ## Unreleased
 
+### Changed
+
+- Operation package admission now uses one `EchoOperationAdmissionPolicy`,
+  one structured refusal contract, and shared authority/operation/budget checks.
+  Version-specific policy definitions were removed; runtime entry points,
+  retained recovery, compiler tooling, tests, and allocation witnesses use the
+  current API directly. Package and installation format consolidation remains
+  separate work.
+
 ### Added
 
 - Runtime-owned V2 installation retains exact policy and package evidence in the

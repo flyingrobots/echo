@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use warp_core::{
     echo_operation_anchored_node_application_basis_v1, echo_operation_atom_value_digest_v1,
     echo_operation_package_id_v1, make_head_id, make_node_id, make_type_id, make_warp_id,
-    AtomPayload, AttachmentValue, EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
+    AtomPayload, AttachmentValue, EchoOperationAdmissionPolicy, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
     EchoOperationPreparationV1, EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey,
     NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost, TypeId, WorldlineId,
@@ -183,8 +183,8 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
     let package_len = bytes.len();
     let admitted = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                echo_operation_package_id_v1(&bytes),
+            &EchoOperationAdmissionPolicy::exact(
+                echo_operation_package_id_v1(&bytes).as_hash(),
                 OPERATION,
                 profile("cas.echo.authority.local-demo/v1"),
                 budget(),

@@ -2,124 +2,22 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Runtime-owner package policy evidence, separate from installation.
 use super::{EffectPackageError, ExecutableOperationPackageV2};
-use crate::EchoOperationBudgetV1;
-/// Independently selected package-admission pins and budget ceiling.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EffectPackageAdmissionPolicyV2 {
-    pin: [u8; 32],
-    operation: String,
-    authority: [u8; 32],
-    maximum: EchoOperationBudgetV1,
-}
-impl EffectPackageAdmissionPolicyV2 {
-    /// Pins exact publication bytes, operation, authority profile and budget.
-    #[must_use]
-    pub fn exact(
-        pin: [u8; 32],
-        operation: impl Into<String>,
-        authority: [u8; 32],
-        maximum: EchoOperationBudgetV1,
-    ) -> Self {
-        Self {
-            pin,
-            operation: operation.into(),
-            authority,
-            maximum,
-        }
-    }
-    /// Policy identity using the existing V1 policy recipe and V2 package pin.
-    #[must_use]
-    pub fn identity(&self) -> [u8; 32] {
-        let mut h = blake3::Hasher::new();
-        h.update(b"echo:operation-admission-policy:v1\0");
-        h.update(&self.pin);
-        h.update(&(self.operation.len() as u64).to_le_bytes());
-        h.update(self.operation.as_bytes());
-        h.update(&self.authority);
-        h.update(&self.maximum.steps().to_le_bytes());
-        h.update(&self.maximum.read_bytes().to_le_bytes());
-        h.update(&self.maximum.write_bytes().to_le_bytes());
-        h.finalize().into()
-    }
-    pub(super) fn to_value(&self) -> echo_edict_canonical::CanonicalValueV1 {
-        use echo_edict_canonical::CanonicalValueV1 as V;
-        crate::echo_operation::map_value([
-            ("expected_package_id", V::Bytes(self.pin.to_vec())),
-            (
-                "expected_operation_coordinate",
-                V::Text(self.operation.clone()),
-            ),
-            (
-                "expected_authority_profile_identity",
-                V::Bytes(self.authority.to_vec()),
-            ),
-            ("maximum_budget", self.maximum.to_value()),
-        ])
-    }
-    pub(super) fn from_value(
-        value: &echo_edict_canonical::CanonicalValueV1,
-    ) -> Result<Self, crate::EchoOperationArtifactErrorV1> {
-        use super::package::hash;
-        use crate::edict_pure::values::{exact_fields, field, text};
-        let read = || {
-            exact_fields(
-                value,
-                &[
-                    "expected_package_id",
-                    "expected_operation_coordinate",
-                    "expected_authority_profile_identity",
-                    "maximum_budget",
-                ],
-            )?;
-            Ok::<_, crate::edict_pure::EvaluationError>((
-                hash(field(value, "expected_package_id")?)?,
-                text(field(value, "expected_operation_coordinate")?)?.to_owned(),
-                hash(field(value, "expected_authority_profile_identity")?)?,
-                field(value, "maximum_budget")?.clone(),
-            ))
-        };
-        let (pin, operation, authority, budget) = read()
-            .map_err(|_| crate::echo_operation::invalid_structure("invalid V2 admission policy"))?;
-        let maximum = EchoOperationBudgetV1::from_value(budget)?;
-        if operation.is_empty() || maximum.steps() == 0 {
-            return Err(crate::echo_operation::invalid_structure(
-                "invalid V2 policy coordinate or budget",
-            ));
-        }
-        Ok(Self::exact(pin, operation, authority, maximum))
-    }
-}
-/// Stable V2 package-admission refusal category.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum EffectAdmissionError {
-    /// Exact bytes differ from the independent package pin.
-    #[error("effect package identity differs from policy")]
-    PackageIdentityMismatch,
-    /// Canonical artifact structure or profile bindings are invalid.
-    #[error("invalid effect publication")]
-    ArtifactInvalid,
-    /// The package operation coordinate differs from policy.
-    #[error("effect operation differs from policy")]
-    OperationCoordinateMismatch,
-    /// The package authority profile differs from policy.
-    #[error("effect authority profile differs from policy")]
-    AuthorityProfileMismatch,
-    /// The publication requires more resources than policy permits.
-    #[error("effect package budget exceeds policy")]
-    BudgetExceedsPolicy,
-}
+use crate::echo_operation::admission_error;
+use crate::{
+    EchoOperationAdmissionError, EchoOperationAdmissionErrorKind, EchoOperationAdmissionPolicy,
+};
 /// Opaque evidence of runtime-owner admission, without installation or a grant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdmittedEffectPackageV2 {
     package: ExecutableOperationPackageV2,
     policy_id: [u8; 32],
     id: [u8; 32],
-    policy: EffectPackageAdmissionPolicyV2,
+    policy: EchoOperationAdmissionPolicy,
 }
 impl AdmittedEffectPackageV2 {
     /// Independent policy retained alongside its identity.
     #[must_use]
-    pub const fn admission_policy(&self) -> &EffectPackageAdmissionPolicyV2 {
+    pub const fn admission_policy(&self) -> &EchoOperationAdmissionPolicy {
         &self.policy
     }
     /// Exact publication admitted by the runtime owner.
@@ -139,27 +37,27 @@ impl AdmittedEffectPackageV2 {
     }
 }
 pub(crate) fn admit(
-    policy: &EffectPackageAdmissionPolicyV2,
+    policy: &EchoOperationAdmissionPolicy,
     bytes: Vec<u8>,
-) -> Result<AdmittedEffectPackageV2, EffectAdmissionError> {
-    let package =
-        ExecutableOperationPackageV2::prepare(&bytes, policy.pin).map_err(|error| match error {
-            EffectPackageError::IdentityMismatch => EffectAdmissionError::PackageIdentityMismatch,
-            _ => EffectAdmissionError::ArtifactInvalid,
+) -> Result<AdmittedEffectPackageV2, EchoOperationAdmissionError> {
+    let package = ExecutableOperationPackageV2::prepare(&bytes, policy.expected_package_identity())
+        .map_err(|error| {
+            let kind = match error {
+                EffectPackageError::IdentityMismatch => {
+                    EchoOperationAdmissionErrorKind::PackageIdentityMismatch
+                }
+                _ => EchoOperationAdmissionErrorKind::ArtifactInvalid,
+            };
+            admission_error(
+                kind,
+                "effect publication differs from its pin or canonical contract",
+            )
         })?;
-    if package.operation_coordinate() != policy.operation {
-        return Err(EffectAdmissionError::OperationCoordinateMismatch);
-    }
-    if package.authority_profile_identity() != policy.authority {
-        return Err(EffectAdmissionError::AuthorityProfileMismatch);
-    }
-    let budget = package.budget_ceiling();
-    if budget.steps() > policy.maximum.steps()
-        || budget.read_bytes() > policy.maximum.read_bytes()
-        || budget.write_bytes() > policy.maximum.write_bytes()
-    {
-        return Err(EffectAdmissionError::BudgetExceedsPolicy);
-    }
+    policy.validate_contract(
+        package.operation_coordinate(),
+        package.authority_profile_identity(),
+        package.budget_ceiling(),
+    )?;
     let policy_id = policy.identity();
     let mut h = blake3::Hasher::new();
     h.update(b"echo:operation-package-admission:v2\0");

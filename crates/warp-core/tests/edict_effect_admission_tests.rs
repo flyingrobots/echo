@@ -6,7 +6,8 @@
 #[path = "common/edict_effect_publication.rs"]
 mod fixture;
 use fixture::*;
-use warp_core::edict_effects::{EffectAdmissionError, EffectPackageAdmissionPolicyV2};
+use warp_core::EchoOperationAdmissionErrorKind;
+use warp_core::EchoOperationAdmissionPolicy;
 use warp_core::{
     make_node_id, make_type_id, EchoOperationBudgetV1, EngineBuilder, GraphStore, NodeRecord,
     TrustedRuntimeHost, WorldlineRuntime,
@@ -28,8 +29,8 @@ fn policy(
     operation: &str,
     authority: [u8; 32],
     budget: EchoOperationBudgetV1,
-) -> EffectPackageAdmissionPolicyV2 {
-    EffectPackageAdmissionPolicyV2::exact(
+) -> EchoOperationAdmissionPolicy {
+    EchoOperationAdmissionPolicy::exact(
         hash(b"echo:operation-package:v2\0", bytes),
         operation,
         authority,
@@ -82,19 +83,19 @@ fn runtime_policy_refuses_operation_authority_and_budget_substitution() {
             "app.other@1",
             [8; 32],
             EchoOperationBudgetV1::new(1, 0, 0),
-            EffectAdmissionError::OperationCoordinateMismatch,
+            EchoOperationAdmissionErrorKind::OperationCoordinateMismatch,
         ),
         (
             "app.update@1",
             [9; 32],
             EchoOperationBudgetV1::new(1, 0, 0),
-            EffectAdmissionError::AuthorityProfileMismatch,
+            EchoOperationAdmissionErrorKind::AuthorityProfileMismatch,
         ),
         (
             "app.update@1",
             [8; 32],
             EchoOperationBudgetV1::new(0, 0, 0),
-            EffectAdmissionError::BudgetExceedsPolicy,
+            EchoOperationAdmissionErrorKind::BudgetExceedsPolicy,
         ),
     ] {
         assert_eq!(
@@ -102,7 +103,8 @@ fn runtime_policy_refuses_operation_authority_and_budget_substitution() {
                 &policy(&bytes, operation, authority, budget),
                 bytes.clone()
             )
-            .expect_err("independent policy refuses"),
+            .expect_err("independent policy refuses")
+            .kind(),
             want
         );
     }
@@ -123,8 +125,9 @@ fn pin_identity_does_not_substitute_for_supported_artifact_validation() {
             ),
             bytes
         )
-        .expect_err("pinned but unsupported"),
-        EffectAdmissionError::ArtifactInvalid
+        .expect_err("pinned but unsupported")
+        .kind(),
+        EchoOperationAdmissionErrorKind::ArtifactInvalid
     );
     let bytes = encoded(&package(&program()));
     let pin = policy(
@@ -135,8 +138,9 @@ fn pin_identity_does_not_substitute_for_supported_artifact_validation() {
     );
     assert_eq!(
         host.admit_echo_operation_package_v2(&pin, bytes)
-            .expect_err("wrong pin"),
-        EffectAdmissionError::PackageIdentityMismatch
+            .expect_err("wrong pin")
+            .kind(),
+        EchoOperationAdmissionErrorKind::PackageIdentityMismatch
     );
 }
 #[test]
@@ -173,8 +177,9 @@ fn each_package_budget_axis_is_subject_to_the_independent_policy() {
                 ),
                 bytes
             )
-            .expect_err("ceiling exceeds policy"),
-            EffectAdmissionError::BudgetExceedsPolicy
+            .expect_err("ceiling exceeds policy")
+            .kind(),
+            EchoOperationAdmissionErrorKind::BudgetExceedsPolicy
         );
     }
 }
@@ -216,3 +221,30 @@ fn admission_evidence_changes_with_policy_even_when_exact_program_bytes_do_not()
 }
 #[path = "edict_effect_admission_tests/installation.rs"]
 mod installation;
+
+#[test]
+fn all_operation_publications_use_one_policy_and_one_refusal_contract() {
+    let owner = host();
+    let pin = policy(
+        b"independent pin",
+        "app.update@1",
+        [8; 32],
+        EchoOperationBudgetV1::new(1, 0, 0),
+    );
+    // The array requires both host entry points to return the same error type.
+    // Neither decoder may accept a publication that differs from this pin.
+    let refusals = [
+        owner
+            .admit_echo_operation_package_v1(&pin, vec![0xa0])
+            .map(|_| ()),
+        owner
+            .admit_echo_operation_package_v2(&pin, vec![0xa0])
+            .map(|_| ()),
+    ];
+    for refusal in refusals {
+        assert_eq!(
+            refusal.expect_err("wrong pin").kind(),
+            warp_core::EchoOperationAdmissionErrorKind::PackageIdentityMismatch,
+        );
+    }
+}

@@ -72,8 +72,8 @@ use crate::{
     CausalFrontierRef, CausalReceiptHistoryObstruction, CausalReceiptHistoryPage,
     CausalReceiptHistoryRequest, ContractInverseAdmissionRequest, ContractInverseContext,
     ContractInverseDerivation, ContractInverseHistoryObstruction, ContractInverseObstruction,
-    ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
+    ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionError,
+    EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
     EchoOperationCommitErrorV1, EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
     EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
     EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionPolicyV1,
@@ -1109,21 +1109,18 @@ impl TrustedRuntimeHost {
     /// Application-facing handles cannot call this runtime-owner method:
     ///
     /// ```compile_fail,E0599
-    /// use warp_core::{TrustedRuntimeApp, edict_effects::EffectPackageAdmissionPolicyV2};
+    /// use warp_core::{TrustedRuntimeApp, EchoOperationAdmissionPolicy};
     /// fn application_cannot_admit(
-    ///     app: &TrustedRuntimeApp<'_>, policy: &EffectPackageAdmissionPolicyV2, bytes: Vec<u8>,
+    ///     app: &TrustedRuntimeApp<'_>, policy: &EchoOperationAdmissionPolicy, bytes: Vec<u8>,
     /// ) {
     ///     app.admit_echo_operation_package_v2(policy, bytes);
     /// }
     /// ```
     pub fn admit_echo_operation_package_v2(
         &self,
-        policy: &crate::edict_effects::EffectPackageAdmissionPolicyV2,
+        policy: &crate::EchoOperationAdmissionPolicy,
         canonical_package_bytes: Vec<u8>,
-    ) -> Result<
-        crate::edict_effects::AdmittedEffectPackageV2,
-        crate::edict_effects::EffectAdmissionError,
-    > {
+    ) -> Result<crate::edict_effects::AdmittedEffectPackageV2, EchoOperationAdmissionError> {
         crate::edict_effects::admit_effect_package_v2(policy, canonical_package_bytes)
     }
 
@@ -1134,9 +1131,9 @@ impl TrustedRuntimeHost {
     /// operation coordinate, invocability, or authority.
     pub fn admit_echo_operation_package_v1(
         &self,
-        policy: &EchoOperationAdmissionPolicyV1,
+        policy: &EchoOperationAdmissionPolicy,
         canonical_package_bytes: Vec<u8>,
-    ) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionErrorV1> {
+    ) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionError> {
         admit_package_v1(policy, canonical_package_bytes)
     }
 
@@ -7693,8 +7690,8 @@ mod tests {
             .expect("the legacy-index package is canonical");
         let package_id = crate::echo_operation_package_id_v1(&package_bytes);
         let admitted = admit_package_v1(
-            &crate::EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &crate::EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 operation_coordinate,
                 authority_profile_identity,
                 budget,

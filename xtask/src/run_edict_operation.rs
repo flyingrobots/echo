@@ -23,7 +23,7 @@ use warp_core::{
     echo_operation_atom_value_digest_v1,
     echo_operation_create_if_absent_target_profile_identity_v1, echo_operation_package_id_v1,
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
-    EchoOperationActionOutcomeV1, EchoOperationAdmissionPolicyV1,
+    EchoOperationActionOutcomeV1, EchoOperationAdmissionPolicy,
     EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationResultV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
     EchoOperationObstructionKindV1, EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId,
@@ -1089,8 +1089,8 @@ fn install_package(
 ) -> Result<()> {
     let admitted = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 &package.operation_coordinate,
                 package.authority_profile_identity,
                 package.budget,

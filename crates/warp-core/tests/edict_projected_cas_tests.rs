@@ -19,7 +19,7 @@ use warp_core::{
     echo_operation_action_envelope_v1, echo_operation_anchored_node_application_basis_v1,
     echo_operation_atom_value_digest_v1, echo_operation_package_id_v1, make_head_id, make_node_id,
     make_type_id, make_warp_id, AtomPayload, AttachmentValue, EchoOperationActionOutcomeV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
+    EchoOperationAdmissionPolicy, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord,
@@ -163,8 +163,8 @@ impl Fixture {
         let admitted = self
             .host
             .admit_echo_operation_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    echo_operation_package_id_v1(&bytes),
+                &EchoOperationAdmissionPolicy::exact(
+                    echo_operation_package_id_v1(&bytes).as_hash(),
                     OPERATION,
                     profile("cas.echo.authority.local-demo/v1"),
                     budget(),
@@ -827,8 +827,8 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
     let error = fixture
         .host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                id,
+            &EchoOperationAdmissionPolicy::exact(
+                id.as_hash(),
                 OPERATION,
                 profile("cas.echo.authority.local-demo/v1"),
                 budget(),
@@ -838,7 +838,7 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
         .expect_err("aliased projection refused");
     assert_eq!(
         error.kind(),
-        warp_core::EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+        warp_core::EchoOperationAdmissionErrorKind::ArtifactInvalid
     );
     assert_eq!(
         error.artifact().expect("artifact error").kind(),

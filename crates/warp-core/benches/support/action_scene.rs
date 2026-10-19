@@ -24,11 +24,11 @@ use warp_core::{
     echo_operation_action_envelope_v1, echo_operation_anchored_node_application_basis_v1,
     echo_operation_atom_value_digest_v1, echo_operation_package_id_v1, make_edge_id, make_head_id,
     make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
-    EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1, EdgeRecord, EngineBuilder,
-    GraphStore, InboxPolicy, IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord,
-    PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    EchoOperationAdmissionPolicy, EchoOperationBudgetV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationInvocationV1, EdgeRecord, EngineBuilder, GraphStore, InboxPolicy, IngressEnvelope,
+    IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost,
+    TrustedRuntimeWalConfig, TypeId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey,
 };
 
 const OPERATION: &str = "examples.cas_echo@1.updateCell";
@@ -227,8 +227,8 @@ impl Scene {
         let package = package();
         let admitted = host
             .admit_echo_operation_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    echo_operation_package_id_v1(&package),
+                &EchoOperationAdmissionPolicy::exact(
+                    echo_operation_package_id_v1(&package).as_hash(),
                     OPERATION,
                     profile("cas.echo.authority.local-demo/v1"),
                     budget(),

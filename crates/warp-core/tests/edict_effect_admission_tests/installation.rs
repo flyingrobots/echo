@@ -212,7 +212,7 @@ fn install_v1(
     coordinate: &str,
 ) -> Result<warp_core::InstalledEchoOperationV1, warp_core::TrustedRuntimeHostError> {
     use warp_core::{
-        EchoOperationAdmissionPolicyV1, EchoOperationProgramV1, EchoOperationSemanticClosureV1,
+        EchoOperationAdmissionPolicy, EchoOperationProgramV1, EchoOperationSemanticClosureV1,
         ExecutableOperationPackageV1,
     };
     let budget = EchoOperationBudgetV1::new(16, 4096, 4096);
@@ -239,8 +239,8 @@ fn install_v1(
         ),
     );
     let bytes = legacy.to_canonical_bytes().expect("V1 fixture");
-    let policy = EchoOperationAdmissionPolicyV1::exact(
-        warp_core::echo_operation_package_id_v1(&bytes),
+    let policy = EchoOperationAdmissionPolicy::exact(
+        warp_core::echo_operation_package_id_v1(&bytes).as_hash(),
         coordinate,
         [8; 32],
         budget,

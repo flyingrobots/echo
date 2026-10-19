@@ -2,13 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Versioned effect installation evidence; invocation authority remains separate.
 use super::package::hash;
-use super::{
-    AdmittedEffectPackageV2, EffectPackageAdmissionPolicyV2, ExecutableOperationPackageV2,
-};
+use super::{AdmittedEffectPackageV2, ExecutableOperationPackageV2};
 use crate::echo_operation::{
     installation_error, invalid_structure, map_value, recover_installation_v1,
 };
 use crate::edict_pure::values::{bytes, exact_fields, field, require_text, text};
+use crate::EchoOperationAdmissionPolicy;
 use crate::{
     EchoOperationArtifactErrorV1, EchoOperationInstallationErrorKindV1,
     EchoOperationInstallationErrorV1, EchoOperationPackageIdV1, InstalledEchoOperationV1,
@@ -108,7 +107,7 @@ impl InstalledEffectOperationV2 {
         };
         let (policy, policy_id, package_id, package_bytes, admission_id, installed_id) =
             read().map_err(|_| invalid_structure("invalid V2 installation fields"))?;
-        let policy = EffectPackageAdmissionPolicyV2::from_value(policy)?;
+        let policy = EchoOperationAdmissionPolicy::from_value(policy.clone())?;
         let admitted = super::admission::admit(&policy, package_bytes.to_vec())
             .map_err(|_| invalid_structure("V2 retained package no longer admits"))?;
         if policy.identity() != policy_id

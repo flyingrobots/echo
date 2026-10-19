@@ -22,9 +22,9 @@ use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget, Wa
 use warp_core::EchoOperationCommitErrorV1;
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
-    EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKindV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationAnchoredNodeOccupancyV1,
-    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
+    EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKind, EchoOperationAdmissionPolicy,
+    EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationBasisV1,
+    EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
@@ -512,8 +512,8 @@ fn install_fixture_operation_at(
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 operation_coordinate,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -535,8 +535,8 @@ fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> Installe
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 CREATE_OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -661,8 +661,8 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
         .to_canonical_bytes()
         .expect("package has one canonical Edict encoding");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
-    let package_policy = EchoOperationAdmissionPolicyV1::exact(
-        package_id,
+    let package_policy = EchoOperationAdmissionPolicy::exact(
+        package_id.as_hash(),
         OPERATION_COORDINATE,
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -846,8 +846,8 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted_package = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1086,8 +1086,8 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
 
     let digest_mismatch = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(b"different package bytes"),
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(b"different package bytes").as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1097,14 +1097,14 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("a package digest cannot confer a match on different bytes");
     assert_eq!(
         digest_mismatch.kind(),
-        EchoOperationAdmissionErrorKindV1::PackageIdentityMismatch
+        EchoOperationAdmissionErrorKind::PackageIdentityMismatch
     );
 
     let malformed_bytes = vec![0xff];
     let malformed = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&malformed_bytes),
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&malformed_bytes).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1114,7 +1114,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("malformed canonical bytes fail before installation");
     assert_eq!(
         malformed.kind(),
-        EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+        EchoOperationAdmissionErrorKind::ArtifactInvalid
     );
 
     let unsupported_target_bytes = ExecutableOperationPackageV1::new(
@@ -1134,8 +1134,8 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     .expect("unsupported target package still has canonical source bytes");
     let unsupported_target = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&unsupported_target_bytes),
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&unsupported_target_bytes).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1164,8 +1164,8 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     );
     let unsupported_program = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&unsupported_program_package),
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&unsupported_program_package).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1188,8 +1188,8 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     );
     let unsupported_schema = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&unsupported_schema_bytes),
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&unsupported_schema_bytes).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1207,8 +1207,8 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
 
     let authority_mismatch = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 OPERATION_COORDINATE,
                 digest("different-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1218,13 +1218,13 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("package identity cannot substitute for authority policy");
     assert_eq!(
         authority_mismatch.kind(),
-        EchoOperationAdmissionErrorKindV1::AuthorityProfileMismatch
+        EchoOperationAdmissionErrorKind::AuthorityProfileMismatch
     );
 
     let over_budget = host
         .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(15, 4_096, 4_096),
@@ -1234,7 +1234,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("a package cannot widen the runtime-owned budget ceiling");
     assert_eq!(
         over_budget.kind(),
-        EchoOperationAdmissionErrorKindV1::BudgetExceedsPolicy
+        EchoOperationAdmissionErrorKind::BudgetExceedsPolicy
     );
 
     let impossible_package = ExecutableOperationPackageV1::new(
@@ -1814,8 +1814,8 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             .expect("the fresh filesystem WAL opens");
         let admitted_package = host
             .admit_echo_operation_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    package_id,
+                &EchoOperationAdmissionPolicy::exact(
+                    package_id.as_hash(),
                     OPERATION_COORDINATE,
                     digest("fixture-authority-profile"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),

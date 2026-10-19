@@ -1586,11 +1586,21 @@ fn source_artifact_forms_refuse_relabelling_and_ambiguous_inputs() {
                     original.artifact.artifact.bytes,
                 );
             }
-            "both-forms" => request.semantic_inputs.push(semantic_input(
-                "other-source",
-                SemanticInputKind::Auxiliary("edict-source-closure".into()),
-                closure,
-            )),
+            "both-forms" => {
+                let configuration = request
+                    .semantic_inputs
+                    .iter()
+                    .position(|input| {
+                        input.kind == SemanticInputKind::Auxiliary("target-configuration".into())
+                    })
+                    .expect("configuration input");
+                request.semantic_inputs[configuration] = semantic_input(
+                    "other-source",
+                    SemanticInputKind::Auxiliary("edict-source-closure".into()),
+                    closure,
+                );
+                assert_eq!(request.semantic_inputs.len(), 7);
+            }
             _ => unreachable!(),
         }
         let error =
@@ -1601,5 +1611,12 @@ fn source_artifact_forms_refuse_relabelling_and_ambiguous_inputs() {
             echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
         };
         assert_eq!(error.kind, expected, "{case}");
+        if case == "both-forms" {
+            assert!(
+                error.diagnostics.iter().any(|diagnostic| diagnostic.message
+                    == "unsupported semantics: multiple source artifact forms are ambiguous"),
+                "{error:?}"
+            );
+        }
     }
 }

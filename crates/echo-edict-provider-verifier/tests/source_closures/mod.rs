@@ -78,3 +78,38 @@ fn verifier_accepts_new_source_form_and_rejects_a_validly_rebound_closure() {
     let report = decode_canonical_cbor_v1(&rejected.outputs[0].artifact.bytes).expect("report");
     assert_eq!(text_field(&report, "outcome"), Some("rejected"));
 }
+
+#[test]
+fn verifier_refuses_ambiguous_source_forms_at_the_original_input_arity() {
+    let names = FIXTURES[0];
+    let fixture = raw_fixture(names);
+    let lowered = lowerer::lower(lowering_request(names, &fixture)).expect("legacy package");
+    let mut request =
+        verification_request(names, &fixture, lowered.outputs[0].artifact.bytes.clone());
+    let configuration = request
+        .semantic_inputs
+        .iter()
+        .position(|input| {
+            input.kind == verifier::SemanticInputKind::Auxiliary("target-configuration".into())
+        })
+        .expect("configuration input");
+    request.semantic_inputs[configuration].kind =
+        verifier::SemanticInputKind::Auxiliary("edict-source-closure".into());
+    request.semantic_inputs[configuration].artifact = verifier_bound(
+        names.application,
+        "edict.source-closure/v1",
+        &envelope(names.application, &fixture.source),
+    );
+    assert_eq!(request.semantic_inputs.len(), 7);
+    let error = verifier::verify(request)
+        .expect_err("ambiguous source forms refuse before report generation");
+    assert_eq!(
+        error.kind,
+        verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| diagnostic.message
+            == "unsupported semantics: multiple source artifact forms are ambiguous"),
+        "{error:?}"
+    );
+}

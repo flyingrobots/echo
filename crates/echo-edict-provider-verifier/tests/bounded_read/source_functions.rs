@@ -584,3 +584,6 @@ fn verifier_source_function_names_cannot_shadow_imported_read_effects() {
 
 #[path = "imported_calls.rs"]
 mod imported_calls;
+
+#[path = "source_functions/utf8.rs"]
+mod utf8;

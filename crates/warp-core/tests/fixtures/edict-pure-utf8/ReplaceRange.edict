@@ -1,0 +1,47 @@
+package jedit.text.replace_range@1;
+
+use lawpack jedit.text@1 digest "sha256:f385072314ea57af5b66cad9eb4119b51e456df2050ea0c9a6302c7693212dc1" as text;
+
+type ReplaceRangeInput = {
+  bufferId: text.BufferId,
+  basisHeadId: text.HeadId,
+  text: Bytes<max=1048576>,
+  startByte: U64,
+  endByte: U64,
+  replacement: text.ReplacementBytes,
+};
+
+type ReplaceRangeBoundary = {
+  updatedText: Bytes<max=3145728>,
+  bufferId: text.BufferId,
+  basisHeadId: text.HeadId,
+  startByte: U64,
+  endByte: U64,
+  replacement: text.ReplacementBytes,
+  rangeIsEmpty: U32,
+  createdLeafCeiling: U64,
+};
+
+intent replaceRange(input: ReplaceRangeInput) returns ReplaceRangeBoundary
+  profile text.replaceRange
+  basis input.basisHeadId
+  budget <= text.replaceRangeBudget
+  where input.startByte <= input.endByte && input.endByte <= len(input.text) && input.startByte <= len(input.text) && isUtf8(input.text) && isUtf8(input.replacement) && isUtf8(slice(input.text, 0u64, input.startByte)) && isUtf8(slice(input.text, 0u64, input.endByte)) && !(slice(input.text, input.startByte, input.endByte) == input.replacement)
+{
+  let prefix = slice(input.text, 0u64, input.startByte);
+  let suffix = slice(input.text, input.endByte, len(input.text));
+  let updatedText = prefix + input.replacement + suffix;
+  let createdLeafCeiling: U64 = text.maxCreatedLeafCount();
+  let rangeIsEmpty = if input.startByte == input.endByte then 1u32 else 0u32;
+
+  return {
+    updatedText,
+    bufferId: input.bufferId,
+    basisHeadId: input.basisHeadId,
+    startByte: input.startByte,
+    endByte: input.endByte,
+    replacement: input.replacement,
+    rangeIsEmpty,
+    createdLeafCeiling,
+  };
+}

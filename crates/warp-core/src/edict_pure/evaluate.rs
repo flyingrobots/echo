@@ -241,6 +241,24 @@ pub(crate) fn expression(
                 .ok_or(Error::InvalidArtifact)?;
             meter.copy(&Value::Integer(difference))
         }
+        Expr::ByteUtf8 { min, max, value } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            let Value::Bytes(bytes) = value else {
+                return Err(Error::InvalidArtifact);
+            };
+            let length = u64::try_from(bytes.len()).map_err(|_| Error::StepBudgetExceeded)?;
+            meter.charge_steps(length)?;
+            meter.copy(&Value::Bool(std::str::from_utf8(&bytes).is_ok()))
+        }
         Expr::ByteLength { min, max, value } => {
             let value = expression(value, locals, helpers, meter, depth + 1)?;
             validate(
@@ -362,6 +380,7 @@ pub(crate) fn predicate(
     let left = expression(left, locals, helpers, meter, depth + 1)?;
     let right = expression(right, locals, helpers, meter, depth + 1)?;
     match (op, left, right) {
+        (Comparison::Equal, Value::Bool(left), Value::Bool(right)) => Ok(left == right),
         (Comparison::Equal, Value::Integer(left), Value::Integer(right)) => Ok(left == right),
         (Comparison::LessOrEqual, Value::Integer(left), Value::Integer(right)) => Ok(left <= right),
         (Comparison::Equal, Value::Bytes(left), Value::Bytes(right)) => {
@@ -384,6 +403,7 @@ pub(crate) fn validate(
 ) -> Result<(), Error> {
     meter.step(depth)?;
     match (value, ty) {
+        (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))
             if *value >= 0 && *value <= i128::from(*max) =>
         {

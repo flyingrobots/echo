@@ -279,6 +279,17 @@ Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
 entry. Noncanonical numbers, inverted bounds, and an interval spelling with
 equal endpoints reject; equal endpoints use `exact=N`.
 
+The generic `core.bytes.isUtf8<OperandType>(bytes)` expression validates one
+bounded raw-byte value and returns Bool. It accepts empty bytes and embedded NUL,
+and rejects incomplete sequences, overlong encodings, surrogate encodings and
+code points above U+10FFFF without normalization or repair. It charges the full
+actual byte length before validation, including early invalid sequences, plus
+ordinary operand evaluation, bound validation and Boolean result storage.
+Bool values retain their canonical Boolean representation; integers are not
+Boolean substitutes. Predicates support Boolean equality, not ordering.
+The native pure interpreter's implementation does not by itself establish
+provider component support or a public compiler/provider/runtime witness.
+
 Negation uses the closed `not` predicate shape with exactly one `value` child.
 The interpreter validates the entire child before execution, evaluates it once,
 and inverts its Boolean result. A negation wrapper costs one predicate step;
@@ -364,8 +375,8 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
-The source-function target subset supports unsigned words, bounded bytes,
-records and nominal types, with U32/U64 integer literals. Provider compatibility
+The native source-function target subset supports Boolean values, unsigned words,
+bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
@@ -375,8 +386,13 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. Boolean, string, list, variant and effectful helper forms
-receive provider refusal.
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
+receive provider refusal. Native lowerer and independent verifier judgments
+check bounded UTF-8 byte calls with exact operand types, Boolean equality and
+closed nonempty conjunction/negation trees. Their static cost includes the
+full declared scan aperture; conjunction cost bounds every child even though
+execution may stop early. The verifier dependency census traverses nested
+predicates before checking helper call order and cycles.
 For modules containing source functions, partial subtraction and slicing need
 literal evidence sufficient for totality: ordered unsigned operands, or ordered
 U64 slice offsets within the operand's guaranteed minimum length. Caller
@@ -416,6 +432,26 @@ mutation changes the runtime result. Its fixture retains separate verifier
 reports and reproduction coordinates. Reversed input ordering, invalid runtime
 representations, package substitution, noncanonical input, and exhausted host
 budgets produce errors without returning an application result.
+
+The retained UTF-8 replacement fixture in
+`crates/warp-core/tests/fixtures/edict-pure-utf8` binds its public producer and
+selected checked provider in provenance. Literal tests execute nine text-changing
+cases, thirteen invalid-text/boundary/no-op/range refusals, and five host resource
+apertures against the unchanged emitted package. Its authored declarations separate
+the constant helper's cost from the operation ceiling. This establishes flat-text
+computation on the selected existing provider route; native strict-helper/read
+judgment tests provide separate evidence. It does not establish a persistent rope,
+a decided Tick, atomic effects, recovery or final pinned integration.
+
+The companion fixture in `crates/warp-core/tests/fixtures/edict-pure-utf8-helper`
+selects the explicit source-function publication using the guarded Docker publisher
+with copied read-only sources. The public compiler then invokes both promoted
+components and retains their unchanged accepted package/report. A byte-parameter
+helper exercises UTF-8 validation, Boolean equality, conjunction, negation and
+Boolean return. Literal tests cover small valid/invalid values, valid and invalid
+full 1 MiB inputs, an over-bound input and insufficient scan work. Publication,
+component and package identities are recorded in its provenance. These are private
+computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
@@ -658,9 +694,10 @@ The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
 pure packages as effectful programs. Its expression subset includes typed
-source/imported helper calls, U32/U64 constants, lazy conditionals, byte length
-and concatenation, locals, record construction/selection, byte equality, and
-unsigned equality or ordering guards. The source-function totality and resource
+source/imported helper calls, Boolean and U32/U64 constants, lazy conditionals,
+byte length, UTF-8 validation and concatenation, locals, record construction/selection,
+byte/Boolean equality, unsigned equality or ordering guards, and closed
+conjunction/negation trees. The source-function totality and resource
 rules above also apply to this route. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,

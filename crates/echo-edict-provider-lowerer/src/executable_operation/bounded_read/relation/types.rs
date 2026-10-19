@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ReadType {
+    Bool,
     Bytes(u64, u64),
     Unsigned(u64),
     Record(BTreeMap<String, ReadType>),
@@ -114,6 +115,9 @@ impl<'a> Scope<'a> {
             .checked_sub(1)
             .ok_or_else(invalid)?;
         self.remaining_type_work.set(remaining);
+        if coordinate == "Bool" {
+            return Ok(ReadType::Bool);
+        }
         let word = match coordinate {
             "U8" => Some(u64::from(u8::MAX)),
             "U16" => Some(u64::from(u16::MAX)),
@@ -162,6 +166,7 @@ impl<'a> Scope<'a> {
                 }
                 Ok(ReadType::Bytes(min, max))
             }
+            "Bool" => Ok(ReadType::Bool),
             "Int" => self.resolve(text(value, "width")?, depth + 1),
             "Nominal" => {
                 if text(value, "contract")? != key {
@@ -268,6 +273,14 @@ impl<'a> Scope<'a> {
             "const" => {
                 require_exact_fields(value, &["kind", "value"], SUBJECT)?;
                 let literal = field(value, "value")?;
+                if text(literal, "kind")? == "bool" {
+                    require_exact_fields(literal, &["kind", "value"], SUBJECT)?;
+                    return if matches!(field(literal, "value")?, Value::Bool(_)) {
+                        Ok(ReadType::Bool)
+                    } else {
+                        Err(invalid())
+                    };
+                }
                 require_exact_fields(literal, &["kind", "value", "width"], SUBJECT)?;
                 let width = text(literal, "width")?;
                 if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
@@ -347,6 +360,11 @@ impl<'a> Scope<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
+            ("core.bytes.isUtf8", [actual], [expected @ ReadType::Bytes(_, _)])
+                if expected == actual =>
+            {
+                Ok(ReadType::Bool)
+            }
             ("core.bytes.length", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected.accepts(actual) =>
             {
@@ -372,6 +390,24 @@ impl<'a> Scope<'a> {
         if depth > 64 {
             return Err(invalid());
         }
+        match text(value, "kind")? {
+            "not" => {
+                require_exact_fields(value, &["kind", "value"], SUBJECT)?;
+                return self.predicate_at(field(value, "value")?, depth + 1);
+            }
+            "all" => {
+                require_exact_fields(value, &["kind", "values"], SUBJECT)?;
+                let children = super::array(value, "values")?;
+                if children.is_empty() {
+                    return Err(invalid());
+                }
+                for child in children {
+                    self.predicate_at(child, depth + 1)?;
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
         require_exact_fields(value, &["kind", "op", "left", "right"], SUBJECT)?;
         if text(value, "kind")? != "compare" {
             return Err(invalid());
@@ -388,7 +424,8 @@ impl<'a> Scope<'a> {
             left.representation(),
             right.representation(),
         ) {
-            ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
+            ("==", ReadType::Bool, ReadType::Bool)
+            | ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
             ("==" | "<=", ReadType::Unsigned(left), ReadType::Unsigned(right)) if left == right => {
                 Ok(())
             }

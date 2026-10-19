@@ -41,7 +41,8 @@ the WARP, source node and edge type even when the observed range is empty.
 `Footprint::independent` and the reservation index both check range reads
 against range writes, and range writes against both reads and writes. Range
 reads can share a reservation. Footprint union preserves these claims, and a
-rejected reservation leaves no range marks behind.
+rejected reservation leaves no range marks behind. The admission-side affected
+region retains the range write wake as well as point-resource writes.
 
 This is explicit claim tracking. It does not infer range observations from
 existing edge-ID sets or automatically instrument edge writers. Range-bearing
@@ -50,8 +51,10 @@ operation footprints use digest domain
 and factor mask, then `rr` and `rw` counted sets. Each range row contains the
 32-byte source WARP, source node and edge type in that order. Counts use
 little-endian `u64`, and set rows follow key order. Footprints without ranges
-retain the exact V1 digest stream. Retained slot encoding is unfinished;
-these keys are not yet a complete retained execution profile. No Edict program
+retain the exact V1 digest stream. Range claims also project to retained input
+and output slots under the [tick-patch contract](warp-tick-patch.md#outgoing-edge-range-slots).
+A native Tick witness checks conflict rejection, blockers, range metadata and
+replay. This is not an admitted authored-effect profile. No Edict program
 currently receives graph mutation authority through this addition.
 
 The broad WARP outcome algebra is `Derived | Plural | Conflict |

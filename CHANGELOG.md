@@ -140,8 +140,11 @@
 - Outgoing-edge range claims retain source WARP, source node and edge type in
   footprint union and scheduler reservation, including observed empty ranges.
   Range-bearing operation footprint identities bind both range axes separately;
-  footprints without ranges keep their V1 identities. Retained range-slot
-  integration and the authored operation effect bridge remain unfinished.
+  footprints without ranges keep their V1 identities. Range slots survive patch
+  identity, retained provenance and native Tick input/output metadata. Historical
+  host range readings replay a selected prefix and preserve edge relabeling,
+  movement and deletion. This does not implement the authored operation effect
+  bridge.
 
 - Native Edict provider judgments accept the distinct bounded source-closure
   artifact, preserve its identity and refuse mixed or relabelled source forms.

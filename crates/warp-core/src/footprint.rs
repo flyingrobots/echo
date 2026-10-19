@@ -38,7 +38,7 @@ mod range_tests;
 ///
 /// A fresh edge ID cannot evade a claim on its source and edge type. The source
 /// includes its WARP identity; the type is the edge type, not either node type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OutgoingEdgeRange {
     /// Source of the outgoing edges.
     pub source: NodeKey,

@@ -64,3 +64,16 @@ fn union_preserves_range_claims_and_the_unpopulated_mask() {
     assert_eq!(populated.r_write, original.r_write);
     assert_eq!(ranges.bounded_site().claim_footprint, ranges);
 }
+
+#[test]
+fn admission_region_preserves_the_range_write_wake() {
+    let mut footprint = Footprint::default();
+    footprint.r_write.insert(range(1, 2, 3));
+    assert_eq!(
+        footprint
+            .bounded_site()
+            .affected_region
+            .outgoing_edge_ranges,
+        footprint.r_write
+    );
+}

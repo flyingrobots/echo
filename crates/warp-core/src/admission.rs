@@ -15,7 +15,7 @@
 //! without changing the single-tick law that all admission still happens under
 //! `super_tick()`.
 
-use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, PortSet};
+use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, OutgoingEdgeRangeSet, PortSet};
 use crate::ident::Hash;
 
 /// Engine-defined policy identity for one admission act.
@@ -42,6 +42,8 @@ pub struct AffectedRegion {
     pub edges: EdgeSet,
     /// Attachments locally affected by the claim.
     pub attachments: AttachmentSet,
+    /// Outgoing-edge ranges affected by the claim, including empty ranges.
+    pub outgoing_edge_ranges: OutgoingEdgeRangeSet,
 }
 
 impl AffectedRegion {
@@ -52,6 +54,7 @@ impl AffectedRegion {
             nodes: footprint.n_write.clone(),
             edges: footprint.e_write.clone(),
             attachments: footprint.a_write.clone(),
+            outgoing_edge_ranges: footprint.r_write.clone(),
         }
     }
 }

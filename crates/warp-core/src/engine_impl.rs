@@ -3526,8 +3526,8 @@ mod tests {
                     a_write.insert(key);
                 }
                 crate::Footprint {
-                    r_read: Default::default(),
-                    r_write: Default::default(),
+                    r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+                    r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
                     n_read: crate::NodeSet::default(),
                     n_write: crate::NodeSet::default(),
                     e_read: crate::EdgeSet::default(),
@@ -3568,8 +3568,8 @@ mod tests {
             a_write.insert(key);
         }
         crate::Footprint {
-            r_read: Default::default(),
-            r_write: Default::default(),
+            r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+            r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
             n_read: crate::NodeSet::default(),
             n_write: crate::NodeSet::default(),
             e_read: crate::EdgeSet::default(),
@@ -3664,8 +3664,8 @@ mod tests {
                     local_id: *scope,
                 }));
                 crate::Footprint {
-                    r_read: Default::default(),
-                    r_write: Default::default(),
+                    r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+                    r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
                     n_read,
                     n_write: crate::NodeSet::default(),
                     e_read: crate::EdgeSet::default(),

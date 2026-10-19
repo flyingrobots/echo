@@ -99,8 +99,8 @@ pub fn runtime_ingress_eint_read_footprint(view: GraphView<'_>, scope: &NodeId) 
         local_id: *scope,
     }));
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+        r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),

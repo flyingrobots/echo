@@ -110,8 +110,8 @@ fn r1_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
         local_id: node_id(1),
     }));
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: warp_core::OutgoingEdgeRangeSet::default(),
+        r_write: warp_core::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
@@ -168,8 +168,8 @@ fn r2_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
         local_id: node_id(3),
     }));
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: warp_core::OutgoingEdgeRangeSet::default(),
+        r_write: warp_core::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
@@ -226,8 +226,8 @@ fn r3_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
         local_id: node_id(5),
     }));
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: warp_core::OutgoingEdgeRangeSet::default(),
+        r_write: warp_core::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
@@ -297,8 +297,8 @@ fn r4_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
         local_id: node_id(6),
     }));
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: warp_core::OutgoingEdgeRangeSet::default(),
+        r_write: warp_core::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
@@ -355,8 +355,8 @@ fn r5_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
         local_id: node_id(8),
     }));
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: warp_core::OutgoingEdgeRangeSet::default(),
+        r_write: warp_core::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
@@ -408,8 +408,8 @@ fn r6_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut n_read = NodeSet::default();
     n_read.insert_with_warp(warp_id, *scope);
     Footprint {
-        r_read: Default::default(),
-        r_write: Default::default(),
+        r_read: warp_core::OutgoingEdgeRangeSet::default(),
+        r_write: warp_core::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),

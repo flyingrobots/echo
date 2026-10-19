@@ -323,8 +323,8 @@ impl FootprintBuilder {
     /// Consumes the builder and returns the constructed [`Footprint`].
     pub fn build(self) -> Footprint {
         Footprint {
-            r_read: Default::default(),
-            r_write: Default::default(),
+            r_read: warp_core::OutgoingEdgeRangeSet::default(),
+            r_write: warp_core::OutgoingEdgeRangeSet::default(),
             n_read: self.n_read,
             n_write: self.n_write,
             e_read: self.e_read,

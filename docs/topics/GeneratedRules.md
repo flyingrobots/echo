@@ -109,10 +109,18 @@ and three 64-byte value cells; one fewer work unit or storage byte refuses.
 The public compiler fixture and arithmetic meter test in
 `edict_unsigned_addition_tests` and `edict_pure::evaluate` cover these boundaries.
 
-Runtime parser support does not authorize a package or imply support in a
-native source-function provider judgment. The legacy-producer control fixture
-establishes execution of its emitted call, while strict provider and public
-source-function evidence remain separate obligations.
+Native lowerer and verifier source-function judgments independently require
+exact same-width operands and a dominating no-overflow proof. Checked conjunctive
+prefixes can bound later terms; facts cannot escape negation or flow backward.
+New addition calls require this judgment even when the legacy Core function
+table is absent. Both implementations bound proof traversal and comparisons
+using their existing work ceilings. Rebound native tests exercise these checks;
+they do not establish public compiler acceptance.
+
+The retained public compiler fixture is a legacy-producer execution control.
+The packaged provider components still require a reproducible rebuild and
+public source-function acceptance witness before this capability can be
+published. Runtime support and native judgments alone do not authorize a package.
 
 ### Provider-v1 compatibility corridor
 

@@ -130,6 +130,10 @@ impl<'a> Types<'a> {
             remaining: 65_536,
         }
     }
+    pub(super) fn proof_work(&mut self, bytes: usize) -> Check<()> {
+        self.remaining = self.remaining.checked_sub(bytes).ok_or(())?;
+        Ok(())
+    }
     pub(super) fn step(&mut self, depth: usize) -> Check<()> {
         if depth > 64 {
             return Err(());

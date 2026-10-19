@@ -87,3 +87,10 @@ staging promise would be new work, not existing behaviour.
 work applies exactly once; the rest is recorded. Output:
 [`staged-restart.txt`](f5-state-root-and-staged-recovery/staged-restart.txt),
 with long byte arrays elided.
+
+## Later findings
+
+- **What came next:** the M1 shadow-root probe followed this study. It is on branch `claude/m1-shadow-probe-v2`, in `docs/studies/m1-shadow-root-probe.md` there.
+- **Shadow result:** in tier M, an incremental root over every record costs 184 ms against 5,923 ms of legacy root, and matches its rebuild.
+- **The gap it found:** the probe showed that tick patches' `out_slots` omit runtime-ingress writes.
+- **The fix:** that gap is fixed for stale-Action corroboration on branch `claude/corroboration-write-set`.

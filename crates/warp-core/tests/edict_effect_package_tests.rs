@@ -406,3 +406,5 @@ fn a_new_pin_can_bind_changed_laws_but_cannot_reuse_the_old_contract_identity() 
             .program_identity()
     );
 }
+#[path = "edict_effect_package_tests/invocation.rs"]
+mod invocation;

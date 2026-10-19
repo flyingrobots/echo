@@ -18,11 +18,15 @@ pub enum EffectPackageError {
     /// The publication has malformed or inconsistent fields or profiles.
     #[error("invalid effect package")]
     InvalidPackage,
+    /// The invocation has malformed or inconsistent package, input or basis fields.
+    #[error("invalid effect invocation")]
+    InvalidInvocation,
 }
 /// Prepared publication, without installation or mutation authority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableOperationPackageV2 {
     canonical: Vec<u8>,
+    operation_coordinate: String,
     program_identity: [u8; 32],
     compiled: Vec<u8>,
     schema: EffectGraphSchema,
@@ -49,6 +53,16 @@ impl ExecutableOperationPackageV2 {
     #[must_use]
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical
+    }
+    /// Identity of these exact publication bytes under the V2 package domain.
+    #[must_use]
+    pub fn identity(&self) -> [u8; 32] {
+        domain_hash(b"echo:operation-package:v2\0", &self.canonical)
+    }
+    /// Application-owned operation coordinate named by this publication.
+    #[must_use]
+    pub fn operation_coordinate(&self) -> &str {
+        &self.operation_coordinate
     }
     /// Identity of the exact nested program bytes under the V2 domain.
     #[must_use]
@@ -262,6 +276,7 @@ impl ExecutableOperationPackageV2 {
         }
         Ok(Self {
             canonical: canonical.to_vec(),
+            operation_coordinate: coordinate(field(value, "operation_coordinate")?)?.to_owned(),
             program_identity: domain_hash(b"echo:operation-program:v2\0", program_bytes),
             compiled: bytes(field(&program, "compiled_program")?)?.to_vec(),
             schema,
@@ -274,7 +289,7 @@ impl ExecutableOperationPackageV2 {
         })
     }
 }
-fn hash(value: &Value) -> Result<[u8; 32], EvaluationError> {
+pub(super) fn hash(value: &Value) -> Result<[u8; 32], EvaluationError> {
     bytes(value)?
         .try_into()
         .map_err(|_| EvaluationError::InvalidArtifact)
@@ -286,7 +301,7 @@ fn coordinate(value: &Value) -> Result<&str, EvaluationError> {
     }
     Ok(value)
 }
-fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
+pub(super) fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     h.update(domain);
     h.update(&(bytes.len() as u64).to_le_bytes());

@@ -688,3 +688,24 @@ or validate the compiled instruction language. Invocation/authority admission,
 interpreter execution, graph identity enforcement, atomic effects and retained
 recovery must separately consume and validate this prepared contract. V1
 package decoding and identity recipes remain unchanged.
+
+### V2 invocation input and basis preparation
+
+`EffectInvocationV2::prepare` checks an exact canonical V2 invocation against a
+prepared V2 publication. Only its seven specified fields are accepted. The
+package identity and operation coordinate must match the publication. The
+application input must itself be canonical CBOR and fit that program's declared
+input ceiling, including the input's CBOR framing bytes. The delegated budget
+requires at least one step and cannot exceed any package budget axis.
+
+The invocation retains the existing V1 evaluation-basis map. Its application
+basis schema is the effect-basis profile, and its application basis value is
+BLAKE3 over `echo:operation-edict-effect-basis:v1\0`, the input byte length as a
+little-endian u64, and the exact input bytes. An input change requires a new
+basis digest and changes the versioned V2 invocation identity. The decoder
+reuses V1's basis parser without changing its encoding or identity recipe.
+
+This is static preparation. It retains a claimed grant identity and parent;
+it does not verify a grant, establish installation, resolve the current
+frontier or admit an Action. Runtime-owned authority checks and evaluation at
+the named parent remain required before effects can be accepted.

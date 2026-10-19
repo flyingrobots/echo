@@ -2968,7 +2968,9 @@ impl EchoOperationEvaluationBasisV1 {
         ])
     }
 
-    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_value(
+        value: CanonicalValueV1,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let mut fields = exact_text_map(
             value,
             &[

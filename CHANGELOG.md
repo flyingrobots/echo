@@ -7,6 +7,11 @@
 
 ### Added
 
+- V2 invocation preparation binds canonical application input to its recorded
+  basis, selected package and operation, and checks declared input and budget
+  ceilings. It retains the V1 parent format without granting authority or
+  establishing frontier freshness.
+
 - V2 effect publication preparation binds exact package/program bytes, validates
   profile and Target IR equalities, and decodes the program's schema and exact
   footprint-law contract together. This does not admit, install or execute the

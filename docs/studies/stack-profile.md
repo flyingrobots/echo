@@ -28,10 +28,12 @@ Every round of every run was valid under the fixture's own checks.
 2. **Profiling found a cost no plan named.** Each tick spawned and joined an
    OS thread to run its one rewrite. Running a single worker on the calling
    thread cut an F5 append by 37%.
-3. **The planned envelope work is not a speed change.** The commit guard's
-   reassembly, the touch log and the ingress writes were about 0.1% of an F5
-   tick; reservation about 0.7%. They may still be worth doing for design
-   reasons.
+3. **The planned envelope work is a small speed change.** The ingress
+   writes, the commit guard's set-up and teardown, and code inlined into the
+   runtime commit come to about 2% of an F5 tick, and everything outside the
+   engine commit to at most 6.6%; reservation is about 0.7%. They may still
+   be worth doing for design reasons. (An earlier version of this study said
+   0.1%, counting only frames that appear by name; see the correction below.)
 
 ## The combo
 
@@ -73,7 +75,7 @@ driver that repeats F5 tier M under the application profile, and on
 | The worker's own work, whole run | ~2% |
 | `record_receipt_correlations` | 3.8% |
 | Reservation and drain | 0.7% |
-| Guard reassembly, touch log, ingress writes | ~0.1% |
+| Ingress writes, guard set-up and teardown, inlined code | ~2% (at most 6.6%) |
 
 **blake3 by caller.** In F5 it is 36.5% of the tick. Branch hashes in the
 trie (`join`) are 21.5%, and leaves and record keys 5.1%. In a
@@ -116,6 +118,26 @@ worker on the calling thread. Several workers still each get a thread.
 
 On F5 tier M an append went from 274 ms to 173 ms, and tier S from 9.1 ms to
 5.1 ms. Full suite on `43a8ddda`: the same three failures, nothing new.
+
+### Correction: what the envelope would remove
+
+Re-checking the profile, the first version of this study undercounted.
+Code the compiler inlines is attributed to its caller, and
+`materialize_runtime_ingress_event` does not appear by name at all. Counting
+the direct children of `commit_runtime_batch` (4,029 samples):
+
+| Inside the runtime commit | Samples | Share of the tick |
+| --- | ---: | ---: |
+| The engine commit (`commit_with_receipt`) | 3,744 | 86.8% |
+| Ingress writes (edge, attachment and node inserts) | 71 | 1.6% |
+| Command matching (`apply_in_warp`) | 57 | 1.3% |
+| Guard set-up and teardown | ~13 | 0.3% |
+| Self, including inlined code | 16 | 0.4% |
+| Everything outside the engine commit | 285 | 6.6% |
+
+So the envelope's targets are about 2% of an F5 tick, not 0.1%. Matching
+moves rather than disappears. The ranking is unchanged: the trie (39%) and
+the thread per tick (31%) were far larger.
 
 ## Commit-path fixes (`f118d7ef`)
 
@@ -242,7 +264,7 @@ The full list of untried ideas, with new ones, is in
 | One-block trie hashes (domain and split in a precomputed key) | About half of the trie's 21.5% | Changes the unfrozen M2 v0 recipe |
 | Homomorphic set hash (LtHash) updated from the diff | Cost depends only on the diff, not graph size; order-free, so workers and ticks can sum separately | New root recipe; loses openings |
 | Lazy root: commits bind `parent + patch_digest`, root sealed every K ticks | Most of the trie's 39% | Protocol change; tied to the M2 full seal |
-| Envelope dispatch (no guard, no undo) | ~0.1% of an F5 tick | None |
+| Envelope dispatch (no guard, no undo) | ~2% of an F5 tick, at most 6.6% | None |
 | Admission-time reservation | ~0.7% of an F5 tick | None |
 
 **Proof systems.** ADR-0020 already makes commitment and opening proofs an

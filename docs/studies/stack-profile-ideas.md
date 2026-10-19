@@ -20,7 +20,7 @@ Discussed in this study, not built or not measured.
 
 | Idea | Evidence so far | Identity change | Next step |
 | --- | --- | --- | --- |
-| **Envelope dispatch**: dispatch from the envelope; ingress records as ops; apply once, with no guard and no undo | Guard, touch log and ingress writes: ~0.1% of an F5 tick | None | Build for design value only, if wanted |
+| **Envelope dispatch**: dispatch from the envelope; ingress records as ops; apply once, with no guard and no undo | Ingress writes, guard and inlined code: ~2% of an F5 tick, at most 6.6% (corrected from 0.1%) | None | Build for design value only, if wanted |
 | **Admission-time reservation** | Reservation and drain: 0.7% of an F5 tick | None | Same |
 | **Owner marks** in the reservation sets, so the blocker query is O(footprint × log n) | The query costs ~253–279 ms at 10k rewrites, 50% contended | None | Only if blame is queried often |
 | **Single-call hashing for the other long digests** (plan, rewrites, receipt) | In the 10k tick: plan and rewrites 12.8%, receipt 8.4% (before the fixes) | None | Same change as the patch digest |

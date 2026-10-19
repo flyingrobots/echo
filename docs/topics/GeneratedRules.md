@@ -498,13 +498,72 @@ they are host-private authorization evidence, not the persisted canonical
 frontiers, compiled reads, nested alpha portals, beta refusal, distinct named
 absence, role separation, whole-bucket limits and atomic failure prefixes.
 
+`EffectEvaluationFrame::into_read_set_image(max_bytes)` consumes a typed,
+runtime-bound frame into an owned, eight-byte-aligned `EffectReadSetImage`.
+Successful and failed frames can export their completed observation prefix.
+Permission reservations without a completed raw value resolution are omitted;
+a failed atom payload charge cannot turn into a false absence row. Unbound or
+untyped frames report `MissingTypedParent`. The owned export preserves the
+actual full runtime parent, cumulative work/I/O and logical allocation usage
+separately from the image bytes. Consuming the frame prevents further evaluation
+against an already-exported read set.
+
+The image is the read-set digest preimage after its domain: a little-endian
+`u64` row count, the 192-byte `EffectReadRow`s, a little-endian `u64` pair count,
+and the 64-byte `EffectEdgePairRow`s. There is no new retained-history record
+magic. A read row contains a 104-byte `EffectSlotRow`, outcome and zero padding,
+a 32-byte authorizing type, a 32-byte subject digest and a WSC range descriptor.
+All rows are `repr(C, align(8))`, `Pod` and `Zeroable`, with explicit padding.
+The slot classes are node `0`, attachment `1`, edge `2`, range `3`. Their wire
+order is explicit and differs from native `SlotId` ordering. Slots sort by
+class, warp, local ID, range edge type, attachment owner and plane; read rows
+then sort by authorizing type. A present slot has one actual-type row. Only
+absent slots can repeat under distinct ascending named types.
+
+Node subjects hash `echo.bridge.node-value.v1\0` followed by the node type.
+Atom subjects hash `echo.bridge.attachment-value.v1\0`, tag `0`, atom type,
+little-endian byte length and bytes. Portal subjects use that attachment domain,
+tag `1` and the child warp ID; their read type is the owner's node type. Edge
+subjects hash `echo.bridge.edge-value.v1\0`, edge type, source and target local
+IDs. Absent subjects are zero. Range subjects and read types are zero; the range
+slot already names its edge type. Matching edge/target pairs are packed in
+range-row order, sorted and unique by edge local ID within each run. Separate
+source-node rows distinguish an absent source from a present empty bucket.
+The read-set digest hashes `echo.bridge.read-set.v1\0` and the exact image.
+The parent and accounting metadata are not part of this read-set digest; an
+admitted proposal/decision must separately bind them.
+
+`EffectReadSetView::parse` borrows rows and pairs directly from an aligned input
+buffer. Its structural validator allocates no collections and checks exact
+framing, checked size arithmetic, tag legality, zero padding/unused fields,
+canonical order, duplicate rules, pair bounds, strict edge order and contiguous
+complete pair-section coverage. A suffix, an orphan pair or overlapping range
+is invalid. The fixed ceiling is 4096 read rows and 65536 pairs per range, with
+an image no larger than 16 MiB. The total pair section can exceed 65536 when
+individual ranges and the image limit permit it. This view proves canonical
+structure only; it does not authenticate a law, parent, dependency completeness
+or historical Action decision.
+
+Export is bounded host retention work, outside the consumed evaluation budget.
+The caller's output limit intersects the fixed 16 MiB ceiling; the temporary
+sorted descriptor table is bounded by the authorized-read ceiling. Export uses
+only completed recorded values and does not resample the frontier. Provisioning
+failure reports `HostAllocationFailed`, while an insufficient output allowance
+reports `ExportLimitExceeded`; neither is an authored Action obstruction.
+These buffers are separate from the interpreter's logical reservations. This
+codec does not implement the single physical arena, receipt/WAL retention,
+proposal admission or fresh-engine effect recovery. Independent wire fixtures
+exercise malformed inputs, maximum counts, alignment and field encoding; real
+runtime witnesses exercise exact node bytes/digests, atoms, portals, absence,
+range packing, failed prefixes and preserved parent/resource metadata.
+
 This is trusted-host composition of pinned pure packages and recorded reads.
 It provides no mutation or admission path and is not a compiler-authored
 effect-program format. Package/input decoding remains bounded host preparation.
 Logical value-storage reservations bound the row buffers and observation count;
 policy preparation, indexes and allocator overhead remain host storage. The
-physical interpreter arena, package-authenticated footprint law, persisted typed
-read images, authored outgoing-range/effect instructions, derived effects and
+physical interpreter arena, package-authenticated footprint law, receipt/WAL
+integration of typed read images, authored outgoing-range/effect instructions, derived effects and
 installed-profile validation remain required before a new authored-effect profile can ship.
 Existing package profiles and graph accessors are unchanged.
 

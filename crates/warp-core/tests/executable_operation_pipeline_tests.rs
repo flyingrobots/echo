@@ -6517,3 +6517,285 @@ fn typed_effect_compiled_apertures_refuse_duplicate_and_unordered_declarations_b
         assert!(frame.readings().is_empty());
     }
 }
+
+#[test]
+fn typed_read_image_keeps_exact_node_bytes_digest_and_runtime_parent() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (host, head, node) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[ty], &[], &[], 1));
+    frame.read_typed_node(node, ty).expect("node resolution");
+    let image = frame.into_read_set_image(4096).expect("bounded image");
+    assert_eq!(image.evaluation_basis(), basis);
+    assert_eq!(image.consumed(), EchoOperationBudgetV1::new(1, 64, 0));
+    assert_eq!(
+        image.allocated_bytes(),
+        192,
+        "export preserves evaluation accounting without refunding it"
+    );
+    let mut want = vec![0_u8; 208];
+    want[0..8].copy_from_slice(&1_u64.to_le_bytes());
+    want[16..48].copy_from_slice(&node.warp_id.0);
+    want[48..80].copy_from_slice(&node.local_id.0);
+    want[120..152].copy_from_slice(&ty.0);
+    let digest = blake3::hash(&[b"echo.bridge.node-value.v1\0".as_slice(), &ty.0].concat());
+    want[152..184].copy_from_slice(digest.as_bytes());
+    assert_eq!(image.as_bytes(), want);
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical borrowed view");
+    assert_eq!(view.rows().len(), 1);
+    assert!(view.pairs().is_empty());
+    assert_eq!(
+        view.rows().as_ptr().cast::<u8>(),
+        image.as_bytes()[8..].as_ptr(),
+        "rows borrow the image"
+    );
+    let want_digest =
+        blake3::hash(&[b"echo.bridge.read-set.v1\0".as_slice(), want.as_slice()].concat());
+    assert_eq!(image.digest(), *want_digest.as_bytes());
+    assert_eq!(view.digest(), image.digest());
+}
+
+#[test]
+fn typed_read_image_retains_distinct_named_absence_and_refuses_legacy_export() {
+    use warp_core::edict_effects::{EffectReadImageError, EffectReadSetView};
+    let (host, head, root) = fixture_host();
+    let a = make_type_id("image-absent-a");
+    let b = make_type_id("image-absent-b");
+    let node = NodeKey {
+        local_id: make_node_id("image-absent"),
+        ..root
+    };
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[a, b], &[], &[], 2));
+    for ty in [b, a, a] {
+        assert_eq!(frame.read_typed_node(node, ty), Ok(None));
+    }
+    let image = frame.into_read_set_image(4096).expect("absence image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("absence view");
+    let mut types = [a.0, b.0];
+    types.sort_unstable();
+    assert_eq!(view.rows().len(), 2);
+    for (row, ty) in view.rows().iter().zip(types) {
+        assert_eq!(row.outcome, 1);
+        assert_eq!(row.read_type, ty);
+        assert_eq!(row.subject, [0; 32]);
+    }
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("basis");
+    let frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(100, 1000, 0),
+            effect_frame_limits(),
+        )
+        .expect("untyped frame");
+    assert!(matches!(
+        frame.into_read_set_image(4096),
+        Err(EffectReadImageError::MissingTypedParent)
+    ));
+    let frame = typed_effect_frame(&host, head, effect_law_value(&[], &[], &[], 0));
+    assert!(matches!(
+        frame.into_read_set_image(15),
+        Err(EffectReadImageError::ExportLimitExceeded)
+    ));
+}
+
+#[test]
+fn typed_read_image_does_not_turn_a_reserved_unresolved_atom_into_an_observation() {
+    use warp_core::edict_effects::{
+        EffectFootprintLaw, EffectFrameError, EffectRangeReadError, EffectReadSetView,
+        TypedNodeRead,
+    };
+    let (host, head, node) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let atom = make_type_id("operation-fixture-atom");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("basis");
+    let law = EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&effect_law_value(&[ty], &[atom], &[], 2)).expect("law bytes"),
+    )
+    .expect("law");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 128, 0),
+            effect_frame_limits(),
+        )
+        .expect("frame")
+        .with_footprint_law(law)
+        .expect("typed frame");
+    let (package, pin) = recorded_read_package();
+    assert_eq!(
+        frame.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: ty
+            }],
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+    );
+    assert_eq!(
+        frame.authorized_reads().len(),
+        2,
+        "authorization can precede the failed payload charge"
+    );
+    let image = frame
+        .into_read_set_image(4096)
+        .expect("failed frame evidence");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("completed prefix");
+    assert_eq!(view.rows().len(), 1);
+    assert_eq!(view.rows()[0].slot.class, 0);
+}
+
+#[test]
+fn typed_read_image_witnesses_atom_and_portal_subjects() {
+    use warp_core::edict_effects::{EffectReadSetView, TypedNodeRead};
+    let (host, head, node) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let atom = make_type_id("operation-fixture-atom");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[ty], &[atom], &[], 2));
+    let (package, pin) = recorded_read_package();
+    frame
+        .evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: ty,
+            }],
+            recorded_read_limits(),
+        )
+        .expect("compiled value");
+    let image = frame.into_read_set_image(4096).expect("atom image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("atom view");
+    let row = &view.rows()[1];
+    assert_eq!(row.slot.class, 1);
+    assert_eq!(row.outcome, 0);
+    assert_eq!(row.read_type, atom.0);
+    let expected = blake3::hash(
+        &[
+            b"echo.bridge.attachment-value.v1\0".as_slice(),
+            &[0],
+            &atom.0,
+            &6_u64.to_le_bytes(),
+            b"before",
+        ]
+        .concat(),
+    );
+    assert_eq!(row.subject, *expected.as_bytes());
+    let (host, head, target, owners) = typed_portal_fixture(false, 1);
+    let child_ty = make_type_id("operation-child-node");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[child_ty], &[], &[ty], 3));
+    frame
+        .read_typed_node(target, child_ty)
+        .expect("descended node");
+    let image = frame.into_read_set_image(4096).expect("portal image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("portal view");
+    assert_eq!(view.rows().len(), 3);
+    let row = &view.rows()[2];
+    assert_eq!(row.slot.class, 1);
+    assert_eq!(row.slot.local_id, owners[0].local_id.0);
+    assert_eq!(row.outcome, 3);
+    assert_eq!(row.read_type, ty.0);
+    let expected = blake3::hash(
+        &[
+            b"echo.bridge.attachment-value.v1\0".as_slice(),
+            &[1],
+            &target.warp_id.0,
+        ]
+        .concat(),
+    );
+    assert_eq!(row.subject, *expected.as_bytes());
+}
+
+#[test]
+fn typed_read_image_packs_actual_matching_edges_and_distinguishes_absent_sources() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (host, head, root) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let edge_ty = make_type_id("image-edge");
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("worldline")
+        .state()
+        .warp_state()
+        .clone();
+    for (id, edge_type) in [
+        (2, edge_ty),
+        (1, edge_ty),
+        (3, make_type_id("nonmatching-image-edge")),
+    ] {
+        state
+            .store_mut(&root.warp_id)
+            .expect("source store")
+            .insert_edge(
+                root.local_id,
+                warp_core::EdgeRecord {
+                    id: warp_core::EdgeId([id; 32]),
+                    from: root.local_id,
+                    to: root.local_id,
+                    ty: edge_type,
+                },
+            );
+    }
+    let (host, head) = fixture_runtime_host(WorldlineState::new(state, root).expect("range state"));
+    let range = warp_core::OutgoingEdgeRange {
+        source: root,
+        edge_type: edge_ty,
+    };
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 3);
+    frame.read_typed_range(range, ty).expect("real range");
+    let image = frame.into_read_set_image(4096).expect("real range image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("range view");
+    assert_eq!(view.rows().len(), 2);
+    assert_eq!(view.rows()[1].outcome, 2);
+    assert_eq!(view.rows()[1].read_type, [0; 32]);
+    assert_eq!(view.rows()[1].pairs.start(), 0);
+    assert_eq!(view.rows()[1].pairs.len(), 2);
+    assert_eq!(
+        view.pairs()
+            .iter()
+            .map(|pair| (pair.edge_local_id, pair.target_local_id))
+            .collect::<Vec<_>>(),
+        vec![([1; 32], root.local_id.0), ([2; 32], root.local_id.0)]
+    );
+    assert_eq!(image.as_bytes().len(), 528);
+    assert_eq!(image.consumed(), EchoOperationBudgetV1::new(4, 256, 0));
+    assert_eq!(image.allocated_bytes(), 1152);
+    let absent = NodeKey {
+        local_id: make_node_id("absent-image-source"),
+        ..root
+    };
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 3);
+    assert_eq!(
+        frame.read_typed_range(
+            warp_core::OutgoingEdgeRange {
+                source: absent,
+                edge_type: edge_ty
+            },
+            ty
+        ),
+        Ok(None)
+    );
+    let absent_image = frame.into_read_set_image(4096).expect("absent range image");
+    let view = EffectReadSetView::parse(absent_image.as_bytes()).expect("absent range view");
+    assert_eq!(view.rows()[0].outcome, 1);
+    assert_eq!(view.rows()[1].outcome, 2);
+    assert!(view.pairs().is_empty());
+    assert_ne!(absent_image.digest(), image.digest());
+}

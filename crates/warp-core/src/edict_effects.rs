@@ -6,9 +6,15 @@
 //! selects the immutable frontier and policy. No mutation or caller callback is
 //! available. Preparing the basis and policy is outside the per-read budget.
 //! Optional typed laws authorize runtime-bound node, atom, portal and range reads.
-//! Authored effect instructions, package-authenticated policy, canonical read
-//! images, physical arena and admission still precede a shipped effect profile.
+//! Completed reads can be exported as bounded canonical images. Authored effect
+//! instructions, package-authenticated policy, receipt/WAL integration, a physical
+//! arena and admission still precede a shipped effect profile.
 mod frame;
+mod read_image;
+pub use read_image::{
+    EffectEdgePairRow, EffectReadImageError, EffectReadRow, EffectReadSetImage, EffectReadSetView,
+    EffectSlotRow,
+};
 mod law;
 mod typed_reads;
 pub use law::{EffectFootprintLaw, EffectLawError};

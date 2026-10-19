@@ -7,6 +7,13 @@
 
 ### Added
 
+- Typed private frames can export bounded canonical read-set images while
+  preserving their runtime parent and evaluation accounting. The aligned row
+  format has explicit wire ordering, typed absence, value digests and packed
+  range pairs. An allocation-free borrowed validator refuses malformed framing,
+  padding, duplicates and ranges. This does not add receipt/WAL formats,
+  authenticated effect admission or a physical interpreter arena.
+
 - Runtime-bound private frames can bind strict typed read laws. Actual node and
   atom types authorize present values, named types authorize absence, and
   descended reads witness authorized alpha-portal chains before target access.

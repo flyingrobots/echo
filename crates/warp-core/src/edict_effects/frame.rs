@@ -385,6 +385,36 @@ impl<'a> EffectEvaluationFrame<'a> {
         result
     }
 
+    /// Consumes this frame into bounded canonical completed-read evidence.
+    ///
+    /// Failed typed frames may export their completed observation prefix. A
+    /// permission reservation without a completed value resolution is omitted.
+    /// This is bounded host retention work outside the evaluation meter, not a
+    /// physical interpreter arena, installed capability or historical decision.
+    /// The output limit intersects the fixed 16 MiB read-storage ceiling.
+    /// # Errors
+    /// Refuses unbound/untyped frames, inconsistent observations, an output
+    /// exceeding the host limit, or host allocation failure. No image is
+    /// published on failure; a retention host must not turn it into an Action.
+    pub fn into_read_set_image(
+        self,
+        max_bytes: usize,
+    ) -> Result<super::EffectReadSetImage, super::EffectReadImageError> {
+        let basis = self
+            .evaluation_basis
+            .ok_or(super::EffectReadImageError::MissingTypedParent)?;
+        if self.reads.law.is_none() {
+            return Err(super::EffectReadImageError::MissingTypedParent);
+        }
+        super::read_image::export(
+            &self.reads,
+            basis,
+            self.consumed(),
+            self.allocated_bytes(),
+            max_bytes,
+        )
+    }
+
     /// Global computation plus read steps, and the view's I/O consumption.
     #[must_use]
     pub fn consumed(&self) -> EchoOperationBudgetV1 {

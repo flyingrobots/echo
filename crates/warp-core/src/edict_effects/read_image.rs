@@ -10,6 +10,12 @@ pub use validate::EffectReadSetView;
 
 const DOMAIN: &[u8] = b"echo.bridge.read-set.v1\0";
 
+#[repr(C, align(8))]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ImageWord([u8; 8]);
+const _: () =
+    assert!(std::mem::size_of::<ImageWord>() == 8 && std::mem::align_of::<ImageWord>() == 8);
+
 /// Host export or read-image validation failure, never an Action decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EffectReadImageError {
@@ -41,7 +47,7 @@ pub enum EffectReadImageError {
 /// installation, policy-authentication or historical-decision capability.
 #[derive(Debug)]
 pub struct EffectReadSetImage {
-    words: Vec<u64>,
+    words: Vec<ImageWord>,
     basis: EchoOperationEvaluationBasisV1,
     consumed: crate::EchoOperationBudgetV1,
     allocated_bytes: u64,

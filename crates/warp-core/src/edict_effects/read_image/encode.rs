@@ -3,7 +3,7 @@
 use super::super::EffectRangeReadSession;
 use super::{
     EffectEdgePairRow, EffectReadImageError as Error, EffectReadRow, EffectReadSetImage,
-    EffectReadSetView, EffectSlotRow,
+    EffectReadSetView, EffectSlotRow, ImageWord,
 };
 use crate::{
     AttachmentKey, AttachmentOwner, AttachmentValue, EchoOperationEvaluationBasisV1, EdgeRecord,
@@ -56,11 +56,11 @@ pub(in crate::edict_effects) fn export(
     words
         .try_reserve_exact(size / 8)
         .map_err(|_| Error::HostAllocationFailed)?;
-    words.push(
+    words.push(ImageWord(
         u64::try_from(rows.len())
             .map_err(|_| Error::ExportLimitExceeded)?
-            .to_le(),
-    );
+            .to_le_bytes(),
+    ));
     let mut cursor = 0_u64;
     for (row, pairs) in &mut rows {
         if let Some(pairs) = pairs {
@@ -73,7 +73,7 @@ pub(in crate::edict_effects) fn export(
         }
         append(&mut words, row)?;
     }
-    words.push(cursor.to_le());
+    words.push(ImageWord(cursor.to_le_bytes()));
     for (_, pairs) in rows {
         for edge in pairs.into_iter().flatten() {
             append(
@@ -93,9 +93,9 @@ pub(in crate::edict_effects) fn export(
         allocated_bytes,
     })
 }
-fn append<T: bytemuck::Pod>(words: &mut Vec<u64>, row: &T) -> Result<(), Error> {
+fn append<T: bytemuck::Pod>(words: &mut Vec<ImageWord>, row: &T) -> Result<(), Error> {
     words.extend_from_slice(
-        bytemuck::try_cast_slice::<T, u64>(std::slice::from_ref(row))
+        bytemuck::try_cast_slice::<T, ImageWord>(std::slice::from_ref(row))
             .map_err(|_| Error::InvalidImage)?,
     );
     Ok(())

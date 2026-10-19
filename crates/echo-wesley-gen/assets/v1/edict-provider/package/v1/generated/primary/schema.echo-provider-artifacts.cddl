@@ -1274,7 +1274,8 @@ echo-operation-lowering-configuration =
   echo-attachment-create-if-absent-lowering-configuration /
   echo-attachment-compare-and-set-lowering-configuration /
   echo-compiler-produced-bounded-pure-lowering-configuration /
-  echo-compiler-produced-bounded-read-lowering-configuration
+  echo-compiler-produced-bounded-read-lowering-configuration /
+  echo-authored-effect-lowering-configuration
 
 echo-compiler-produced-bounded-pure-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
@@ -1286,6 +1287,24 @@ echo-compiler-produced-bounded-read-lowering-configuration = {
   programKind: "compiler-produced-bounded-read/v1",
   maxReads: 1..65536,
   maxReadBytes: 1..67108864,
+}
+
+; This declares the current effect kind; schema admission grants no runtime authority.
+; Payload semantics still require producer and runtime validation.
+echo-authored-effect-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "edict-effect-program/v1",
+  identityLaw: 1,
+  graphSchema: bstr .size (1..16777216),
+  footprintLaw: bstr .size (1..16777216),
+  maxInputBytes: 0..65536,
+  maxResultBytes: 0..65536,
+  maxAllocatedBytes: 0..16777216,
+  budgetCeiling: {
+    steps: 1..18446744073709551615,
+    readBytes: uint,
+    writeBytes: uint,
+  },
 }
 
 echo-attachment-create-if-absent-lowering-configuration = {

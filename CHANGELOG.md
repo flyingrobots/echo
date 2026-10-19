@@ -7,6 +7,11 @@
 
 ### Changed
 
+- Provider configuration validation recognizes an explicit bounded declaration
+  for the current authored-effect program kind. Graph schema and footprint-law bytes, identity
+  recipe, resource limits and I/O budget are required. This declaration does not
+  implement the public effect lowerer/verifier or grant runtime authority.
+
 - Completed authored evaluations now retain their runtime owner's private
   authority through frame consumption. Patch derivation refuses foreign-owner
   completion even when program and parent coordinates match. This closes a

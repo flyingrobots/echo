@@ -721,6 +721,22 @@ nonempty-text rule. Effect package steps must be positive and byte budgets may
 be zero. Preparation is outside evaluation metering and does not provision the
 physical evaluation arena.
 
+The generated provider configuration schema recognizes the current
+`edict-effect-program/v1` kind under `echo.operation-lowering-configuration/v1`.
+Its declaration requires `identityLaw: 1`, encoded `graphSchema` and
+`footprintLaw` byte payloads, explicit input/result/allocation limits, and an
+explicit steps/read-bytes/write-bytes budget ceiling. Input and result limits
+are at most 65,536 bytes, allocation at most 16 MiB, and the encoded law/schema
+payloads must be nonempty and at most 16 MiB. Zero resource declarations are
+explicit values; steps must be positive. Unknown or missing fields refuse.
+Edict lawpack authoring can carry those byte payloads through `$edictBytes`.
+
+This schema crossing validates the configuration's shape and bounds. It does
+not validate the embedded law/schema semantics, produce an effect package, or
+provide runtime authority. The public lowerer/verifier effect branch and target
+resource declarations remain unfinished. Runtime preparation and private
+execution evidence above do not establish that producer path.
+
 The `compiled_program` payload uses one current
 `echo.compiler-produced-effect-program/v1` artifact bundle with exactly
 `schema`, `intent`, `core_artifact`, `target_ir_artifact`,

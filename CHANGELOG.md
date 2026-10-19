@@ -18,6 +18,10 @@
 
 ### Fixed
 
+- Completed shadow application-root benchmark rounds are invalid when their
+  recorded incremental/rebuild or live/replay parity is missing or failed, including
+  builds without `delta_validate`.
+
 - F5 benchmark validation rejects observations from a different executed
   workload, including runs without a pinned script golden.
 

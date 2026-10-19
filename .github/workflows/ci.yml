@@ -388,6 +388,7 @@ jobs:
               run: cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --test scene_fixture_tests
             - name: cargo test (experimental application root, M1)
               run: |
+                  cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_shadow --test scene_fixture_tests
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test,application_root_shadow --lib application_root
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_shadow,delta_validate --test application_root_shadow_tests
             - name: cargo test (compiler-produced pure evaluation)

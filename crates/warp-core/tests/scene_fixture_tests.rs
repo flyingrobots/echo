@@ -219,3 +219,29 @@ fn f5_rejects_an_observation_from_a_different_executed_script() {
         ResultClass::Valid
     );
 }
+
+#[cfg(feature = "application_root_shadow")]
+#[test]
+fn f5_rejects_missing_or_failed_application_root_parity() {
+    let tier = think_append::S;
+    let (script, expect, obs) = f5_s();
+    assert_eq!(obs.application_root, Some((true, true)));
+    assert_eq!(
+        think_append::validate(tier, &script, &expect, &obs),
+        ResultClass::Valid
+    );
+    for parity in [
+        None,
+        Some((false, false)),
+        Some((false, true)),
+        Some((true, false)),
+    ] {
+        let mut canary = obs.clone();
+        canary.application_root = parity;
+        let class = think_append::validate(tier, &script, &expect, &canary);
+        assert!(
+            matches!(class, ResultClass::Invalid(_)),
+            "accepted missing or failed application-root parity {parity:?}: {class:?}"
+        );
+    }
+}

@@ -632,6 +632,11 @@ pub fn validate(
         ));
     }
     let mut checks = Checks::default();
+    #[cfg(feature = "application_root_shadow")]
+    checks.check(
+        obs.application_root == Some((true, true)),
+        "application-root incremental/rebuild or live/replay parity is missing or failed",
+    );
     checks.check(
         obs.executed_script_digest == script_digest(script),
         "executed script digest differs from the supplied workload",

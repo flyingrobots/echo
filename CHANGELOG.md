@@ -7,6 +7,11 @@
 
 ### Added
 
+- Bounded pure evaluation executes compiler-produced U32/U64 addition with
+  checked width bounds and ordinary work/value-storage charging. Independent
+  native provider judgments require same-width operands and a dominating
+  no-overflow proof, including legacy Core without a function table.
+
 - Experimental feature `application_root_shadow` (M1, off by default): an
   incremental application root over every node, edge and attachment record of
   a worldline state, kept beside the legacy state root, which it neither

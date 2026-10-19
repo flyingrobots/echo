@@ -3,6 +3,7 @@
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
 mod types;
+mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -114,6 +115,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         "core.bytes.concat",
                         "core.bytes.slice",
                         "core.integer.subtract",
+                        "core.integer.add",
                     ]
                     .contains(&callee)
                     {
@@ -145,6 +147,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             types: &mut types,
             definitions: &definitions,
             summaries: &summaries,
+            proven: Vec::new(),
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -168,8 +171,9 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         types: &mut types,
         definitions: &definitions,
         summaries: &summaries,
+        proven: Vec::new(),
     };
-    if super::map_field(core, "functions").is_none() {
+    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
     }
     for (_, intent) in members(get(core, "intents")?)? {
@@ -277,9 +281,10 @@ struct Checker<'a, 'b> {
     types: &'b mut Types<'a>,
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
+    proven: Vec<&'a Value>,
 }
-impl Checker<'_, '_> {
-    fn function(&mut self, definition: &Definition<'_>) -> Check<Summary> {
+impl<'a> Checker<'a, '_> {
+    fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
         let mut frame = Frame::new(definition.params.iter().chain(declarations), self.types)?;
         let mut height = definition.result.measure()?.height;
@@ -323,7 +328,12 @@ impl Checker<'_, '_> {
             height: height.max(value.height),
         })
     }
-    fn expression(&mut self, value: &Value, frame: &Frame<'_>, depth: usize) -> Check<Expression> {
+    fn expression(
+        &mut self,
+        value: &'a Value,
+        frame: &Frame<'a>,
+        depth: usize,
+    ) -> Check<Expression> {
         self.types.step(depth)?;
         let mut charge = Charge {
             ticks: 1,
@@ -455,8 +465,25 @@ impl Checker<'_, '_> {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
                     height = height.max(1);
-                    let (schema, intrinsic) =
-                        intrinsic(name, arguments, &argument_schemas, &declared)?;
+                    let addition_proven = if name == "core.integer.add" {
+                        let [Schema::Word(max)] = declared.as_slice() else {
+                            return Err(());
+                        };
+                        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+                            return Err(());
+                        }
+                        unsigned_addition::prove(arguments, *max, &self.proven, self.types)?;
+                        true
+                    } else {
+                        false
+                    };
+                    let (schema, intrinsic) = intrinsic(
+                        name,
+                        arguments,
+                        &argument_schemas,
+                        &declared,
+                        addition_proven,
+                    )?;
                     charge.append(intrinsic)?;
                     schema
                 }
@@ -474,8 +501,8 @@ impl Checker<'_, '_> {
     }
     fn predicate(
         &mut self,
-        predicate: &Value,
-        frame: &Frame<'_>,
+        predicate: &'a Value,
+        frame: &Frame<'a>,
         depth: usize,
     ) -> Check<(Charge, usize)> {
         self.types.step(depth)?;
@@ -491,11 +518,14 @@ impl Checker<'_, '_> {
                     storage: 0,
                 };
                 let mut height = 0;
+                let inherited = self.proven.len();
                 for child in values {
                     let (charge, child_height) = self.predicate(child, frame, depth + 1)?;
                     total.append(charge)?;
                     height = height.max(child_height);
+                    self.proven.push(child);
                 }
+                self.proven.truncate(inherited);
                 return Ok((total, height + 1));
             }
             "not" => {
@@ -546,7 +576,8 @@ impl Checker<'_, '_> {
         }
         Ok((charge, height))
     }
-    fn intent(&mut self, intent: &Value, read: bool) -> Check<()> {
+    fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        self.proven.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
@@ -572,6 +603,7 @@ impl Checker<'_, '_> {
         }
         for constraint in sequence(get(intent, "inputConstraints")?)? {
             charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
+            self.proven.push(get(constraint, "predicate")?);
         }
         for node in sequence(get(body, "nodes")?)? {
             if read {
@@ -644,6 +676,7 @@ fn intrinsic(
     arguments: &[Value],
     actual: &[Schema],
     declared: &[Schema],
+    addition_proven: bool,
 ) -> Check<(Schema, Charge)> {
     let literal = |value: &Value| -> Check<u64> {
         if string(get(value, "kind")?)? != "const" {
@@ -692,6 +725,17 @@ fn intrinsic(
                 Charge {
                     ticks: u128::from(high) + 3,
                     storage: u128::from(high) + 64,
+                },
+            ))
+        }
+        ("core.integer.add", [left, right], [expected @ Schema::Word(_)])
+            if addition_proven && expected == left && expected == right =>
+        {
+            Ok((
+                expected.clone(),
+                Charge {
+                    ticks: 3,
+                    storage: 64,
                 },
             ))
         }

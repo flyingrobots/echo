@@ -587,3 +587,70 @@ mod imported_calls;
 
 #[path = "source_functions/utf8.rs"]
 mod utf8;
+
+#[test]
+fn bounded_read_accepts_independently_proven_unsigned_addition() {
+    for (left, accepted) in [(1, true), (i128::from(u64::MAX), false)] {
+        // Rebound native control. This does not claim public producer acceptance.
+        let literal = |number: i128| {
+            map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([
+                        ("kind", text("int")),
+                        ("width", text("U64")),
+                        ("value", Value::Integer(number)),
+                    ]),
+                ),
+            ])
+        };
+        let sum = map([
+            ("kind", text("call")),
+            ("callee", text("core.integer.add")),
+            ("typeArgs", Value::Array(vec![text("U64")])),
+            ("args", Value::Array(vec![literal(left), literal(1)])),
+        ]);
+        let constraint = map([
+            ("coordinate", text("where.addition.control")),
+            (
+                "predicate",
+                map([
+                    ("kind", text("compare")),
+                    ("op", text("==")),
+                    ("left", sum),
+                    ("right", literal(2)),
+                ]),
+            ),
+        ]);
+        let mut verification = request(read_helper());
+        changed_core(&mut verification, |core| {
+            *field_mut(intent(core), "inputConstraints") = Value::Array(vec![constraint.clone()]);
+        });
+        changed_target(&mut verification, |intent| {
+            *field_mut(intent, "inputConstraints") = Value::Array(vec![constraint]);
+        });
+        let mut source = read_helper();
+        source.core = bound(
+            &verification.core.reference.coordinate,
+            &verification.core.artifact.domain,
+            verification.core.artifact.bytes.clone(),
+        );
+        source.semantic_inputs[5].artifact = bound(
+            &verification.target_ir.reference.coordinate,
+            &verification.target_ir.artifact.domain,
+            verification.target_ir.artifact.bytes.clone(),
+        );
+        let lowered = lower(source);
+        let verified = verifier::verify(verification).expect("bounded verifier response");
+        let report = decode(&verified.outputs[0].artifact.bytes).expect("verification report");
+        assert_eq!(
+            (lowered.is_ok(), field(&report, "outcome")),
+            (
+                accepted,
+                &text(if accepted { "accepted" } else { "rejected" })
+            ),
+            "both independent read relations accept proven same-width addition"
+        );
+    }
+}

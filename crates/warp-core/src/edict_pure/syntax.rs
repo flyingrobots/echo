@@ -188,7 +188,7 @@ impl Parser<'_> {
                 right: Box::new(self.expr(right, depth + 1)?),
             });
         }
-        if callee == "core.integer.subtract" {
+        if callee == "core.integer.subtract" || callee == "core.integer.add" {
             let ([left, right], [width]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);
             };
@@ -197,10 +197,12 @@ impl Parser<'_> {
                 "U64" => u64::MAX,
                 _ => return Err(Error::UnsupportedProgram),
             };
-            return Ok(Expr::UnsignedSubtract {
-                max,
-                left: Box::new(self.expr(left, depth + 1)?),
-                right: Box::new(self.expr(right, depth + 1)?),
+            let left = Box::new(self.expr(left, depth + 1)?);
+            let right = Box::new(self.expr(right, depth + 1)?);
+            return Ok(if callee == "core.integer.add" {
+                Expr::UnsignedAdd { max, left, right }
+            } else {
+                Expr::UnsignedSubtract { max, left, right }
             });
         }
         if !types.is_empty() {

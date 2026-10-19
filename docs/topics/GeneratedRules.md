@@ -94,6 +94,44 @@ not use it as an application authoring escape hatch.
 
 ## Execution Corridors
 
+### Bounded compiler-package computation
+
+`edict_pure::evaluate` interprets exact compiler-produced packages under an
+independently selected trusted-host pin and bounded input, work, storage and
+output limits. This is ordinary computation, not package admission, graph
+mutation, an Action, a Tick, a receipt or recovery evidence.
+
+The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
+against the declared unsigned width and checks the sum before copying the
+result through the ordinary resource meter. Overflow and invalid operands
+refuse rather than wrap. The literal-boundary witness needs eight work units
+and three 64-byte value cells; one fewer work unit or storage byte refuses.
+The public compiler fixture and arithmetic meter test in
+`edict_unsigned_addition_tests` and `edict_pure::evaluate` cover these boundaries.
+
+Native lowerer and verifier source-function judgments independently require
+exact same-width operands and a dominating no-overflow proof. Checked conjunctive
+prefixes can bound later terms; facts cannot escape negation or flow backward.
+Bounded-read relations reuse this established proof and require exactly
+matching declared and operand widths. New addition calls require this judgment
+even when the legacy Core function table is absent. Both implementations bound proof traversal and comparisons
+using their existing work ceilings. Rebound native tests exercise these checks;
+they do not establish public compiler acceptance.
+
+Runtime helper validation also proves addition within its fresh frame using
+literal and nested-sum bounds. Other terms retain their full unsigned width,
+so zero identity is total and an unbounded parameter plus one refuses. Caller
+constraints do not cross into a helper frame.
+
+The retained public compiler fixtures cover a legacy-producer execution control
+and a strict SourceFunctions publication containing an authored arithmetic helper.
+The accepted public verifier report binds the unmodified package bytes; repeated
+public compilation preserves both package and report identity.
+Checked provider components are promoted from two byte-identical designated
+builds, and the package manifest binds their exact digests. Component presence,
+runtime support and native judgments alone do not authorize a package or grant
+application mutation authority.
+
 ### Provider-v1 compatibility corridor
 
 The currently implemented Edict mutation corridor is:

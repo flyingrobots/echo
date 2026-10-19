@@ -21,6 +21,10 @@ use echo_edict_canonical::decode_canonical_cbor_v1;
 
 /// Host ceilings, intersected with the compiler's declared evaluation budget.
 #[derive(Clone, Copy, Debug)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "Each field is an explicit resource ceiling, including in the private compiler checker."
+)]
 pub struct EvaluationLimits {
     /// Maximum encoded package size before canonical decoding.
     pub max_package_bytes: usize,

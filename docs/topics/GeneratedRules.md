@@ -728,6 +728,15 @@ the evaluation meter and do not implement its physical arena.
 
 ### Current operation publication preparation
 
+`ExecutableOperationPackage::prepare` is a data-only check available without
+`trusted_runtime` or `native_rule_bootstrap`. It uses the same current package
+and embedded-program checker as trusted-host preparation. A fresh outer package
+pin does not bypass compiler-bundle or semantic-closure checks. This API neither
+authenticates source-to-Core compilation nor determines which release pin is
+authorized. The runtime helper modules remain private without `trusted_runtime`,
+and owner constructors retain their existing feature gates. Preparation grants
+no installation, invocation, scheduler, WAL or mutation authority.
+
 `ExecutableOperationPackage::prepare` checks a trusted host's expected current
 package identity against exact canonical publication bytes. There is one
 `ExecutableOperationPackage`, one `EchoOperationSemanticClosure`, and one

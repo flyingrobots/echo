@@ -7,6 +7,10 @@
 
 ### Changed
 
+- Make current effect publication preparation available as a data-only check
+  without trusted-host features, sharing the existing runtime checker while
+  retaining private host helpers and gated authority constructors.
+
 - Admit the current authored-effect envelope through the provider's owning
   operation-package schema, sharing current package fields with anchored
   operations and preserving kind-specific closure/projection requirements.

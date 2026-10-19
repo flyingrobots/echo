@@ -580,7 +580,6 @@ pub enum EchoOperationFootprintContractV1 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EchoOperationProgram {
     /// An authored program with executable schema, footprint law and resource declarations.
-    #[cfg(feature = "trusted_runtime")]
     EdictEffect(Arc<crate::edict_effects::EffectProgram>),
 
     /// Compare and replace one anchored typed node attachment.
@@ -605,7 +604,6 @@ pub enum EchoOperationProgram {
 
 impl EchoOperationProgram {
     /// Returns the authored-effect payload when this is that program kind.
-    #[cfg(feature = "trusted_runtime")]
     #[must_use]
     pub fn as_effect_program(&self) -> Option<&crate::edict_effects::EffectProgram> {
         match self {
@@ -616,14 +614,12 @@ impl EchoOperationProgram {
 
     const fn interpreter_profile(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation-interpreter.edict-effect/v1",
             _ => INTERPRETER_PROFILE,
         }
     }
     const fn intrinsic_profile(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation-intrinsics.edict-effect/v1",
             _ => INTRINSIC_PROFILE,
         }
@@ -676,14 +672,12 @@ impl EchoOperationProgram {
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
                 profile_digest(CREATE_FOOTPRINT_CONTRACT)
             }
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(program) => program.footprint_identity(),
         }
     }
 
     const fn minimum_budget(&self) -> EchoOperationBudgetV1 {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => EchoOperationBudgetV1::new(1, 0, 0),
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
                 EchoOperationBudgetV1::new(4, 64, 32)
@@ -700,7 +694,6 @@ impl EchoOperationProgram {
 
     const fn input_schema(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation.input.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => INPUT_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_INPUT_SCHEMA,
@@ -709,7 +702,6 @@ impl EchoOperationProgram {
 
     const fn result_schema(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation.result.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => RESULT_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_RESULT_SCHEMA,
@@ -718,7 +710,6 @@ impl EchoOperationProgram {
 
     const fn obstruction_schema(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation.obstruction.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => OBSTRUCTION_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_OBSTRUCTION_SCHEMA,
@@ -727,7 +718,6 @@ impl EchoOperationProgram {
 
     const fn result_interpretation(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation.result-interpretation.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => RESULT_INTERPRETATION,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_RESULT_INTERPRETATION,
@@ -736,7 +726,6 @@ impl EchoOperationProgram {
 
     const fn obstruction_interpretation(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation.obstruction-interpretation.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => OBSTRUCTION_INTERPRETATION,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_OBSTRUCTION_INTERPRETATION,
@@ -745,7 +734,6 @@ impl EchoOperationProgram {
 
     const fn application_basis_schema(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation.basis.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => APPLICATION_BASIS_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_APPLICATION_BASIS_SCHEMA,
@@ -754,7 +742,6 @@ impl EchoOperationProgram {
 
     const fn target_profile(&self) -> &'static str {
         match self {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(_) => "echo.operation-target.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => TARGET_PROFILE,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_TARGET_PROFILE,
@@ -786,8 +773,6 @@ impl EchoOperationProgram {
 
     fn validate_supported_profile(&self) -> Result<(), EchoOperationArtifactErrorV1> {
         match self {
-            #[cfg(feature = "trusted_runtime")]
-            Self::EdictEffect(_) => Ok(()),
             Self::AnchoredNodeAttachmentCompareAndSet {
                 max_replacement_bytes,
                 ..
@@ -799,7 +784,8 @@ impl EchoOperationProgram {
                 EchoOperationArtifactErrorKindV1::UnsupportedProgram,
                 "program replacement bound must be nonzero",
             )),
-            Self::AnchoredNodeAttachmentCompareAndSet { .. }
+            Self::EdictEffect(_)
+            | Self::AnchoredNodeAttachmentCompareAndSet { .. }
             | Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => Ok(()),
         }
     }
@@ -807,7 +793,6 @@ impl EchoOperationProgram {
     fn to_value(&self) -> CanonicalValueV1 {
         let (kind, required_node_type, required_attachment_type, max_replacement_bytes) = match self
         {
-            #[cfg(feature = "trusted_runtime")]
             Self::EdictEffect(program) => return program.to_value(),
             Self::AnchoredNodeAttachmentCompareAndSet {
                 required_node_type,
@@ -852,7 +837,6 @@ impl EchoOperationProgram {
 
     fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
-        #[cfg(feature = "trusted_runtime")]
         if text_map(value.clone())?.get("kind") == Some(&text_value("edict-effect-program/v1")) {
             return crate::edict_effects::EffectProgram::from_value(&value)
                 .map(|program| Self::EdictEffect(Arc::new(program)))
@@ -1893,9 +1877,13 @@ pub struct ExecutableOperationPackage {
 
 impl ExecutableOperationPackage {
     /// Prepares exact pinned current publication bytes, without admission authority.
+    ///
+    /// This data-only compiler/verifier check is available without trusted-host
+    /// features. It checks the current package and embedded program contract;
+    /// it does not authenticate source-to-Core compilation, select an authorized
+    /// release pin, install a package, or grant invocation rights.
     /// # Errors
     /// Refuses a different pin or an unsupported canonical publication contract.
-    #[cfg(feature = "trusted_runtime")]
     pub fn prepare(
         bytes: &[u8],
         expected: Hash,
@@ -2323,17 +2311,12 @@ impl ExecutableOperationPackage {
             ));
         }
         self.semantic_closure.validate()?;
-        let requires_lawpack = match &self.program {
-            #[cfg(feature = "trusted_runtime")]
-            EchoOperationProgram::EdictEffect(_) => false,
-            _ => true,
-        };
+        let requires_lawpack = !matches!(&self.program, EchoOperationProgram::EdictEffect(_));
         if requires_lawpack != self.semantic_closure.lawpack_identity.is_some() {
             return Err(invalid_structure(
                 "lawpack binding does not match the program kind",
             ));
         }
-        #[cfg(feature = "trusted_runtime")]
         if let Some(effect) = self.program.as_effect_program() {
             effect
                 .validate_compiled_binding(
@@ -4095,6 +4078,11 @@ fn current_application_basis(
         EchoOperationProgram::EdictEffect(_) => invocation
             .effect_application_basis()
             .map_err(|_| basis_mismatch("effect application input is absent")),
+        #[cfg(not(feature = "trusted_runtime"))]
+        EchoOperationProgram::EdictEffect(_) => Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKind::ExecutionUnavailable,
+            "effect publication validation grants no invocation authority",
+        )),
         EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet { .. } => {
             let node = invocation
                 .node
@@ -8020,7 +8008,6 @@ fn hash_port_set<'a>(
 pub(crate) fn program_identity_bytes(bytes: &[u8]) -> Hash {
     domain_hash(PROGRAM_ID_DOMAIN, bytes)
 }
-#[cfg(feature = "trusted_runtime")]
 pub(crate) fn effect_input_basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
     EchoOperationApplicationBasisV1::new(
         profile_digest("echo.operation.basis.edict-effect/v1"),

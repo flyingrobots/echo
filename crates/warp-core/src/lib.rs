@@ -71,10 +71,23 @@ pub mod domain;
 mod echo_operation;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_effects;
+// Compile the same data checker without exposing trusted-host helper APIs.
+#[cfg(not(feature = "trusted_runtime"))]
+#[allow(dead_code, unused_imports)]
+mod edict_effects;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_pure;
+// Compile the same data checker without exposing trusted-host helper APIs.
+#[cfg(not(feature = "trusted_runtime"))]
+#[allow(dead_code, unused_imports)]
+mod edict_pure;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_read;
+// Compile the same data checker without exposing trusted-host helper APIs.
+#[cfg(not(feature = "trusted_runtime"))]
+#[allow(dead_code, unused_imports)]
+mod edict_read;
+pub use edict_effects::EffectPackageError;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;

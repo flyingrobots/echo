@@ -296,6 +296,8 @@ fn make_parallel_touch_rule() -> RewriteRule {
                 }));
             }
             Footprint {
+                r_read: Default::default(),
+                r_write: Default::default(),
                 n_read: warp_core::NodeSet::default(),
                 n_write: warp_core::NodeSet::default(),
                 e_read: warp_core::EdgeSet::default(),

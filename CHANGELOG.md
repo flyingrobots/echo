@@ -137,6 +137,12 @@
 
 ### Added
 
+- Outgoing-edge range claims retain source WARP, source node and edge type in
+  footprint union and scheduler reservation, including observed empty ranges.
+  Range-bearing operation footprint identities bind both range axes separately;
+  footprints without ranges keep their V1 identities. Retained range-slot
+  integration and the authored operation effect bridge remain unfinished.
+
 - Native Edict provider judgments accept the distinct bounded source-closure
   artifact, preserve its identity and refuse mixed or relabelled source forms.
   An explicit generation variant carries its owning schema binding; generic

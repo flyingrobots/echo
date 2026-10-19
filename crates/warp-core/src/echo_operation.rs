@@ -124,6 +124,7 @@ const CREATE_APPLICATION_BASIS_DOMAIN: &[u8] =
 const CREATE_RESULT_ABSENCE_PROPOSITION_DOMAIN: &[u8] =
     b"echo:operation-result-anchored-node-alpha-absence-proposition:v1\0";
 const FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v1\0";
+const RANGE_FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v2\0";
 const RECEIPT_DIGEST_DOMAIN: &[u8] = b"echo:operation-receipt:v1\0";
 const COMPOSITION_DIGEST_DOMAIN: &[u8] = b"echo:operation-singleton-composition:v1\0";
 const PLAN_DIGEST_DOMAIN: &[u8] = b"echo:operation-plan:v1\0";
@@ -7509,7 +7510,12 @@ fn record_node_read(footprint: &mut Footprint, node: NodeKey) {
 
 fn footprint_digest(footprint: &Footprint) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(FOOTPRINT_DIGEST_DOMAIN);
+    let has_ranges = !footprint.r_read.is_empty() || !footprint.r_write.is_empty();
+    hasher.update(if has_ranges {
+        RANGE_FOOTPRINT_DIGEST_DOMAIN
+    } else {
+        FOOTPRINT_DIGEST_DOMAIN
+    });
     hash_node_set(
         &mut hasher,
         b"nr",
@@ -7559,6 +7565,17 @@ fn footprint_digest(footprint: &Footprint) -> Hash {
         footprint.b_out.iter(),
     );
     hasher.update(&footprint.factor_mask.to_le_bytes());
+    if has_ranges {
+        for (label, ranges) in [(b"rr", &footprint.r_read), (b"rw", &footprint.r_write)] {
+            hasher.update(label);
+            hasher.update(&(ranges.len() as u64).to_le_bytes());
+            for range in ranges.iter() {
+                hasher.update(range.source.warp_id.as_bytes());
+                hasher.update(range.source.local_id.as_bytes());
+                hasher.update(range.edge_type.as_bytes());
+            }
+        }
+    }
     hasher.finalize().into()
 }
 
@@ -8690,6 +8707,17 @@ mod tests {
     }
 
     #[test]
+    fn footprint_without_ranges_retains_its_v1_identity() {
+        assert_eq!(
+            footprint_digest(&Footprint::default()),
+            [
+                133, 20, 8, 211, 91, 122, 210, 37, 17, 71, 156, 145, 21, 30, 109, 175, 39, 57, 176,
+                34, 41, 209, 18, 169, 48, 224, 15, 83, 138, 167, 145, 2
+            ]
+        );
+    }
+
+    #[test]
     fn footprint_digest_is_prefix_free_across_adjacent_sets() {
         let mut read_node_bytes = [0; 64];
         read_node_bytes[..2].copy_from_slice(b"nw");
@@ -8749,6 +8777,40 @@ mod tests {
         let mut footprint = Footprint::default();
         footprint.b_out.insert(node.warp_id, 9);
         footprints.push(footprint);
+        let range = crate::footprint::OutgoingEdgeRange {
+            source: node,
+            edge_type: crate::TypeId(digest(10)),
+        };
+        let mut footprint = Footprint::default();
+        footprint.r_read.insert(range);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.r_write.insert(range);
+        footprints.push(footprint);
+        for changed in [
+            crate::footprint::OutgoingEdgeRange {
+                source: NodeKey {
+                    warp_id: crate::WarpId(digest(11)),
+                    ..node
+                },
+                ..range
+            },
+            crate::footprint::OutgoingEdgeRange {
+                source: NodeKey {
+                    local_id: crate::NodeId(digest(11)),
+                    ..node
+                },
+                ..range
+            },
+            crate::footprint::OutgoingEdgeRange {
+                edge_type: crate::TypeId(digest(11)),
+                ..range
+            },
+        ] {
+            let mut footprint = Footprint::default();
+            footprint.r_read.insert(changed);
+            footprints.push(footprint);
+        }
         footprints.push(Footprint {
             factor_mask: 1,
             ..Footprint::default()

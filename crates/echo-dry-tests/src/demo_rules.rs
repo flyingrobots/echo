@@ -170,6 +170,8 @@ fn base_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> BaseScopeFootpri
 fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let base = base_scope_footprint(view, scope);
     Footprint {
+        r_read: Default::default(),
+        r_write: Default::default(),
         n_read: base.n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
@@ -285,6 +287,8 @@ fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
         b_in.insert(base.warp_id, pack_port_key(scope, 0, true));
     }
     Footprint {
+        r_read: Default::default(),
+        r_write: Default::default(),
         n_read: base.n_read,
         n_write,
         e_read: EdgeSet::default(),

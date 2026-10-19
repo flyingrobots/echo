@@ -130,6 +130,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -366,6 +368,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -425,6 +429,8 @@ mod enforcement {
         n_read.insert_with_warp(warp_id, *scope);
         n_write.insert_with_warp(warp_id, *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write,
             e_read: EdgeSet::default(),
@@ -471,6 +477,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -523,6 +531,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -589,6 +599,8 @@ mod enforcement {
         a_read.insert(key);
         a_write.insert(key);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -630,6 +642,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -678,6 +692,8 @@ mod enforcement {
         n_read.insert_with_warp(warp_id, *scope);
         e_write.insert_with_warp(warp_id, make_edge_id("t3-11-edge"));
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(), // Missing scope!
             e_read: EdgeSet::default(),
@@ -735,6 +751,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -790,6 +808,8 @@ mod enforcement {
         let mut n_read = NodeSet::default();
         n_read.insert_with_warp(view.warp_id(), *scope);
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write: NodeSet::default(),
             e_read: EdgeSet::default(),
@@ -853,6 +873,8 @@ mod enforcement {
             local_id: missing,
         }));
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write,
             e_read: EdgeSet::default(),
@@ -937,6 +959,8 @@ mod enforcement {
 
         // Intentionally OMIT a_write(node_alpha) — this should trigger enforcement
         Footprint {
+            r_read: Default::default(),
+            r_write: Default::default(),
             n_read,
             n_write,
             e_read: EdgeSet::default(),

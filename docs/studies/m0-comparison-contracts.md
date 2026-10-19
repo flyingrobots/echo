@@ -92,8 +92,9 @@ tests.
 
 The mutants are in [`mutants.py`](m0-comparison-contracts/mutants.py), with one
 pass/fail listing per run beside it. Each mutant is one exact textual
-replacement, restored after its run. The `allocate_before_dedupe` listing is
-from the rerun after the test change described next.
+replacement, restored after its run. The baseline and both allocator
+listings are from the rerun after the test change described next; the
+other three are from the first run.
 
 The first T34 allocation case missed the recorder mutant: submission
 deduplicates before it reaches the recorder, so the mutant did not change

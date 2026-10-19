@@ -29,7 +29,7 @@ use warp_core::{
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EchoOperationProgram, EchoOperationSemanticClosure, EchoOperationTerminalPostureV1,
     EngineBuilder, ExecutableOperationPackage, GraphStore, HeadEligibility, InboxPolicy,
-    IngressTarget, InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
+    IngressTarget, InstalledEchoOperation, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
     RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
     WriterHead, WriterHeadKey, ACTION_BATCH_CANDIDATE_LIMIT_V1,
@@ -494,14 +494,14 @@ fn creation_operation_package(
     )
 }
 
-fn install_fixture_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperationV1 {
+fn install_fixture_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     install_fixture_operation_at(host, OPERATION_COORDINATE)
 }
 
 fn install_fixture_operation_at(
     host: &mut TrustedRuntimeHost,
     operation_coordinate: &str,
-) -> InstalledEchoOperationV1 {
+) -> InstalledEchoOperation {
     let package_bytes = operation_package_at(
         operation_coordinate,
         make_type_id("operation-fixture-node"),
@@ -521,11 +521,11 @@ fn install_fixture_operation_at(
             package_bytes,
         )
         .expect("the exact fixture package is admitted");
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .expect("the admitted fixture package installs")
 }
 
-fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperationV1 {
+fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     let package_bytes = creation_operation_package(
         make_type_id("operation-fixture-node"),
         make_type_id("operation-fixture-atom"),
@@ -544,7 +544,7 @@ fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> Installe
             package_bytes,
         )
         .expect("the exact fixture creation package is admitted");
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .expect("the admitted fixture creation package installs")
 }
 
@@ -568,7 +568,7 @@ fn invocation_policy() -> EchoOperationInvocationAdmissionPolicyV1 {
 }
 
 fn canonical_invocation(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     basis: warp_core::EchoOperationEvaluationBasisV1,
     node: NodeKey,
     expected_value_digest: [u8; 32],
@@ -591,7 +591,7 @@ fn canonical_invocation(
 
 fn action_invocation(
     host: &TrustedRuntimeHost,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     head_key: WriterHeadKey,
     node: NodeKey,
     current: &[u8],
@@ -671,7 +671,7 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
         .admit_echo_operation_package(&package_policy, package_bytes)
         .expect("the independently pinned package is admitted");
     let installed = host
-        .install_admitted_echo_operation_package_v1(admitted_package)
+        .install_admitted_echo_operation_package(admitted_package)
         .expect("admitted executable meaning installs without callbacks");
 
     let application_basis = application_basis();
@@ -856,7 +856,7 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         )
         .expect("the exact package is admitted");
     let installed = host
-        .install_admitted_echo_operation_package_v1(admitted_package)
+        .install_admitted_echo_operation_package(admitted_package)
         .expect("the exact package installs");
     let application_basis = application_basis();
 
@@ -1016,7 +1016,7 @@ fn identical_program_bytes_do_not_merge_admitted_operation_identities() {
     );
 
     let execute =
-        |host: &mut TrustedRuntimeHost, installed: &InstalledEchoOperationV1, head, node| {
+        |host: &mut TrustedRuntimeHost, installed: &InstalledEchoOperation, head, node| {
             let basis = host
                 .echo_operation_evaluation_basis_v1(head, application_basis())
                 .expect("Echo resolves the exact package-specific basis");
@@ -1824,7 +1824,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             )
             .expect("the package is admitted");
         let installed = host
-            .install_admitted_echo_operation_package_v1(admitted_package)
+            .install_admitted_echo_operation_package(admitted_package)
             .expect("installation enters the WAL before the live catalog");
         let evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
@@ -1937,7 +1937,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         .expect("a fresh host recovers without executing application callbacks");
     assert!(recovered
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_some());
     let state = recovered
         .runtime()
@@ -2448,7 +2448,7 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
         recovery
             .installed_echo_operations
             .iter()
-            .map(InstalledEchoOperationV1::package_id)
+            .map(InstalledEchoOperation::package_id)
             .collect::<Vec<_>>(),
         vec![installed_package_id],
         "the exact creation package installation must recover"
@@ -3094,7 +3094,7 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         .expect("a fresh host recovers the composite Action Tick");
     assert!(recovered
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_some());
     assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 0);
     for submission_id in [first_submission_id, second_submission_id] {
@@ -3266,7 +3266,7 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
         .expect("the accepted pre-Tick Action recovers");
     assert!(recovered
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_some());
     assert!(matches!(
         recovered.runtime().observe_intent_outcome(&submission_id),
@@ -4582,7 +4582,7 @@ fn submit_action(
 
 fn creation_action_invocation(
     host: &TrustedRuntimeHost,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     head_key: WriterHeadKey,
     node: NodeKey,
     payload: &[u8],
@@ -7110,4 +7110,80 @@ fn recovery_index_binds_retained_sections_and_action_attribution_under_one_recip
         reopened.echo_operation_action_outcomes,
         recovery.echo_operation_action_outcomes
     );
+}
+
+#[path = "common/edict_effect_publication.rs"]
+mod current_effect_publication_fixture;
+
+fn install_effect_catalog_fixture(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
+    use current_effect_publication_fixture as publication;
+    let bytes = publication::encoded(&publication::package(&publication::program()));
+    let policy = EchoOperationAdmissionPolicy::exact(
+        warp_core::echo_operation_package_id_v1(&bytes).as_hash(),
+        "app.update@1",
+        [8; 32],
+        EchoOperationBudgetV1::new(1, 0, 0),
+    );
+    let token = host
+        .admit_echo_operation_package(&policy, bytes)
+        .expect("effect policy");
+    host.install_admitted_echo_operation_package(token)
+        .expect("effect installation")
+}
+
+#[test]
+fn shared_catalog_preserves_action_execution_and_recovery_in_both_program_installation_orders() {
+    for effect_first in [false, true] {
+        let wal_dir = TempWalDir::new();
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("WAL");
+        let (fixed, effect) = if effect_first {
+            let effect = install_effect_catalog_fixture(&mut host);
+            (install_fixture_operation(&mut host), effect)
+        } else {
+            let fixed = install_fixture_operation(&mut host);
+            (fixed, install_effect_catalog_fixture(&mut host))
+        };
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        let invocation = action_invocation(&host, &fixed, head_key, node, b"before", b"after");
+        let submission = submit_action(&mut host, head_key, invocation);
+        host.tick_once()
+            .expect("fixed Action commits with both program kinds installed");
+        assert!(outcome_is_committed(&host, &submission));
+        let outcome = host
+            .echo_operation_action_outcome_v1(&submission)
+            .expect("outcome")
+            .clone();
+        let recovery = host
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("recovery");
+        assert_eq!(recovery.installed_echo_operations.len(), 2);
+        assert!(recovery.installed_echo_operations.contains(&fixed));
+        assert!(recovery.installed_echo_operations.contains(&effect));
+        let root = recovery.certificate.recovered_indexes_root;
+        drop(host);
+        let (mut fresh, _, _) = fixture_host();
+        fresh
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("fresh recovery");
+        assert_eq!(
+            fresh.echo_operation_action_outcome_v1(&submission),
+            Some(&outcome)
+        );
+        assert_eq!(
+            fresh
+                .engine()
+                .installed_echo_operation_package(effect.package_id()),
+            Some(&effect)
+        );
+        let recovered = fresh
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("recovery");
+        assert_eq!(recovered.certificate.recovered_indexes_root, root);
+    }
 }

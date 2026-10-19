@@ -169,6 +169,12 @@ impl EchoOperationPackageIdV1 {
     }
 }
 
+impl From<Hash> for EchoOperationPackageIdV1 {
+    fn from(value: Hash) -> Self {
+        Self(value)
+    }
+}
+
 /// Stable content identity of exact Echo operation-program bytes.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2675,14 +2681,14 @@ impl AdmittedExecutableOperationPackage {
 
 /// Installed executable meaning. Installation does not itself authorize an invocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InstalledEchoOperationV1 {
+pub struct InstalledEchoOperation {
     installed_operation_id: InstalledEchoOperationIdV1,
     package_id: EchoOperationPackageIdV1,
     package_admission_id: EchoOperationPackageAdmissionIdV1,
     // Shared, not copied, by every prepared Action (#903).
     operation_coordinate: std::sync::Arc<str>,
     semantic_identity: Hash,
-    lawpack_identity: Hash,
+    lawpack_identity: Option<Hash>,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
     intrinsic_profile_identity: Hash,
@@ -2698,7 +2704,34 @@ pub struct InstalledEchoOperationV1 {
     admission_policy: std::sync::Arc<EchoOperationAdmissionPolicy>,
 }
 
-impl InstalledEchoOperationV1 {
+impl InstalledEchoOperation {
+    /// Raw identity of the current installation evidence.
+    #[must_use]
+    pub const fn identity(&self) -> Hash {
+        self.installed_operation_id.as_hash()
+    }
+    /// Raw identity of the exact current publication.
+    #[must_use]
+    pub const fn package_identity(&self) -> Hash {
+        self.package_id.as_hash()
+    }
+    /// Raw identity of the exact current program.
+    #[must_use]
+    pub const fn program_identity(&self) -> Hash {
+        self.program_id.as_hash()
+    }
+    /// Canonical retained evidence; this does not grant invocation authority.
+    /// # Errors
+    /// Refuses invalid canonical material.
+    pub fn retained_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        retain_operation_installation(self)
+    }
+    /// Reconstructs retained evidence without inserting it into a registry.
+    /// # Errors
+    /// Refuses unsupported records, policy substitutions or inconsistent identities.
+    pub fn from_retained_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        recover_operation_installation(bytes)
+    }
     /// Returns Echo's installed-operation identity.
     #[must_use]
     pub const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
@@ -2729,7 +2762,9 @@ impl InstalledEchoOperationV1 {
         self.program_id
     }
 
-    pub(crate) const fn program(&self) -> &EchoOperationProgram {
+    /// Returns the installed current program kind and metadata.
+    #[must_use]
+    pub const fn program(&self) -> &EchoOperationProgram {
         &self.program
     }
 
@@ -2749,7 +2784,7 @@ impl InstalledEchoOperationV1 {
 
     /// Returns the lawpack identity bound by the admitted package.
     #[must_use]
-    pub const fn lawpack_identity(&self) -> Hash {
+    pub const fn lawpack_identity(&self) -> Option<Hash> {
         self.lawpack_identity
     }
 
@@ -2837,18 +2872,15 @@ pub(crate) fn admit_operation_package(
 
 pub(crate) fn installed_from_admitted(
     admitted: AdmittedExecutableOperationPackage,
-) -> Result<InstalledEchoOperationV1, EchoOperationArtifactErrorV1> {
+) -> InstalledEchoOperation {
     let package = admitted.package;
-    let lawpack_identity = package.semantic_closure.lawpack_identity.ok_or_else(|| {
-        invalid_structure("authored effects require the effect installation crossing")
-    })?;
-    let mut installed = InstalledEchoOperationV1 {
+    let mut installed = InstalledEchoOperation {
         installed_operation_id: InstalledEchoOperationIdV1([0; 32]),
         package_id: admitted.package_id,
         package_admission_id: admitted.admission_id,
         operation_coordinate: package.operation_coordinate.into(),
         semantic_identity: package.semantic_closure.canonical_meaning_identity,
-        lawpack_identity,
+        lawpack_identity: package.semantic_closure.lawpack_identity,
         target_profile_identity: package.target_profile_identity,
         interpreter_profile_identity: package.interpreter_profile_identity,
         intrinsic_profile_identity: package.intrinsic_profile_identity,
@@ -2865,11 +2897,11 @@ pub(crate) fn installed_from_admitted(
         admission_policy: std::sync::Arc::new(admitted.admission_policy),
     };
     installed.installed_operation_id = installed_operation_id(&installed);
-    Ok(installed)
+    installed
 }
 
-pub(crate) fn retain_installation_v1(
-    installed: &InstalledEchoOperationV1,
+pub(crate) fn retain_operation_installation(
+    installed: &InstalledEchoOperation,
 ) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
     encode_canonical_cbor_v1(&map_value([
         ("admission_policy", installed.admission_policy.to_value()),
@@ -2895,9 +2927,9 @@ pub(crate) fn retain_installation_v1(
     .map_err(canonical_error)
 }
 
-pub(crate) fn recover_installation_v1(
+pub(crate) fn recover_operation_installation(
     bytes: &[u8],
-) -> Result<InstalledEchoOperationV1, EchoOperationArtifactErrorV1> {
+) -> Result<InstalledEchoOperation, EchoOperationArtifactErrorV1> {
     let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
     let mut fields = exact_text_map(
         value,
@@ -2946,7 +2978,7 @@ pub(crate) fn recover_installation_v1(
             "retained package-admission evidence does not match re-admission",
         ));
     }
-    let installed = installed_from_admitted(admitted)?;
+    let installed = installed_from_admitted(admitted);
     let retained_installed_operation_id =
         InstalledEchoOperationIdV1(take_hash(&mut fields, "installed_operation_id")?);
     if retained_installed_operation_id != installed.installed_operation_id {
@@ -2954,7 +2986,7 @@ pub(crate) fn recover_installation_v1(
             "retained installed-operation identity does not match exact installation",
         ));
     }
-    if retain_installation_v1(&installed)? != bytes {
+    if retain_operation_installation(&installed)? != bytes {
         return Err(artifact_error(
             EchoOperationArtifactErrorKindV1::NonCanonical,
             "installation did not reproduce the exact retained bytes",
@@ -2963,11 +2995,11 @@ pub(crate) fn recover_installation_v1(
     Ok(installed)
 }
 
-pub(crate) fn install_recovered_v1(
-    packages: &mut BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
+pub(crate) fn restore_operation_catalog_entry(
+    packages: &mut BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperation>,
     operations: &mut BTreeMap<String, EchoOperationPackageIdV1>,
-    installed: InstalledEchoOperationV1,
-) -> Result<InstalledEchoOperationV1, EchoOperationInstallationErrorV1> {
+    installed: InstalledEchoOperation,
+) -> Result<InstalledEchoOperation, EchoOperationInstallationErrorV1> {
     if let Some(existing) = packages.get(&installed.package_id) {
         if existing == &installed {
             return Ok(existing.clone());
@@ -3732,7 +3764,7 @@ impl AdmittedEchoOperationInvocationV1 {
 }
 
 pub(crate) fn admit_invocation_v1(
-    installed: Option<&InstalledEchoOperationV1>,
+    installed: Option<&InstalledEchoOperation>,
     policy: EchoOperationInvocationAdmissionPolicyV1,
     canonical_invocation_bytes: &[u8],
     current_basis: EchoOperationEvaluationBasisV1,
@@ -3783,7 +3815,7 @@ pub(crate) fn admit_invocation_v1(
 /// earlier basis reach the evaluator and receive a typed `BasisChanged`
 /// obstruction instead of failing the host admission loop.
 pub(crate) fn admit_action_invocation_v1(
-    installed: Option<&InstalledEchoOperationV1>,
+    installed: Option<&InstalledEchoOperation>,
     policy: EchoOperationInvocationAdmissionPolicyV1,
     canonical_invocation_bytes: &[u8],
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
@@ -3811,11 +3843,11 @@ pub(crate) fn admit_action_invocation_v1(
 }
 
 fn admit_invocation_static_v1<'a>(
-    installed: Option<&'a InstalledEchoOperationV1>,
+    installed: Option<&'a InstalledEchoOperation>,
     policy: EchoOperationInvocationAdmissionPolicyV1,
     canonical_invocation_bytes: &[u8],
 ) -> Result<
-    (EchoOperationInvocationV1, &'a InstalledEchoOperationV1),
+    (EchoOperationInvocationV1, &'a InstalledEchoOperation),
     EchoOperationInvocationAdmissionErrorV1,
 > {
     let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
@@ -3901,7 +3933,7 @@ fn admit_invocation_static_v1<'a>(
 
 fn build_admitted_invocation_v1(
     invocation: EchoOperationInvocationV1,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     policy: EchoOperationInvocationAdmissionPolicyV1,
     canonical_invocation_bytes: &[u8],
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
@@ -3931,7 +3963,7 @@ fn build_admitted_invocation_v1(
 }
 
 fn current_application_basis(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     invocation: &EchoOperationInvocationV1,
     state: &WorldlineState,
 ) -> Result<EchoOperationApplicationBasisV1, EchoOperationInvocationAdmissionErrorV1> {
@@ -4026,7 +4058,7 @@ fn current_application_basis(
 /// Anything else keeps the whole-frontier rule, and the caller obstructs it
 /// with `BasisChanged`. `state` must be the state the Action commits onto.
 pub(crate) fn scoped_action_basis_holds_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     invocation: &EchoOperationInvocationV1,
     current_head: WriterHeadKey,
     current_tick: WorldlineTick,
@@ -4183,7 +4215,7 @@ pub(crate) fn recovered_origin_corroborated_v1(
 
 /// [`scoped_action_basis_holds_v1`] for a recovered canonical invocation.
 pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     current_head: WriterHeadKey,
     current_tick: WorldlineTick,
@@ -4197,7 +4229,7 @@ pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
 }
 
 pub(crate) fn action_application_basis_matches_state_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     state: &WorldlineState,
 ) -> Result<bool, EchoOperationInvocationAdmissionErrorV1> {
@@ -4213,7 +4245,7 @@ pub(crate) fn action_application_basis_matches_state_v1(
 }
 
 pub(crate) fn action_admission_evidence_matches_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
     expected_policy_id: Hash,
@@ -4256,7 +4288,7 @@ pub(crate) fn action_preparation_identity_matches_v1(
 }
 
 pub(crate) fn reconstruct_action_evaluation_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
     expected_policy_id: Hash,
@@ -4303,7 +4335,7 @@ pub(crate) fn reconstruct_action_evaluation_v1(
 }
 
 pub(crate) fn reconstruct_action_preparation_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
     expected_policy_id: Hash,
@@ -5129,7 +5161,7 @@ pub enum EchoOperationPreparationV1 {
 /// Complete private evaluation, bound to all substitution and resource evidence.
 #[derive(Clone, Debug)]
 pub struct PreparedEchoOperationV1 {
-    installed: InstalledEchoOperationV1,
+    installed: InstalledEchoOperation,
     invocation: EchoOperationInvocationV1,
     invocation_id: EchoOperationInvocationIdV1,
     canonical_invocation_bytes: Vec<u8>,
@@ -5154,7 +5186,7 @@ impl PreparedEchoOperationV1 {
     /// Returns the installed operation this preparation evaluated. It shares
     /// the installed package's bytes and projection with the registry.
     #[must_use]
-    pub const fn installed(&self) -> &InstalledEchoOperationV1 {
+    pub const fn installed(&self) -> &InstalledEchoOperation {
         &self.installed
     }
 
@@ -5266,7 +5298,7 @@ impl PreparedEchoOperationV1 {
 }
 
 pub(crate) fn prepare_operation_v1(
-    installed: Option<&InstalledEchoOperationV1>,
+    installed: Option<&InstalledEchoOperation>,
     admitted: AdmittedEchoOperationInvocationV1,
     current_basis: EchoOperationEvaluationBasisV1,
     state: &WorldlineState,
@@ -5609,7 +5641,7 @@ pub struct EchoOperationReceiptV1 {
     installed_operation_id: InstalledEchoOperationIdV1,
     operation_coordinate: String,
     semantic_identity: Hash,
-    lawpack_identity: Hash,
+    lawpack_identity: Option<Hash>,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
     intrinsic_profile_identity: Hash,
@@ -5928,7 +5960,11 @@ impl EchoOperationReceiptV1 {
                 hash_value(self.invocation_bytes_digest),
             ),
             ("invocation_id", hash_value(self.invocation_id.as_hash())),
-            ("lawpack_identity", hash_value(self.lawpack_identity)),
+            (
+                "lawpack_identity",
+                self.lawpack_identity
+                    .map_or(CanonicalValueV1::Null, hash_value),
+            ),
             (
                 "operation_coordinate",
                 text_value(&self.operation_coordinate),
@@ -6122,7 +6158,7 @@ impl EchoOperationReceiptV1 {
             )?),
             operation_coordinate: take_text(&mut fields, "operation_coordinate")?,
             semantic_identity: take_hash(&mut fields, "semantic_identity")?,
-            lawpack_identity: take_hash(&mut fields, "lawpack_identity")?,
+            lawpack_identity: take_optional_hash(&mut fields, "lawpack_identity")?,
             target_profile_identity: take_hash(&mut fields, "target_profile_identity")?,
             interpreter_profile_identity: take_hash(&mut fields, "interpreter_profile_identity")?,
             intrinsic_profile_identity: take_hash(&mut fields, "intrinsic_profile_identity")?,
@@ -6433,7 +6469,7 @@ pub(crate) fn recover_committed_execution_receipt_v1(
 
 pub(crate) fn validate_receipt_installation_v1(
     receipt: &EchoOperationReceiptV1,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
 ) -> Result<(), EchoOperationArtifactErrorV1> {
     let package_evidence_matches = receipt.package_id == installed.package_id
         && receipt.package_admission_id == installed.package_admission_id
@@ -6488,7 +6524,7 @@ pub(crate) fn validate_receipt_installation_v1(
 
 pub(crate) fn validate_receipt_application_result_v1(
     receipt: &EchoOperationReceiptV1,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
 ) -> Result<(), EchoOperationArtifactErrorV1> {
     let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)?;
@@ -7294,7 +7330,15 @@ fn receipt_digest(receipt: &EchoOperationReceiptV1) -> Hash {
     hasher.update(&receipt.installed_operation_id.as_hash());
     hash_len_bytes(&mut hasher, receipt.operation_coordinate.as_bytes());
     hasher.update(&receipt.semantic_identity);
-    hasher.update(&receipt.lawpack_identity);
+    match receipt.lawpack_identity {
+        Some(identity) => {
+            hasher.update(&[1]);
+            hasher.update(&identity);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
     hasher.update(&receipt.target_profile_identity);
     hasher.update(&receipt.interpreter_profile_identity);
     hasher.update(&receipt.intrinsic_profile_identity);
@@ -7473,7 +7517,7 @@ fn package_admission_id(
     EchoOperationPackageAdmissionIdV1(hasher.finalize().into())
 }
 
-fn installed_operation_id(installed: &InstalledEchoOperationV1) -> InstalledEchoOperationIdV1 {
+fn installed_operation_id(installed: &InstalledEchoOperation) -> InstalledEchoOperationIdV1 {
     let mut hasher = Hasher::new();
     hasher.update(INSTALLATION_ID_DOMAIN);
     hasher.update(&installed.package_id.as_hash());
@@ -7500,7 +7544,7 @@ fn invocation_admission_id(
 }
 
 fn operation_result_id(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     invocation: &EchoOperationInvocationV1,
     mode: AnchoredNodeOperationModeV1,
     replacement_value_digest: Hash,
@@ -8168,7 +8212,7 @@ mod tests {
     pub(super) fn projected_create_fixture(
         max_output_bytes: u64,
     ) -> (
-        InstalledEchoOperationV1,
+        InstalledEchoOperation,
         WorldlineState,
         EchoOperationEvaluationBasisV1,
         EchoOperationInvocationAdmissionPolicyV1,
@@ -8183,7 +8227,7 @@ mod tests {
         key: &str,
         key_bound: Option<ApplicationInputKeyBound>,
     ) -> (
-        InstalledEchoOperationV1,
+        InstalledEchoOperation,
         WorldlineState,
         EchoOperationEvaluationBasisV1,
         EchoOperationInvocationAdmissionPolicyV1,
@@ -8284,8 +8328,7 @@ mod tests {
                 package_bytes,
             )
             .expect("package admits"),
-        )
-        .expect("package installs");
+        );
 
         let warp_id = crate::make_warp_id("projected-create-warp");
         let root_node = crate::make_node_id("projected-create-root");
@@ -9159,8 +9202,7 @@ mod tests {
                 package_bytes,
             )
             .expect("package admits"),
-        )
-        .expect("package installs");
+        );
 
         let writer_head = WriterHeadKey {
             worldline_id: crate::WorldlineId::from_bytes(digest(47)),
@@ -9360,7 +9402,7 @@ mod tests {
             .expect_err("an invalid invocation must not mint a stable identity");
     }
 
-    fn retained_fixture_installation() -> InstalledEchoOperationV1 {
+    fn retained_fixture_installation() -> InstalledEchoOperation {
         let package = ExecutableOperationPackage::new(
             "echo.fixture.Retention.v1",
             "echo.fixture.Retention.Obstruction/v1",
@@ -9392,7 +9434,6 @@ mod tests {
             EchoOperationBudgetV1::new(8, 512, 512),
         );
         installed_from_admitted(admit_operation_package(&policy, bytes).expect("package admits"))
-            .expect("an admitted program remains canonically encodable")
     }
 
     fn replace_map_field(bytes: &[u8], field_name: &str, replacement: CanonicalValueV1) -> Vec<u8> {
@@ -9453,7 +9494,7 @@ mod tests {
     #[test]
     fn retained_installation_rejects_identity_substitution() {
         let installed = retained_fixture_installation();
-        let bytes = retain_installation_v1(&installed).expect("installation retains");
+        let bytes = retain_operation_installation(&installed).expect("installation retains");
         for field_name in [
             "admission_policy_id",
             "package_id",
@@ -9465,7 +9506,7 @@ mod tests {
                 field_name,
                 CanonicalValueV1::Bytes(digest(99).to_vec()),
             );
-            let error = recover_installation_v1(&substituted)
+            let error = recover_operation_installation(&substituted)
                 .expect_err("retained installation identities cannot be substituted");
             assert_eq!(
                 error.kind(),
@@ -9481,7 +9522,7 @@ mod tests {
         );
         let substituted =
             replace_map_field(&bytes, "admission_policy", substituted_policy.to_value());
-        let error = recover_installation_v1(&substituted)
+        let error = recover_operation_installation(&substituted)
             .expect_err("recovery must revalidate retained package-admission policy material");
         assert_eq!(
             error.kind(),
@@ -9599,6 +9640,26 @@ mod tests {
         receipt.receipt_digest = receipt_digest(&receipt);
         validate_receipt_installation_v1(&receipt, &installed)
             .expect("the retained receipt fixture matches its installation");
+        let mut absent_lawpack = receipt.clone();
+        absent_lawpack.lawpack_identity = None;
+        absent_lawpack.receipt_digest = receipt_digest(&absent_lawpack);
+        let mut zero_lawpack = receipt.clone();
+        zero_lawpack.lawpack_identity = Some([0; 32]);
+        assert_ne!(
+            receipt_digest(&absent_lawpack),
+            receipt_digest(&zero_lawpack)
+        );
+        let absent_bytes = absent_lawpack
+            .to_canonical_bytes()
+            .expect("nullable lawpack record");
+        let decoded_absence = recover_committed_execution_receipt_v1(&absent_bytes)
+            .expect("nullable evidence is structurally valid");
+        assert_eq!(decoded_absence.lawpack_identity, None);
+        assert!(
+            validate_receipt_installation_v1(&decoded_absence, &installed).is_err(),
+            "a self-consistent absent claim cannot replace the installed fixed lawpack"
+        );
+
         let mut mismatched_policy_receipt = receipt.clone();
         mismatched_policy_receipt.invocation_admission_maximum_budget =
             EchoOperationBudgetV1::new(9, 512, 512);

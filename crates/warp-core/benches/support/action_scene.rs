@@ -236,7 +236,7 @@ impl Scene {
                 package.clone(),
             )
             .expect("the compiler package is admitted");
-        host.install_admitted_echo_operation_package_v1(admitted)
+        host.install_admitted_echo_operation_package(admitted)
             .expect("the package is installed");
         host.install_echo_operation_action_admission_policy_v1(
             EchoOperationInvocationAdmissionPolicyV1::new(

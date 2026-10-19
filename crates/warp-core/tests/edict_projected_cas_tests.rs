@@ -173,7 +173,7 @@ impl Fixture {
             )
             .expect("actual compiler package admitted");
         self.host
-            .install_admitted_echo_operation_package_v1(admitted)
+            .install_admitted_echo_operation_package(admitted)
             .expect("install");
     }
     fn enable_wal(&mut self, dir: &WalDir) {
@@ -542,7 +542,7 @@ fn compiler_cas_recovers_pending_action_committed_result_and_stale_obstruction()
     assert!(pending
         .host
         .engine()
-        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .installed_echo_operation_package(echo_operation_package_id_v1(&package()))
         .is_some());
     assert!(pending
         .host
@@ -847,7 +847,7 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
     assert!(fixture
         .host
         .engine()
-        .installed_echo_operation_package_v1(id)
+        .installed_echo_operation_package(id)
         .is_none());
     assert_eq!(fixture.value(), INITIAL);
 }
@@ -873,7 +873,7 @@ fn a_prepared_action_shares_its_installed_package_instead_of_copying_it() {
     let registered = fixture
         .host
         .engine()
-        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .installed_echo_operation_package(echo_operation_package_id_v1(&package()))
         .expect("installed");
     assert!(
         std::ptr::eq(

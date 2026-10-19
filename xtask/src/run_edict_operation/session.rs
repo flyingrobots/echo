@@ -72,7 +72,7 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
     if fixture
         .host
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_none()
     {
         install_package(&mut fixture.host, &package, package_id, package_bytes)?;

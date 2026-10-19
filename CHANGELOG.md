@@ -7,6 +7,14 @@
 
 ### Changed
 
+- Installation now uses one `InstalledEchoOperation`, runtime-owner API, engine
+  catalog, retained record codec and recovery collection for all program kinds.
+  The duplicate effect installation module and schema-version dispatch were
+  removed. Lawpack evidence is optional for installed programs and receipts;
+  current receipt hashes bind its presence explicitly. Uncertain WAL errors
+  reconcile the exact installation evidence before registry publication.
+
+
 - Package admission now uses one runtime-owner method, opaque
   `AdmittedExecutableOperationPackage`, validator and evidence identity recipe
   for all supported program kinds. Version-specific admission methods and the
@@ -19,8 +27,7 @@
   program kinds share the current package/program schemas and identity domains;
   the former V2 package type and decoder were removed. Program-kind validation
   requires real lawpack bindings for fixed programs and forbids them for authored
-  effects. Invocation, admission-token and installation/catalog consolidation
-  remains separate unfinished work.
+  effects. Invocation consolidation and authored-effect execution remain unfinished.
 
 
 - Recovery certificates now use one current operation-index recipe for empty,
@@ -38,10 +45,10 @@
 
 ### Added
 
-- Runtime-owned V2 installation retains exact policy and package evidence in the
-  existing WAL catalog, restores it in a fresh filesystem-backed host, and shares
-  coordinate-conflict checks with V1. Conflicts and failed WAL appends publish no
-  V2 registry entry. Installation recovery does not authorize or execute effects.
+- Runtime-owned installation retains exact policy and package evidence in the
+  current WAL catalog and restores all program kinds through one fresh-host
+  recovery path. Conflicts and failed WAL appends publish no registry entry.
+  Installation recovery does not authorize or execute effects.
 
 - Runtime-owner package admission checks independently pinned publication,
   operation, authority profile and budget policy, retaining checked

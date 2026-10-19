@@ -5838,8 +5838,7 @@ impl SchedulerCoordinator {
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?
                             .state();
                         let preparation = crate::echo_operation::prepare_operation_v1(
-                            engine
-                                .installed_echo_operation_package_v1(admitted_action.package_id()),
+                            engine.installed_echo_operation_package(admitted_action.package_id()),
                             admitted_action.clone(),
                             current_basis,
                             state,

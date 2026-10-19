@@ -276,7 +276,7 @@ pub use echo_operation::{
     EchoOperationPackageIdV1, EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1,
     EchoOperationProgram, EchoOperationProgramIdV1, EchoOperationReceiptV1,
     EchoOperationResultIdV1, EchoOperationSemanticClosure, EchoOperationTerminalPostureV1,
-    ExecutableOperationPackage, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
+    ExecutableOperationPackage, InstalledEchoOperation, InstalledEchoOperationIdV1,
     PreparedEchoOperationIdV1, PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
 };
 pub use edict_target_ir::{

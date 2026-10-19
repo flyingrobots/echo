@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Authored-effect preparation, runtime-owned catalog and private recording reads.
+//! Authored-effect preparation, private recording reads and current effect program preparation.
 //!
 //! Current publications and effect invocations can be prepared, and the runtime
 //! owner can admit package policy and retain/install its catalog evidence. None
@@ -8,14 +8,6 @@
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
 //! logical meters. Compiled effect instructions, a physical evaluation arena,
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
-#[cfg(feature = "native_rule_bootstrap")]
-mod installation;
-#[cfg(feature = "native_rule_bootstrap")]
-pub use installation::InstalledEffectOperationV2;
-#[cfg(feature = "native_rule_bootstrap")]
-pub(crate) use installation::{
-    recover_versioned_installation, restore_effect_catalog_entry, RecoveredOperationInstallation,
-};
 mod invocation;
 pub use invocation::EffectInvocationV2;
 mod package;

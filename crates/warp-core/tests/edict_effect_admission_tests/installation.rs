@@ -3,7 +3,7 @@
 //! Owner installation, exact retained evidence and fresh-host WAL recovery.
 use super::*;
 use echo_edict_canonical::{decode_canonical_cbor_v1 as decode, CanonicalValueV1 as V};
-use warp_core::edict_effects::InstalledEffectOperationV2;
+use warp_core::InstalledEchoOperation;
 use warp_core::TrustedRuntimeWalConfig;
 struct WalDir(std::path::PathBuf);
 impl WalDir {
@@ -11,7 +11,7 @@ impl WalDir {
         let root = std::path::PathBuf::from("target").join("warp-core-test-tmp");
         std::fs::create_dir_all(&root).expect("owned fixture root");
         for ordinal in 0..1024 {
-            let path = root.join(format!("echo-v2-install-{ordinal}"));
+            let path = root.join(format!("echo-current-install-{ordinal}"));
             match std::fs::create_dir(&path) {
                 Ok(()) => return Self(path),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -48,10 +48,10 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
         .expect("activate empty WAL");
     let token = admitted(&owner);
     let installed = owner
-        .install_admitted_echo_operation_package_v2(token.clone())
+        .install_admitted_echo_operation_package(token.clone())
         .expect("install");
     let mut identity_oracle = blake3::Hasher::new();
-    identity_oracle.update(b"echo:operation-installation:v2\0");
+    identity_oracle.update(b"echo:operation-installation:v1\0");
     identity_oracle.update(&token.package_identity());
     identity_oracle.update(&token.identity());
     identity_oracle.update(&12u64.to_le_bytes());
@@ -64,12 +64,12 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
     assert_eq!(
         owner
             .engine()
-            .installed_echo_operation_package_v2(installed.package_identity()),
+            .installed_echo_operation_package((installed.package_identity()).into()),
         Some(&installed)
     );
     assert_eq!(
         owner
-            .install_admitted_echo_operation_package_v2(token)
+            .install_admitted_echo_operation_package(token)
             .expect("idempotent"),
         installed
     );
@@ -79,7 +79,7 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
     );
     let bytes = installed.retained_bytes().expect("retained");
     assert_eq!(
-        InstalledEffectOperationV2::from_retained_bytes(&bytes).expect("reconstruct"),
+        InstalledEchoOperation::from_retained_bytes(&bytes).expect("reconstruct"),
         installed
     );
     let recovered = owner
@@ -87,10 +87,7 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
         .expect("wal")
         .recover_read_only()
         .expect("recover");
-    assert_eq!(
-        recovered.installed_echo_effect_operations,
-        vec![installed.clone()]
-    );
+    assert_eq!(recovered.installed_echo_operations, vec![installed.clone()]);
     drop(owner);
     let mut fresh = host();
     fresh
@@ -99,7 +96,7 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
     assert_eq!(
         fresh
             .engine()
-            .installed_echo_operation_package_v2(installed.package_identity()),
+            .installed_echo_operation_package((installed.package_identity()).into()),
         Some(&installed)
     );
 }
@@ -108,7 +105,7 @@ fn retained_installation_refuses_substituted_package_policy_and_evidence_ids() {
     let mut owner = host();
     let token = admitted(&owner);
     let installed = owner
-        .install_admitted_echo_operation_package_v2(token)
+        .install_admitted_echo_operation_package(token)
         .expect("install");
     let bytes = installed.retained_bytes().expect("bytes");
     for key in [
@@ -119,15 +116,15 @@ fn retained_installation_refuses_substituted_package_policy_and_evidence_ids() {
     ] {
         let mut value = decode(&bytes).expect("canonical");
         set(&mut value, key, id(99));
-        assert!(InstalledEffectOperationV2::from_retained_bytes(&encoded(&value)).is_err());
+        assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&value)).is_err());
     }
     for schema in [
-        "echo.operation-installation/v1",
+        "echo.operation-installation/v2",
         "echo.operation-installation/v3",
     ] {
         let mut value = decode(&bytes).expect("canonical");
         set(&mut value, "schema", text(schema));
-        assert!(InstalledEffectOperationV2::from_retained_bytes(&encoded(&value)).is_err());
+        assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&value)).is_err());
     }
     let mut value = decode(&bytes).expect("canonical");
     set(
@@ -135,10 +132,10 @@ fn retained_installation_refuses_substituted_package_policy_and_evidence_ids() {
         "package_bytes",
         V::Bytes(encoded(&V::Integer(0))),
     );
-    assert!(InstalledEffectOperationV2::from_retained_bytes(&encoded(&value)).is_err());
+    assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&value)).is_err());
     let mut value = decode(&bytes).expect("canonical");
     add(&mut value, "extra", V::Integer(0));
-    assert!(InstalledEffectOperationV2::from_retained_bytes(&encoded(&value)).is_err());
+    assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&value)).is_err());
     let mut value = decode(&bytes).expect("canonical");
     let V::Map(fields) = &mut value else {
         panic!("map")
@@ -149,14 +146,14 @@ fn retained_installation_refuses_substituted_package_policy_and_evidence_ids() {
         .expect("policy")
         .1;
     set(policy, "expected_authority_profile_identity", id(99));
-    assert!(InstalledEffectOperationV2::from_retained_bytes(&encoded(&value)).is_err());
+    assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&value)).is_err());
 }
 #[test]
 fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_append_wal() {
     let mut owner = host();
     owner.enable_in_memory_runtime_wal().expect("wal");
     let installed = owner
-        .install_admitted_echo_operation_package_v2(admitted(&owner))
+        .install_admitted_echo_operation_package(admitted(&owner))
         .expect("install");
     let before = owner.runtime_wal().expect("wal").frames().len();
     let mut p = program();
@@ -174,7 +171,7 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
         )
         .expect("new pinned meaning");
     assert!(owner
-        .install_admitted_echo_operation_package_v2(token)
+        .install_admitted_echo_operation_package(token)
         .is_err());
     let bytes = encoded(&package(&program()));
     let token = owner
@@ -189,28 +186,28 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
         )
         .expect("new policy");
     assert!(owner
-        .install_admitted_echo_operation_package_v2(token)
+        .install_admitted_echo_operation_package(token)
         .is_err());
     assert_eq!(
         owner
             .engine()
-            .installed_echo_operation_package_v2(installed.package_identity()),
+            .installed_echo_operation_package((installed.package_identity()).into()),
         Some(&installed)
     );
     assert_eq!(owner.runtime_wal().expect("wal").frames().len(), before);
 }
 #[test]
-fn activating_empty_wal_cannot_attest_an_earlier_volatile_v2_installation() {
+fn activating_empty_wal_cannot_attest_an_earlier_volatile_installation() {
     let mut owner = host();
     owner
-        .install_admitted_echo_operation_package_v2(admitted(&owner))
+        .install_admitted_echo_operation_package(admitted(&owner))
         .expect("volatile install");
     assert!(owner.enable_in_memory_runtime_wal().is_err());
 }
-fn install_v1(
+fn install_fixed_program(
     owner: &mut TrustedRuntimeHost,
     coordinate: &str,
-) -> Result<warp_core::InstalledEchoOperationV1, warp_core::TrustedRuntimeHostError> {
+) -> Result<warp_core::InstalledEchoOperation, warp_core::TrustedRuntimeHostError> {
     use warp_core::{
         EchoOperationAdmissionPolicy, EchoOperationProgram, EchoOperationSemanticClosure,
         ExecutableOperationPackage,
@@ -248,52 +245,56 @@ fn install_v1(
     let admitted = owner
         .admit_echo_operation_package(&policy, bytes)
         .expect("V1 policy");
-    owner.install_admitted_echo_operation_package_v1(admitted)
+    owner.install_admitted_echo_operation_package(admitted)
 }
 #[test]
-fn v1_and_v2_share_coordinate_exclusion_in_both_installation_orders() {
-    for v2_first in [false, true] {
+fn program_kinds_share_coordinate_exclusion_in_both_installation_orders() {
+    for effect_first in [false, true] {
         let mut owner = host();
         owner.enable_in_memory_runtime_wal().expect("wal");
-        if v2_first {
+        if effect_first {
             owner
-                .install_admitted_echo_operation_package_v2(admitted(&owner))
+                .install_admitted_echo_operation_package(admitted(&owner))
                 .expect("V2 first");
             let before = owner.runtime_wal().expect("wal").frames().len();
-            assert!(install_v1(&mut owner, "app.update@1").is_err());
+            assert!(install_fixed_program(&mut owner, "app.update@1").is_err());
             assert_eq!(owner.runtime_wal().expect("wal").frames().len(), before);
         } else {
-            install_v1(&mut owner, "app.update@1").expect("V1 first");
+            install_fixed_program(&mut owner, "app.update@1").expect("V1 first");
             let before = owner.runtime_wal().expect("wal").frames().len();
             assert!(owner
-                .install_admitted_echo_operation_package_v2(admitted(&owner))
+                .install_admitted_echo_operation_package(admitted(&owner))
                 .is_err());
             assert_eq!(owner.runtime_wal().expect("wal").frames().len(), before);
         }
     }
 }
 #[test]
-fn mixed_catalog_recovers_both_versions_and_certificate_binds_v2_installations() {
+fn one_catalog_recovers_program_kinds_and_certificate_binds_installations() {
     let dir = WalDir::new();
     let mut owner = host();
     owner
         .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&dir.0))
         .expect("wal");
-    let legacy = install_v1(&mut owner, "app.legacy@1").expect("V1");
+    let legacy = install_fixed_program(&mut owner, "app.legacy@1").expect("V1");
     let effect = owner
-        .install_admitted_echo_operation_package_v2(admitted(&owner))
+        .install_admitted_echo_operation_package(admitted(&owner))
         .expect("V2");
     let mut recovered = owner
         .runtime_wal()
         .expect("wal")
         .recover_read_only()
         .expect("mixed recovery");
-    assert_eq!(recovered.installed_echo_operations, vec![legacy.clone()]);
+    assert_eq!(recovered.installed_echo_operations.len(), 2);
+    assert!(recovered.installed_echo_operations.contains(&legacy));
+    assert!(recovered.installed_echo_operations.contains(&effect));
     assert_eq!(
         recovered.recomputed_indexes_root().expect("root"),
         recovered.certificate.recovered_indexes_root
     );
-    recovered.installed_echo_effect_operations.clear();
+    recovered
+        .installed_echo_operations
+        .retain(|installed| installed.package_id() != effect.package_id());
     assert_ne!(
         recovered.recomputed_indexes_root().expect("altered root"),
         recovered.certificate.recovered_indexes_root
@@ -306,19 +307,19 @@ fn mixed_catalog_recovers_both_versions_and_certificate_binds_v2_installations()
     assert_eq!(
         fresh
             .engine()
-            .installed_echo_operation_package_v1(legacy.package_id()),
+            .installed_echo_operation_package(legacy.package_id()),
         Some(&legacy)
     );
     assert_eq!(
         fresh
             .engine()
-            .installed_echo_operation_package_v2(effect.package_identity()),
+            .installed_echo_operation_package((effect.package_identity()).into()),
         Some(&effect)
     );
 }
 #[cfg(feature = "host_test")]
 #[test]
-fn failed_wal_append_and_commit_do_not_publish_v2_registry_entries() {
+fn failed_wal_append_and_commit_do_not_publish_registry_entries() {
     use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
     for target in [
         FilesystemWalFaultTarget::AppendFrame,
@@ -335,11 +336,11 @@ fn failed_wal_append_and_commit_do_not_publish_v2_registry_entries() {
             .inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(target))
             .expect("fault");
         assert!(owner
-            .install_admitted_echo_operation_package_v2(token)
+            .install_admitted_echo_operation_package(token)
             .is_err());
         assert!(owner
             .engine()
-            .installed_echo_operation_package_v2(pin)
+            .installed_echo_operation_package((pin).into())
             .is_none());
         drop(owner);
         let mut fresh = host();
@@ -348,7 +349,7 @@ fn failed_wal_append_and_commit_do_not_publish_v2_registry_entries() {
             .expect("recover incomplete transaction");
         assert!(fresh
             .engine()
-            .installed_echo_operation_package_v2(pin)
+            .installed_echo_operation_package((pin).into())
             .is_none());
     }
 }
@@ -357,7 +358,7 @@ fn self_consistent_retained_hashes_cannot_bypass_independent_policy_readmission(
     let mut owner = host();
     let token = admitted(&owner);
     let installed = owner
-        .install_admitted_echo_operation_package_v2(token.clone())
+        .install_admitted_echo_operation_package(token.clone())
         .expect("install");
     let mut value = decode(&installed.retained_bytes().expect("bytes")).expect("value");
     let V::Map(fields) = &mut value else {
@@ -399,7 +400,7 @@ fn self_consistent_retained_hashes_cannot_bypass_independent_policy_readmission(
         V::Bytes(admission_id.to_vec()),
     );
     let mut h = blake3::Hasher::new();
-    h.update(b"echo:operation-installation:v2\0");
+    h.update(b"echo:operation-installation:v1\0");
     h.update(&pin);
     h.update(&admission_id);
     h.update(&12u64.to_le_bytes());
@@ -412,7 +413,7 @@ fn self_consistent_retained_hashes_cannot_bypass_independent_policy_readmission(
         "installed_operation_id",
         V::Bytes(h.finalize().as_bytes().to_vec()),
     );
-    assert!(InstalledEffectOperationV2::from_retained_bytes(&encoded(&value)).is_err());
+    assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&value)).is_err());
 }
 #[cfg(feature = "host_test")]
 #[test]
@@ -425,18 +426,18 @@ fn readable_unsynced_installation_is_not_published_until_a_fresh_store_reopens()
         .expect("wal");
     let token = admitted(&owner);
     let pin = token.package_identity();
-    let package = token.package().clone();
+    let program = token.package().program().clone();
     owner
         .inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
             FilesystemWalFaultTarget::CommitMarkerSync,
         ))
         .expect("sync fault");
     assert!(owner
-        .install_admitted_echo_operation_package_v2(token)
+        .install_admitted_echo_operation_package(token)
         .is_err());
     assert!(owner
         .engine()
-        .installed_echo_operation_package_v2(pin)
+        .installed_echo_operation_package((pin).into())
         .is_none());
     assert!(
         owner
@@ -454,9 +455,66 @@ fn readable_unsynced_installation_is_not_published_until_a_fresh_store_reopens()
     assert_eq!(
         fresh
             .engine()
-            .installed_echo_operation_package_v2(pin)
+            .installed_echo_operation_package((pin).into())
             .expect("recovered installation")
-            .package(),
-        &package
+            .program(),
+        &program
     );
+}
+
+#[test]
+fn one_installation_type_catalog_and_retained_decoder_cover_all_program_kinds() {
+    use warp_core::InstalledEchoOperation;
+    let dir = WalDir::new();
+    let mut owner = host();
+    owner
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&dir.0))
+        .expect("WAL");
+    let fixed = install_fixed_program(&mut owner, "app.fixed@1").expect("fixed install");
+    let effect: InstalledEchoOperation = owner
+        .install_admitted_echo_operation_package(admitted(&owner))
+        .expect("effect install");
+    assert_eq!(effect.lawpack_identity(), None);
+    assert_eq!(fixed.lawpack_identity(), Some([6; 32]));
+    for installed in [&fixed, &effect] {
+        assert_eq!(
+            owner
+                .engine()
+                .installed_echo_operation_package(installed.package_id()),
+            Some(installed)
+        );
+        let bytes = installed.retained_bytes().expect("record");
+        assert_eq!(
+            InstalledEchoOperation::from_retained_bytes(&bytes).expect("current record"),
+            *installed
+        );
+        let mut historical = decode(&bytes).expect("record value");
+        set(
+            &mut historical,
+            "schema",
+            text("echo.operation-installation/v2"),
+        );
+        assert!(InstalledEchoOperation::from_retained_bytes(&encoded(&historical)).is_err());
+    }
+    let recovered = owner
+        .runtime_wal()
+        .expect("WAL")
+        .recover_read_only()
+        .expect("recovery");
+    assert_eq!(recovered.installed_echo_operations.len(), 2);
+    assert!(recovered.installed_echo_operations.contains(&fixed));
+    assert!(recovered.installed_echo_operations.contains(&effect));
+    drop(owner);
+    let mut fresh = host();
+    fresh
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&dir.0))
+        .expect("fresh recovery");
+    for installed in [&fixed, &effect] {
+        assert_eq!(
+            fresh
+                .engine()
+                .installed_echo_operation_package(installed.package_id()),
+            Some(installed)
+        );
+    }
 }

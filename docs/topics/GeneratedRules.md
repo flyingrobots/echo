@@ -724,8 +724,7 @@ physical evaluation arena.
 
 This is byte binding and contract preparation. Compiler bytes and upstream
 identities do not infer verifier approval or validate the compiled instruction
-language. The separate invocation/installation definitions and catalogs described below
-still require consolidation under the one-current-
+language. The invocation definitions described below still require consolidation under the one-current-
 version policy. Preparation does not grant invocation or mutation authority.
 
 ### V2 invocation input and basis preparation
@@ -778,52 +777,63 @@ and checks this evidence rather than trusting retained hashes alone.
 This method is exposed only on the runtime-owner host, under the existing
 `native_rule_bootstrap` and `trusted_runtime` boundary. The restricted
 application handle cannot admit a package. The token has no public constructor
-and is neither an installation nor an invocation grant. The still-separate
-fixed and effect installation paths enforce their supported program kinds;
-their definitions/catalogs remain unfinished consolidation work. Invocation
-admission and compiled effect execution also remain unfinished. Package
+and is neither an installation nor an invocation grant. Installation uses one evidence type and catalog for every program kind.
+Invocation admission and compiled effect execution remain unfinished. Package
 admission does not infer compiler/verifier approval from publication identities.
 
-### Runtime-owned V2 installation and retained catalog recovery
+### Runtime-owned installation and retained catalog recovery
 
-`TrustedRuntimeHost::install_admitted_echo_operation_package_v2` consumes opaque
-package-policy admission evidence and installs the exact publication in the
-engine's V2 catalog. Installation remains separate from invocation authority
-and compiled effect instruction validation. The application handle cannot call
-this owner-only method. Reconstructing an `InstalledEffectOperationV2` from
-retained bytes produces evidence only; it does not insert a registry entry.
+`TrustedRuntimeHost::install_admitted_echo_operation_package` consumes the
+opaque common package-admission token and installs one `InstalledEchoOperation`
+in the engine's sole package catalog and operation-coordinate index. Fixed and
+authored-effect program kinds use the same owner API, evidence type, preflight,
+retained codec, recovery collection and restoration path. The former effect
+installation module/type, second catalog/index, version-dispatch decoder and
+version-specific methods were removed without aliases or wrappers. Application
+handles cannot call the owner method.
 
-The engine still has separate fixed-program and effect installation catalogs,
-both consuming the sole current package/program definitions. It shares operation-
-coordinate exclusion across them. An exact repeat is idempotent; a changed package at the same coordinate or a changed
-policy for an installed package refuses before any WAL append. Batch recovery
-preflights both catalogs. These two installation definitions and their versioned
-retained records remain unfinished consolidation work, not a compatibility
-exception. Package/program identities use the shared recipe above. The effect
-installation identity still uses `echo:operation-installation:v2\0`,
-then package identity, package-admission identity, length-prefixed operation
-coordinate, program identity and length-prefixed exact package bytes, in that
-order, as the V1 recipe does under its original domain.
+The installed object retains the exact admitted package/program/policy evidence.
+A lawpack identity is `Some` for fixed programs and `None` for authored effects;
+absence is not a sentinel hash. Installation grants no invocation authority and
+does not validate the compiled effect instruction language. Its read-only
+`retained_bytes` and `from_retained_bytes` methods reconstruct evidence without
+inserting registry entries.
 
-The retained V2 record has exactly the existing seven installation fields with
-`schema` set to `echo.operation-installation/v2`. It retains the full independent
-policy, policy identity, exact package bytes and identity, admission identity and
-installation identity. WAL recovery dispatches by installation schema; unknown
-versions refuse. V2 reconstruction reruns package-policy admission, recomputes
-every identity and reproduces the exact record bytes. Recomputed hashes cannot
-make an invalid independent authority policy acceptable.
+Exact repeats are idempotent. A changed policy for the same package or a changed
+package at an occupied operation coordinate refuses before any WAL append,
+regardless of program kind. Batch recovery preflights the same single catalog
+before publication. The installation identity uses
+`echo:operation-installation:v1\0`, then raw package identity, package-admission
+identity, length-prefixed operation coordinate, program identity and
+length-prefixed exact package bytes, in that order.
 
-With a runtime WAL configured, the installation record commits before the V2
-registry entry becomes visible. A failed append or commit publishes no entry.
-The uncertain filesystem-error path refreshes the writer and checks the exact
-recovered installation before returning success. A commit-marker sync failure
-keeps the live adapter closed to read-only recovery and publishes no registry
-entry; a fresh store reopen can establish and recover that retained commit. Without a WAL, installation
-is volatile; activating an empty WAL cannot attest that earlier volatile
-installation as durable authority.
+The sole retained installation record has exactly seven fields with schema
+`echo.operation-installation/v1`: independent policy, policy identity, exact
+package bytes and identity, package-admission identity and installation identity.
+Recovery reruns the common package-policy validator, recomputes the identities
+and reproduces exact record bytes. Unsupported installation schemas, including
+the former V2 schema, refuse. Recomputed hashes cannot make a false independent
+policy acceptable.
+
+With a runtime WAL configured, installation commits before the registry entry
+becomes visible. Failed append/commit paths publish no entry. Uncertain
+filesystem errors refresh the writer and compare the exact recovered
+installation, including policy and program evidence, before reporting success.
+A commit-marker sync failure leaves the live adapter closed and publishes no
+entry; a fresh store reopen may establish and recover the committed history.
+Without a WAL, installation is volatile; an empty WAL cannot attest an earlier
+volatile installation. These checks apply to every program kind.
+
+The current receipt type has nullable lawpack evidence. Its canonical field
+is either a 32-byte identity or null; its identity hash includes a presence byte
+and, when present, the raw identity. Absence therefore differs from a present
+zero hash. Receipt corroboration checks the value against the exact installed
+program evidence; a structurally valid absent claim cannot replace a fixed
+program's real lawpack. This updates the one current receipt recipe rather than
+retaining an older decoder or hash path.
 
 The existing installation transaction and catalog-frontier recipes bind the
-versioned retained bytes. Recovery certificates use one current operation-index
+exact retained bytes. Recovery certificates use one current operation-index
 recipe, under `echo:trusted-runtime-wal:executable-operation-index:v3\0`, for
 every catalog and outcome shape. It hashes the preceding index root, then three
 count-prefixed sections: installations, execution receipts, and Action outcomes.
@@ -835,10 +845,10 @@ three sections are empty. There is no older index recipe, empty-index bypass,
 or recipe switch based on the presence of effect installations or Action outcomes.
 The historical index recipes were removed under the one-current-version policy.
 
-The installation definitions still have parallel versions; the shared package/
-program, admission-token and index cutovers do not complete their replacement. A fresh
-filesystem-backed host currently restores those installations and rechecks
-coordinate conflicts. This is installation recovery, not recovery of
+A fresh filesystem-backed host restores all supported program kinds through
+the sole installation collection and rechecks coordinate conflicts. Invocation
+definitions still require consolidation under the one-current-version policy.
+This is installation recovery, not recovery of
 an authored-effect decision. Invocation grant admission, compiled execution,
 physical allocation, derived effects and Action/Tick/receipt recovery remain
 unfinished.

@@ -192,13 +192,13 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
             bytes,
         )
         .expect("package admitted");
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .expect("install");
 
     // Copying the installed operation allocates nothing.
     let installed = host
         .engine()
-        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .installed_echo_operation_package(echo_operation_package_id_v1(&package()))
         .expect("installed")
         .clone();
     let (copy, copy_bytes) = measure(|| installed.clone());

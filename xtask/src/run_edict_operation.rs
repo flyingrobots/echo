@@ -362,7 +362,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             && pending
                 .host
                 .engine()
-                .installed_echo_operation_package_v1(package_id)
+                .installed_echo_operation_package(package_id)
                 .is_some()
             && current_state(&pending)?.state_root() == initial_state_root;
         if !pending_action_recovered {
@@ -1098,7 +1098,7 @@ fn install_package(
             package_bytes,
         )
         .context("Echo independently refused the compiler-produced package")?;
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .context("Echo failed to durably install the admitted package")?;
     Ok(())
 }

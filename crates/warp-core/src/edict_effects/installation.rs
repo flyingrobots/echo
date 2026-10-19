@@ -157,7 +157,7 @@ pub(crate) fn recover_versioned_installation(
         _ => Err(invalid_structure("unsupported installation version")),
     }
 }
-pub(crate) fn install_recovered_v2(
+pub(crate) fn restore_effect_catalog_entry(
     packages: &mut BTreeMap<[u8; 32], InstalledEffectOperationV2>,
     operations: &mut BTreeMap<String, [u8; 32]>,
     v1_operations: &BTreeMap<String, EchoOperationPackageIdV1>,

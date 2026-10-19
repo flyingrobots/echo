@@ -3,20 +3,22 @@
 //! Owner installation, exact retained evidence and fresh-host WAL recovery.
 use super::*;
 use echo_edict_canonical::{decode_canonical_cbor_v1 as decode, CanonicalValueV1 as V};
-use std::sync::atomic::{AtomicU64, Ordering};
 use warp_core::edict_effects::InstalledEffectOperationV2;
 use warp_core::TrustedRuntimeWalConfig;
-static NEXT: AtomicU64 = AtomicU64::new(0);
 struct WalDir(std::path::PathBuf);
 impl WalDir {
     fn new() -> Self {
-        let p = std::env::temp_dir().join(format!(
-            "echo-v2-install-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir(&p).expect("unique owned WAL directory");
-        Self(p)
+        let root = std::path::PathBuf::from("target").join("warp-core-test-tmp");
+        std::fs::create_dir_all(&root).expect("owned fixture root");
+        for ordinal in 0..1024 {
+            let path = root.join(format!("echo-v2-install-{ordinal}"));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self(path),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => panic!("could not create owned WAL fixture: {error}"),
+            }
+        }
+        panic!("exhausted owned WAL fixture names");
     }
 }
 impl Drop for WalDir {

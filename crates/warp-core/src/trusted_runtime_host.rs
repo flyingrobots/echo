@@ -23,7 +23,7 @@ use crate::causal_anchor::prepare_causal_anchor_admission;
 use crate::coordinator::{SuperTickUndo, TicketedIngressStagingRollback};
 
 use crate::edict_effects::{
-    install_recovered_v2, recover_versioned_installation, InstalledEffectOperationV2,
+    recover_versioned_installation, restore_effect_catalog_entry, InstalledEffectOperationV2,
     RecoveredOperationInstallation,
 };
 use crate::{
@@ -4673,7 +4673,7 @@ fn recover_echo_operation_material(
                         }
                         install_recovered_v1(&mut installations, &mut operations, installed)?;
                     }
-                    RecoveredOperationInstallation::V2(installed) => install_recovered_v2(
+                    RecoveredOperationInstallation::V2(installed) => restore_effect_catalog_entry(
                         &mut effects,
                         &mut effect_operations,
                         &operations,

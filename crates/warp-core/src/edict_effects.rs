@@ -22,7 +22,7 @@ pub use admission::{
 pub use installation::InstalledEffectOperationV2;
 #[cfg(feature = "native_rule_bootstrap")]
 pub(crate) use installation::{
-    install_recovered_v2, recover_versioned_installation, RecoveredOperationInstallation,
+    recover_versioned_installation, restore_effect_catalog_entry, RecoveredOperationInstallation,
 };
 mod invocation;
 pub use invocation::EffectInvocationV2;

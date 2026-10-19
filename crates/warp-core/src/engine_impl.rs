@@ -1423,7 +1423,7 @@ impl Engine {
         let mut packages = self.installed_echo_effect_packages.clone();
         let mut operations = self.installed_echo_effect_operations_by_coordinate.clone();
         for installed in recovered {
-            crate::edict_effects::install_recovered_v2(
+            crate::edict_effects::restore_effect_catalog_entry(
                 &mut packages,
                 &mut operations,
                 &self.installed_echo_operations_by_coordinate,
@@ -1440,7 +1440,7 @@ impl Engine {
         let mut packages = self.installed_echo_effect_packages.clone();
         let mut operations = self.installed_echo_effect_operations_by_coordinate.clone();
         for installed in recovered {
-            crate::edict_effects::install_recovered_v2(
+            crate::edict_effects::restore_effect_catalog_entry(
                 &mut packages,
                 &mut operations,
                 &self.installed_echo_operations_by_coordinate,

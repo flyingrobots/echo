@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # Usage: mutate.py WORKTREE NAME  -- applies one named mutant (exactly one textual replacement) in place.
 import sys, pathlib
 wt, name = sys.argv[1], sys.argv[2]

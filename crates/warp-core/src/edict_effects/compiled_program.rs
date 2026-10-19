@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Current compiler-artifact binding, before instruction semantics or execution.
+//! Current compiler-artifact binding and ordered instruction correspondence.
 use crate::edict_pure::{
     values::{array, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
@@ -174,26 +174,6 @@ impl CompiledProgram {
             (Err(_), Err(_)) => {}
             _ => return Err(Error::InvalidArtifact),
         }
-        let mut ids = std::collections::BTreeSet::new();
-        for collection in ["steps", "requirements", "pureBindings"] {
-            if collection == "pureBindings" && field(target, collection).is_err() {
-                continue;
-            }
-            for instruction in array(field(target, collection)?)? {
-                let id = text_field(instruction, "id")?;
-                if id.is_empty() || !ids.insert(id) {
-                    return Err(Error::InvalidArtifact);
-                }
-            }
-        }
-        for id in array(field(target, "executionOrder")?)? {
-            if !ids.remove(text(id)?) {
-                return Err(Error::InvalidArtifact);
-            }
-        }
-        if !ids.is_empty() {
-            return Err(Error::InvalidArtifact);
-        }
         let mut fields = vec![
             "input",
             "output",
@@ -231,6 +211,7 @@ impl CompiledProgram {
         if field(target, "result")? != field(body, "result")? {
             return Err(Error::InvalidArtifact);
         }
+        super::instruction_relation::validate(&self.module, intent, target)?;
         Ok(())
     }
 }

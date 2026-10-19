@@ -7,6 +7,15 @@
 
 ### Changed
 
+- Effect compiler preparation now checks ordered Core/Target IR node
+  correspondence and exact lexical local identities. Fresh artifact/package
+  pins cannot hide altered inputs, effects, predicates, failure reasons,
+  definitions, or instruction order. Source and lowered failure-arm values
+  must correspond without duplication, and obstruction locals stay scoped to
+  their arms. One relation validator replaces the former ID-only order check;
+  full typing, intrinsic/failure mapping validation and execution remain open.
+
+
 - Authored-effect payloads now bind a single canonical compiler-artifact bundle
   containing Core, ordered Target IR and exports. Fresh package pins cannot
   admit opaque bytes, false artifact identities, a different selected operation

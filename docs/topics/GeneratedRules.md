@@ -739,9 +739,32 @@ nonempty and unique across step, requirement and pure-binding collections;
 execution order must contain each ID exactly once. Artifact roots and selected
 Core intent/body fields have exact shapes.
 
-These checks establish artifact binding and structural order, not full Core or
-Target IR instruction semantics. In particular they do not authenticate the
-source closure, validate the lowering relation, establish verifier approval,
+The selected Core body and ordered Target IR must now correspond node for
+node. `let`, terminal `require`, and `effect` nodes preserve their bindings,
+values, predicates, failure reasons and inputs exactly. Added, omitted,
+reordered and substituted nodes refuse, as do unknown Core node kinds and
+extra Target node fields. A single validator
+checks the execution order against Core; the former ID-only check was removed.
+
+Core local declarations use the shared current local-identity check. IDs,
+complete type references and alpha names must match their declaration exactly;
+the input is `arg.0` with the authored input type. Declared types resolve through
+the existing bounded syntax parser. Basis and input constraints see only the
+input; a local becomes available after its definition. Each obstruction binder
+is available only within its own arm, every declaration is accounted for, and
+an obstruction local cannot leak into the operation's result. Source arm
+binders/values and lowered arm values have a one-to-one correspondence, and
+lowered failure names are unique and cover the lowered arm keys exactly.
+Expression syntax, type expansion and reference traversal retain the existing
+combined work/depth ceilings. Unsupported control-flow and optic bodies refuse
+until their instruction contracts exist.
+
+These checks establish artifact binding, ordered node correspondence, expression
+syntax and lexical scope, not full Core or Target IR instruction semantics.
+They do not yet infer every expression's type, authorize helper calls, validate
+intrinsic signatures or authenticate the mapping from source failure names to
+lowered failure tags. They also do not authenticate the
+source closure, validate the complete lowering relation, establish verifier approval,
 interpret instructions, or prove that an application graph schema corresponds
 to compiler exports. Instruction typing, effect lowering, resource execution
 and the physical arena remain required. Static preparation grants no invocation

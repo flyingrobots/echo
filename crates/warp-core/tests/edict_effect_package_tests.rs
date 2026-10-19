@@ -216,6 +216,25 @@ fn declaration_boundaries_accept_zero_io_and_allocation_and_preserve_current_coo
     }
     set(&mut p, "output_type", text(&"é".repeat(512)));
     let mut core = compiled_core();
+    let V::Map(ref mut core_fields) = core else {
+        panic!("core")
+    };
+    let V::Map(types) = &mut core_fields
+        .iter_mut()
+        .find(|(key, _)| key == &text("types"))
+        .expect("types")
+        .1
+    else {
+        panic!("types")
+    };
+    types.push((
+        text(&"é".repeat(512)),
+        map([
+            ("kind", text("Nominal")),
+            ("contract", text(&"é".repeat(512))),
+            ("representation", text("U32")),
+        ]),
+    ));
     set(&mut core, "coordinate", text(&"x".repeat(1016)));
     let V::Map(ref mut fields) = core else {
         panic!("core map")
@@ -455,7 +474,22 @@ fn bound_compiler_package(core: &V, target: &V, exports: &V, intent: &str) -> V 
         "target_ir_identity",
         artifact_identity("edict.target-ir.artifact/v1", target),
     );
-    package(&p)
+    let V::Map(intents) = get(core, "intents") else {
+        panic!("Core intents")
+    };
+    if let Some((_, selected)) = intents.iter().find(|(key, _)| key == &text(intent)) {
+        set(&mut p, "output_type", get(selected, "output").clone());
+    }
+    let mut publication = package(&p);
+    let V::Text(coordinate) = get(core, "coordinate") else {
+        panic!("Core coordinate")
+    };
+    set(
+        &mut publication,
+        "operation_coordinate",
+        text(&format!("{coordinate}.{intent}")),
+    );
+    publication
 }
 fn selected_target_mut(target: &mut V) -> &mut V {
     let V::Map(fields) = target else {
@@ -595,4 +629,316 @@ fn compiled_artifact_claims_and_nested_canonical_bytes_cannot_be_substituted() {
     let mut p = program();
     set(&mut p, "compiled_program", V::Bytes(encoded(&bundle)));
     refused(&package(&p));
+}
+
+fn captured_compiler_artifacts() -> (V, V, V) {
+    let decode = |hex: &str| {
+        echo_edict_canonical::decode_canonical_cbor_v1(
+            &hex::decode(hex.trim()).expect("artifact bytes"),
+        )
+        .expect("canonical compiler artifact")
+    };
+    (decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/core.hex")),decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/06-target-ir.hex")),decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex")))
+}
+fn first_step_mut(target: &mut V) -> &mut V {
+    let selected = selected_target_mut(target);
+    let V::Map(fields) = selected else {
+        panic!("intent")
+    };
+    let V::Array(steps) = &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &text("steps"))
+        .expect("steps")
+        .1
+    else {
+        panic!("steps")
+    };
+    &mut steps[0]
+}
+#[test]
+fn repinning_cannot_change_a_compiled_instruction_while_retaining_its_core_body() {
+    // Disabling the ordered Core/Target relation admits each forged lowering,
+    // despite every artifact identity and the new package pin being correct.
+    let (core, target, exports) = captured_compiler_artifacts();
+    assert!(prepare(&bound_compiler_package(
+        &core,
+        &target,
+        &exports,
+        "replaceRange"
+    ))
+    .is_ok());
+    for mode in 0..4 {
+        let mut target = target.clone();
+        match mode {
+            0 => set(
+                first_step_mut(&mut target),
+                "input",
+                map([
+                    ("kind", text("const")),
+                    (
+                        "value",
+                        map([("kind", text("bool")), ("value", V::Bool(false))]),
+                    ),
+                ]),
+            ),
+            1 => set(
+                first_step_mut(&mut target),
+                "effect",
+                text("text.otherRead"),
+            ),
+            2 => {
+                let mut order = get(selected_target_mut(&mut target), "executionOrder").clone();
+                let V::Array(ref mut order_values) = order else {
+                    panic!("order")
+                };
+                order_values.reverse();
+                set(selected_target_mut(&mut target), "executionOrder", order);
+            }
+            _ => {
+                let V::Map(fields) = selected_target_mut(&mut target) else {
+                    panic!("intent")
+                };
+                let V::Array(requirements) = &mut fields
+                    .iter_mut()
+                    .find(|(key, _)| key == &text("requirements"))
+                    .expect("requirements")
+                    .1
+                else {
+                    panic!("requirements")
+                };
+                set(
+                    &mut requirements[0],
+                    "onFailure",
+                    map([
+                        ("kind", text("terminal")),
+                        (
+                            "reason",
+                            map([("reasonKind", text("text.Unrelated")), ("payload", map([]))]),
+                        ),
+                    ]),
+                );
+            }
+        }
+        assert!(
+            prepare(&bound_compiler_package(
+                &core,
+                &target,
+                &exports,
+                "replaceRange"
+            ))
+            .is_err(),
+            "forged lowering {mode} survived a fresh pin"
+        );
+    }
+}
+
+fn value_field_mut<'a>(value: &'a mut V, name: &str) -> &'a mut V {
+    let V::Map(fields) = value else { panic!("map") };
+    &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &text(name))
+        .expect("field")
+        .1
+}
+fn core_body_mut(core: &mut V) -> &mut V {
+    let V::Map(intents) = value_field_mut(core, "intents") else {
+        panic!("intents")
+    };
+    value_field_mut(&mut intents[0].1, "body")
+}
+#[test]
+fn matching_core_and_target_still_cannot_forge_local_identity_or_scope() {
+    let (original_core, original_target, exports) = captured_compiler_artifacts();
+    for mode in 0..3 {
+        let mut core = original_core.clone();
+        let mut target = original_target.clone();
+        match mode {
+            0 => {
+                let V::Array(nodes) = value_field_mut(core_body_mut(&mut core), "nodes") else {
+                    panic!("nodes")
+                };
+                let mut input = get(&nodes[0], "input").clone();
+                set(
+                    value_field_mut(&mut input, "base"),
+                    "ref",
+                    map([
+                        ("id", text("arg.0")),
+                        ("type", text("jedit.text.replace_range@1.Input")),
+                        ("alphaName", text("forged")),
+                    ]),
+                );
+                set(&mut nodes[0], "input", input.clone());
+                set(first_step_mut(&mut target), "input", input);
+            }
+            1 => {
+                let V::Array(nodes) = value_field_mut(core_body_mut(&mut core), "nodes") else {
+                    panic!("nodes")
+                };
+                nodes.reverse();
+                let V::Array(order) =
+                    value_field_mut(selected_target_mut(&mut target), "executionOrder")
+                else {
+                    panic!("order")
+                };
+                order.reverse();
+            }
+            _ => {
+                let V::Array(locals) = value_field_mut(core_body_mut(&mut core), "locals") else {
+                    panic!("locals")
+                };
+                locals.push(map([
+                    ("id", text("orphan")),
+                    ("type", text("U32")),
+                    ("alphaName", text("$orphan")),
+                ]));
+            }
+        }
+        let source = value_field_mut(
+            value_field_mut(&mut target, "semanticClosure"),
+            "sourceCore",
+        );
+        set(
+            source,
+            "digest",
+            V::Array(vec![
+                text("sha256"),
+                artifact_identity("edict.core.module/v1", &core),
+            ]),
+        );
+        assert!(
+            prepare(&bound_compiler_package(
+                &core,
+                &target,
+                &exports,
+                "replaceRange"
+            ))
+            .is_err(),
+            "forged scope {mode} survived matching artifact pins"
+        );
+    }
+}
+
+#[test]
+fn pure_bindings_preserve_values_and_become_available_only_after_their_definition() {
+    let mut core = compiled_core();
+    let binding = map([
+        ("id", text("local.0")),
+        ("type", text("U32")),
+        ("alphaName", text("$value")),
+    ]);
+    let value = map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([
+                ("kind", text("int")),
+                ("width", text("U32")),
+                ("value", V::Integer(7)),
+            ]),
+        ),
+    ]);
+    let local = map([("kind", text("local")), ("ref", binding.clone())]);
+    let body = core_body_mut(&mut core);
+    let V::Array(locals) = value_field_mut(body, "locals") else {
+        panic!("locals")
+    };
+    locals.push(binding.clone());
+    set(
+        body,
+        "nodes",
+        V::Array(vec![map([
+            ("kind", text("let")),
+            ("binding", binding.clone()),
+            ("value", value.clone()),
+        ])]),
+    );
+    set(body, "result", local);
+    let mut target = compiled_target(&core);
+    let selected = selected_target_mut(&mut target);
+    set(
+        selected,
+        "pureBindings",
+        V::Array(vec![map([
+            ("id", text("binding.0")),
+            ("binding", binding),
+            ("value", value),
+        ])]),
+    );
+    set(
+        selected,
+        "executionOrder",
+        V::Array(vec![text("binding.0")]),
+    );
+    assert!(prepare(&bound_compiler_package(
+        &core,
+        &target,
+        &compiled_exports(),
+        "update@1"
+    ))
+    .is_ok());
+    let V::Array(bindings) = value_field_mut(selected_target_mut(&mut target), "pureBindings")
+    else {
+        panic!("bindings")
+    };
+    set(
+        &mut bindings[0],
+        "value",
+        map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([("kind", text("bool")), ("value", V::Bool(false))]),
+            ),
+        ]),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &target,
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+
+#[test]
+fn lowered_failure_arms_preserve_the_source_binders_and_values_without_duplicates() {
+    let (core, target, exports) = captured_compiler_artifacts();
+    for mode in 0..3 {
+        let mut target = target.clone();
+        let step = first_step_mut(&mut target);
+        match mode {
+            0 => {
+                let V::Map(arms) = value_field_mut(step, "obstructionArms") else {
+                    panic!("arms")
+                };
+                set(
+                    &mut arms[0].1,
+                    "value",
+                    map([
+                        ("kind", text("call")),
+                        ("callee", text("text.OtherFailure")),
+                        ("args", V::Array(vec![])),
+                        ("typeArgs", V::Array(vec![])),
+                    ]),
+                );
+            }
+            1 => {
+                let V::Array(failures) = value_field_mut(step, "obstructionFailures") else {
+                    panic!("failures")
+                };
+                failures.push(failures[0].clone());
+            }
+            _ => {
+                let V::Map(arms) = value_field_mut(step, "obstructionArms") else {
+                    panic!("arms")
+                };
+                arms[1].1 = arms[0].1.clone();
+            }
+        }
+        refused(&bound_compiler_package(
+            &core,
+            &target,
+            &exports,
+            "replaceRange",
+        ));
+    }
 }

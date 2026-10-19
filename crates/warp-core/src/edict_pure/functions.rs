@@ -209,7 +209,8 @@ pub(crate) fn decode(
     Ok(helpers)
 }
 
-fn local(value: &Value) -> Result<(), Error> {
+/// Checks the one current complete Core local identity.
+pub(crate) fn local(value: &Value) -> Result<(), Error> {
     exact_fields(value, &["id", "type", "alphaName"])?;
     for name in ["id", "type", "alphaName"] {
         let value = text_field(value, name)?;

@@ -105,7 +105,14 @@ pub fn compiled_core() -> V {
                     (
                         "body",
                         map([
-                            ("locals", V::Array(vec![])),
+                            (
+                                "locals",
+                                V::Array(vec![map([
+                                    ("id", text("arg.0")),
+                                    ("type", text("U32")),
+                                    ("alphaName", text("$arg0")),
+                                ])]),
+                            ),
                             ("nodes", V::Array(vec![])),
                             (
                                 "result",

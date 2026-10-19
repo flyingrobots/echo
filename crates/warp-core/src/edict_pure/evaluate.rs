@@ -466,7 +466,7 @@ pub(crate) fn validate(
     depth: usize,
 ) -> Result<(), Error> {
     meter.step(depth)?;
-    match (value, ty) {
+    match (value, ty.representation()) {
         (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))
             if *value >= 0 && *value <= i128::from(*max) =>

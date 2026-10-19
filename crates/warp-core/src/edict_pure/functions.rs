@@ -540,6 +540,20 @@ pub(crate) fn check_predicate(
         parser,
         depth + 1,
     )?;
+    // Compare opaque values only within the exact same nominal contract. The
+    // scalar representation determines supported operators and runtime cost.
+    let (left, right) =
+        if matches!(left, RuntimeType::Nominal(..)) || matches!(right, RuntimeType::Nominal(..)) {
+            if left != right {
+                return Err(Error::InvalidArtifact);
+            }
+            (
+                left.representation().clone(),
+                right.representation().clone(),
+            )
+        } else {
+            (left, right)
+        };
     match (text_field(value, "op")?, left, right) {
         ("==", RuntimeType::Bool, RuntimeType::Bool)
         | ("==", RuntimeType::Bytes { .. }, RuntimeType::Bytes { .. }) => Ok(()),
@@ -711,6 +725,7 @@ impl Heights<'_> {
 }
 fn type_height(ty: &RuntimeType) -> usize {
     match ty {
+        RuntimeType::Nominal(_, representation) => type_height(representation),
         RuntimeType::Record(fields) => fields
             .iter()
             .map(|(_, ty)| type_height(ty) + 1)

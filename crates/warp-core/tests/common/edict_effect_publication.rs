@@ -71,17 +71,7 @@ pub fn compiled_core() -> V {
         ("apiVersion", text("edict.core/v1")),
         ("coordinate", text("app")),
         ("imports", V::Array(vec![])),
-        (
-            "types",
-            map([(
-                "Result",
-                map([
-                    ("kind", text("Nominal")),
-                    ("contract", text("app.Result")),
-                    ("representation", text("U32")),
-                ]),
-            )]),
-        ),
+        ("types", map([("Result", map([("kind", text("U32"))]))])),
         (
             "intents",
             map([(

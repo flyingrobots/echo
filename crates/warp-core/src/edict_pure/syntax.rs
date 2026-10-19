@@ -54,7 +54,17 @@ impl Parser<'_> {
                 exact_fields(definition, &["kind"])?;
                 self.ty(kind, depth + 1)
             }
-            "Nominal" => self.ty(text_field(definition, "representation")?, depth + 1),
+            "Nominal" => {
+                exact_fields(definition, &["kind", "contract", "representation"])?;
+                let contract = text_field(definition, "contract")?;
+                if contract != name {
+                    return Err(Error::InvalidArtifact);
+                }
+                Ok(RuntimeType::Nominal(
+                    contract.to_owned(),
+                    Box::new(self.ty(text_field(definition, "representation")?, depth + 1)?),
+                ))
+            }
             "Bytes" => {
                 let min = field(definition, "min").map_or(Ok(0), number)?;
                 let max = number(field(definition, "max")?)?;

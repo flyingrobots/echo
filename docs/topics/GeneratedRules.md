@@ -814,6 +814,25 @@ Unpublished calls, effect names used as pure helpers, invalid arguments,
 recursive helper cycles, and excess combined expression/call depth refuse.
 These checks retain the existing pure-helper subset and bounded work limits.
 
+The shared inferred type model now preserves each nominal contract name and
+representation. Resolved nominal declarations must name their own Core table
+identity. Effect data expressions and checked helper bodies cannot substitute
+another nominal contract with the same representation, implicitly unwrap a
+nominal value, or construct one from an untyped literal. Helper argument/result
+checks and conditional joins retain this identity. Predicates require identical
+nominal identities before applying the supported scalar representation operator.
+The synthetic effect fixture's numeric result is now an ordinary unsigned alias,
+rather than relying on implicit construction of a nominal value.
+
+Nominal identity is static metadata over the existing wire representation.
+Runtime value validation follows that representation and retains its existing
+CBOR bounds, meter costs and physical value depth; it does not invent a nominal
+wire tag or charge an extra physical frame for the static name. This does not
+establish a complete static typing proof for every pure-program main/projection
+path. Those paths still require full refinement-aware checking or independent
+compiler/verifier authority, and explicit nominal construction operations are
+not introduced by this checkpoint.
+
 Failure-arm values currently support declared zero-argument obstruction
 constructors. Their exported authority class must equal the exported failure's
 class: `domainMappable`, `resourceFault`, or `integrityFault`. A matching arm body
@@ -825,8 +844,8 @@ reason authority are not yet checked by this relation.
 These checks establish artifact binding, ordered correspondence, lexical scope,
 and data representation typing/helper authority within the current pure subset.
 Imported declarations in the selected lawpack namespace now bind to exports,
-but this does not authenticate every source/local definition or preserve nominal
-identity through every inferred expression. Complete intrinsic
+but this does not authenticate every source/local definition or establish a
+complete typing proof across every pure main/projection path. Complete intrinsic
 signatures and intrinsic-defined failure authority remain open. Adapter
 correspondence binds declared names and failure arms; it does not prove a
 source-to-Core translation or an independently verified source closure. The

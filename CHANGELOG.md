@@ -7,6 +7,14 @@
 
 ### Changed
 
+- Shared expression/helper inference now preserves nominal contract identity.
+  Effect expressions cannot interchange equal representations across contracts,
+  implicitly unwrap opaque values, or construct them from untyped literals.
+  Nominal declarations must bind their own Core identity. Wire validation keeps
+  the existing representation and value-metering rules; complete pure-main
+  static typing, explicit construction operations and effect execution remain
+  unfinished.
+
 - Effect compiler preparation now authenticates imported Core type declarations
   in the selected lawpack namespace against pinned export definitions, including
   bounds, record fields, nominal contract names and unused declarations. Fresh

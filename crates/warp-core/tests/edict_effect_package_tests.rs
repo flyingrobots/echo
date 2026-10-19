@@ -227,14 +227,7 @@ fn declaration_boundaries_accept_zero_io_and_allocation_and_preserve_current_coo
     else {
         panic!("types")
     };
-    types.push((
-        text(&"é".repeat(512)),
-        map([
-            ("kind", text("Nominal")),
-            ("contract", text(&"é".repeat(512))),
-            ("representation", text("U32")),
-        ]),
-    ));
+    types.push((text(&"é".repeat(512)), map([("kind", text("U32"))])));
     set(&mut core, "coordinate", text(&"x".repeat(1016)));
     let V::Map(ref mut fields) = core else {
         panic!("core map")
@@ -1333,4 +1326,173 @@ fn pinned_exports_refuse_core_redefinitions_of_imported_type_contracts() {
             "Core type substitution {mode} survived the pinned exports"
         );
     }
+}
+
+fn nominal_identity_core() -> V {
+    let mut core = compiled_core();
+    for (name, contract) in [
+        ("nominal@1.A", "nominal@1.A"),
+        ("nominal@1.B", "nominal@1.B"),
+    ] {
+        add(
+            value_field_mut(&mut core, "types"),
+            name,
+            map([
+                ("kind", text("Nominal")),
+                ("contract", text(contract)),
+                ("representation", text("U32")),
+            ]),
+        );
+    }
+    let intent = value_field_mut(value_field_mut(&mut core, "intents"), "update@1");
+    set(intent, "input", text("nominal@1.A"));
+    set(intent, "output", text("nominal@1.A"));
+    let body = value_field_mut(intent, "body");
+    let V::Array(locals) = value_field_mut(body, "locals") else {
+        panic!("locals")
+    };
+    set(&mut locals[0], "type", text("nominal@1.A"));
+    let result = map([("kind", text("local")), ("ref", locals[0].clone())]);
+    set(body, "result", result);
+    core
+}
+#[test]
+fn nominal_contracts_cannot_be_interchanged_through_matching_representations() {
+    let mut core = nominal_identity_core();
+    assert!(prepare(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1"
+    ))
+    .is_ok());
+    set(
+        value_field_mut(value_field_mut(&mut core, "intents"), "update@1"),
+        "output",
+        text("nominal@1.B"),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+#[test]
+fn nominal_contracts_cannot_implicitly_unwrap_into_their_representation() {
+    let mut core = nominal_identity_core();
+    set(
+        value_field_mut(value_field_mut(&mut core, "intents"), "update@1"),
+        "output",
+        text("U32"),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+#[test]
+fn nominal_contracts_cannot_be_constructed_by_an_untyped_literal() {
+    let mut core = nominal_identity_core();
+    set(
+        core_body_mut(&mut core),
+        "result",
+        map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([
+                    ("kind", text("int")),
+                    ("width", text("U32")),
+                    ("value", V::Integer(7)),
+                ]),
+            ),
+        ]),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+#[test]
+fn nominal_declarations_must_bind_their_own_core_table_identity() {
+    let mut core = nominal_identity_core();
+    set(
+        value_field_mut(value_field_mut(&mut core, "types"), "nominal@1.A"),
+        "contract",
+        text("nominal@1.B"),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+
+#[test]
+fn checked_helpers_preserve_nominal_arguments_and_return_identity() {
+    let mut core = nominal_identity_core();
+    let helper = |name| {
+        let parameter = map([
+            ("id", text("param.0")),
+            ("type", text(name)),
+            ("alphaName", text("$param0")),
+        ]);
+        map([
+            ("params", V::Array(vec![parameter.clone()])),
+            ("returnType", text(name)),
+            (
+                "body",
+                map([
+                    ("locals", V::Array(vec![])),
+                    ("bindings", V::Array(vec![])),
+                    ("result", map([("kind", text("local")), ("ref", parameter)])),
+                ]),
+            ),
+        ])
+    };
+    add(
+        &mut core,
+        "functions",
+        map([("identity", helper("nominal@1.A"))]),
+    );
+    let result = get(core_body_mut(&mut core), "result").clone();
+    set(
+        core_body_mut(&mut core),
+        "result",
+        map([
+            ("kind", text("call")),
+            ("callee", text("app.identity")),
+            ("args", V::Array(vec![result])),
+            ("typeArgs", V::Array(vec![])),
+        ]),
+    );
+    assert!(prepare(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1"
+    ))
+    .is_ok());
+    set(
+        value_field_mut(&mut core, "functions"),
+        "identity",
+        helper("nominal@1.B"),
+    );
+    set(
+        value_field_mut(value_field_mut(&mut core, "intents"), "update@1"),
+        "output",
+        text("nominal@1.B"),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
 }

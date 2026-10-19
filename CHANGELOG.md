@@ -5,6 +5,17 @@
 
 ## Unreleased
 
+### Added
+
+- Experimental feature `application_root_shadow` (M1, off by default): an
+  incremental application root over every node, edge and attachment record of
+  a worldline state, kept beside the legacy state root, which it neither
+  replaces nor changes. It uses the `echo.application-root.radix.v0`
+  compressed radix trie, advances from each commit's complete write set, and
+  survives rollback, replay and forks. `WorldlineState::application_root`,
+  `application_opening` and `verify_application_opening` expose the root and
+  membership and absence openings.
+
 ### Fixed
 
 - Stale-basis Action corroboration (#837) reads every slot a retained tick

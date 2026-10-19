@@ -1,0 +1,12 @@
+round 1 class=valid append_ms=22.43 replay_ms=11.01 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 2 class=valid append_ms=14.98 replay_ms=8.62 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 3 class=valid append_ms=14.14 replay_ms=8.24 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 4 class=valid append_ms=14.61 replay_ms=8.29 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 5 class=valid append_ms=14.64 replay_ms=8.25 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+F5 tier=S summary valid_rounds=5 append_p50_ms=14.64 per_append_p50_ms=0.0786 useful_throughput_appends_per_s=13664 replay_p50_ms=8.29
+round 1 class=valid append_ms=5538.03 replay_ms=5699.96 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 2 class=valid append_ms=5529.77 replay_ms=5683.24 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 3 class=valid append_ms=5524.82 replay_ms=5674.56 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 4 class=valid append_ms=5530.93 replay_ms=5655.56 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 5 class=valid append_ms=5537.05 replay_ms=5635.64 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+F5 tier=M summary valid_rounds=5 append_p50_ms=5530.93 per_append_p50_ms=1.0740 useful_throughput_appends_per_s=904 replay_p50_ms=5674.56

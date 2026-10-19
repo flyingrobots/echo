@@ -116,6 +116,9 @@ pub struct WorldlineState {
     /// known without hashing. A commit retains the root it computed; any
     /// mutable access to the graph drops it.
     retained_state_root: Option<(NodeKey, Hash)>,
+    /// Experimental incremental application root (M1, shadow mode).
+    #[cfg(feature = "application_root_shadow")]
+    application_root: ApplicationRootShadow,
     /// Counts whole-state root computations for tests, excluding the hash by
     /// which a debug build checks a retained root.
     #[cfg(any(test, feature = "host_test"))]
@@ -134,6 +137,10 @@ pub(crate) struct WorldlineStateParts {
     pub(crate) tx_counter: u64,
     pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
     pub(crate) last_execution_footprints: Arc<[ExecutionFootprintEvidence]>,
+    /// The application trie handed back by the runtime commit guard, or
+    /// `None` to rebuild it from `warp_state`.
+    #[cfg(feature = "application_root_shadow")]
+    pub(crate) application_root: Option<ApplicationRootShadow>,
 }
 
 /// Test instrumentation that counts calls.
@@ -173,6 +180,46 @@ impl std::fmt::Debug for TestCallCount {
     }
 }
 
+#[cfg(feature = "application_root_shadow")]
+/// The application trie of the last graph it is known to describe.
+///
+/// Like the retained state root, mutable graph access marks it no longer
+/// current; a commit that knows its write set advances it incrementally, and
+/// anything else falls back to a full rebuild. Rollback markers, replay
+/// checkpoints and forks clone it in constant time.
+#[derive(Clone, Default)]
+pub(crate) struct ApplicationRootShadow {
+    trie: crate::application_root::ApplicationTrie,
+    current: bool,
+}
+
+#[cfg(feature = "application_root_shadow")]
+impl std::fmt::Debug for ApplicationRootShadow {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ApplicationRootShadow")
+            .field("current", &self.current)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "application_root_shadow")]
+impl ApplicationRootShadow {
+    /// The same trie, no longer claimed current: the graph it described is
+    /// being changed by a commit that will advance it.
+    pub(crate) fn stale(mut self) -> Self {
+        self.current = false;
+        self
+    }
+
+    fn of(warp_state: &WarpState) -> Self {
+        Self {
+            trie: crate::application_root::ApplicationTrie::rebuild(warp_state),
+            current: true,
+        }
+    }
+}
+
 impl Default for WorldlineState {
     fn default() -> Self {
         Self::empty()
@@ -193,6 +240,8 @@ impl WorldlineState {
     }
 
     fn build_validated(warp_state: WarpState, root: NodeKey) -> Self {
+        #[cfg(feature = "application_root_shadow")]
+        let application_root = ApplicationRootShadow::of(&warp_state);
         Self {
             initial_state: Arc::new(warp_state.clone()),
             warp_state,
@@ -205,6 +254,8 @@ impl WorldlineState {
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
             retained_state_root: None,
+            #[cfg(feature = "application_root_shadow")]
+            application_root,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -352,6 +403,10 @@ impl WorldlineState {
     /// Returns the graph for mutation and drops the retained state root.
     pub(crate) fn warp_state_mut(&mut self) -> &mut WarpState {
         self.retained_state_root = None;
+        #[cfg(feature = "application_root_shadow")]
+        {
+            self.application_root.current = false;
+        }
         &mut self.warp_state
     }
 
@@ -364,6 +419,108 @@ impl WorldlineState {
         self.retained_state_root = Some((self.root, state_root));
     }
 
+    /// Takes the application trie for the runtime commit guard, which
+    /// rebuilds this state from parts.
+    #[cfg(feature = "application_root_shadow")]
+    pub(crate) fn take_application_root(&mut self) -> ApplicationRootShadow {
+        std::mem::take(&mut self.application_root)
+    }
+
+    /// Whether the application trie is known to describe the current graph.
+    #[cfg(feature = "application_root_shadow")]
+    pub(crate) fn application_root_is_current(&self) -> bool {
+        self.application_root.current
+    }
+
+    /// Advances the application trie after a commit that wrote `ops` and
+    /// declared `out_slots`, given whether it was current before the commit.
+    ///
+    /// A trie that was current advances incrementally from the commit's
+    /// written records. Otherwise, or when an op changes a whole warp
+    /// instance, the trie is rebuilt from every record.
+    #[cfg(feature = "application_root_shadow")]
+    pub(crate) fn advance_application_root(
+        &mut self,
+        was_current: bool,
+        ops: &[crate::tick_patch::WarpOp],
+        out_slots: &[crate::tick_patch::SlotId],
+    ) {
+        let advanced = if was_current {
+            self.application_root
+                .trie
+                .advanced(&self.warp_state, ops, out_slots)
+        } else {
+            None
+        };
+        self.application_root = advanced.map_or_else(
+            || ApplicationRootShadow::of(&self.warp_state),
+            |trie| ApplicationRootShadow {
+                trie,
+                current: true,
+            },
+        );
+        #[cfg(feature = "delta_validate")]
+        assert_eq!(
+            self.application_root.trie.root(),
+            crate::application_root::ApplicationTrie::rebuild(&self.warp_state).root(),
+            "the incremental application root must equal its full rebuild"
+        );
+    }
+
+    /// Returns the experimental application root (M1, shadow mode) of every
+    /// node, edge and attachment record in this state, reachable or not.
+    ///
+    /// It is computed incrementally across commits that know their write
+    /// set, and by a full rebuild otherwise. It is not the state root, which
+    /// it neither replaces nor affects.
+    #[cfg(feature = "application_root_shadow")]
+    #[must_use]
+    pub fn application_root(&self) -> Hash {
+        if self.application_root.current {
+            self.application_root.trie.root()
+        } else {
+            self.application_root_rebuilt()
+        }
+    }
+
+    /// Returns the application root and a canonical membership or absence
+    /// opening for `slot` against it.
+    ///
+    /// # Errors
+    ///
+    /// Returns
+    /// [`ApplicationOpeningError::OutOfScope`](crate::application_root::ApplicationOpeningError::OutOfScope)
+    /// for a boundary port slot.
+    #[cfg(feature = "application_root_shadow")]
+    pub fn application_opening(
+        &self,
+        slot: &crate::tick_patch::SlotId,
+    ) -> Result<(Hash, Vec<u8>), crate::application_root::ApplicationOpeningError> {
+        let rebuilt;
+        let trie = if self.application_root.current {
+            &self.application_root.trie
+        } else {
+            rebuilt = crate::application_root::ApplicationTrie::rebuild(&self.warp_state);
+            &rebuilt
+        };
+        Ok((trie.root(), trie.opening(slot)?))
+    }
+
+    /// The application root by a full rebuild, ignoring the incremental trie.
+    #[cfg(feature = "application_root_shadow")]
+    #[must_use]
+    pub fn application_root_rebuilt(&self) -> Hash {
+        crate::application_root::ApplicationTrie::rebuild(&self.warp_state).root()
+    }
+
+    /// Whether [`Self::application_root`] answers from the incremental trie,
+    /// without a rebuild.
+    #[cfg(feature = "application_root_shadow")]
+    #[must_use]
+    pub fn application_root_is_incremental(&self) -> bool {
+        self.application_root.current
+    }
+
     /// Applies `patch` to the graph, recording in `journal` what is needed to
     /// take it back. On error the state, including its retained root, is
     /// unchanged.
@@ -372,13 +529,21 @@ impl WorldlineState {
         patch: &WarpTickPatchV1,
         journal: &mut StateJournal,
     ) -> Result<(), crate::tick_patch::TickPatchError> {
+        #[cfg(feature = "application_root_shadow")]
+        let was_current = self.application_root.current;
         patch.apply_journaled(&mut self.warp_state, journal)?;
         self.retained_state_root = None;
+        #[cfg(feature = "application_root_shadow")]
+        self.advance_application_root(was_current, patch.ops(), patch.out_slots());
         Ok(())
     }
 
     /// Assembles a state from parts built outside this module.
     pub(crate) fn from_parts(parts: WorldlineStateParts) -> Self {
+        #[cfg(feature = "application_root_shadow")]
+        let application_root = parts
+            .application_root
+            .unwrap_or_else(|| ApplicationRootShadow::of(&parts.warp_state));
         Self {
             warp_state: parts.warp_state,
             root: parts.root,
@@ -391,6 +556,8 @@ impl WorldlineState {
             committed_ingress: parts.committed_ingress,
             last_execution_footprints: parts.last_execution_footprints,
             retained_state_root: None,
+            #[cfg(feature = "application_root_shadow")]
+            application_root,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -509,6 +676,8 @@ impl WorldlineState {
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
             retained_state_root: self.retained_state_root,
+            #[cfg(feature = "application_root_shadow")]
+            application_root: self.application_root.clone(),
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -530,6 +699,8 @@ impl WorldlineState {
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
             retained_state_root: self.retained_state_root,
+            #[cfg(feature = "application_root_shadow")]
+            application_root: self.application_root.clone(),
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -541,6 +712,8 @@ impl WorldlineState {
     /// while dropping frontier-only materialization and replay metadata.
     pub(crate) fn replay_base_from_initial(&self) -> Self {
         let initial_state = Arc::clone(&self.initial_state);
+        #[cfg(feature = "application_root_shadow")]
+        let application_root = ApplicationRootShadow::of(&initial_state);
         Self {
             warp_state: (*initial_state).clone(),
             root: self.root,
@@ -553,6 +726,8 @@ impl WorldlineState {
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
             retained_state_root: None,
+            #[cfg(feature = "application_root_shadow")]
+            application_root,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -1242,5 +1417,219 @@ mod tests {
             actual,
             crate::ActualFootprintPosture::RecordedWithoutEnforcement,
         )
+    }
+
+    #[cfg(feature = "application_root_shadow")]
+    #[allow(clippy::panic, clippy::unnecessary_wraps)]
+    mod application_root_shadow {
+        use super::*;
+        use crate::attachment::{AtomPayload, AttachmentValue};
+        use crate::record::EdgeRecord;
+        use crate::tick_patch::{PortalInit, StateJournal, TickCommitStatus, WarpOp};
+
+        fn patch(ops: Vec<WarpOp>) -> WarpTickPatchV1 {
+            // Declare nothing, as runtime-ingress materialization does: the
+            // trie must read every write from the ops.
+            WarpTickPatchV1::new(
+                0,
+                [3; 32],
+                TickCommitStatus::Committed,
+                Vec::new(),
+                Vec::new(),
+                ops,
+            )
+        }
+
+        fn atom(bytes: &'static [u8]) -> Option<AttachmentValue> {
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("value"),
+                bytes::Bytes::from_static(bytes),
+            )))
+        }
+
+        fn check(state: &WorldlineState, incremental: bool, step: &str) {
+            assert_eq!(
+                state.application_root_is_incremental(),
+                incremental,
+                "{step}"
+            );
+            assert_eq!(
+                state.application_root(),
+                state.application_root_rebuilt(),
+                "{step}"
+            );
+        }
+
+        #[test]
+        fn application_root_follows_ordinary_and_structural_patches() {
+            let mut state = WorldlineState::empty();
+            let warp_id = state.root().warp_id;
+            let root_node = state.root().local_id;
+            let legacy_before = state.state_root();
+            check(&state, true, "construction");
+            let node = |label: &str| NodeKey {
+                warp_id,
+                local_id: make_node_id(label),
+            };
+            let (a, b) = (node("a"), node("b"));
+            let edge = EdgeRecord {
+                id: crate::make_edge_id("a-b"),
+                from: a.local_id,
+                to: b.local_id,
+                ty: make_type_id("link"),
+            };
+            let steps: Vec<(&str, Vec<WarpOp>, bool)> = vec![
+                (
+                    "upsert nodes and attachments",
+                    vec![
+                        WarpOp::UpsertNode {
+                            node: a,
+                            record: NodeRecord {
+                                ty: make_type_id("cell"),
+                            },
+                        },
+                        WarpOp::UpsertNode {
+                            node: b,
+                            record: NodeRecord {
+                                ty: make_type_id("cell"),
+                            },
+                        },
+                        WarpOp::SetAttachment {
+                            key: AttachmentKey::node_alpha(a),
+                            value: atom(b"one"),
+                        },
+                    ],
+                    true,
+                ),
+                (
+                    "upsert an edge",
+                    vec![WarpOp::UpsertEdge {
+                        warp_id,
+                        record: edge.clone(),
+                    }],
+                    true,
+                ),
+                (
+                    "replace an attachment",
+                    vec![WarpOp::SetAttachment {
+                        key: AttachmentKey::node_alpha(a),
+                        value: atom(b"two"),
+                    }],
+                    true,
+                ),
+                (
+                    "delete the edge",
+                    vec![WarpOp::DeleteEdge {
+                        warp_id,
+                        from: a.local_id,
+                        edge_id: edge.id,
+                    }],
+                    true,
+                ),
+                (
+                    "delete a node with its attachment",
+                    vec![WarpOp::DeleteNode { node: a }],
+                    true,
+                ),
+                (
+                    "open a portal to a new child instance",
+                    vec![WarpOp::OpenPortal {
+                        key: AttachmentKey::node_alpha(NodeKey {
+                            warp_id,
+                            local_id: root_node,
+                        }),
+                        child_warp: crate::make_warp_id("child"),
+                        child_root: make_node_id("child-root"),
+                        init: PortalInit::Empty {
+                            root_record: NodeRecord {
+                                ty: make_type_id("child"),
+                            },
+                        },
+                    }],
+                    true,
+                ),
+                (
+                    "delete the child instance",
+                    vec![
+                        WarpOp::SetAttachment {
+                            key: AttachmentKey::node_alpha(NodeKey {
+                                warp_id,
+                                local_id: root_node,
+                            }),
+                            value: None,
+                        },
+                        WarpOp::DeleteWarpInstance {
+                            warp_id: crate::make_warp_id("child"),
+                        },
+                    ],
+                    true,
+                ),
+            ];
+            for (step, ops, incremental) in steps {
+                let mut journal = StateJournal::default();
+                state
+                    .apply_patch_journaled(&patch(ops), &mut journal)
+                    .unwrap_or_else(|error| panic!("{step}: {error:?}"));
+                check(&state, incremental, step);
+            }
+            // An untracked mutation leaves the trie stale; the root is still
+            // answered correctly, by a rebuild.
+            if let Some(store) = state.warp_state_mut().store_mut(&warp_id) {
+                store.insert_node(
+                    make_node_id("untracked"),
+                    NodeRecord {
+                        ty: make_type_id("cell"),
+                    },
+                );
+            }
+            check(&state, false, "untracked mutation");
+            let mut journal = StateJournal::default();
+            state
+                .apply_patch_journaled(
+                    &patch(vec![WarpOp::SetAttachment {
+                        key: AttachmentKey::node_alpha(b),
+                        value: atom(b"three"),
+                    }]),
+                    &mut journal,
+                )
+                .unwrap_or_else(|error| panic!("{error:?}"));
+            check(&state, true, "a patch after a stale trie rebuilds once");
+            // Every record here is unreachable from the root, so the legacy
+            // reachable root is unchanged while the application root, which
+            // covers every record, is not.
+            assert_eq!(state.state_root(), legacy_before);
+            assert_ne!(
+                state.application_root(),
+                WorldlineState::empty().application_root()
+            );
+        }
+
+        #[test]
+        fn application_root_rolls_back_with_its_frontier() {
+            let mut frontier = WorldlineFrontier::new(wl(9), WorldlineState::empty());
+            let warp_id = frontier.state().root().warp_id;
+            let before = frontier.state().application_root();
+            let mut marker = frontier.rollback_marker();
+            let node = NodeKey {
+                warp_id,
+                local_id: make_node_id("attempt"),
+            };
+            frontier
+                .state_mut()
+                .apply_patch_journaled(
+                    &patch(vec![WarpOp::UpsertNode {
+                        node,
+                        record: NodeRecord {
+                            ty: make_type_id("cell"),
+                        },
+                    }]),
+                    marker.state_journal_mut(),
+                )
+                .unwrap_or_else(|error| panic!("{error:?}"));
+            assert_ne!(frontier.state().application_root(), before);
+            frontier.restore_rollback_marker(marker, std::iter::empty());
+            assert_eq!(frontier.state().application_root(), before);
+            check(frontier.state(), true, "after rollback");
+        }
     }
 }

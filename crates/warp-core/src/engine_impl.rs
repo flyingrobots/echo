@@ -573,6 +573,8 @@ struct RuntimeCommitStateGuard<'a> {
     saved_last_materialization: SavedField<Vec<FinalizedChannel>>,
     saved_last_materialization_errors: SavedField<Vec<ChannelConflict>>,
     committed_ingress: SavedField<BTreeSet<(crate::head::WriterHeadKey, Hash)>>,
+    #[cfg(feature = "application_root_shadow")]
+    saved_application_root: SavedField<crate::worldline_state::ApplicationRootShadow>,
     saved_tx_counter: u64,
     original_worldline_tx_counter: u64,
     saved_scheduler: SavedField<DeterministicScheduler>,
@@ -582,6 +584,10 @@ struct RuntimeCommitStateGuard<'a> {
 
 impl<'a> RuntimeCommitStateGuard<'a> {
     fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
+        // Taken before the graph is borrowed mutably, so it keeps whether it
+        // described the pre-commit graph.
+        #[cfg(feature = "application_root_shadow")]
+        let saved_application_root = state.take_application_root();
         let saved_engine_state =
             std::mem::replace(&mut engine.state, std::mem::take(state.warp_state_mut()));
         #[cfg(any(test, feature = "delta_validate"))]
@@ -638,6 +644,8 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             saved_last_execution_footprints: SavedField::new(saved_last_execution_footprints),
             saved_last_materialization: SavedField::new(saved_last_materialization),
             saved_last_materialization_errors: SavedField::new(saved_last_materialization_errors),
+            #[cfg(feature = "application_root_shadow")]
+            saved_application_root: SavedField::new(saved_application_root),
             committed_ingress: SavedField::new(committed_ingress),
             saved_tx_counter,
             original_worldline_tx_counter,
@@ -698,6 +706,14 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
+            // The graph changed: the caller advances the trie from the
+            // commit's write set.
+            #[cfg(feature = "application_root_shadow")]
+            application_root: Some(
+                self.saved_application_root
+                    .take("runtime commit guard missing application root")
+                    .stale(),
+            ),
         });
         self.engine.current_root = self.saved_root;
         self.engine.tx_counter = self.saved_tx_counter;
@@ -769,6 +785,13 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
+            // The graph is restored exactly, so the trie keeps whatever it
+            // described before the commit.
+            #[cfg(feature = "application_root_shadow")]
+            application_root: Some(
+                self.saved_application_root
+                    .take("runtime commit guard missing application root"),
+            ),
         });
         self.engine.state = self
             .saved_engine_state

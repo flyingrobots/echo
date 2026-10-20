@@ -342,6 +342,12 @@ impl<'a> Symbols<'a> {
             declared.push(self.schema(string(coordinate)?, 0)?);
         }
         match (name, actual.as_slice(), declared.as_slice()) {
+            // The source-function audit has independently proved totality.
+            ("core.integer.add", [left, right], [expected @ Schema::Word(_)])
+                if left == expected && right == expected =>
+            {
+                Ok(expected.clone())
+            }
             ("core.bytes.isUtf8", [actual], [expected @ Schema::Bytes { .. }])
                 if expected == actual =>
             {

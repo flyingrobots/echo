@@ -1,0 +1,20 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "arithmetic.unsigned@1",
+  "sources": [
+    "src/Unsigned.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/jedit-text/manifest.cbor",
+      "exports": "vendor/jedit-text/exports.cbor",
+      "adapter": "vendor/jedit-text/adapter.cbor",
+      "targetConfiguration": "vendor/jedit-text/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@1",
+    "providerPackage": ".build/echo-provider"
+  },
+  "outputDirectory": ".build/application"
+}

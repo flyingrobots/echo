@@ -56,15 +56,12 @@ pub fn build(cells: u64) -> (GraphStore, NodeId) {
         },
     );
     let attachment_type = TypeId(profile("cas.echo.attachment.greeting-message/v1"));
+    let node_type = TypeId(profile("cas.echo.node.greeting/v1"));
+    let edge_type = make_type_id("cas-witness-cell");
     for cell in 0..cells {
         let key = format!("cell-{cell:06}");
         let node = NodeId(Sha256::digest(key.as_bytes()).into());
-        store.insert_node(
-            node,
-            NodeRecord {
-                ty: TypeId(profile("cas.echo.node.greeting/v1")),
-            },
-        );
+        store.insert_node(node, NodeRecord { ty: node_type });
         store.set_node_attachment(
             node,
             Some(AttachmentValue::Atom(AtomPayload::new(
@@ -78,7 +75,7 @@ pub fn build(cells: u64) -> (GraphStore, NodeId) {
                 id: make_edge_id(&key),
                 from: root,
                 to: node,
-                ty: make_type_id("cas-witness-cell"),
+                ty: edge_type,
             },
         );
     }

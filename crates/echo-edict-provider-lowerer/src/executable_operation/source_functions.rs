@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,6 +65,7 @@ struct Judgment<'a> {
     completed: BTreeMap<String, Fact>,
     active: BTreeSet<String>,
     work: usize,
+    proven: Vec<&'a Value>,
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
@@ -157,11 +159,12 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         completed: BTreeMap::new(),
         active: BTreeSet::new(),
         work: WORK,
+        proven: Vec::new(),
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
     }
-    if super::map_field(core, "functions").is_none() {
+    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
     }
     for (_, intent) in members(get(core, "intents")?)? {
@@ -169,7 +172,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     }
     Ok(())
 }
-impl Judgment<'_> {
+impl<'a> Judgment<'a> {
     fn charge(&mut self, depth: usize) -> Check<()> {
         self.work = self.work.checked_sub(1).ok_or(())?;
         if depth > DEPTH {
@@ -255,7 +258,7 @@ impl Judgment<'_> {
             _ => Err(()),
         }
     }
-    fn declaration<'a>(&mut self, value: &'a Value, scope: &mut Scope<'a>) -> Check<Ty> {
+    fn declaration(&mut self, value: &'a Value, scope: &mut Scope<'a>) -> Check<Ty> {
         exact(value, &["id", "type", "alphaName"])?;
         let id = string(get(value, "id")?)?;
         string(get(value, "alphaName")?)?;
@@ -280,6 +283,15 @@ impl Judgment<'_> {
                 .ok_or(())?;
             return Ok(fact.clone());
         }
+        // A helper has a fresh proof scope. Restore the caller on success and
+        // failure, so recursive checks cannot change enclosing all/not scopes.
+        let caller_facts = std::mem::take(&mut self.proven);
+        let result = self.check_function_body(name, prefix);
+        self.proven = caller_facts;
+        self.active.remove(name);
+        result
+    }
+    fn check_function_body(&mut self, name: &str, prefix: usize) -> Check<Fact> {
         let function = *self.functions.get(name).ok_or(())?;
         self.active.insert(name.to_owned());
         exact(function.body, &["locals", "bindings", "result"])?;
@@ -343,14 +355,13 @@ impl Judgment<'_> {
         if prefix.checked_add(fact.depth).ok_or(())? > DEPTH {
             return Err(());
         }
-        self.active.remove(name);
         self.completed.insert(name.to_owned(), fact.clone());
         Ok(fact)
     }
     fn expression(
         &mut self,
-        value: &Value,
-        scope: &Scope<'_>,
+        value: &'a Value,
+        scope: &Scope<'a>,
         source: bool,
         prefix: usize,
     ) -> Check<Fact> {
@@ -519,6 +530,23 @@ impl Judgment<'_> {
                             })?;
                             Ty::Bytes(min, max)
                         }
+                        ("core.integer.add", [left, right], [expected @ Ty::Word(max)])
+                            if left == expected
+                                && right == expected
+                                && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
+                        {
+                            unsigned_addition::prove(
+                                arguments,
+                                *max,
+                                &self.proven,
+                                &mut self.work,
+                            )?;
+                            cost = cost.plus(Cost {
+                                steps: 3,
+                                bytes: 64,
+                            })?;
+                            expected.clone()
+                        }
                         ("core.integer.subtract", [left, right], [expected @ Ty::Word(_)])
                             if includes(expected, left) && includes(expected, right) =>
                         {
@@ -561,8 +589,8 @@ impl Judgment<'_> {
     }
     fn predicate(
         &mut self,
-        value: &Value,
-        scope: &Scope<'_>,
+        value: &'a Value,
+        scope: &Scope<'a>,
         source: bool,
         prefix: usize,
     ) -> Check<(Cost, usize)> {
@@ -582,11 +610,14 @@ impl Judgment<'_> {
                 }
                 let mut cost = Cost { steps: 1, bytes: 0 };
                 let mut height = 0;
+                let inherited = self.proven.len();
                 for value in values {
                     let (child, depth) = self.predicate(value, scope, source, prefix + 1)?;
                     cost = cost.plus(child)?;
                     height = height.max(depth);
+                    self.proven.push(value);
                 }
+                self.proven.truncate(inherited);
                 return Ok((cost, height + 1));
             }
             _ => {}
@@ -619,7 +650,8 @@ impl Judgment<'_> {
             left.depth.max(right.depth) + 1,
         ))
     }
-    fn intent(&mut self, intent: &Value, read: bool) -> Check<()> {
+    fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        self.proven.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut pending = BTreeMap::new();
@@ -659,6 +691,7 @@ impl Judgment<'_> {
                 self.predicate(get(constraint, "predicate")?, &scope, true, 0)?
                     .0,
             )?;
+            self.proven.push(get(constraint, "predicate")?);
         }
         for node in list(get(body, "nodes")?)? {
             if read {

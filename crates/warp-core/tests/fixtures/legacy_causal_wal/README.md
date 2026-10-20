@@ -14,10 +14,10 @@ separated form must resolve to its original submission.
 a reader accepts what an earlier writer actually wrote; bytes produced by the
 current encoder cannot show that.
 
-| File | Bytes | SHA-256 |
-| --- | --- | --- |
-| `segments/segment-00000000000000000001.ecwal` | 7594 | `95a762b44e674e7612ea74aff516034cdab192c8700c6c75d0a76b6386894457` |
-| `writer-epochs.ecwal` | 231 | `bdef26980af969e059f52c3a212ade94cc26329083020b8bd1119313877efc61` |
+| File                                          | Bytes | SHA-256                                                            |
+| --------------------------------------------- | ----- | ------------------------------------------------------------------ |
+| `segments/segment-00000000000000000001.ecwal` | 7594  | `95a762b44e674e7612ea74aff516034cdab192c8700c6c75d0a76b6386894457` |
+| `writer-epochs.ecwal`                         | 231   | `bdef26980af969e059f52c3a212ade94cc26329083020b8bd1119313877efc61` |
 
 ## Provenance
 
@@ -28,13 +28,13 @@ guarded container, by a throwaway test added to
 - the reference host (`runtime()`, `empty_engine()`) with a filesystem WAL and
   the reference contract package;
 - one WAL-acknowledged causal EINT intent, `causal_eint_envelope(lane,
-  [causal_receipt_ref(lane, "legacy-parent", 41)])`, staged with
+[causal_receipt_ref(lane, "legacy-parent", 41)])`, staged with
   `admission_ticket(61)` and decided by `run_until_idle(4)`: submission
   `2348e63b4cd2b630e659d9bcac2e5456d56c35c7a5f04f717d07820a113888f7`, ingress
   `811015cf74795d042fc637d41d506024f538206586707d533fede984a2dddcbf`;
 - one WAL-acknowledged causal Continuum occurrence, `pack_intent_v1(MUTATION_OP_ID,
-  b"amount=9")` with the same parent and `ContinuumOccurrence::new([7; 32],
-  [0xa7; 32])`, left pending: submission
+b"amount=9")` with the same parent and `ContinuumOccurrence::new([7; 32],
+[0xa7; 32])`, left pending: submission
   `8879b31036123e5b70962a068958f51e379750627e13abecf5b585d43fdd3f63`, ingress
   `4af4cf66ff6f479386420b7d1df87e762ee5964323d402b3f378d007381acf8e`.
 

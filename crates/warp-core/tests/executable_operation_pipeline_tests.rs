@@ -5011,3 +5011,229 @@ fn application_profile_actions_commit_and_recover() {
         committed_root
     );
 }
+
+// ---------------------------------------------------------------------------
+// Comparison-contract regressions (M0)
+// ---------------------------------------------------------------------------
+
+/// Every application record on the fixture worldline's root warp, in id order.
+///
+/// This is a test-only reference tuple for the application-reading comparison.
+/// It is not a production digest and is deliberately independent of the v1
+/// state root.
+#[derive(Debug, PartialEq, Eq)]
+struct ApplicationRecords {
+    nodes: Vec<(warp_core::NodeId, NodeRecord)>,
+    edges: Vec<(warp_core::NodeId, Vec<warp_core::EdgeRecord>)>,
+    node_attachments: Vec<(warp_core::NodeId, AttachmentValue)>,
+    edge_attachments: Vec<(warp_core::EdgeId, AttachmentValue)>,
+}
+
+fn application_records(host: &TrustedRuntimeHost, head_key: WriterHeadKey) -> ApplicationRecords {
+    let state = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the fixture worldline exists")
+        .state();
+    let store = state
+        .store(&state.root().warp_id)
+        .expect("the fixture root warp has a store");
+    let mut records = ApplicationRecords {
+        nodes: store
+            .iter_nodes()
+            .map(|(id, record)| (*id, record.clone()))
+            .collect(),
+        edges: store
+            .iter_edges()
+            .map(|(id, edges)| (*id, edges.clone()))
+            .collect(),
+        node_attachments: store
+            .iter_node_attachments()
+            .map(|(id, value)| (*id, value.clone()))
+            .collect(),
+        edge_attachments: store
+            .iter_edge_attachments()
+            .map(|(id, value)| (*id, value.clone()))
+            .collect(),
+    };
+    records.nodes.sort_by_key(|(id, _)| *id);
+    records.edges.sort_by_key(|(id, _)| *id);
+    records.node_attachments.sort_by_key(|(id, _)| *id);
+    records.edge_attachments.sort_by_key(|(id, _)| *id);
+    records
+}
+
+fn state_root_and_tick(
+    host: &TrustedRuntimeHost,
+    head_key: WriterHeadKey,
+) -> (warp_core::Hash, u64) {
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the fixture worldline exists");
+    (
+        frontier.state().state_root(),
+        frontier.frontier_tick().as_u64(),
+    )
+}
+
+/// A host with two independent nodes and a second, non-default writer head on
+/// the same worldline. The second head holds an accepted Action, dormant, while
+/// the first head commits other work.
+fn fixture_host_with_holding_head() -> (
+    TrustedRuntimeHost,
+    WriterHeadKey,
+    WriterHeadKey,
+    Vec<NodeKey>,
+) {
+    let (host, writer, nodes) = fixture_host_with_independent_nodes(2);
+    let holder = WriterHeadKey {
+        worldline_id: writer.worldline_id,
+        head_id: make_head_id("operation-fixture-holding-writer"),
+    };
+    let mut parts = host.into_parts();
+    parts
+        .runtime_mut()
+        .register_writer_head(WriterHead::with_routing(
+            holder,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            false,
+        ))
+        .expect("the holding head registers");
+    (TrustedRuntimeHost::from_parts(parts), writer, holder, nodes)
+}
+
+fn with_head_eligibility(
+    host: TrustedRuntimeHost,
+    head_key: WriterHeadKey,
+    eligibility: HeadEligibility,
+) -> TrustedRuntimeHost {
+    let mut parts = host.into_parts();
+    parts
+        .runtime_mut()
+        .set_head_eligibility(head_key, eligibility)
+        .expect("the fixture head changes eligibility");
+    TrustedRuntimeHost::from_parts(parts)
+}
+
+fn accept_action(
+    host: &mut TrustedRuntimeHost,
+    head_key: WriterHeadKey,
+    invocation: Vec<u8>,
+) -> warp_core::Hash {
+    host.app()
+        .submit_intent(
+            warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                invocation,
+            )
+            .expect("the invocation is one canonical Action"),
+        )
+        .expect("the Action is accepted")
+        .submission_id
+}
+
+#[derive(Clone, Copy)]
+enum HeldInterval {
+    /// No other work.
+    Idle,
+    /// The held Action's target is written and restored.
+    TargetRestored,
+    /// An unrelated node is written and restored: same tick count, no
+    /// dependency interference.
+    UnrelatedRestored,
+}
+
+struct HeldActionDecision {
+    invocation: Vec<u8>,
+    root_before: warp_core::Hash,
+    tick_before: u64,
+    records_before: ApplicationRecords,
+    committed: bool,
+    basis_changed: bool,
+    root_after: warp_core::Hash,
+}
+
+/// Accepts one Action built at tick 0, holds it undecided through `interval`,
+/// then lets the scheduler decide it.
+fn decide_a_held_action(interval: HeldInterval) -> HeldActionDecision {
+    let (mut host, writer, holder, nodes) = fixture_host_with_holding_head();
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let invocation = action_invocation(&host, &installed, holder, nodes[0], b"before", b"held");
+    let held = accept_action(&mut host, holder, invocation.clone());
+    host = with_head_eligibility(host, holder, HeadEligibility::Dormant);
+
+    let written = match interval {
+        HeldInterval::Idle => None,
+        HeldInterval::TargetRestored => Some(nodes[0]),
+        HeldInterval::UnrelatedRestored => Some(nodes[1]),
+    };
+    if let Some(node) = written {
+        for (current, replacement) in [(&b"before"[..], &b"between"[..]), (b"between", b"before")] {
+            let write = action_invocation(&host, &installed, writer, node, current, replacement);
+            let write = accept_action(&mut host, writer, write);
+            host.tick_once().expect("the intervening write is decided");
+            assert!(outcome_is_committed(&host, &write));
+        }
+    }
+    assert_eq!(
+        host.echo_operation_action_outcome_v1(&held),
+        None,
+        "the held Action stays undecided through the interval"
+    );
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+
+    let (root_before, tick_before) = state_root_and_tick(&host, writer);
+    let records_before = application_records(&host, writer);
+    host = with_head_eligibility(host, holder, HeadEligibility::Admitted);
+    host.tick_once().expect("the held Action is decided");
+    let (root_after, _) = state_root_and_tick(&host, writer);
+    HeldActionDecision {
+        invocation,
+        root_before,
+        tick_before,
+        records_before,
+        committed: outcome_is_committed(&host, &held),
+        basis_changed: outcome_is_basis_changed(&host, &held),
+        root_after,
+    }
+}
+
+#[test]
+/// Equal application readings, and equal v1 roots, do not decide whether an
+/// accepted Action may still commit. Eligibility also reads the history
+/// between the Action's origin and the deciding parent (#837). The unrelated
+/// control reaches the same tick, so the obstruction comes from interference
+/// with the Action's target, not from tick advancement.
+fn equal_application_records_do_not_decide_a_held_actions_eligibility() {
+    let idle = decide_a_held_action(HeldInterval::Idle);
+    let target = decide_a_held_action(HeldInterval::TargetRestored);
+    let unrelated = decide_a_held_action(HeldInterval::UnrelatedRestored);
+
+    assert_eq!(idle.invocation, target.invocation, "one request");
+    assert_eq!(idle.invocation, unrelated.invocation, "one request");
+    assert_eq!(idle.records_before, target.records_before);
+    assert_eq!(idle.records_before, unrelated.records_before);
+    assert_eq!(idle.root_before, target.root_before);
+    assert_eq!(idle.root_before, unrelated.root_before);
+    assert_eq!(
+        (idle.tick_before, target.tick_before, unrelated.tick_before),
+        (0, 2, 2)
+    );
+
+    assert!(idle.committed && !idle.basis_changed);
+    assert!(unrelated.committed && !unrelated.basis_changed);
+    assert!(target.basis_changed && !target.committed);
+
+    assert_eq!(idle.root_after, unrelated.root_after);
+    assert_ne!(target.root_after, idle.root_after);
+    assert_eq!(
+        target.root_after, target.root_before,
+        "an obstruction writes nothing"
+    );
+}

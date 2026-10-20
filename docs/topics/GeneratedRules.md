@@ -92,7 +92,66 @@ a Rust dependency consumer can explicitly enable the feature.
 It is not an access-control or security seal. Echo product and adapter code must
 not use it as an application authoring escape hatch.
 
+### Provider semantic type declarations
+
+The current `echo.edict-provider-semantics/v1` type model supports bounded
+Core string aliases, bounded Core byte aliases, and records with name-keyed
+references to declared types. A byte alias uses `shape.kind: coreBytesAlias`
+with explicit unsigned `minBytes` and `maxBytes`. Source admission requires
+`minBytes <= maxBytes`; an inverted interval yields `InvalidByteBounds` before
+artifact generation. Missing, mistyped or extra shape fields refuse.
+
+Byte aliases are bounded leaves for record-graph validation. A record that
+also references itself still refuses as `UnboundedTypeGraph`; an Echo-owned
+alias cannot claim an Edict Core `Bytes` coordinate. Lawpack exports retain
+exact source alias identities and emit canonical definitions: equal bounds
+use `Bytes<exact=N>`, a zero lower bound uses `Bytes<max=N>`, and other intervals
+use `Bytes<min=N,max=M>`. The empty exact-zero interval is valid.
+
+These declarations provide catalog and lawpack type metadata. Byte-valued
+Rust helper codecs and graph-effect lowering require their own implementation
+and verification. Catalog-to-export nominal agreement remains a separate
+required check.
+
 ## Execution Corridors
+
+### Bounded compiler-package computation
+
+`edict_pure::evaluate` interprets exact compiler-produced packages under an
+independently selected trusted-host pin and bounded input, work, storage and
+output limits. This is ordinary computation, not package admission, graph
+mutation, an Action, a Tick, a receipt or recovery evidence.
+
+The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
+against the declared unsigned width and checks the sum before copying the
+result through the ordinary resource meter. Overflow and invalid operands
+refuse rather than wrap. The literal-boundary witness needs eight work units
+and three 64-byte value cells; one fewer work unit or storage byte refuses.
+The public compiler fixture and arithmetic meter test in
+`edict_unsigned_addition_tests` and `edict_pure::evaluate` cover these boundaries.
+
+Native lowerer and verifier source-function judgments independently require
+exact same-width operands and a dominating no-overflow proof. Checked conjunctive
+prefixes can bound later terms; facts cannot escape negation or flow backward.
+Bounded-read relations reuse this established proof and require exactly
+matching declared and operand widths. New addition calls require this judgment
+even when the legacy Core function table is absent. Both implementations bound proof traversal and comparisons
+using their existing work ceilings. Rebound native tests exercise these checks;
+they do not establish public compiler acceptance.
+
+Runtime helper validation also proves addition within its fresh frame using
+literal and nested-sum bounds. Other terms retain their full unsigned width,
+so zero identity is total and an unbounded parameter plus one refuses. Caller
+constraints do not cross into a helper frame.
+
+The retained public compiler fixtures cover a legacy-producer execution control
+and a strict SourceFunctions publication containing an authored arithmetic helper.
+The accepted public verifier report binds the unmodified package bytes; repeated
+public compilation preserves both package and report identity.
+Checked provider components are promoted from two byte-identical designated
+builds, and the package manifest binds their exact digests. Component presence,
+runtime support and native judgments alone do not authorize a package or grant
+application mutation authority.
 
 ### Provider-v1 compatibility corridor
 
@@ -210,6 +269,15 @@ What is implemented today is a conservative subset:
   Tick fields, and recovery recomputes the rule from retained history. A failed
   dependency is reported as `BasisChanged`.
 
+The interval write set includes both each retained replay patch's declared
+`out_slots` and every record slot written by its operations. This includes
+runtime-ingress materialization, whose writes occur outside rule footprints.
+Node and edge deletion include their removed attachment slots; portal creation
+includes its portal attachment and child root. A missing replay patch or a
+warp-instance upsert or deletion makes the interval write set unknown, so the
+scoped exception is unavailable and the whole-frontier rule applies. This
+corroboration change does not change patch encodings, digests, or roots.
+
 Every other Action follows the whole-frontier rule below.
 
 Today an Action carries its whole `EchoOperationEvaluationBasisV1`: writer head
@@ -239,7 +307,9 @@ all of the following hold:
   identity, origin basis, commit parent, validation position, each dependency
   descriptor and comparison mode, and a digest of the compared values. Recovery
   recomputes the validation at that position and refuses a history whose
-  result differs; it never trusts the evidence field alone.
+  result differs; it never trusts the evidence field alone. An Action rejected
+  as a footprint conflict under the within-one-tick rule above is not
+  validated, so recovery recomputes its conflict instead.
 
 An Action is never re-stamped as if evaluated against its commit parent. A
 dependency failure names the dependency that changed. The per-tick limit of 64
@@ -318,6 +388,94 @@ it prevents the maintenance runner from serving as the final product cutover
 boundary.
 The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
 can delete the legacy feature without also losing executable operations.
+
+#### Application operation semantics authored in Edict source
+
+**Decision 2026-10-15, accepted, effective when
+[flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges to
+`main`; until that merge it is a proposal and ADR 0023 governs unchanged. Tracks
+[flyingrobots/jedit#296](https://github.com/flyingrobots/jedit/issues/296).
+Supersedes in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md):
+every requirement that assumes the rope law is an imported declarative
+resource or lawpack, wherever it appears in ADR 0023 (the rope-law closure,
+the package binding direction and obligations, the evidence grades,
+Jurisdiction, and Consequences), each marked where it appears and enumerated
+in the "Jedit rope-law closure" banner, and its selection under "Alternatives
+for Expressing the Rope Law". For bridge Actions,
+[Authored Operation Effects](../architecture/authored-operation-effects.md)
+also supersedes ADR 0023's prepared-evaluation outcome, as marked there. Every
+other provision of ADR 0023 continues to govern, and its original reasoning is
+kept. The maintainer decision of 2026-10-17 accepts this authorship decision
+and the core architecture of that design on merge, authorizes a bounded
+first implementation, and keeps the design's detailed specification
+provisional until executable evidence demonstrates it; see
+[What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts).**
+
+Jedit's persistent-rope `ReplaceRange` law is authored in Jedit-owned Edict
+source and compiled by Edict. It is not imported as a declarative executable
+resource through a Jedit lawpack, and it is not delegated to a native or
+nominally generic sequence-splice capability.
+
+What does not change:
+
+- Echo still learns no editor, text, or rope vocabulary.
+- The prohibited forms listed under ADR 0023's rope-law closure remain
+  prohibited: Rust function pointers, callback coordinates, host trait
+  implementations, Jedit-supplied `MutationPlan`s, a native `replace-range`
+  intrinsic, and assertions that ambient code implements an operation.
+- Jedit must still publish one versioned canonical text-schema declaration
+  that binds the fact, edge, and attachment propositions, codecs, identity law,
+  and migration posture, and the package must bind it.
+- The evidence-grade table and the handwritten planner's role as test-only
+  differential evidence are unchanged.
+
+Evidence for the change, which ADR 0023 did not have on 2026-07-18:
+
+- The declarative resource route was never implemented. No crate in this
+  repository decodes or evaluates such a resource, so the route that was chosen
+  for speed has not delivered a witness.
+- Edict source has since grown on its main branch: proven unsigned subtraction,
+  bounded byte length, slice, and concatenation, and first-order source
+  functions compiled into authenticated Core. Echo now evaluates those
+  functions in its pure and bounded-read evaluators (#753). The source route is
+  no longer the empty-handed alternative ADR 0023 rejected.
+- Neither route can produce a committed rope today, for the same reason: no
+  admitted path turns an evaluated Edict operation into graph writes. The
+  admitted programs remain single-node compare-and-set and create-if-absent of
+  caller-supplied bytes. That gap is generic, and it gates every route equally.
+- A resource format rich enough to carry rope splitting, joining, balancing,
+  and obstruction control would itself be an unreviewed second law language.
+  Authoring in Edict keeps one language for application behavior.
+
+Consequences:
+
+- This decision accepts an architectural contract, not an implementation. No
+  evaluation-to-effect bridge exists until it is built and witnessed.
+- The generic evaluation-to-effect boundary must be designed and reviewed
+  before it is implemented; the design is
+  [Authored Operation Effects](../architecture/authored-operation-effects.md).
+  Evaluation proposes effects; it never performs
+  them. Echo witnesses the actual read and write dependencies, validates basis,
+  identity, budget, and authority, and commits all proposed effects atomically
+  within the existing WAL and recovery law, or none. This decision does not
+  approve an opaque patch authority.
+- Edict language features are added only when complete authored source
+  demonstrates the need. Isolated probes do not justify a feature.
+- A native sequence-splice capability is rejected unless the complete authored
+  implementation demonstrates either a fundamental expressiveness gap that no
+  small, general language feature closes, or a measured resource problem that
+  no generic runtime optimization solves without changing authored semantics.
+  Even then, the logical splice contract must be separated from its
+  implementation strategy, and the capability requires its own design review.
+- Rope completion requires two acceptance targets. The first is semantic
+  correctness: an Edict-authored `ReplaceRange`, possibly over an inefficient
+  representation (flat text is acceptable), commits correct bytes with
+  canonical evidence. Its witness creates content, links it, and moves the
+  head in one atomic Tick, then recovers that result on a fresh engine. The
+  second is
+  persistent-rope correctness: path copying, retained identity for unaffected
+  subtrees, preserved invariants, and bounded work. The first does not complete
+  the rope.
 
 ## Footprint Honesty
 

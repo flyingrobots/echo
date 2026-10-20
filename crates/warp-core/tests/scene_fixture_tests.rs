@@ -194,3 +194,54 @@ fn f5_s_executes_validly_and_canaries_are_rejected() {
         ResultClass::Invalid(_)
     ));
 }
+
+#[test]
+fn f5_rejects_an_observation_from_a_different_executed_script() {
+    let tier = think_append::S;
+    let expected_script = think_append::script(tier, 7);
+    let other_script = think_append::script(tier, 8);
+    assert_ne!(
+        think_append::script_digest(&expected_script),
+        think_append::script_digest(&other_script)
+    );
+    let obs = think_append::run(tier, 8);
+    let pinned = think_append::expectation(tier, Some(F5_S_SEED7_SCRIPT));
+    let unpinned = think_append::expectation(tier, None);
+    for expect in [&pinned, &unpinned] {
+        let class = think_append::validate(tier, &expected_script, expect, &obs);
+        assert!(
+            matches!(class, ResultClass::Invalid(_)),
+            "accepted an observation from a different script: {class:?}"
+        );
+    }
+    assert_eq!(
+        think_append::validate(tier, &other_script, &unpinned, &obs),
+        ResultClass::Valid
+    );
+}
+
+#[cfg(feature = "application_root_shadow")]
+#[test]
+fn f5_rejects_missing_or_failed_application_root_parity() {
+    let tier = think_append::S;
+    let (script, expect, obs) = f5_s();
+    assert_eq!(obs.application_root, Some((true, true)));
+    assert_eq!(
+        think_append::validate(tier, &script, &expect, &obs),
+        ResultClass::Valid
+    );
+    for parity in [
+        None,
+        Some((false, false)),
+        Some((false, true)),
+        Some((true, false)),
+    ] {
+        let mut canary = obs.clone();
+        canary.application_root = parity;
+        let class = think_append::validate(tier, &script, &expect, &canary);
+        assert!(
+            matches!(class, ResultClass::Invalid(_)),
+            "accepted missing or failed application-root parity {parity:?}: {class:?}"
+        );
+    }
+}

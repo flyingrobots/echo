@@ -399,6 +399,8 @@ pub fn initial_state(tier: Tier) -> WorldlineState {
 /// What one execution produced, measured and observed.
 #[derive(Clone, Debug, Default)]
 pub struct Observation {
+    /// Digest of the script used to build the executed ingress envelopes.
+    pub executed_script_digest: [u8; 32],
     /// Work accounting.
     pub accounting: Accounting,
     /// Per committed tick: worldline tick after, admitted count, state root.
@@ -502,7 +504,10 @@ fn run_from(tier: Tier, seed: u64, initial: WorldlineState) -> Observation {
         })
         .collect();
 
-    let mut obs = Observation::default();
+    let mut obs = Observation {
+        executed_script_digest: script_digest(&script),
+        ..Observation::default()
+    };
     obs.accounting.occurrences = script.len() as u64;
     let mut submissions = Vec::with_capacity(script.len());
     let start = Instant::now();
@@ -645,6 +650,15 @@ pub fn validate(
         ));
     }
     let mut checks = Checks::default();
+    #[cfg(feature = "application_root_shadow")]
+    checks.check(
+        obs.application_root == Some((true, true)),
+        "application-root incremental/rebuild or live/replay parity is missing or failed",
+    );
+    checks.check(
+        obs.executed_script_digest == script_digest(script),
+        "executed script digest differs from the supplied workload",
+    );
     if let Some(pinned) = expect.get("script_digest") {
         checks.check(
             hex32(&script_digest(script)) == pinned,

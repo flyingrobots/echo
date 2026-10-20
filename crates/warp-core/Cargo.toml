@@ -112,6 +112,10 @@ name = "optic_invocation_admission_tests"
 required-features = ["host_test"]
 
 [[test]]
+name = "admission_comparison_tests"
+required-features = ["host_test"]
+
+[[test]]
 name = "scheduler_fault_recovery_authority"
 required-features = ["trusted_runtime"]
 
@@ -149,6 +153,10 @@ required-features = ["trusted_runtime"]
 
 [[test]]
 name = "edict_byte_literal_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_unsigned_addition_tests"
 required-features = ["trusted_runtime"]
 
 [[test]]

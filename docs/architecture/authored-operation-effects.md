@@ -3,11 +3,14 @@
 
 # Authored Operation Effects
 
-- **Status:** Accepted design, effective when
+- **Status:** Architecture accepted, and a bounded first implementation
+  authorized, effective when
   [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges
-  to `main`. Before that merge it is a proposal and governs nothing.
-  **Not implemented.** Acceptance establishes the contract; it does not claim
-  the bridge exists. The section
+  to `main`. The detailed specification stays provisional until executable
+  evidence demonstrates it. [What merging accepts](#what-merging-accepts)
+  draws the line. Before that merge the whole document is a proposal and
+  governs nothing. **Not implemented.** Acceptance establishes the
+  architecture; it does not claim the bridge exists. The section
   [Current implementation](#current-implementation) states what the runtime
   does today.
 - **Proposed:** 2026-10-15 in
@@ -43,6 +46,105 @@
 - **Related:** [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md),
   [Generated Rule Authorship](../topics/GeneratedRules.md),
   [WAL](../topics/WAL.md)
+
+## What merging accepts
+
+The maintainer decision of 2026-10-17
+([flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889#issuecomment-6241449977))
+accepts this document at three strengths. Merging accepts the first two. It
+does not ratify the third: those details become compatibility obligations
+only alongside executable evidence.
+
+**1. Accepted architecture.** These govern from the merge:
+
+- Application operation semantics are authored in application-owned Edict
+  source; for Jedit's rope law, see
+  [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+- The ownership boundary. The application owns behavior. Echo owns admission,
+  generic execution, witnessed reads, validation, derivation of the
+  authoritative patch, atomic publication, history, and recovery. Echo learns
+  no application vocabulary. No application callback, caller-supplied patch,
+  `MutationPlan`, or editor-specific intrinsic enters Echo.
+- The five invariants under [Decision](#decision). Evaluation proposes typed
+  node, edge, and atom effects; it never performs them.
+- Recovery verifies the original decision and never makes a new admission
+  decision.
+- Deterministic resource behavior is correctness, not tuning. Evaluation is
+  charged deterministically against declared budgets. Every working structure
+  has a bounded capacity fixed before evaluation. A host allocation failure is
+  a host fault and never becomes an Action obstruction or any other recorded
+  outcome. Scratch history never becomes a semantic input: cold and warm
+  scratch produce identical evidence.
+- **Unreachable records remain readable by key.** This is accepted
+  deliberately, with its cost: it constrains storage and reclamation. A
+  record that no root reaches any longer, such as a superseded rope chunk,
+  cannot be discarded for that reason alone. Reclamation must preserve what a
+  keyed read observes, or change it through an explicit, versioned semantic
+  mechanism. See [Basis, budget, retries](#basis-budget-retries).
+
+**2. Authorized first implementation.** The first bridge profile is bounded
+as follows. Existing executable-operation profiles keep their current
+behavior.
+
+- The five typed effects of [EffectProposal](#effectproposal).
+- **Exact-basis validity.** A bridge Action is evaluated against the exact
+  commit parent. An Action whose evaluation basis is not the commit parent
+  obstructs with whole-frontier `BasisChanged` before evaluation.
+  **Dependency-scoped validity is deferred for this profile.** The text below
+  that specifies it (scoped eligibility, origin evaluation, the written-slot
+  history check, `HistoryChanged`, `OriginOnly`, and the scoped rows of
+  [Required tests](#required-tests)) is retained design for a later profile.
+  It is not an obligation of the first one. Jedit's structural edits already
+  need whole-frontier validity under this design, so deferring scoped
+  validity does not block the motivating rope operation.
+- Witnessed reads, including observed absence and outgoing-edge ranges.
+- Canonical validation with one specified obstruction precedence.
+- Echo-derived patches, atomic publication, and receipt-bound evidence.
+- Recovery that verifies the original decision.
+
+Exact-basis validity does not remove same-Tick conflicts. Two Actions
+evaluated against the same parent can still invalidate each other's
+observations, for example when one observes an empty outgoing-edge range and
+the other inserts into it. Wherever the first profile allows concurrent
+composition, range dependencies and complete conflict footprints remain
+required.
+
+The first end-to-end witness is an authored edit that creates content, links
+it, and moves a head atomically, and that a fresh engine then recovers. A
+flat-text representation is acceptable for this milestone. It meets the first
+acceptance target in the
+[authorship decision](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source)
+and does not complete the persistent rope.
+
+These witnesses decide whether the first profile is accepted. Each takes its
+expected result from an independent source or an adversarial case, never from
+a second implementation that shares the first one's assumptions:
+
+- several simultaneous violations produce the specified first obstruction
+  (Validation order);
+- duplicate targets cannot disappear through patch deduplication (One effect
+  per slot);
+- a forbidden read never reaches authored computation (Reads authorized
+  before use);
+- a same-Tick edge insertion conflicts with a relevant range observation
+  (Negative reads);
+- a failure on the last effect leaves no partial mutation (Atomicity);
+- a stale exact parent produces no application mutation (Exact parent);
+- cold and warm scratch produce identical evidence (Scratch independence);
+- crash recovery reproduces committed, obstructed, and conflicting outcomes
+  without a new admission decision (Recovered outcomes).
+
+**3. Provisional specification.** Everything else here is a reviewed proposal,
+not a compatibility obligation. That covers exact record layouts and byte
+encodings, digest constructions, numeric codes, the specific order of the
+validation steps, metering constants and charges, recovery variants, the
+dependency-scoped and delayed-validity rules, and the physical zero-copy and
+arena layouts. Each detail becomes an obligation when an executable check that
+exercises it lands with independent expected results. Until then it may change
+without a new decision. Bytes that enter an identity, a digest, or retained
+evidence must be fixed and witnessed before the profile that writes them
+ships. Physical layouts that no identity depends on can stay provisional
+after that.
 
 ## Decision
 
@@ -768,7 +870,10 @@ held; this design validates only what the proposal adds or retargets.
   the same Tick is `RejectedFootprintConflict` (see **Within one Tick** below).
   Action validity across ticks keeps its existing rules, and an Action is never
   re-stamped as if it had been evaluated against a later basis.
-- **Two kinds of basis change.** Today's executable programs have fixed,
+- **Two kinds of basis change.** The first bridge profile implements only the
+  whole-frontier kind; dependency-scoped validity is deferred for it (see
+  [What merging accepts](#what-merging-accepts)), and the scoped text here is
+  retained design for a later profile. Today's executable programs have fixed,
   statically known reads, so Echo decides dependency-scoped validity before
   evaluation. A bridge Action's reads are known only by evaluating it, so the
   bridge splits basis change in two:
@@ -1366,6 +1471,12 @@ above likewise applies to every row recorded as `Scoped`.
 
 ## Encoding and memory
 
+The layouts in this section are provisional (see
+[What merging accepts](#what-merging-accepts)). Deterministic charging,
+bounded capacity, and the rule that host allocation failure never becomes an
+Action outcome are accepted. Any bytes that enter an identity, a digest, or
+retained evidence must be fixed before the profile that writes them ships.
+
 Every bridge record is a zero-copy image in the style of Echo's WSC snapshot
 format (`crates/warp-core/src/wsc/`). It is read in place through a view that
 a validator has checked, and it is never hydrated into owned structures. The
@@ -1710,7 +1821,15 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
 
 ## Required tests
 
-Each behaviour below needs a test before implementation:
+Each behaviour below needs a test before the profile that implements it ships.
+The first bridge profile must pass the witnesses named in
+[What merging accepts](#what-merging-accepts) and every row its scope
+exercises. The rows for dependency-scoped validity (Restored value, Scoped
+preconditions, Origin resolution, Scoped conflict recovery, Scoped evidence
+forms, `OriginOnly` recovery, Scoped basis change, Scoped evaluation
+obstruction, Origin reachability) apply only to a later profile that
+implements it. A row that pins an exact layout, code, or constant turns that
+provisional detail into an obligation when its test lands.
 
 | Property                        | Test                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1731,6 +1850,7 @@ Each behaviour below needs a test before implementation:
 | In-place validation             | Each image validates and reads through a view without heap allocation; an image with nonzero padding, a nonzero unused field, an unsorted section, an out-of-bounds range, or loosely packed blob bytes is refused.                                                                                                                                                                              |
 | No hot-path allocation          | With an allocation-counting allocator, a warmed-up Tick of bridge Actions performs zero heap allocations during evaluation, validation, derivation, and composition, and recovery of that Tick allocates nothing per Action.                                                                                                                                                                     |
 | Arena independence              | The same Ticks decided on hosts with different initial arena capacities produce byte-identical receipts, WAL records, and state roots.                                                                                                                                                                                                                                                           |
+| Scratch independence            | The same Ticks decided with a freshly allocated (cold) arena and with an arena reused after unrelated earlier Ticks (warm) produce byte-identical receipts, WAL records, retained evidence, and state roots.                                                                                                                                                                                     |
 | Range-read entries              | An empty observed range encodes as a range entry with count zero, never as an absent outcome, and a nonempty range's entry matches the specified layout byte for byte.                                                                                                                                                                                                                           |
 | Canonical slots                 | Differently expressed effects on one slot (`EnsureEdge` and `ReplaceEdge` of one edge id; `CreateNode` and `ReplaceAtom` of one node) obstruct with `DuplicateEffectTarget`.                                                                                                                                                                                                                     |
 | Write set                       | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                              |
@@ -1761,6 +1881,7 @@ Each behaviour below needs a test before implementation:
 | Proposal binding                | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                    |
 | No-proposal evidence            | An evaluation that obstructs before proposing records `NoProposal` with its read-set digest and no proposal, write-set, or patch digest.                                                                                                                                                                                                                                                         |
 | Recovery                        | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                                                                                                             |
+| Recovered outcomes              | A fresh engine recovering a history that holds a committed bridge Action, an obstructed one, and a `RejectedFootprintConflict` reproduces each recorded outcome, receipt, and state root by verification, and records no new admission decision for any of them.                                                                                                                                 |
 | Composition                     | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                                                                                                               |
 | Shared structure                | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                                                                    |
 | Same-Tick identical create      | Two Actions that both `Ensure` the same node absent at the commit parent: the later obstructs with `RejectedFootprintConflict` instead of reading the earlier one's write.                                                                                                                                                                                                                       |
@@ -1772,6 +1893,7 @@ Each behaviour below needs a test before implementation:
 | Range metering                  | A range read over a node with more edges than the law's maximum, or than the remaining budget covers, obstructs with `BudgetExceeded` and `NoProposal` before copying any edge; an admissible range charges one step and 64 read bytes per edge.                                                                                                                                                 |
 | Absent probes                   | A read that finds nothing records the type it named in `read_type`; a probe for a type outside the law's read permissions obstructs evaluation at once with `FootprintLawViolation`, `NoProposal`, and recovery reproduces the decision from the read set alone.                                                                                                                                 |
 | Edge-read basis                 | An Action whose package's footprint law admits a range read commits only onto its exact evaluation basis, including when this invocation reads no edge.                                                                                                                                                                                                                                          |
+| Exact parent                    | In the first bridge profile, an Action whose evaluation basis is not the commit parent obstructs with whole-frontier `BasisChanged`, posture `NoProposal`, before evaluation; it adds no patch entry and changes no state root, live or on recovery.                                                                                                                                             |
 | Final outcomes                  | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.                                                                                                                                                                                                                                                                          |
 | Duplicate resubmission          | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.                                                                                                                                                                                                                                                                             |
 | Attribution                     | Every Action in a bridge Tick appears once in the attribution section, mapped to its own receipt entry.                                                                                                                                                                                                                                                                                          |
@@ -1784,7 +1906,6 @@ Each behaviour below needs a test before implementation:
 | Invocation version              | An effect invocation (`invocation-v2-effect`) is admitted only for an effect-program package, and a V1 invocation only for its own fixed profile.                                                                                                                                                                                                                                                |
 | Input bounds                    | An effect invocation whose `application_input_bytes` is not canonical CBOR, or is longer than `max_input_bytes`, is refused at admission; a well-formed one of the wrong shape obstructs evaluation with `InputRejected`.                                                                                                                                                                        |
 | Outcome record                  | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                       |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                            |
 | Pending recovery                | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                           |
 | Ensure resolution               | An `EnsureNode` whose identical target already exists is a read, not a write, and the footprint law checks the write set without it; its target read is charged at step 2.                                                                                                                                                                                                                       |
 | Absent endpoint history         | An Action whose package admits edge writes keeps the whole-frontier rule, so an endpoint absent at its evaluation basis and created by a later Tick never lets it commit onto that later basis; it obstructs with whole-frontier `BasisChanged`.                                                                                                                                                 |
@@ -1818,7 +1939,6 @@ Each behaviour below needs a test before implementation:
 | Effect profiles                 | A V2 package whose `target_profile_identity` or `application_basis_schema_identity` is not the specified profile digest is refused at admission.                                                                                                                                                                                                                                                 |
 | Effect basis binding            | An effect invocation whose `application_basis_value_identity` is not the digest of its own `application_input_bytes` is refused at admission.                                                                                                                                                                                                                                                    |
 | Outcome row projection          | An `EOACT004` record whose `OutcomeRow` differs from the projection of its receipt-bound `BridgeEntryRow` is refused by recovery.                                                                                                                                                                                                                                                                |
-| -----------------------------   | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                                                                                                                       |
 | Allocation ceiling              | An effect program map without `max_allocated_bytes` is refused; evaluation is bounded by that declaration alone, never by a host's own ceiling.                                                                                                                                                                                                                                                  |
 | Inherited identities            | A V2 package whose input, result, obstruction, interpretation, or evaluation-basis identity differs from its specified profile digest is refused at admission.                                                                                                                                                                                                                                   |
 | Evaluation read charges         | Node, absent, and atom reads charge one step and 64 `read_bytes`, plus the atom length when present; a read the budget cannot cover obstructs before reading, uncharged.                                                                                                                                                                                                                         |
@@ -1865,3 +1985,10 @@ Each behaviour below needs a test before implementation:
   as evidence (`BudgetExceeded`, posture `Proposed` with a `Derived` patch, as
   [Basis, budget, retries](#basis-budget-retries) states), but it never
   commits and is never split across Ticks.
+- When a later bridge profile should adopt dependency-scoped validity. It is
+  deferred for the first profile; adopting it needs its own executable
+  evidence, at least the restored-value (ABA) and scoped-precondition
+  witnesses, and must leave the first profile's recorded outcomes verifiable.
+- Which reclamation mechanism, if any, should change what a keyed read of an
+  unreachable record observes. Until one ships as an explicit, versioned
+  semantic change, unreachable records stay readable by key.

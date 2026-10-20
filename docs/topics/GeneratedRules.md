@@ -337,7 +337,11 @@ for Expressing the Rope Law". For bridge Actions,
 [Authored Operation Effects](../architecture/authored-operation-effects.md)
 also supersedes ADR 0023's prepared-evaluation outcome, as marked there. Every
 other provision of ADR 0023 continues to govern, and its original reasoning is
-kept.**
+kept. The maintainer decision of 2026-10-17 accepts this authorship decision
+and the core architecture of that design on merge, authorizes a bounded
+first implementation, and keeps the design's detailed specification
+provisional until executable evidence demonstrates it; see
+[What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts).**
 
 Jedit's persistent-rope `ReplaceRange` law is authored in Jedit-owned Edict
 source and compiled by Edict. It is not imported as a declarative executable
@@ -397,7 +401,10 @@ Consequences:
   implementation strategy, and the capability requires its own design review.
 - Rope completion requires two acceptance targets. The first is semantic
   correctness: an Edict-authored `ReplaceRange`, possibly over an inefficient
-  representation, commits correct bytes with canonical evidence. The second is
+  representation (flat text is acceptable), commits correct bytes with
+  canonical evidence. Its witness creates content, links it, and moves the
+  head in one atomic Tick, then recovers that result on a fresh engine. The
+  second is
   persistent-rope correctness: path copying, retained identity for unaffected
   subtrees, preserved invariants, and bounded work. The first does not complete
   the rope.

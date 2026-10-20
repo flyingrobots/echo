@@ -14,7 +14,9 @@
   effective when [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889)
   merges to `main`, for bridge Actions only: the prepared candidate returned
   on success and the lawpack qualification of an evaluation obstruction,
-  marked where it appears
+  marked where it appears. The merge accepts this as architecture; the detailed
+  bridge contract stays provisional until executable evidence, per
+  [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
 
 ## Context
 
@@ -87,7 +89,10 @@ worldline:
 > `EffectProposal` rather than a prepared candidate, as
 > [Authored Operation Effects](../architecture/authored-operation-effects.md)
 > defines. The original text is preserved and still governs every other
-> Action.
+> Action. The merge accepts this replacement as architecture. The detailed
+> bridge contract stays provisional until executable evidence fixes it, as
+> [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
+> states, and no bridge Action exists until the first bridge profile ships.
 
 The direct `prepare_echo_operation_v1` and
 `commit_prepared_echo_operation_v1` methods remain publicly reachable on

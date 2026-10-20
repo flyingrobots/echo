@@ -25,7 +25,9 @@
   merges to `main`, for bridge Actions only: the prepared-evaluation outcome
   (a successful evaluation exposes one patch; the closed
   `PreparedEchoOperationOutcomeV1`; no patch digest on `Obstructed`), marked
-  where it appears
+  where it appears. The merge accepts this as architecture; the detailed
+  bridge contract stays provisional until executable evidence, per
+  [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -199,7 +201,11 @@ later evidence without claiming that a durable child worldline already exists.
 > `PreparedEchoOperationOutcomeV1`; some obstructed postures record a derived
 > patch digest that was never committed. Atomic visibility, one parent patch
 > or one obstruction, still governs. The original text is preserved and still
-> governs every other Action.
+> governs every other Action. The merge accepts this replacement as
+> architecture. The posture, record, and digest details stay provisional
+> until executable evidence fixes them, as
+> [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
+> states, and no bridge Action exists until the first bridge profile ships.
 
 The program may use generic primitives for typed graph access, canonical scalar
 operations, checked `u64` arithmetic, bounded byte manipulation, UTF-8
@@ -272,7 +278,11 @@ but it does not claim a committed consequence.
 > `PreparedEchoOperationOutcomeV1`; some obstructed postures record a derived
 > patch digest that was never committed. Atomic visibility, one parent patch
 > or one obstruction, still governs. The original text is preserved and still
-> governs every other Action.
+> governs every other Action. The merge accepts this replacement as
+> architecture. The posture, record, and digest details stay provisional
+> until executable evidence fixes them, as
+> [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
+> states, and no bridge Action exists until the first bridge profile ships.
 >
 > **Superseded in part (2026-10-14, #837):** for Actions that meet the
 > conditions of [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks),

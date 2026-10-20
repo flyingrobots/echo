@@ -1079,50 +1079,18 @@ where
 
     let next_unit = AtomicUsize::new(0);
 
+    // One worker gains nothing from a thread: it would run the same loop
+    // while this thread waits to join it. Run it here instead.
+    if workers == 1 {
+        return vec![drain_units(units, &next_unit, &resolve_store)];
+    }
+
     std::thread::scope(|s| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
-                let units = &units;
                 let next_unit = &next_unit;
                 let resolve_store = &resolve_store;
-
-                s.spawn(move || -> WorkerResult {
-                    let mut delta = TickDelta::new();
-                    let mut evidence = Vec::new();
-
-                    // Work-stealing loop: claim units until none remain
-                    loop {
-                        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
-                        if unit_idx >= units.len() {
-                            break;
-                        }
-
-                        let unit = &units[unit_idx];
-
-                        // Resolve view for this warp (per-unit, NOT cached across units)
-                        let Some(store) = resolve_store(&unit.warp_id) else {
-                            return WorkerResult::MissingStore(unit.warp_id);
-                        };
-
-                        // Execute items SERIALLY (no nested threading!)
-                        for (idx, item) in unit.items.iter().enumerate() {
-                            match execute_item_enforced(store, item, idx, unit, delta) {
-                                Ok((next_delta, record)) => {
-                                    delta = next_delta;
-                                    evidence.push(record);
-                                }
-                                Err(mut poisoned) => {
-                                    poisoned.prepend_evidence(evidence);
-                                    return WorkerResult::Poisoned(poisoned);
-                                }
-                            }
-                        }
-
-                        // View dropped here - no long-lived borrows across warps
-                    }
-
-                    WorkerResult::Success(WorkerExecution::new(delta, evidence))
-                })
+                s.spawn(move || drain_units(units, next_unit, resolve_store))
             })
             .collect();
 
@@ -1134,6 +1102,53 @@ where
             })
             .collect()
     })
+}
+
+/// One worker's loop: claims units until none remain, executing each unit's
+/// items serially against its warp's store.
+fn drain_units<'state, F>(
+    units: &[WorkUnit],
+    next_unit: &AtomicUsize,
+    resolve_store: &F,
+) -> WorkerResult
+where
+    F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
+{
+    let mut delta = TickDelta::new();
+    let mut evidence = Vec::new();
+
+    // Work-stealing loop: claim units until none remain
+    loop {
+        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
+        if unit_idx >= units.len() {
+            break;
+        }
+
+        let unit = &units[unit_idx];
+
+        // Resolve view for this warp (per-unit, NOT cached across units)
+        let Some(store) = resolve_store(&unit.warp_id) else {
+            return WorkerResult::MissingStore(unit.warp_id);
+        };
+
+        // Execute items SERIALLY (no nested threading!)
+        for (idx, item) in unit.items.iter().enumerate() {
+            match execute_item_enforced(store, item, idx, unit, delta) {
+                Ok((next_delta, record)) => {
+                    delta = next_delta;
+                    evidence.push(record);
+                }
+                Err(mut poisoned) => {
+                    poisoned.prepend_evidence(evidence);
+                    return WorkerResult::Poisoned(poisoned);
+                }
+            }
+        }
+
+        // View dropped here - no long-lived borrows across warps
+    }
+
+    WorkerResult::Success(WorkerExecution::new(delta, evidence))
 }
 
 struct ItemExecutionOutcome {

@@ -22,7 +22,12 @@ pinned Echo `schemas/edict-provider/package/v1` into `.build/echo-provider`.
 Build the pinned Edict CLI, then send this request to it from the copied root:
 
 ```json
-{"schema":"edict.compiler.settings/v1","type":"compilerSettings","operation":"build","application":"edict.application.json"}
+{
+    "schema": "edict.compiler.settings/v1",
+    "type": "compilerSettings",
+    "operation": "build",
+    "application": "edict.application.json"
+}
 ```
 
 Compare `.build/application` package/report bytes with the decoded carriers.

@@ -33,11 +33,11 @@ fixture = scene × intent stream × history operation, plus declared outcomes
 
 ### Three identities, kept separate
 
-| Identity | Defined by | Changes when |
-| --- | --- | --- |
-| **Workload identity** | The fixture manifest (below) | The workload changes. Never because Echo changed |
-| **Expected-result identity** | Declared outcomes, and any goldens under a named root-format version | Echo's promised semantics or a format version change, with an explanation |
-| **Run identity** | Implementation revision, build, environment, machine conditions, raw samples | Every run |
+| Identity                     | Defined by                                                                   | Changes when                                                              |
+| ---------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **Workload identity**        | The fixture manifest (below)                                                 | The workload changes. Never because Echo changed                          |
+| **Expected-result identity** | Declared outcomes, and any goldens under a named root-format version         | Echo's promised semantics or a format version change, with an explanation |
+| **Run identity**             | Implementation revision, build, environment, machine conditions, raw samples | Every run                                                                 |
 
 An Echo optimization changes the run identity. It must not silently change
 the workload identity, and it may change the expected-result identity only
@@ -99,20 +99,20 @@ nodes, total edges, warps, payload bytes, history length and peak live
 strands. An illustrative nested-scene declaration:
 
 | Tier | Entities | Total nodes | Total edges | Child warps | Payload bytes | Ticks | Peak strands |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| S | 1,000 | ≤ 10,000 | ≤ 12,000 | 1,000 | ≤ 0.5 MB | 600 | 0 |
-| M | 10,000 | ≤ 100,000 | ≤ 120,000 | 10,000 | ≤ 5 MB | 600 | 0 |
-| L | 100,000 | ≤ 1,000,000 | ≤ 1,200,000 | 100,000 | ≤ 50 MB | 600 | 0 |
+| ---- | -------: | ----------: | ----------: | ----------: | ------------: | ----: | -----------: |
+| S    |    1,000 |    ≤ 10,000 |    ≤ 12,000 |       1,000 |      ≤ 0.5 MB |   600 |            0 |
+| M    |   10,000 |   ≤ 100,000 |   ≤ 120,000 |      10,000 |        ≤ 5 MB |   600 |            0 |
+| L    |  100,000 | ≤ 1,000,000 | ≤ 1,200,000 |     100,000 |       ≤ 50 MB |   600 |            0 |
 
 The figures are illustrative; each fixture's first implementation sets and
 pins its own.
 
 ### Two concurrency modes
 
-| Mode | Purpose | Required control |
-| --- | --- | --- |
-| **Fixed causal workload** | Compare implementations and execution profiles | Same declared inputs, causal constraints and promised outcome equivalence on every run |
-| **Concurrent arrival workload** | Measure admission, queueing and contention | A declared arrival process, captured deliveries, and complete outcome accounting |
+| Mode                            | Purpose                                        | Required control                                                                       |
+| ------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Fixed causal workload**       | Compare implementations and execution profiles | Same declared inputs, causal constraints and promised outcome equivalence on every run |
+| **Concurrent arrival workload** | Measure admission, queueing and contention     | A declared arrival process, captured deliveries, and complete outcome accounting       |
 
 In both modes the workload is generated before execution, as a logical
 script. Values the runtime produces, such as commit identities or returned
@@ -153,12 +153,12 @@ shared mistakes are still mistakes.
 
 Every execution is classified:
 
-| Class | Meaning | May enter a performance comparison |
-| --- | --- | --- |
-| **Valid** | Generator conformance, required capability coverage and every declared outcome hold. An expected refusal that occurs is a valid outcome | Yes |
-| **Invalid** | A declared outcome failed | No; timings are kept for diagnosis only |
-| **Unsupported** | A required capability is missing. It never counts as passing coverage | No |
-| **Incomplete** | The run stopped before its declared work finished | No; timings are kept for diagnosis only |
+| Class           | Meaning                                                                                                                                 | May enter a performance comparison      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **Valid**       | Generator conformance, required capability coverage and every declared outcome hold. An expected refusal that occurs is a valid outcome | Yes                                     |
+| **Invalid**     | A declared outcome failed                                                                                                               | No; timings are kept for diagnosis only |
+| **Unsupported** | A required capability is missing. It never counts as passing coverage                                                                   | No                                      |
+| **Incomplete**  | The run stopped before its declared work finished                                                                                       | No; timings are kept for diagnosis only |
 
 A stubbed operation must never report an impressive zero.
 
@@ -249,17 +249,17 @@ to 93–119 ms while the load average looked ordinary.
 
 ## Properties every fixture declares
 
-| Property | Why it matters |
-| --- | --- |
-| Reachable size: nodes, edges, bytes, separately | The study observed per-node cost rising with scene size on one shape |
-| Shape: fan-out, depth, cycles, nodes reached by many paths | Walk queue, revisits, edge filter |
-| Warp nesting: count and depth, on nodes and on edges | The walk enters `Descend` on both; no current bench has one |
-| Attachment bytes: inline, or a reference to content held outside the graph | Hash bytes against hash structure |
-| Writes per tick: count, attachment-only or structural, local or scattered | Incremental-root designs treat these differently |
-| Footprints, skew and arrival pattern | Inputs; conflict and refusal rates are outputs |
-| Retention obligations: worldlines, strands, pinned readings | What may and may not be reclaimed |
-| Readers: count, view size, pinned coordinate | Readings under concurrent writes |
-| History: length, strands, suffix size | Log, replay and transport costs |
+| Property                                                                   | Why it matters                                                       |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Reachable size: nodes, edges, bytes, separately                            | The study observed per-node cost rising with scene size on one shape |
+| Shape: fan-out, depth, cycles, nodes reached by many paths                 | Walk queue, revisits, edge filter                                    |
+| Warp nesting: count and depth, on nodes and on edges                       | The walk enters `Descend` on both; no current bench has one          |
+| Attachment bytes: inline, or a reference to content held outside the graph | Hash bytes against hash structure                                    |
+| Writes per tick: count, attachment-only or structural, local or scattered  | Incremental-root designs treat these differently                     |
+| Footprints, skew and arrival pattern                                       | Inputs; conflict and refusal rates are outputs                       |
+| Retention obligations: worldlines, strands, pinned readings                | What may and may not be reclaimed                                    |
+| Readers: count, view size, pinned coordinate                               | Readings under concurrent writes                                     |
+| History: length, strands, suffix size                                      | Log, replay and transport costs                                      |
 
 ## Implementation principles
 
@@ -284,14 +284,14 @@ Their conformance is checked by
 `crates/warp-core/tests/scene_fixture_tests.rs`, which CI runs with
 `native_rule_bootstrap,trusted_runtime`.
 
-| Part | Where | What it establishes |
-| --- | --- | --- |
-| Generator | `benches/support/fixtures/prng.rs` | SplitMix64 output vectors, cross-checked against an independent implementation; the bounded-integer mapping pinned separately, including a bound above 2^63 |
-| Manifests | `benches/support/fixtures/manifest.rs` | `workload_id` and `expectation_id` digested separately, with `edict.canonical-cbor/v1`; a test shows a golden change leaves `workload_id` unchanged |
-| Result classes | `benches/support/fixtures/outcome.rs` | Valid, invalid, unsupported and incomplete; only valid results are comparable |
-| C1 | `benches/support/fixtures/star.rs` | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells, and a pinned root |
-| F5 | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated |
-| Runner | `benches/scene_fixtures.rs` | A fixed matrix (tiers S and M, seed 7, five rounds each) of classified rounds; a summary only when every round is valid |
+| Part           | Where                                      | What it establishes                                                                                                                                         |
+| -------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generator      | `benches/support/fixtures/prng.rs`         | SplitMix64 output vectors, cross-checked against an independent implementation; the bounded-integer mapping pinned separately, including a bound above 2^63 |
+| Manifests      | `benches/support/fixtures/manifest.rs`     | `workload_id` and `expectation_id` digested separately, with `edict.canonical-cbor/v1`; a test shows a golden change leaves `workload_id` unchanged         |
+| Result classes | `benches/support/fixtures/outcome.rs`      | Valid, invalid, unsupported and incomplete; only valid results are comparable                                                                               |
+| C1             | `benches/support/fixtures/star.rs`         | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells, and a pinned root                               |
+| F5             | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated                                                                                                       |
+| Runner         | `benches/scene_fixtures.rs`                | A fixed matrix (tiers S and M, seed 7, five rounds each) of classified rounds; a summary only when every round is valid                                     |
 
 ### F5 append and replay
 
@@ -352,7 +352,7 @@ protocol and tolerance are not yet established.
 - XYPH: the README on GitHub (`flyingrobots/xyph`), default branch at `f2e6d267` when this revision was written.
 - Dojo: a documentation snapshot of 2026-10-09, including ADR-0003, the JIT
   Context Builder design and the Contextual Claims specification.
-- James Ross, *CΩMPUTER: The Geometry of All Possible Machines* (2025),
+- James Ross, _CΩMPUTER: The Geometry of All Possible Machines_ (2025),
   prologue and chapters 1–3.
 - The state-root timing study of 2026-10-17
   (`docs/benchmarks/state-root-timing-study.md`, local branch

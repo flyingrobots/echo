@@ -186,15 +186,21 @@ result, composition, and terminal outcome. Runtime-control installation and
 scheduler Tick records permit callback-free fresh-host recovery. Program bytes
 explicitly bind the interpreter and intrinsic profiles, while Tick evidence
 binds each admitted installation. A program digest cannot confer operation
-identity, invocability, or authority. Each package also retains the canonical
-lawpack obstruction coordinate resolved from the authored source-local import;
-the scheduler reports that exact typed coordinate without interpreting
-application vocabulary.
+identity, invocability, or authority. Each package whose program is imported
+from a lawpack also retains the canonical lawpack obstruction coordinate
+resolved from the authored source-local import; the scheduler reports that
+exact typed coordinate without interpreting application vocabulary. A package
+compiled from Edict source binds no lawpack: under the accepted
+[Authored Operation Effects](docs/architecture/authored-operation-effects.md)
+design, which is not yet implemented, its obstructions are qualified by the
+admitted package and installed operation.
 
 That generic runtime witness is not yet the Jim/Jedit vertical. A standalone
 application-owned Edict operation now crosses it through a compiler-produced
 package and structurally separate accepted verification report, but no Jedit
-rope lawpack or `ReplaceRange` operation uses it. It does not yet claim
+`ReplaceRange` operation uses it. Under the accepted Edict-source decision, the
+rope law will be compiled from Jedit-owned Edict source rather than imported as
+a lawpack. It does not yet claim
 cross-category scheduler composition or independently implemented semantic
 conformance. It also temporarily reuses `TrustedRuntimeHost`'s joint
 `native_rule_bootstrap` and `trusted_runtime` feature gate. The program itself

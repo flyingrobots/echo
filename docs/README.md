@@ -20,6 +20,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 
 - [There Is No Graph](architecture/there-is-no-graph.md)
 - [Sliced readings and copy-on-write strands](architecture/sliced-readings-and-copy-on-write-strands.md) (accepted design, not implemented)
+- [Authored operation effects](architecture/authored-operation-effects.md) (architecture accepted on merge of #889, detailed specification provisional, not implemented)
 - [Batched strict submission](architecture/batched-strict-submission.md)
 - [Participant history as a braid](architecture/participant-history-as-a-braid.md) (accepted design, not implemented)
 - [Continuum transport](architecture/continuum-transport.md)

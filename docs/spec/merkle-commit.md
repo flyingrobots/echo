@@ -29,6 +29,8 @@ The state root is BLAKE3 over canonical encoding of reachable WARP state from a 
 
 Both canonical snapshots and incremental snapshot accumulation prepend the existing `echo:state_root:v1\0` domain separator before the root binding. Incremental accumulation must produce the same state root as canonical snapshot hashing for the same reachable state. Previously emitted accumulator roots that omitted this prefix do not satisfy that law; this correction does not migrate retained artifacts.
 
+This is the `LegacyReachableV1` commitment profile, which every worldline uses by default. The experimental, off-by-default `application_root_profile` feature lets a worldline be registered with `ApplicationRadixV0`, whose `state_root` is the domain-tagged application root instead; see [Experimental commitment profile](../topics/ApplicationRoot.md#experimental-commitment-profile). Commit hash recipes are the same under either profile.
+
 ## Decision 2: `commit_id` v2 commits to replay, not narration
 
 Commit header v2 commits to version, parents, state root, patch digest, and policy id. `patch_digest` is the digest of the replayable tick patch.

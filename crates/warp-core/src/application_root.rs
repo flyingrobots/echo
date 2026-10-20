@@ -341,6 +341,51 @@ fn update(subtree: Option<&Arc<TrieNode>>, ops: &[(Key, Option<Hash>)]) -> Optio
     }
 }
 
+/// How a worldline's committed `state_root` is computed (M2, experimental).
+///
+/// The profile is part of a worldline's registration, like its initial state:
+/// it is chosen once, inherited by forks and replay bases, and never inferred
+/// from a root's bytes. A history is only verifiable under the profile it was
+/// committed with; replaying it under another fails with a root mismatch.
+#[cfg(feature = "application_root_profile")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CommitmentProfile {
+    /// The legacy reachable-state root. Every existing history uses it, and
+    /// its recipe is unchanged.
+    #[default]
+    LegacyReachableV1,
+    /// The experimental application root: every record, reachable or not,
+    /// in the `echo.application-root.radix.v0` trie, tagged by
+    /// [`profile_tagged_state_root`] so it never equals a legacy root.
+    ApplicationRadixV0,
+}
+
+#[cfg(feature = "application_root_profile")]
+impl CommitmentProfile {
+    /// A stable identifier for diagnostics and descriptors.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::LegacyReachableV1 => "echo.state-root.legacy-reachable.v1",
+            Self::ApplicationRadixV0 => "echo.state-root.application-radix.v0",
+        }
+    }
+}
+
+/// The committed `state_root` of an application-profile worldline:
+/// `H("echo.state-root.application-radix.v0" || application_root)`.
+///
+/// The tag keeps the value domain-separated from every legacy root, so a
+/// root is never readable under the wrong profile.
+#[cfg(feature = "application_root_profile")]
+#[must_use]
+pub fn profile_tagged_state_root(application_root: &Hash) -> Hash {
+    hash_parts(&[
+        CommitmentProfile::ApplicationRadixV0.id().as_bytes(),
+        application_root,
+    ])
+}
+
 /// A persistent version of the application reading.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ApplicationTrie {

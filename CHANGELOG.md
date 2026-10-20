@@ -347,6 +347,16 @@
   native provider judgments require same-width operands and a dominating
   no-overflow proof, including legacy Core without a function table.
 
+- Experimental feature `application_root_profile` (M2, off by default, implies
+  `application_root_shadow`): a worldline registered with
+  `WorldlineState::with_commitment_profile(CommitmentProfile::ApplicationRadixV0)`
+  commits `H("echo.state-root.application-radix.v0" || application_root)` as
+  its `state_root` instead of walking the graph. Replay, readings at earlier
+  coordinates, forks, initial boundaries, imports and WAL recovery verify
+  under the worldline's profile; a history replayed or recovered under the
+  other profile fails. Worldlines default to `LegacyReachableV1`, whose roots,
+  commit hashes and receipts are unchanged.
+
 - Experimental feature `application_root_shadow` (M1, off by default): an
   incremental application root over every node, edge and attachment record of
   a worldline state, kept beside the legacy state root, which it neither

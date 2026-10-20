@@ -4424,3 +4424,93 @@ fn a_legacy_resolved_resend_records_the_retained_envelope() {
     drop(restarted);
     fs::remove_dir_all(&fresh_root).expect("WAL cleanup");
 }
+
+/// M2: an application-profile worldline recovers from the filesystem WAL when
+/// the host registers it under the same profile, and refuses to recover under
+/// the legacy profile.
+#[cfg(feature = "application_root_profile")]
+#[test]
+fn application_profile_history_recovers_only_under_its_profile() {
+    use warp_core::application_root::CommitmentProfile;
+
+    let profiled_runtime = |profile: CommitmentProfile| {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        runtime
+            .register_worldline(
+                worldline_id,
+                WorldlineState::empty().with_commitment_profile(profile),
+            )
+            .expect("worldline should register");
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                WriterHeadKey {
+                    worldline_id,
+                    head_id: make_head_id("default"),
+                },
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .expect("writer head should register");
+        (runtime, worldline_id)
+    };
+    let wal_root = temp_runtime_wal_dir("application-profile-recovery");
+    let (initial_runtime, worldline_id) = profiled_runtime(CommitmentProfile::ApplicationRadixV0);
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect("submission should cross the durable ACK boundary");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(62))
+        .expect("trusted host should stage the submission");
+    host.run_until_idle(4).expect("the mutation commits");
+    let committed_root = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("worldline exists")
+        .state()
+        .state_root();
+    drop(host);
+
+    let (recovered_runtime, _) = profiled_runtime(CommitmentProfile::ApplicationRadixV0);
+    let mut recovered = TrustedRuntimeHost::new(recovered_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the history recovers under its own profile");
+    assert_eq!(
+        recovered
+            .runtime()
+            .worldlines()
+            .get(&worldline_id)
+            .expect("worldline exists")
+            .state()
+            .state_root(),
+        committed_root
+    );
+    drop(recovered);
+
+    let (legacy_runtime, _) = profiled_runtime(CommitmentProfile::LegacyReachableV1);
+    let mut legacy = TrustedRuntimeHost::new(legacy_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    let refusal = legacy
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect_err("an application-profile history does not recover under the legacy profile");
+    // Recovery registers the initial boundary under the host's own profile,
+    // so the mismatch surfaces as the first replayed tick's root.
+    assert!(
+        format!("{refusal:?}")
+            .starts_with("Runtime(Replay(StateRootMismatch { tick: WorldlineTick(0),"),
+        "the legacy profile is refused at the first replayed root: {refusal:?}"
+    );
+    drop(legacy);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture cleanup succeeds");
+}

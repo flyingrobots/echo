@@ -16,7 +16,7 @@ mod fixtures;
 use fixtures::manifest::hex32;
 use fixtures::outcome::ResultClass;
 use fixtures::prng::SplitMix64;
-use fixtures::{star, think_append};
+use fixtures::{game, star, think_append};
 
 /// SplitMix64 from seed 1234567: the reference sequence, cross-checked with
 /// an independent Python implementation of Vigna's code.
@@ -244,4 +244,35 @@ fn f5_rejects_missing_or_failed_application_root_parity() {
             "accepted missing or failed application-root parity {parity:?}: {class:?}"
         );
     }
+}
+
+/// Small F6 scenes run validly in a debug build, where footprint enforcement
+/// checks that the step declares every read and write it makes. The pile runs
+/// long enough to land and pile up, so contact edges are added and removed;
+/// the bullets run past a projectile lifetime, so bodies despawn.
+#[test]
+fn f6_small_scenes_run_validly() {
+    for scene in [
+        game::ARENA.scaled(1, 8, 30),
+        game::PILE.scaled(1, 16, 110),
+        game::BULLETS.scaled(1, 8, 70),
+    ] {
+        let obs = game::run(scene, 6);
+        assert_eq!(
+            game::validate(scene, &obs),
+            ResultClass::Valid,
+            "{}",
+            scene.name
+        );
+        assert!(obs.rendered > 0, "{} rendered nothing", scene.name);
+    }
+    let pile = game::PILE.scaled(1, 16, 110);
+    let obs = game::run(pile, 6);
+    assert!(obs.peak_contacts > 0, "the pile never made contact");
+    let bullets = game::BULLETS.scaled(1, 8, 70);
+    let obs = game::run(bullets, 6);
+    assert!(
+        obs.reference_world.next_id as usize > obs.reference_world.bodies.len(),
+        "no projectile despawned"
+    );
 }

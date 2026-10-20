@@ -4501,11 +4501,15 @@ fn application_profile_history_recovers_only_under_its_profile() {
     let (legacy_runtime, _) = profiled_runtime(CommitmentProfile::LegacyReachableV1);
     let mut legacy = TrustedRuntimeHost::new(legacy_runtime, empty_engine())
         .expect("reconstructed host should initialize");
+    let refusal = legacy
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect_err("an application-profile history does not recover under the legacy profile");
+    // Recovery registers the initial boundary under the host's own profile,
+    // so the mismatch surfaces as the first replayed tick's root.
     assert!(
-        legacy
-            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
-            .is_err(),
-        "an application-profile history does not recover under the legacy profile"
+        format!("{refusal:?}")
+            .starts_with("Runtime(Replay(StateRootMismatch { tick: WorldlineTick(0),"),
+        "the legacy profile is refused at the first replayed root: {refusal:?}"
     );
     drop(legacy);
     fs::remove_dir_all(&wal_root).expect("WAL fixture cleanup succeeds");

@@ -8781,9 +8781,10 @@ mod tests {
         );
         let legacy_base = base.with_commitment_profile(CommitmentProfile::LegacyReachableV1);
         assert!(
-            provenance
-                .replay_worldline_state(worldline_id, &legacy_base)
-                .is_err(),
+            matches!(
+                provenance.replay_worldline_state(worldline_id, &legacy_base),
+                Err(crate::provenance_store::ReplayError::InitialBoundaryHashMismatch { .. })
+            ),
             "an application-profile history does not verify under the legacy profile"
         );
 

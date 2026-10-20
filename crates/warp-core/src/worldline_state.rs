@@ -524,9 +524,14 @@ impl WorldlineState {
         crate::snapshot::compute_state_root_for_warp_state(warp_state, &self.root)
     }
 
-    /// This state's committed root, recomputed from its graph without any
-    /// retained value: the legacy reachable root, or for an application
-    /// profile the tagged application root.
+    /// This state's committed root, recomputed without the retained legacy
+    /// state root: the legacy reachable root walked from the graph, or for an
+    /// application profile the tagged root of the current application trie.
+    ///
+    /// The application trie is not rebuilt here when it is current, so replay
+    /// verifies incrementally; `delta_validate` checks each advance against a
+    /// full rebuild, and checkpoint and initial-boundary checks use
+    /// [`Self::state_root_of`], which rebuilds.
     #[must_use]
     pub(crate) fn recomputed_state_root(&self) -> Hash {
         self.state_root_of_own_graph()

@@ -2176,6 +2176,12 @@ impl Engine {
             let advanced = trie
                 .advanced(&self.state, patch.ops(), patch.out_slots())
                 .unwrap_or_else(|| crate::application_root::ApplicationTrie::rebuild(&self.state));
+            #[cfg(feature = "delta_validate")]
+            assert_eq!(
+                advanced.root(),
+                crate::application_root::ApplicationTrie::rebuild(&self.state).root(),
+                "the incremental application root must equal its full rebuild"
+            );
             let root = crate::application_root::profile_tagged_state_root(&advanced.root());
             self.runtime_application_trie_after = Some(advanced);
             root
@@ -2550,7 +2556,9 @@ impl Engine {
     /// Returns a snapshot view over an external worldline frontier state.
     #[must_use]
     pub fn snapshot_for_state(&self, state: &WorldlineState) -> Snapshot {
-        let state_root = compute_state_root(state.warp_state(), &state.root);
+        // The worldline's own recipe: the legacy reachable root, or under an
+        // application profile (M2) the tagged application root.
+        let state_root = state.recomputed_state_root();
         let parents: Vec<Hash> = state
             .last_snapshot
             .as_ref()

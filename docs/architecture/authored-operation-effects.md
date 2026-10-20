@@ -213,8 +213,10 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
   write of it, so a declared empty range conflicts with an insertion into it
   under a fresh edge id. Range keys take part in footprint and patch
   identities (`SlotId::OutgoingEdges` in `crates/warp-core/src/tick_patch.rs`)
-  and survive scheduling, retained patches, provenance, and admission, and a
-  rejected Action records the exact blocking range. The limits: range claims
+  and survive scheduling, retained patches, provenance, and admission. Range
+  conflicts participate in blocker computation: a rejected Action records the
+  indices of the earlier Actions that blocked it, not the exact conflicting
+  range. The limits: range claims
   are declared, not witnessed. No graph accessor or edge writer records them
   automatically. A range claim does not cover the source node's presence,
   which needs its own node dependency. No Edict program gains graph mutation
@@ -1472,7 +1474,8 @@ already performs them for every Action Tick: the basis posture is recomputed
 against the scheduler Tick's parent, and the whole Action batch's composition
 is reconstructed and every reconstructed outcome must equal the recorded one.
 The bridge keeps both. The reconstruction already compares declared
-outgoing-edge range keys and recomputes range blockers (#917); the bridge
+outgoing-edge range keys and recomputes blockers, as earlier-Action indices
+(#917); the bridge
 supplies the range keys that its witnessed reads and effects claim, and its
 precondition reads, to that reconstructed composition. The scoped-validity recomputation
 above likewise applies to every row recorded as `Scoped`.

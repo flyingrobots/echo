@@ -8,10 +8,10 @@ These are the exact Edict-owned contract-pack bytes from merge
 Echo selects this pair only through `ProviderContractPublicationV1::SourceModules`.
 Earlier selectors retain their existing bytes, bounds and inventories.
 
-| Artifact | SHA-256 |
-| --- | --- |
+| Artifact                        | SHA-256                                                            |
+| ------------------------------- | ------------------------------------------------------------------ |
 | `edict-provider-contracts.cddl` | `8f8db4052e1bb85c4f728a0a453c4eb20904bcf2ce81530ffdbfce9351e209bc` |
-| `manifest.json` | `29927f6db5e0fe1e5e7475bef3fb2c6e7f0f84ea56304fd97bd1299f1c2bb4be` |
+| `manifest.json`                 | `29927f6db5e0fe1e5e7475bef3fb2c6e7f0f84ea56304fd97bd1299f1c2bb4be` |
 
 The publication has twelve contracts, eight domains and five unchanged
 contract resources. It adds `source-closure` and `edict.source-closure/v1`.

@@ -19,7 +19,7 @@ use crate::provenance_store::{
 };
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{CausalPosture, RetentionPosture, SourceDisclosurePolicy};
-use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
+use crate::snapshot::compute_commit_hash_v2;
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
     StrandRevalidationState,
@@ -888,10 +888,7 @@ impl SettlementService {
                 continue;
             }
 
-            let actual_state_root = compute_state_root_for_warp_state(
-                candidate_simulated.warp_state(),
-                candidate_simulated.root(),
-            );
+            let actual_state_root = candidate_simulated.recomputed_state_root();
             if parent_at_anchor && actual_state_root != source_entry.expected.state_root {
                 blocked_reason = Some(ConflictReason::UnsupportedImport);
                 decisions.push(SettlementDecision::ConflictArtifact(conflict_draft(

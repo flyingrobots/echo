@@ -191,6 +191,10 @@ impl std::fmt::Debug for TestCallCount {
 pub(crate) struct ApplicationRootShadow {
     trie: crate::application_root::ApplicationTrie,
     current: bool,
+    /// The worldline's commitment profile (M2), carried with the trie so
+    /// every path that carries the trie carries the profile.
+    #[cfg(feature = "application_root_profile")]
+    profile: crate::application_root::CommitmentProfile,
 }
 
 #[cfg(feature = "application_root_shadow")]
@@ -216,7 +220,41 @@ impl ApplicationRootShadow {
         Self {
             trie: crate::application_root::ApplicationTrie::rebuild(warp_state),
             current: true,
+            #[cfg(feature = "application_root_profile")]
+            profile: crate::application_root::CommitmentProfile::default(),
         }
+    }
+
+    /// A rebuild of `warp_state` that keeps this shadow's profile.
+    #[cfg(feature = "application_root_profile")]
+    fn rebuilt(&self, warp_state: &WarpState) -> Self {
+        Self {
+            profile: self.profile,
+            ..Self::of(warp_state)
+        }
+    }
+
+    /// A rebuild of `warp_state`.
+    #[cfg(not(feature = "application_root_profile"))]
+    #[allow(clippy::unused_self)]
+    fn rebuilt(&self, warp_state: &WarpState) -> Self {
+        Self::of(warp_state)
+    }
+
+    /// An advanced trie, current, keeping this shadow's profile.
+    #[cfg_attr(not(feature = "application_root_profile"), allow(clippy::unused_self))]
+    pub(crate) fn advanced_to(&self, trie: crate::application_root::ApplicationTrie) -> Self {
+        Self {
+            trie,
+            current: true,
+            #[cfg(feature = "application_root_profile")]
+            profile: self.profile,
+        }
+    }
+
+    #[cfg(feature = "application_root_profile")]
+    pub(crate) fn current_trie(&self) -> Option<&crate::application_root::ApplicationTrie> {
+        self.current.then_some(&self.trie)
     }
 }
 
@@ -382,6 +420,12 @@ impl WorldlineState {
     /// retained root.
     #[must_use]
     pub fn state_root(&self) -> Hash {
+        #[cfg(feature = "application_root_profile")]
+        if self.application_root.profile
+            == crate::application_root::CommitmentProfile::ApplicationRadixV0
+        {
+            return crate::application_root::profile_tagged_state_root(&self.application_root());
+        }
         if let Some((root, state_root)) = self.retained_state_root {
             if root == self.root {
                 debug_assert_eq!(
@@ -426,6 +470,89 @@ impl WorldlineState {
         std::mem::take(&mut self.application_root)
     }
 
+    /// Returns this state with commitment profile `profile` (M2,
+    /// experimental). Choose it before registering the worldline: it decides
+    /// what every committed `state_root` of the worldline means.
+    #[cfg(feature = "application_root_profile")]
+    #[must_use]
+    pub fn with_commitment_profile(
+        mut self,
+        profile: crate::application_root::CommitmentProfile,
+    ) -> Self {
+        self.application_root.profile = profile;
+        self
+    }
+
+    /// The worldline's commitment profile (M2, experimental).
+    #[cfg(feature = "application_root_profile")]
+    #[must_use]
+    pub fn commitment_profile(&self) -> crate::application_root::CommitmentProfile {
+        self.application_root.profile
+    }
+
+    /// The application trie, when the worldline commits it as its state root
+    /// and it is current, for the runtime commit guard.
+    #[cfg(feature = "application_root_profile")]
+    pub(crate) fn committing_application_trie(
+        &self,
+    ) -> Option<crate::application_root::ApplicationTrie> {
+        (self.application_root.profile
+            == crate::application_root::CommitmentProfile::ApplicationRadixV0)
+            .then(|| {
+                self.application_root
+                    .current_trie()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        crate::application_root::ApplicationTrie::rebuild(&self.warp_state)
+                    })
+            })
+    }
+
+    /// The committed-root recipe of this worldline applied to `warp_state`,
+    /// for a graph that is not this state's own (an initial boundary or an
+    /// import candidate).
+    #[must_use]
+    pub(crate) fn state_root_of(&self, warp_state: &WarpState) -> Hash {
+        #[cfg(feature = "application_root_profile")]
+        if self.application_root.profile
+            == crate::application_root::CommitmentProfile::ApplicationRadixV0
+        {
+            return crate::application_root::profile_tagged_state_root(
+                &crate::application_root::ApplicationTrie::rebuild(warp_state).root(),
+            );
+        }
+        crate::snapshot::compute_state_root_for_warp_state(warp_state, &self.root)
+    }
+
+    /// This state's committed root, recomputed without the retained legacy
+    /// state root: the legacy reachable root walked from the graph, or for an
+    /// application profile the tagged root of the current application trie.
+    ///
+    /// The application trie is not rebuilt here when it is current, so replay
+    /// verifies incrementally; `delta_validate` checks each advance against a
+    /// full rebuild, and checkpoint and initial-boundary checks use
+    /// [`Self::state_root_of`], which rebuilds.
+    #[must_use]
+    pub(crate) fn recomputed_state_root(&self) -> Hash {
+        self.state_root_of_own_graph()
+    }
+
+    #[cfg(not(feature = "application_root_profile"))]
+    fn state_root_of_own_graph(&self) -> Hash {
+        crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
+    }
+
+    #[cfg(feature = "application_root_profile")]
+    fn state_root_of_own_graph(&self) -> Hash {
+        if self.application_root.profile
+            == crate::application_root::CommitmentProfile::ApplicationRadixV0
+        {
+            crate::application_root::profile_tagged_state_root(&self.application_root())
+        } else {
+            crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
+        }
+    }
+
     /// Whether the application trie is known to describe the current graph.
     #[cfg(feature = "application_root_shadow")]
     pub(crate) fn application_root_is_current(&self) -> bool {
@@ -453,11 +580,8 @@ impl WorldlineState {
             None
         };
         self.application_root = advanced.map_or_else(
-            || ApplicationRootShadow::of(&self.warp_state),
-            |trie| ApplicationRootShadow {
-                trie,
-                current: true,
-            },
+            || self.application_root.rebuilt(&self.warp_state),
+            |trie| self.application_root.advanced_to(trie),
         );
         #[cfg(feature = "delta_validate")]
         assert_eq!(
@@ -713,7 +837,7 @@ impl WorldlineState {
     pub(crate) fn replay_base_from_initial(&self) -> Self {
         let initial_state = Arc::clone(&self.initial_state);
         #[cfg(feature = "application_root_shadow")]
-        let application_root = ApplicationRootShadow::of(&initial_state);
+        let application_root = self.application_root.rebuilt(&initial_state);
         Self {
             warp_state: (*initial_state).clone(),
             root: self.root,

@@ -13,6 +13,11 @@ differ from the accepted executable-operation boundary. The accepted campaign
 is recorded in section 13; the inventory of broader Jim and Echo capabilities
 does not place those capabilities in scope for the first vertical.
 
+ADR 0023's Jedit lawpack-resource route is itself superseded in part,
+effective when flyingrobots/echo#889 merges, by
+[Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+This inventory's lawpack-resource steps are kept as historical evidence.
+
 ## Source basis
 
 This report is based on source code, not repository documentation, at these

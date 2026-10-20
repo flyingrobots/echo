@@ -9,6 +9,14 @@
 - **Superseded in part by:** the [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
   decision of 2026-10-14 (#837), for the shared parent basis of Actions in one
   Tick
+- **Superseded in part by:**
+  [Authored Operation Effects](../architecture/authored-operation-effects.md),
+  effective when [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889)
+  merges to `main`, for bridge Actions only: the prepared candidate returned
+  on success and the lawpack qualification of an evaluation obstruction,
+  marked where it appears. The merge accepts this as architecture; the detailed
+  bridge contract stays provisional until executable evidence, per
+  [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
 
 ## Context
 
@@ -73,6 +81,18 @@ worldline:
 - obstruction returns the package-declared, lawpack-qualified typed coordinate
   and no parent-visible operations;
 - neither result mutates the parent state.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: for
+> bridge Actions, whose program is compiled from Edict source and binds no
+> lawpack resource, an obstruction is qualified by the admitted package and
+> installed-operation identities instead of a lawpack, and success returns an
+> `EffectProposal` rather than a prepared candidate, as
+> [Authored Operation Effects](../architecture/authored-operation-effects.md)
+> defines. The original text is preserved and still governs every other
+> Action. The merge accepts this replacement as architecture. The detailed
+> bridge contract stays provisional until executable evidence fixes it, as
+> [What merging accepts](../architecture/authored-operation-effects.md#what-merging-accepts)
+> states, and no bridge Action exists until the first bridge profile ships.
 
 The direct `prepare_echo_operation_v1` and
 `commit_prepared_echo_operation_v1` methods remain publicly reachable on

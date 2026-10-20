@@ -48,6 +48,9 @@ host_test = []
 # EXPERIMENTAL (M1): keep an incremental application root beside the legacy
 # state root, in shadow mode. It changes no root, receipt or wire format.
 application_root_shadow = []
+# EXPERIMENTAL (M2): let a worldline opt into committing the application root
+# as its state root. Legacy worldlines and histories are unchanged.
+application_root_profile = ["application_root_shadow"]
 # TRUSTED HOST ONLY: exposes runtime-owner authority constructors for host
 # adapters that own scheduler/runtime control. Application crates must not
 # enable this feature.

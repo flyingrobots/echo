@@ -506,6 +506,13 @@ pub struct Engine {
     /// outside a runtime batch always starts a fresh log, so a log left behind
     /// by an aborted commit never leaks into a later patch.
     runtime_batch_touch_log: bool,
+    /// During a runtime batch for an application-profile worldline (M2): the
+    /// worldline's current application trie, to be advanced by the commit.
+    #[cfg(feature = "application_root_profile")]
+    runtime_application_trie: Option<crate::application_root::ApplicationTrie>,
+    /// The trie the commit advanced, handed back to the worldline state.
+    #[cfg(feature = "application_root_profile")]
+    runtime_application_trie_after: Option<crate::application_root::ApplicationTrie>,
     /// Working memory for the state root, kept across commits so hashing the
     /// reachable graph allocates nothing once it has grown to fit.
     state_root_scratch: crate::snapshot::StateRootScratch,
@@ -590,6 +597,11 @@ impl<'a> RuntimeCommitStateGuard<'a> {
     fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
         // Taken before the graph is borrowed mutably, so it keeps whether it
         // described the pre-commit graph.
+        #[cfg(feature = "application_root_profile")]
+        {
+            engine.runtime_application_trie = state.committing_application_trie();
+            engine.runtime_application_trie_after = None;
+        }
         #[cfg(feature = "application_root_shadow")]
         let saved_application_root = state.take_application_root();
         let saved_engine_state =
@@ -665,6 +677,24 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             .as_ref("runtime commit guard missing pre-commit state")
     }
 
+    /// The worldline's application trie after a successful commit: the trie
+    /// the commit advanced for an application-profile worldline, otherwise
+    /// the saved trie marked stale for the caller to advance.
+    #[cfg(feature = "application_root_shadow")]
+    fn application_root_after_success(&mut self) -> crate::worldline_state::ApplicationRootShadow {
+        let saved = self
+            .saved_application_root
+            .take("runtime commit guard missing application root");
+        #[cfg(feature = "application_root_profile")]
+        {
+            self.engine.runtime_application_trie = None;
+            if let Some(trie) = self.engine.runtime_application_trie_after.take() {
+                return saved.advanced_to(trie);
+            }
+        }
+        saved.stale()
+    }
+
     fn finish_success(&mut self) -> crate::warp_state::WarpStateTouches {
         // The touch log is the tick's undo record: hand it to the caller.
         self.engine.runtime_batch_touch_log = false;
@@ -713,11 +743,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             // The graph changed: the caller advances the trie from the
             // commit's write set.
             #[cfg(feature = "application_root_shadow")]
-            application_root: Some(
-                self.saved_application_root
-                    .take("runtime commit guard missing application root")
-                    .stale(),
-            ),
+            application_root: Some(self.application_root_after_success()),
         });
         self.engine.current_root = self.saved_root;
         self.engine.tx_counter = self.saved_tx_counter;
@@ -792,10 +818,15 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             // The graph is restored exactly, so the trie keeps whatever it
             // described before the commit.
             #[cfg(feature = "application_root_shadow")]
-            application_root: Some(
+            application_root: Some({
+                #[cfg(feature = "application_root_profile")]
+                {
+                    self.engine.runtime_application_trie = None;
+                    self.engine.runtime_application_trie_after = None;
+                }
                 self.saved_application_root
-                    .take("runtime commit guard missing application root"),
-            ),
+                    .take("runtime commit guard missing application root")
+            }),
         });
         self.engine.state = self
             .saved_engine_state
@@ -1010,6 +1041,10 @@ impl Engine {
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
             runtime_batch_touch_log: false,
+            #[cfg(feature = "application_root_profile")]
+            runtime_application_trie: None,
+            #[cfg(feature = "application_root_profile")]
+            runtime_application_trie_after: None,
             state_root_scratch: crate::snapshot::StateRootScratch::default(),
             intent_log: Vec::new(),
             initial_state,
@@ -1213,6 +1248,10 @@ impl Engine {
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
             runtime_batch_touch_log: false,
+            #[cfg(feature = "application_root_profile")]
+            runtime_application_trie: None,
+            #[cfg(feature = "application_root_profile")]
+            runtime_application_trie_after: None,
             state_root_scratch: crate::snapshot::StateRootScratch::default(),
             intent_log: Vec::new(),
             initial_state,
@@ -2130,6 +2169,37 @@ impl Engine {
         );
         let patch_digest = patch.digest();
 
+        // An application-profile worldline (M2) commits its advanced
+        // application trie, and does not walk the graph.
+        #[cfg(feature = "application_root_profile")]
+        let application_state_root = self.runtime_application_trie.take().map(|trie| {
+            let advanced = trie
+                .advanced(&self.state, patch.ops(), patch.out_slots())
+                .unwrap_or_else(|| crate::application_root::ApplicationTrie::rebuild(&self.state));
+            #[cfg(feature = "delta_validate")]
+            assert_eq!(
+                advanced.root(),
+                crate::application_root::ApplicationTrie::rebuild(&self.state).root(),
+                "the incremental application root must equal its full rebuild"
+            );
+            let root = crate::application_root::profile_tagged_state_root(&advanced.root());
+            self.runtime_application_trie_after = Some(advanced);
+            root
+        });
+        #[cfg(all(feature = "delta_validate", feature = "application_root_profile"))]
+        let legacy_profile = application_state_root.is_none();
+        #[cfg(all(feature = "delta_validate", not(feature = "application_root_profile")))]
+        let legacy_profile = true;
+        #[cfg(feature = "application_root_profile")]
+        let state_root = match application_state_root {
+            Some(root) => root,
+            None => crate::snapshot::compute_state_root_with(
+                &self.state,
+                &self.current_root,
+                &mut self.state_root_scratch,
+            ),
+        };
+        #[cfg(not(feature = "application_root_profile"))]
         let state_root = crate::snapshot::compute_state_root_with(
             &self.state,
             &self.current_root,
@@ -2137,7 +2207,7 @@ impl Engine {
         );
 
         #[cfg(feature = "delta_validate")]
-        {
+        if legacy_profile {
             use crate::snapshot_accum::SnapshotAccumulator;
 
             let mut accumulator = SnapshotAccumulator::from_warp_state(&state_before);
@@ -2486,7 +2556,9 @@ impl Engine {
     /// Returns a snapshot view over an external worldline frontier state.
     #[must_use]
     pub fn snapshot_for_state(&self, state: &WorldlineState) -> Snapshot {
-        let state_root = compute_state_root(state.warp_state(), &state.root);
+        // The worldline's own recipe: the legacy reachable root, or under an
+        // application profile (M2) the tagged application root.
+        let state_root = state.recomputed_state_root();
         let parents: Vec<Hash> = state
             .last_snapshot
             .as_ref()

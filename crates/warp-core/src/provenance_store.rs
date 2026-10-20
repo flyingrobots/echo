@@ -31,7 +31,9 @@ use crate::ident::{Hash, NodeKey, WarpId};
 use crate::materialization::FinalizedChannel;
 use crate::receipt::TickReceipt;
 use crate::revelation::CausalPosture;
-use crate::snapshot::{compute_state_root_for_warp_state, Snapshot};
+#[cfg(test)]
+use crate::snapshot::compute_state_root_for_warp_state;
+use crate::snapshot::Snapshot;
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::worldline_state::WorldlineState;
@@ -983,8 +985,7 @@ pub(crate) fn validate_replay_base<P: ProvenanceStore>(
     }
 
     let expected_initial_boundary = provenance.initial_boundary_hash(worldline_id)?;
-    let actual_initial_boundary =
-        compute_state_root_for_warp_state(base_state.initial_state(), base_state.root());
+    let actual_initial_boundary = base_state.state_root_of(base_state.initial_state());
     if actual_initial_boundary != expected_initial_boundary {
         return Err(ReplayError::InitialBoundaryHashMismatch {
             expected: expected_initial_boundary,
@@ -1059,8 +1060,7 @@ pub(crate) fn advance_replay_state<P: ProvenanceStore>(
             .apply_to_worldline_state(replayed)
             .map_err(|source| ReplayError::Apply { tick, source })?;
 
-        let actual_state_root =
-            compute_state_root_for_warp_state(replayed.warp_state(), replayed.root());
+        let actual_state_root = replayed.recomputed_state_root();
         if actual_state_root != entry.expected.state_root {
             return Err(ReplayError::StateRootMismatch {
                 tick,
@@ -1188,10 +1188,9 @@ fn validate_checkpoint_for_history(
         });
     }
 
-    let actual_initial_boundary = compute_state_root_for_warp_state(
-        checkpoint.state.initial_state(),
-        checkpoint.state.root(),
-    );
+    let actual_initial_boundary = checkpoint
+        .state
+        .state_root_of(checkpoint.state.initial_state());
     if actual_initial_boundary != history.initial_boundary_hash {
         return Err(HistoryError::CheckpointInitialBoundaryHashMismatch {
             worldline_id,
@@ -2071,8 +2070,7 @@ impl ProvenanceService {
         worldline_id: WorldlineId,
         state: &WorldlineState,
     ) -> Result<(), HistoryError> {
-        let initial_boundary_hash =
-            compute_state_root_for_warp_state(state.initial_state(), state.root());
+        let initial_boundary_hash = state.state_root_of(state.initial_state());
         self.store.register_worldline_with_boundary(
             worldline_id,
             state.root().warp_id,

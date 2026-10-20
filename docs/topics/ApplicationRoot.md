@@ -6,7 +6,9 @@
 The `application_root_shadow` feature keeps an incremental authenticated
 application reading beside the legacy state root. It is experimental and off
 by default. Enabling it changes no state root, receipt, patch, WAL or wire
-format. It does not select a new commitment profile for admitted histories.
+format. It does not select a new commitment profile for admitted histories;
+the separate `application_root_profile` feature does, per worldline, as
+described in [Experimental commitment profile](#experimental-commitment-profile).
 The legacy commitment contract remains in
 [merkle-commit.md](../spec/merkle-commit.md).
 
@@ -71,5 +73,51 @@ as a valid timing.
 - `scene_fixture_tests` includes canaries for missing or failed parity and is
   scheduled with the shadow feature without `delta_validate`.
 
-These witnesses do not establish a production commitment format or recovery
-of a new-profile history. WAL and wire formats retain their existing meaning.
+These shadow witnesses do not establish a production commitment format.
+WAL and wire formats retain their existing meaning.
+
+## Experimental commitment profile
+
+The `application_root_profile` feature (experimental, off by default, implies
+`application_root_shadow`) lets a worldline commit its application reading
+instead of the legacy reachable-state root. `CommitmentProfile` is either
+`LegacyReachableV1` (`echo.state-root.legacy-reachable.v1`, the default) or
+`ApplicationRadixV0` (`echo.state-root.application-radix.v0`). The profile is
+chosen with `WorldlineState::with_commitment_profile` before the worldline is
+registered. Nothing infers a profile from a root's bytes.
+
+An `ApplicationRadixV0` worldline commits
+`H("echo.state-root.application-radix.v0" || application_root)` as its
+`state_root`. The tag separates this value from every legacy root, so no
+historical `state_root` is reinterpreted. Commit hash v2 and v3 recipes are
+unchanged; they bind whichever root the profile commits. A
+`LegacyReachableV1` worldline's roots, commit hashes and receipts are
+unchanged, and with the feature off every path below uses the legacy recipe.
+
+The profile travels with the retained trie, so rollback markers, replay bases
+and checkpoints, forks and the runtime commit guard carry it. The runtime
+commit advances the trie from the commit's complete write set and commits its
+tagged root without walking the graph. Replay, readings at earlier
+coordinates, import candidates, playback cursors, provenance initial
+boundaries and checkpoint restores verify under the worldline's own recipe
+(`recomputed_state_root`, `state_root_of`). A history replayed or recovered
+under the other profile fails as a root mismatch.
+
+Limits of this profile:
+
+- It is part of the host's worldline registration and is not written to the
+  WAL, provenance codecs or WSC. A mismatch is a root mismatch, not a typed
+  profile error; a durable descriptor would need a codec version and owner
+  approval of the domain strings.
+- It binds only the application reading. It is not a boundary seal over the
+  history root, and ports and warp-instance headers remain outside the
+  reading.
+- There is no migration from a legacy history and no cross-host exchange
+  witness.
+
+Witnesses: the coordinator test that commits, replays and forks under the
+profile; `application_root_profile_tests` (F5 validates under both profiles,
+which commit different roots); `trusted_runtime_host_loop_tests` (WAL recovery
+succeeds only under the registering profile); and
+`executable_operation_pipeline_tests` (Actions commit and recover under the
+profile, including stale-basis corroboration of the genesis origin).

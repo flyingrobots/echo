@@ -118,18 +118,34 @@ fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
 fn fixture_host_with_independent_nodes(
     node_count: usize,
 ) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
-    fixture_host_with_attachment(
+    fixture_host_with_independent_nodes_and_state(node_count, |state| state)
+}
+
+fn fixture_host_with_independent_nodes_and_state(
+    node_count: usize,
+    configure: impl FnOnce(WorldlineState) -> WorldlineState,
+) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
+    fixture_host_with_attachment_and_state(
         node_count,
         Some(AttachmentValue::Atom(AtomPayload::new(
             make_type_id("operation-fixture-atom"),
             Bytes::from_static(b"before"),
         ))),
+        configure,
     )
 }
 
 fn fixture_host_with_attachment(
     node_count: usize,
     attachment: Option<AttachmentValue>,
+) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
+    fixture_host_with_attachment_and_state(node_count, attachment, |state| state)
+}
+
+fn fixture_host_with_attachment_and_state(
+    node_count: usize,
+    attachment: Option<AttachmentValue>,
+    configure: impl FnOnce(WorldlineState) -> WorldlineState,
 ) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
     assert!(node_count > 0, "the fixture must retain one root node");
     let warp_id = make_warp_id("operation-fixture");
@@ -150,8 +166,10 @@ fn fixture_host_with_attachment(
         store.insert_node(node.local_id, NodeRecord { ty: node_type });
         store.set_node_attachment(node.local_id, attachment.clone());
     }
-    let state = WorldlineState::from_root_store(store, root_id)
-        .expect("the fixture state has one lawful root");
+    let state = configure(
+        WorldlineState::from_root_store(store, root_id)
+            .expect("the fixture state has one lawful root"),
+    );
     let (host, head_key) = fixture_runtime_host(state);
     (host, head_key, nodes)
 }
@@ -6797,6 +6815,74 @@ fn typed_read_image_packs_actual_matching_edges_and_distinguishes_absent_sources
     assert_eq!(view.rows()[1].outcome, 2);
     assert!(view.pairs().is_empty());
     assert_ne!(absent_image.digest(), image.digest());
+}
+
+/// M2: on an application-profile worldline, Actions commit the tagged
+/// application root, the stale-basis exception still corroborates origins
+/// (including the genesis boundary), and recovery agrees.
+#[cfg(feature = "application_root_profile")]
+#[test]
+fn application_profile_actions_commit_and_recover() {
+    use warp_core::application_root::{profile_tagged_state_root, CommitmentProfile};
+
+    const ACTIONS: usize = 70;
+    let profiled = |nodes: usize| {
+        fixture_host_with_independent_nodes_and_state(nodes, |state| {
+            state.with_commitment_profile(CommitmentProfile::ApplicationRadixV0)
+        })
+    };
+    let wal_dir = TempWalDir::new();
+    let submissions;
+    let committed_root;
+    {
+        let (mut host, head_key, nodes) = profiled(ACTIONS);
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        // Every Action is built at the genesis boundary; those decided after
+        // the first tick need the scoped exception to commit.
+        let invocations = nodes
+            .iter()
+            .map(|node| action_invocation(&host, &installed, head_key, *node, b"before", b"after"))
+            .collect::<Vec<_>>();
+        submissions = invocations
+            .into_iter()
+            .map(|invocation| submit_action(&mut host, head_key, invocation))
+            .collect::<Vec<_>>();
+        for _ in 0..ACTIONS.div_ceil(64) {
+            host.tick_once().expect("the scheduler decides a batch");
+        }
+        assert!(submissions.iter().all(|id| outcome_is_committed(&host, id)));
+        let state = host
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("the fixture worldline exists")
+            .state();
+        committed_root = state.state_root();
+        assert_eq!(
+            committed_root,
+            profile_tagged_state_root(&state.application_root_rebuilt())
+        );
+    }
+    let (mut recovered, head_key, _) = profiled(ACTIONS);
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("recovery recomputes validity under the profile and agrees");
+    assert!(submissions
+        .iter()
+        .all(|id| outcome_is_committed(&recovered, id)));
+    assert_eq!(
+        recovered
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("the fixture worldline exists")
+            .state()
+            .state_root(),
+        committed_root
+    );
 }
 
 // ---------------------------------------------------------------------------

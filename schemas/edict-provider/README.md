@@ -22,7 +22,6 @@ automatic upgrade from a legacy selection. `provider_source_module_generation`
 checks that every pre-existing semantic declaration is identical in both
 variants and that module generation has its owning schema root.
 
-
 ## Authority
 
 The checked source names one authority artifact and one canonical domain for

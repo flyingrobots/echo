@@ -5919,12 +5919,15 @@ impl SchedulerCoordinator {
                                 &admitted_submission_ids(*key, &admitted),
                             )
                             .map_err(RuntimeError::from)?;
+                        // An application-profile commit already advanced the trie.
                         #[cfg(feature = "application_root_shadow")]
-                        frontier.state_mut().advance_application_root(
-                            application_root_was_current,
-                            outcome.patch.ops(),
-                            outcome.patch.out_slots(),
-                        );
+                        if !frontier.state().application_root_is_current() {
+                            frontier.state_mut().advance_application_root(
+                                application_root_was_current,
+                                outcome.patch.ops(),
+                                outcome.patch.out_slots(),
+                            );
+                        }
                         runtime_before
                             .state_journal_mut(key.worldline_id)?
                             .push_touches(touches);
@@ -5955,12 +5958,15 @@ impl SchedulerCoordinator {
                             &admitted_submission_ids(*key, &admitted),
                         )
                         .map_err(RuntimeError::from)?;
+                    // An application-profile commit already advanced the trie.
                     #[cfg(feature = "application_root_shadow")]
-                    frontier.state_mut().advance_application_root(
-                        application_root_was_current,
-                        outcome.patch.ops(),
-                        outcome.patch.out_slots(),
-                    );
+                    if !frontier.state().application_root_is_current() {
+                        frontier.state_mut().advance_application_root(
+                            application_root_was_current,
+                            outcome.patch.ops(),
+                            outcome.patch.out_slots(),
+                        );
+                    }
                     runtime_before
                         .state_journal_mut(key.worldline_id)?
                         .push_touches(touches);
@@ -8711,6 +8717,113 @@ mod tests {
             "installed contract handlers must only run for their generated op id"
         );
         assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+    }
+
+    #[cfg(feature = "application_root_profile")]
+    #[test]
+    fn application_profile_commits_the_tagged_application_root_and_verifies_only_under_it() {
+        use crate::application_root::{profile_tagged_state_root, CommitmentProfile};
+
+        let worldline_id = wl(1);
+        let base =
+            WorldlineState::empty().with_commitment_profile(CommitmentProfile::ApplicationRadixV0);
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        engine.register_rule(toy_increment_contract_rule()).unwrap();
+        runtime
+            .register_worldline(worldline_id, base.clone())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        assert_eq!(
+            provenance.initial_boundary_hash(worldline_id).unwrap(),
+            profile_tagged_state_root(&base.application_root()),
+            "the initial boundary is committed under the profile too"
+        );
+        for index in 0..4_u8 {
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(&[index]),
+                ))
+                .unwrap();
+            let records =
+                SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+                    .unwrap();
+            let state = runtime.worldlines().get(&worldline_id).unwrap().state();
+            let tagged = profile_tagged_state_root(&state.application_root_rebuilt());
+            assert_eq!(records[0].state_root, tagged, "commit {index}");
+            assert_eq!(state.state_root(), tagged, "commit {index}");
+            assert_ne!(
+                tagged,
+                crate::snapshot::compute_state_root_for_warp_state(
+                    state.warp_state(),
+                    state.root()
+                ),
+                "the profile never reinterprets a legacy root"
+            );
+        }
+
+        let live = runtime.worldlines().get(&worldline_id).unwrap().state();
+        let replayed = provenance
+            .replay_worldline_state(worldline_id, &base)
+            .unwrap();
+        assert_eq!(replayed.state_root(), live.state_root());
+        assert_eq!(
+            replayed.commitment_profile(),
+            CommitmentProfile::ApplicationRadixV0
+        );
+        let legacy_base = base.with_commitment_profile(CommitmentProfile::LegacyReachableV1);
+        assert!(
+            matches!(
+                provenance.replay_worldline_state(worldline_id, &legacy_base),
+                Err(crate::provenance_store::ReplayError::InitialBoundaryHashMismatch { .. })
+            ),
+            "an application-profile history does not verify under the legacy profile"
+        );
+
+        let child_worldline_id = wl(43);
+        runtime
+            .fork_strand(
+                &mut provenance,
+                ForkStrandRequest {
+                    strand_id: make_strand_id("application-profile-fork"),
+                    source_lane_id: worldline_id,
+                    fork_tick: wt(3),
+                    child_worldline_id,
+                    writer_heads: vec![WriterHead::with_routing(
+                        WriterHeadKey {
+                            worldline_id: child_worldline_id,
+                            head_id: make_head_id("application-profile-child"),
+                        },
+                        PlaybackMode::Play,
+                        InboxPolicy::AcceptAll,
+                        None,
+                        true,
+                    )],
+                    retention_posture: test_retention_posture(10),
+                },
+            )
+            .unwrap();
+        let source = runtime.worldlines().get(&worldline_id).unwrap().state();
+        let child = runtime
+            .worldlines()
+            .get(&child_worldline_id)
+            .unwrap()
+            .state();
+        assert_eq!(
+            child.commitment_profile(),
+            CommitmentProfile::ApplicationRadixV0
+        );
+        assert_eq!(child.state_root(), source.state_root());
     }
 
     #[cfg(feature = "application_root_shadow")]

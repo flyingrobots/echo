@@ -6797,7 +6797,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     }
     debug_assert_eq!(
         state_root_before,
-        crate::snapshot::compute_state_root_for_warp_state(state.warp_state(), state.root()),
+        state.recomputed_state_root(),
         "the caller's state root must be the root of the state being committed"
     );
     let tx_raw = state

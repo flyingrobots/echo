@@ -797,7 +797,6 @@ trigger hidden retries or widen access.
 - Runtime patches and receipts retain the generated package or rule-pack
   identity needed to explain execution.
 
-
 ### Executable graph-schema preparation
 
 `EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
@@ -1108,12 +1107,12 @@ runtime fixes every field other than `atomBytes` to exactly 32 bytes. The byte
 payload has minimum zero and a positive declared maximum within the 16 MiB
 logical storage ceiling. Declaration/catalog agreement cannot redefine this ABI.
 
-| Intrinsic suffix | Required input fields |
-| --- | --- |
-| `ensure-node`, `create-node` | `warpId`, `nodeId`, `nodeType`, `atomType`, `atomBytes` |
-| `replace-atom` | `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` |
-| `ensure-edge` | `warpId`, `edgeId`, `fromId`, `toId`, `edgeType` |
-| `replace-edge` | `warpId`, `edgeId`, `expectedToId`, `toId` |
+| Intrinsic suffix             | Required input fields                                             |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `ensure-node`, `create-node` | `warpId`, `nodeId`, `nodeType`, `atomType`, `atomBytes`           |
+| `replace-atom`               | `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` |
+| `ensure-edge`                | `warpId`, `edgeId`, `fromId`, `toId`, `edgeType`                  |
+| `replace-edge`               | `warpId`, `edgeId`, `expectedToId`, `toId`                        |
 
 At emission the evaluator admits one fixed step, a deterministic 280-byte row
 reservation, and fixed write bytes atomically: 64 plus the atom payload length

@@ -1,0 +1,30 @@
+   Compiling libc v0.2.178
+   Compiling echo-alloc-witness v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-alloc-witness)
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-run/crates/warp-core)
+   Compiling warp-math v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-math)
+   Compiling errno v0.3.14
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling rustix v1.1.3
+   Compiling echo-edict-canonical v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-edict-canonical)
+   Compiling fs-set-times v0.20.3
+   Compiling cap-primitives v4.0.2
+   Compiling cap-std v4.0.2
+   Compiling cap-fs-ext v4.0.2
+   Compiling echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-dry-tests)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.47s
+     Running tests/tick_allocation_census.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/debug/deps/tick_allocation_census-bdbf2be164bd6b67)
+
+running 1 test
+ALLOC rewrites=100 tick=1 allocations=1626 bytes=1809024 allocations_per_rewrite=16.26 bytes_per_rewrite=18090.2
+ALLOC rewrites=100 tick=2 allocations=1592 bytes=1620400 allocations_per_rewrite=15.92 bytes_per_rewrite=16204.0
+ALLOC rewrites=100 tick=3 allocations=1592 bytes=1620400 allocations_per_rewrite=15.92 bytes_per_rewrite=16204.0
+ALLOC rewrites=100 tick=4 allocations=1592 bytes=1620400 allocations_per_rewrite=15.92 bytes_per_rewrite=16204.0
+ALLOC rewrites=10000 tick=1 allocations=138551 bytes=192937904 allocations_per_rewrite=13.86 bytes_per_rewrite=19293.8
+ALLOC rewrites=10000 tick=2 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
+ALLOC rewrites=10000 tick=3 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
+ALLOC rewrites=10000 tick=4 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
+test tick_allocation_census ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+

@@ -1,0 +1,19 @@
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-game/crates/warp-core)
+   Compiling echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-dry-tests)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.40s
+     Running tests/scene_fixture_tests.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/debug/deps/scene_fixture_tests-5d56ecadcddd625b)
+
+running 10 tests
+test splitmix64_matches_reference_vectors ... ok
+test bounded_mapping_matches_vectors ... ok
+test bytes_are_little_endian_outputs_truncated ... ok
+test f5_script_matches_its_golden ... ok
+test goldens_do_not_change_the_workload_identity ... ok
+test c1_root_matches_its_golden ... ok
+test c1_reproduces_the_action_scene_state_root ... ok
+test f5_s_executes_validly_and_canaries_are_rejected ... ok
+test f5_rejects_an_observation_from_a_different_executed_script ... ok
+test f6_small_scenes_run_validly ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.62s
+

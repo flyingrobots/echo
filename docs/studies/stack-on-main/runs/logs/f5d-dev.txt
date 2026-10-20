@@ -1,0 +1,4 @@
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-bench/crates/warp-core)
+   Compiling echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-bench/crates/echo-dry-tests)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 24.18s
+  Executable benches/f5_durability.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/f5_durability-131039b9369fe2cf)

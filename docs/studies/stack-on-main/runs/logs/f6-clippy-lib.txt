@@ -1,0 +1,7 @@
+    Checking echo-registry-api v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-registry-api)
+    Checking echo-runtime-schema v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-runtime-schema)
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-game/crates/warp-core)
+    Checking warp-math v0.1.0 (/Users/j/git/echo-claude-game/crates/warp-math)
+    Checking echo-edict-canonical v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-edict-canonical)
+    Checking echo-wasm-abi v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-wasm-abi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.22s

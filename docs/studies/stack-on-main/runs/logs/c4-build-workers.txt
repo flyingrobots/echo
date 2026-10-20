@@ -1,0 +1,5 @@
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-run/crates/warp-core)
+   Compiling echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-dry-tests)
+   Compiling warp-benches v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-benches)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 17.64s
+  Executable benches/scheduler_workers.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/scheduler_workers-df1debb451df580e)

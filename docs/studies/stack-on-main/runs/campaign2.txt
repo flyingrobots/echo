@@ -1,0 +1,48 @@
+{"event":"claimed","job":"agent-7915305B-394B-4D59-890E-BD33A4AE374C","holder":"claude-echo-2df23d48","note":"Claude M0/E1: F6 checks + bench on main; F5D compile (guard 15GiB, scratch /private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners)","claimed":1792521683,"expires":1792525283,"paths":["host/heavy-work"],"record":"eda2b160ded653cde8cd660b3fa9eb02f4293b32","acquisition":"1792521658-50052-1206020662"}
+== f6 start HEAD=f045e04dae6acb8384bc5d0d5bc4f821243ea35f dirty=0
+== fmt rc=0
+== clippy-all rc=101
+error: the loop variable `axis` is used to index `normal`
+error: could not compile `warp-core` (test "scene_fixture_tests") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: the loop variable `axis` is used to index `normal`
+error: casting `f64` to `usize` may truncate the value
+error: casting `f64` to `usize` may lose the sign of the value
+error: could not compile `warp-core` (bench "game_scenes") due to 3 previous errors
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== globals rc=0
+== f6 end HEAD=f045e04dae6acb8384bc5d0d5bc4f821243ea35f dirty=0
+== f6 RESULT fail=1
+== f6-test @ f045e04d :: cargo test --locked -p warp-core --features native_rule_bootstrap,trusted_runtime --test scene_fixture_tests
+== rc=0
+test splitmix64_matches_reference_vectors ... ok
+test bounded_mapping_matches_vectors ... ok
+test bytes_are_little_endian_outputs_truncated ... ok
+test f5_script_matches_its_golden ... ok
+test goldens_do_not_change_the_workload_identity ... ok
+test c1_root_matches_its_golden ... ok
+test c1_reproduces_the_action_scene_state_root ... ok
+test f5_s_executes_validly_and_canaries_are_rejected ... ok
+test f5_rejects_an_observation_from_a_different_executed_script ... ok
+test f6_small_scenes_run_validly ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.62s
+== f6-main-bench @ f045e04d :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench game_scenes
+== rc=0
+F6 scene=arena profile=legacy-reachable-v1 workload_id=437bcfb9787b8fc27cceaff7586c17ea622dda7084aa24b4d4e5e8ea540b00f2 class=valid
+F6 scene=arena profile=legacy-reachable-v1 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=5.09 frame_p50_ms=2.657 frame_p90_ms=2.765 frame_p99_ms=3.429 frame_max_ms=4.613 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.033 in_frame_physics_model_p50_ms=0.066 echo_model_p50_ms=2.574 echo_model_p99_ms=3.139 echo_model_max_ms=4.174 teardown_ms=7.58 replay_ms=674.2
+F6 scene=arena profile=application-radix-v0 workload_id=437bcfb9787b8fc27cceaff7586c17ea622dda7084aa24b4d4e5e8ea540b00f2 class=valid
+F6 scene=arena profile=application-radix-v0 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=4.04 frame_p50_ms=2.165 frame_p90_ms=2.259 frame_p99_ms=2.492 frame_max_ms=2.590 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.020 in_frame_physics_model_p50_ms=0.041 echo_model_p50_ms=2.116 echo_model_p99_ms=2.369 echo_model_max_ms=2.466 teardown_ms=4.17 replay_ms=388.8
+F6 scene=pile profile=legacy-reachable-v1 workload_id=1dedb03c37b3225411f96041f6aa5e366fe4a7f4e68f315829170df07790579e class=valid
+F6 scene=pile profile=legacy-reachable-v1 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=8.87 frame_p50_ms=104.161 frame_p90_ms=107.161 frame_p99_ms=114.312 frame_max_ms=121.354 over_16.7ms=595 render_p50_ms=0.233 physics_p50_ms=2.329 in_frame_physics_model_p50_ms=4.657 echo_model_p50_ms=99.525 echo_model_p99_ms=109.279 echo_model_max_ms=116.163 teardown_ms=608.17 replay_ms=23688.0
+F6 scene=pile profile=application-radix-v0 workload_id=1dedb03c37b3225411f96041f6aa5e366fe4a7f4e68f315829170df07790579e class=valid
+F6 scene=pile profile=application-radix-v0 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=12.15 frame_p50_ms=99.775 frame_p90_ms=102.575 frame_p99_ms=110.093 frame_max_ms=113.199 over_16.7ms=582 render_p50_ms=0.245 physics_p50_ms=2.310 in_frame_physics_model_p50_ms=4.620 echo_model_p50_ms=95.150 echo_model_p99_ms=105.125 echo_model_max_ms=108.144 teardown_ms=394.61 replay_ms=21218.0
+F6 scene=bullets profile=legacy-reachable-v1 workload_id=832f8b7cfff93eb95205f378cd3c27b8a438cd551e8babbcda4ae2eee586bb8e class=valid
+F6 scene=bullets profile=legacy-reachable-v1 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=2.60 frame_p50_ms=16.480 frame_p90_ms=17.304 frame_p99_ms=17.870 frame_max_ms=19.633 over_16.7ms=219 render_p50_ms=0.201 physics_p50_ms=0.707 in_frame_physics_model_p50_ms=1.413 echo_model_p50_ms=15.068 echo_model_p99_ms=16.474 echo_model_max_ms=18.136 teardown_ms=27.82 replay_ms=3764.0
+F6 scene=bullets profile=application-radix-v0 workload_id=832f8b7cfff93eb95205f378cd3c27b8a438cd551e8babbcda4ae2eee586bb8e class=valid
+F6 scene=bullets profile=application-radix-v0 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=3.50 frame_p50_ms=15.128 frame_p90_ms=15.773 frame_p99_ms=16.344 frame_max_ms=26.394 over_16.7ms=4 render_p50_ms=0.210 physics_p50_ms=0.715 in_frame_physics_model_p50_ms=1.430 echo_model_p50_ms=13.677 echo_model_p99_ms=14.926 echo_model_max_ms=24.969 teardown_ms=20.79 replay_ms=2896.5
+== f5d-dev @ 77109bf9 :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench f5_durability --no-run
+== rc=0
+GUARD END rc=0 used=2.44 GiB elapsed=301s
+{"event":"released","job":"agent-7915305B-394B-4D59-890E-BD33A4AE374C","paths":1}

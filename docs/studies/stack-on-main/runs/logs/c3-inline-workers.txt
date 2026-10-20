@@ -1,0 +1,15 @@
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-run/crates/warp-core)
+   Compiling echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-dry-tests)
+   Compiling warp-benches v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-benches)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 18.02s
+     Running benches/scheduler_workers.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/scheduler_workers-df1debb451df580e)
+| rewrites | hashes/rewrite | workers | commit p50 ms | commit p90 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0 | 1 | 0.324 | 0.423 |
+| 100 | 0 | 18 | 0.541 | 0.689 |
+| 100 | 100 | 1 | 0.903 | 0.980 |
+| 100 | 100 | 18 | 0.445 | 0.489 |
+| 10000 | 0 | 1 | 29.396 | 29.999 |
+| 10000 | 0 | 18 | 29.919 | 30.383 |
+| 10000 | 100 | 1 | 83.641 | 84.310 |
+| 10000 | 100 | 18 | 33.324 | 34.123 |

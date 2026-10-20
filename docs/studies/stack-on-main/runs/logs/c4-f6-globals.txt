@@ -1,0 +1,37 @@
+ban-globals: scanning paths:
+  - crates/warp-core
+  - crates/warp-math
+  - crates/warp-wasm
+  - crates/echo-wasm-abi
+  - crates/echo-edict-canonical
+  - crates/echo-edict-provider-lowerer
+  - crates/echo-edict-provider-verifier
+
+Checking [once-lock]: \bOnceLock\b
+  OK
+
+Checking [lazy-lock]: \bLazyLock\b
+  OK
+
+Checking [lazy-static]: \blazy_static!
+  OK
+
+Checking [once-cell]: \bonce_cell\b
+  OK
+
+Checking [thread-local]: \bthread_local!
+  OK
+
+Checking [static-mut]: \bstatic[[:space:]]+mut\b
+  OK
+
+Checking [static-non-reference]: \bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*([^&[:space:]]|$)
+  OK
+
+Checking [static-interior-reference]: \bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*&.*\b(Mutex|RwLock|Atomic[A-Za-z0-9]*|Cell|RefCell|UnsafeCell|OnceLock|LazyLock|OnceCell)\b
+  OK
+
+Checking [external-install]: (^|[^A-Za-z0-9_])[a-z_][a-z0-9_]*::install_[A-Za-z0-9_]*[[:space:]]*\(
+  OK
+
+ban-globals: PASSED.

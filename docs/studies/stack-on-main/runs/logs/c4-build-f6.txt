@@ -1,0 +1,3 @@
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-run/crates/warp-core)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 1.85s
+  Executable benches/game_scenes.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/game_scenes-e2127d723e1c5a2c)

@@ -1,0 +1,3 @@
+| rewrites | hashes/rewrite | workers | commit p50 ms | commit p90 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 10000 | 0 | 1 | 24.672 | 26.223 |

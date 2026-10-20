@@ -1,0 +1,49 @@
+   Compiling crossbeam-utils v0.8.21
+   Compiling zmij v1.0.2
+   Compiling crossbeam-epoch v0.9.20
+   Compiling serde_json v1.0.148
+   Compiling either v1.15.0
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-run/crates/warp-core)
+   Compiling regex-syntax v0.8.8
+   Compiling echo-registry-api v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-registry-api)
+   Compiling rayon-core v1.13.0
+   Compiling clap_lex v0.7.6
+   Compiling memchr v2.7.6
+   Compiling anstyle v1.0.13
+   Compiling itoa v1.0.17
+   Compiling echo-edict-canonical v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-edict-canonical)
+   Compiling warp-math v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-math)
+   Compiling ciborium v0.2.2
+   Compiling cast v0.3.0
+   Compiling echo-runtime-schema v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-runtime-schema)
+   Compiling same-file v1.0.6
+   Compiling clap_builder v4.5.53
+   Compiling itertools v0.10.5
+   Compiling walkdir v2.5.0
+   Compiling is-terminal v0.4.17
+   Compiling oorandom v11.1.5
+   Compiling anes v0.1.6
+   Compiling once_cell v1.21.3
+   Compiling echo-wasm-abi v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-wasm-abi)
+   Compiling crossbeam-deque v0.8.6
+   Compiling regex-automata v0.4.13
+   Compiling criterion-plot v0.5.0
+   Compiling tinytemplate v1.2.1
+   Compiling rayon v1.10.0
+   Compiling clap v4.5.53
+   Compiling regex v1.12.2
+   Compiling criterion v0.5.1
+   Compiling echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-dry-tests)
+   Compiling warp-benches v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-benches)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 20.75s
+     Running benches/scheduler_workers.rs (/private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/scheduler_workers-df1debb451df580e)
+| rewrites | hashes/rewrite | workers | commit p50 ms | commit p90 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0 | 1 | 0.252 | 0.390 |
+| 100 | 0 | 18 | 0.379 | 0.571 |
+| 100 | 100 | 1 | 0.777 | 0.820 |
+| 100 | 100 | 18 | 0.494 | 0.537 |
+| 10000 | 0 | 1 | 30.378 | 45.808 |
+| 10000 | 0 | 18 | 30.096 | 30.764 |
+| 10000 | 100 | 1 | 84.368 | 87.649 |
+| 10000 | 100 | 18 | 33.796 | 35.163 |

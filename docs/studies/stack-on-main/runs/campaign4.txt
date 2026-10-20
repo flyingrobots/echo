@@ -1,0 +1,78 @@
+{"event":"claimed","job":"agent-A19B80E5-3EDE-4524-B3A8-530318E48467","holder":"claude-echo-2df23d48","note":"Claude M0/E1: campaign 4: final checks, alloc census, profiles (guard 15GiB, scratch /private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners)","claimed":1792525183,"expires":1792530583,"paths":["host/heavy-work"],"record":"df357c0540d176fd7f7d148dca76b023e6f0da9d","acquisition":"1792524878-23959-1390826596"}
+== c4-inline start HEAD=d578e15747da2378eded4a74b5c1831459100948 dirty=0
+== fmt rc=0
+== clippy-all rc=0
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== globals rc=0
+== c4-inline end HEAD=d578e15747da2378eded4a74b5c1831459100948 dirty=0
+== c4-inline RESULT fail=0
+== c4-commitpath start HEAD=747f320c8dbfc888ed6b1d837151bb8af8ee9cf3 dirty=0
+== fmt rc=0
+== clippy-all rc=0
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== globals rc=0
+== c4-commitpath end HEAD=747f320c8dbfc888ed6b1d837151bb8af8ee9cf3 dirty=0
+== c4-commitpath RESULT fail=0
+== c4-f6 start HEAD=9a0c9bd3ca4b6c271f269e8d5c8c4939531cccf6 dirty=0
+== fmt rc=0
+== clippy-all rc=0
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== globals rc=0
+== c4-f6 end HEAD=9a0c9bd3ca4b6c271f269e8d5c8c4939531cccf6 dirty=0
+== c4-f6 RESULT fail=0
+{"event":"claimed","job":"agent-09DEDA2F-943C-4BA4-8FD4-91B78721FE28","holder":"claude-echo-2df23d48","note":"Claude: run checkout","claimed":1792525257,"expires":1792525377,"paths":[".git/"],"record":"bea4e33773fd1308520e13502d7fbe1c93272fcf","acquisition":"1792525257-71027-2113718686"}
+{"event":"released","job":"agent-09DEDA2F-943C-4BA4-8FD4-91B78721FE28","paths":1}
+== HEAD c8d8fd25d6f41ac0c658c029719b97b404e4627f
+== c4-tip start HEAD=c8d8fd25d6f41ac0c658c029719b97b404e4627f dirty=0
+== fmt rc=0
+== clippy-all rc=101
+error: unused variable: `round`
+error: could not compile `warp-benches` (bench "scheduler_conflict_blame") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: casting `usize` to `f64` may cause a loss of precision (`usize` can be up to 64 bits wide depending on the target architecture, but `f64`'s mantissa is only 52 bits wide)
+error: could not compile `warp-core` (bench "scene_fixtures_profile") due to 1 previous error
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== globals rc=0
+== suite rc=101
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+failures:
+thread 'special_files_are_rejected_before_a_read_attempt' (16672691) panicked at crates/warp-core/tests/bounded_workspace_observation_tests.rs:48:23:
+failures:
+test result: FAILED. 26 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+error: test failed, to rerun pass `-p warp-core --test bounded_workspace_observation_tests`
+error: 1 target failed:
+== suite passed=2056 failed=1
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+== c4-tip end HEAD=c8d8fd25d6f41ac0c658c029719b97b404e4627f dirty=0
+== c4-tip RESULT fail=1
+== c4-alloc @ c8d8fd25 :: cargo test --locked -p echo-alloc-witness --test tick_allocation_census -- --ignored --nocapture
+== rc=0
+test tick_allocation_census ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+ALLOC rewrites=100 tick=1 allocations=1626 bytes=1809024 allocations_per_rewrite=16.26 bytes_per_rewrite=18090.2
+ALLOC rewrites=100 tick=2 allocations=1592 bytes=1620400 allocations_per_rewrite=15.92 bytes_per_rewrite=16204.0
+ALLOC rewrites=100 tick=3 allocations=1592 bytes=1620400 allocations_per_rewrite=15.92 bytes_per_rewrite=16204.0
+ALLOC rewrites=100 tick=4 allocations=1592 bytes=1620400 allocations_per_rewrite=15.92 bytes_per_rewrite=16204.0
+ALLOC rewrites=10000 tick=1 allocations=138551 bytes=192937904 allocations_per_rewrite=13.86 bytes_per_rewrite=19293.8
+ALLOC rewrites=10000 tick=2 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
+ALLOC rewrites=10000 tick=3 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
+ALLOC rewrites=10000 tick=4 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
+== c4-build-workers @ c8d8fd25 :: cargo bench --locked -p warp-benches --bench scheduler_workers --no-run
+== rc=0
+== profile c4-prof-10k binary /private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/scheduler_workers-df1debb451df580e
+== sample rc=0 target=88730
+== c4-build-f6 @ c8d8fd25 :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench game_scenes --no-run
+== rc=0
+== profile c4-prof-pile binary /private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners/target/release/deps/game_scenes-e2127d723e1c5a2c
+== sample rc=0 target=89902
+CAMPAIGN DONE
+GUARD END rc=0 used=3.26 GiB elapsed=332s
+{"event":"released","job":"agent-A19B80E5-3EDE-4524-B3A8-530318E48467","paths":1}

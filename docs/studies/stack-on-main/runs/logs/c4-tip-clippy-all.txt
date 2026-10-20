@@ -1,0 +1,31 @@
+    Checking echo-registry-api v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-registry-api)
+    Checking echo-runtime-schema v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-runtime-schema)
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-run/crates/warp-core)
+    Checking warp-math v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-math)
+    Checking echo-cas v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-cas)
+    Checking echo-edict-canonical v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-edict-canonical)
+    Checking echo-wasm-abi v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-wasm-abi)
+    Checking echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-run/crates/echo-dry-tests)
+    Checking warp-benches v0.1.0 (/Users/j/git/echo-claude-run/crates/warp-benches)
+error: unused variable: `round`
+   --> crates/warp-benches/benches/scheduler_conflict_blame.rs:149:17
+    |
+149 |             for round in 0..rounds {
+    |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_round`
+    |
+    = note: `-D unused-variables` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+error: could not compile `warp-benches` (bench "scheduler_conflict_blame") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: casting `usize` to `f64` may cause a loss of precision (`usize` can be up to 64 bits wide depending on the target architecture, but `f64`'s mantissa is only 52 bits wide)
+  --> crates/warp-core/benches/scene_fixtures_profile.rs:30:38
+   |
+30 |         append.as_secs_f64() * 1e3 / rounds as f64
+   |                                      ^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#cast_precision_loss
+   = note: `-D clippy::cast-precision-loss` implied by `-D clippy::pedantic`
+   = help: to override `-D clippy::pedantic` add `#[allow(clippy::cast_precision_loss)]`
+
+error: could not compile `warp-core` (bench "scene_fixtures_profile") due to 1 previous error

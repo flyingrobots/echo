@@ -1,0 +1,83 @@
+{"event":"claimed","job":"agent-A5754FB8-6B10-4436-A4BE-A6F95C3F41A2","holder":"claude-echo-2df23d48","note":"Claude M0/E1: campaign 3: workers, F5, F6, F5 durability on main stack (guard 15GiB, scratch /private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners)","claimed":1792522356,"expires":1792528956,"paths":["host/heavy-work"],"record":"5d03171f6358d6a94e675572aafa0c18464ee743","acquisition":"1792522349-04333-0686225616"}
+{"event":"claimed","job":"agent-3998851B-4E97-4BB8-9F09-3089948B6411","holder":"claude-echo-2df23d48","note":"Claude: run checkout","claimed":1792522357,"expires":1792522477,"paths":[".git/"],"record":"be14058979e9d4643342358d031b775add0bcc42","acquisition":"1792522357-04954-2977723460"}
+{"event":"released","job":"agent-3998851B-4E97-4BB8-9F09-3089948B6411","paths":1}
+== HEAD 73e17289b9ff0bbe50a216b26b1e2c2fac0e7d6f
+== c3-base-workers @ 73e17289 :: cargo bench --locked -p warp-benches --bench scheduler_workers
+== rc=0
+== c3-base-f5 @ 73e17289 :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench scene_fixtures
+== rc=0
+== c3-base-f6 @ 73e17289 :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench game_scenes
+== rc=0
+F6 scene=arena profile=legacy-reachable-v1 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=5.32 frame_p50_ms=2.634 frame_p90_ms=2.720 frame_p99_ms=3.402 frame_max_ms=4.522 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.033 in_frame_physics_model_p50_ms=0.065 echo_model_p50_ms=2.554 echo_model_p99_ms=3.136 echo_model_max_ms=4.129 teardown_ms=7.08 replay_ms=652.5
+F6 scene=arena profile=application-radix-v0 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=3.99 frame_p50_ms=2.147 frame_p90_ms=2.233 frame_p99_ms=2.495 frame_max_ms=2.594 over_16.7ms=0 render_p50_ms=0.103 physics_p50_ms=0.020 in_frame_physics_model_p50_ms=0.040 echo_model_p50_ms=2.103 echo_model_p99_ms=2.384 echo_model_max_ms=2.474 teardown_ms=4.78 replay_ms=382.4
+F6 scene=pile profile=legacy-reachable-v1 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=9.82 frame_p50_ms=103.016 frame_p90_ms=105.523 frame_p99_ms=112.869 frame_max_ms=116.908 over_16.7ms=591 render_p50_ms=0.231 physics_p50_ms=2.312 in_frame_physics_model_p50_ms=4.624 echo_model_p50_ms=98.406 echo_model_p99_ms=107.885 echo_model_max_ms=111.789 teardown_ms=663.21 replay_ms=23366.3
+F6 scene=pile profile=application-radix-v0 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=12.35 frame_p50_ms=98.832 frame_p90_ms=100.883 frame_p99_ms=109.333 frame_max_ms=112.298 over_16.7ms=583 render_p50_ms=0.245 physics_p50_ms=2.313 in_frame_physics_model_p50_ms=4.627 echo_model_p50_ms=94.201 echo_model_p99_ms=104.400 echo_model_max_ms=107.195 teardown_ms=323.06 replay_ms=20872.2
+F6 scene=bullets profile=legacy-reachable-v1 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=2.62 frame_p50_ms=16.312 frame_p90_ms=16.671 frame_p99_ms=17.207 frame_max_ms=17.588 over_16.7ms=63 render_p50_ms=0.202 physics_p50_ms=0.710 in_frame_physics_model_p50_ms=1.420 echo_model_p50_ms=14.899 echo_model_p99_ms=15.781 echo_model_max_ms=16.212 teardown_ms=23.64 replay_ms=3681.8
+F6 scene=bullets profile=application-radix-v0 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=3.61 frame_p50_ms=14.922 frame_p90_ms=15.283 frame_p99_ms=15.811 frame_max_ms=27.252 over_16.7ms=2 render_p50_ms=0.208 physics_p50_ms=0.709 in_frame_physics_model_p50_ms=1.418 echo_model_p50_ms=13.498 echo_model_p99_ms=14.383 echo_model_max_ms=25.801 teardown_ms=23.83 replay_ms=2845.1
+{"event":"claimed","job":"agent-5AA3E4A4-36C9-472B-82EB-3E95E04B6BA4","holder":"claude-echo-2df23d48","note":"Claude: run checkout","claimed":1792522752,"expires":1792522872,"paths":[".git/"],"record":"0db63dc8adac9f1272feb11724256a5a39a1a6e2","acquisition":"1792522752-07658-1375021798"}
+{"event":"released","job":"agent-5AA3E4A4-36C9-472B-82EB-3E95E04B6BA4","paths":1}
+== HEAD af3c3e7c3dd7cdf4351228c7dfd0aa6ddeb00adb
+== c3-inline-workers @ af3c3e7c :: cargo bench --locked -p warp-benches --bench scheduler_workers
+== rc=0
+== c3-inline-f5 @ af3c3e7c :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench scene_fixtures
+== rc=0
+== c3-inline-f6 @ af3c3e7c :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench game_scenes
+== rc=0
+F6 scene=arena profile=legacy-reachable-v1 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=5.30 frame_p50_ms=2.609 frame_p90_ms=2.718 frame_p99_ms=3.497 frame_max_ms=4.413 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.033 in_frame_physics_model_p50_ms=0.065 echo_model_p50_ms=2.524 echo_model_p99_ms=3.196 echo_model_max_ms=3.894 teardown_ms=6.81 replay_ms=659.0
+F6 scene=arena profile=application-radix-v0 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=3.91 frame_p50_ms=2.103 frame_p90_ms=2.176 frame_p99_ms=2.455 frame_max_ms=2.538 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.020 in_frame_physics_model_p50_ms=0.040 echo_model_p50_ms=2.058 echo_model_p99_ms=2.343 echo_model_max_ms=2.417 teardown_ms=4.31 replay_ms=381.6
+F6 scene=pile profile=legacy-reachable-v1 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=8.74 frame_p50_ms=100.881 frame_p90_ms=103.247 frame_p99_ms=110.960 frame_max_ms=115.848 over_16.7ms=590 render_p50_ms=0.230 physics_p50_ms=2.303 in_frame_physics_model_p50_ms=4.606 echo_model_p50_ms=96.298 echo_model_p99_ms=105.924 echo_model_max_ms=110.848 teardown_ms=496.92 replay_ms=22704.7
+F6 scene=pile profile=application-radix-v0 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=12.21 frame_p50_ms=98.075 frame_p90_ms=100.050 frame_p99_ms=108.634 frame_max_ms=111.773 over_16.7ms=582 render_p50_ms=0.249 physics_p50_ms=2.288 in_frame_physics_model_p50_ms=4.575 echo_model_p50_ms=93.492 echo_model_p99_ms=103.696 echo_model_max_ms=106.903 teardown_ms=426.29 replay_ms=20813.6
+F6 scene=bullets profile=legacy-reachable-v1 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=2.66 frame_p50_ms=16.078 frame_p90_ms=16.459 frame_p99_ms=17.011 frame_max_ms=17.816 over_16.7ms=18 render_p50_ms=0.195 physics_p50_ms=0.704 in_frame_physics_model_p50_ms=1.409 echo_model_p50_ms=14.666 echo_model_p99_ms=15.581 echo_model_max_ms=16.456 teardown_ms=23.29 replay_ms=3690.0
+F6 scene=bullets profile=application-radix-v0 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=3.47 frame_p50_ms=14.649 frame_p90_ms=15.004 frame_p99_ms=15.462 frame_max_ms=28.398 over_16.7ms=2 render_p50_ms=0.203 physics_p50_ms=0.705 in_frame_physics_model_p50_ms=1.410 echo_model_p50_ms=13.234 echo_model_p99_ms=14.052 echo_model_max_ms=27.010 teardown_ms=21.56 replay_ms=2837.2
+{"event":"claimed","job":"agent-26274409-1689-4DFF-B305-BA19B58C5026","holder":"claude-echo-2df23d48","note":"Claude: run checkout","claimed":1792523139,"expires":1792523259,"paths":[".git/"],"record":"ce8eccf0a63f1f9ce8b63c27214f66de1fb14669","acquisition":"1792523139-08197-3233814868"}
+{"event":"released","job":"agent-26274409-1689-4DFF-B305-BA19B58C5026","paths":1}
+== HEAD 21c6531e0d1ca5b9c06089fd118b6cc721b4ca2b
+== c3-both-workers @ 21c6531e :: cargo bench --locked -p warp-benches --bench scheduler_workers
+== rc=0
+== c3-both-f5 @ 21c6531e :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench scene_fixtures
+== rc=0
+== c3-both-f6 @ 21c6531e :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench game_scenes
+== rc=0
+F6 scene=arena profile=legacy-reachable-v1 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=5.43 frame_p50_ms=2.291 frame_p90_ms=2.384 frame_p99_ms=3.096 frame_max_ms=3.935 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.033 in_frame_physics_model_p50_ms=0.067 echo_model_p50_ms=2.206 echo_model_p99_ms=2.800 echo_model_max_ms=3.408 teardown_ms=6.40 replay_ms=588.5
+F6 scene=arena profile=application-radix-v0 frames=600 peak_bodies=256 peak_contacts=46 startup_ms=4.06 frame_p50_ms=1.798 frame_p90_ms=1.882 frame_p99_ms=2.096 frame_max_ms=2.173 over_16.7ms=0 render_p50_ms=0.104 physics_p50_ms=0.020 in_frame_physics_model_p50_ms=0.041 echo_model_p50_ms=1.750 echo_model_p99_ms=1.988 echo_model_max_ms=2.049 teardown_ms=4.05 replay_ms=318.6
+F6 scene=pile profile=legacy-reachable-v1 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=8.72 frame_p50_ms=83.515 frame_p90_ms=85.371 frame_p99_ms=91.535 frame_max_ms=96.387 over_16.7ms=576 render_p50_ms=0.232 physics_p50_ms=2.302 in_frame_physics_model_p50_ms=4.604 echo_model_p50_ms=78.933 echo_model_p99_ms=86.518 echo_model_max_ms=91.260 teardown_ms=685.46 replay_ms=20234.4
+F6 scene=pile profile=application-radix-v0 frames=600 peak_bodies=2048 peak_contacts=15335 startup_ms=12.44 frame_p50_ms=80.627 frame_p90_ms=82.494 frame_p99_ms=89.649 frame_max_ms=91.499 over_16.7ms=572 render_p50_ms=0.241 physics_p50_ms=2.310 in_frame_physics_model_p50_ms=4.621 echo_model_p50_ms=76.048 echo_model_p99_ms=84.675 echo_model_max_ms=86.659 teardown_ms=246.82 replay_ms=17763.8
+F6 scene=bullets profile=legacy-reachable-v1 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=2.77 frame_p50_ms=13.901 frame_p90_ms=14.278 frame_p99_ms=14.760 frame_max_ms=15.849 over_16.7ms=0 render_p50_ms=0.197 physics_p50_ms=0.705 in_frame_physics_model_p50_ms=1.410 echo_model_p50_ms=12.488 echo_model_p99_ms=13.326 echo_model_max_ms=14.460 teardown_ms=23.97 replay_ms=3267.9
+F6 scene=bullets profile=application-radix-v0 frames=600 peak_bodies=2056 peak_contacts=19 startup_ms=3.48 frame_p50_ms=12.583 frame_p90_ms=13.432 frame_p99_ms=14.111 frame_max_ms=26.369 over_16.7ms=2 render_p50_ms=0.204 physics_p50_ms=0.705 in_frame_physics_model_p50_ms=1.410 echo_model_p50_ms=11.173 echo_model_p99_ms=12.626 echo_model_max_ms=24.910 teardown_ms=20.93 replay_ms=2414.2
+{"event":"claimed","job":"agent-0721CCEF-8F3D-4DCA-A487-FC2B51EB77D4","holder":"claude-echo-2df23d48","note":"Claude: run checkout","claimed":1792523496,"expires":1792523616,"paths":[".git/"],"record":"a16e8ee48dd5ca9ad62eafa9740a0bb7bc9bb7b4","acquisition":"1792523496-09504-1549002423"}
+{"event":"released","job":"agent-0721CCEF-8F3D-4DCA-A487-FC2B51EB77D4","paths":1}
+== HEAD 73e17289b9ff0bbe50a216b26b1e2c2fac0e7d6f
+== c3-base-f5d @ 73e17289 :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench f5_durability
+== rc=0
+F5D census profile=legacy-reachable-v1 durability=none fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=legacy-reachable-v1 durability=none summary valid_rounds=5 append_p50_ms=5683.68 per_append_p50_ms=1.1025 wal_bytes_max=-
+F5D census profile=application-radix-v0 durability=none fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=application-radix-v0 durability=none summary valid_rounds=5 append_p50_ms=270.77 per_append_p50_ms=0.0529 wal_bytes_max=-
+F5D census profile=legacy-reachable-v1 durability=in-memory-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=legacy-reachable-v1 durability=in-memory-wal summary valid_rounds=5 append_p50_ms=6187.35 per_append_p50_ms=1.2105 wal_bytes_max=-
+F5D census profile=application-radix-v0 durability=in-memory-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=application-radix-v0 durability=in-memory-wal summary valid_rounds=5 append_p50_ms=761.66 per_append_p50_ms=0.1505 wal_bytes_max=-
+F5D census profile=legacy-reachable-v1 durability=filesystem-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=legacy-reachable-v1 durability=filesystem-wal summary valid_rounds=5 append_p50_ms=25426.40 per_append_p50_ms=5.0082 wal_bytes_max=20760256
+F5D census profile=application-radix-v0 durability=filesystem-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=application-radix-v0 durability=filesystem-wal summary valid_rounds=5 append_p50_ms=20046.50 per_append_p50_ms=4.0014 wal_bytes_max=20760256
+{"event":"claimed","job":"agent-441B97A3-E03B-4986-9D86-21622238A61A","holder":"claude-echo-2df23d48","note":"Claude: run checkout","claimed":1792524181,"expires":1792524301,"paths":[".git/"],"record":"3062f5f28047911379731a890e480f226cd251d4","acquisition":"1792524181-46974-2791113982"}
+{"event":"released","job":"agent-441B97A3-E03B-4986-9D86-21622238A61A","paths":1}
+== HEAD 21c6531e0d1ca5b9c06089fd118b6cc721b4ca2b
+== c3-both-f5d @ 21c6531e :: cargo bench --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,application_root_profile --bench f5_durability
+== rc=0
+F5D census profile=legacy-reachable-v1 durability=none fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=legacy-reachable-v1 durability=none summary valid_rounds=5 append_p50_ms=5652.10 per_append_p50_ms=1.1040 wal_bytes_max=-
+F5D census profile=application-radix-v0 durability=none fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=application-radix-v0 durability=none summary valid_rounds=5 append_p50_ms=171.81 per_append_p50_ms=0.0342 wal_bytes_max=-
+F5D census profile=legacy-reachable-v1 durability=in-memory-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=legacy-reachable-v1 durability=in-memory-wal summary valid_rounds=5 append_p50_ms=6148.98 per_append_p50_ms=1.1973 wal_bytes_max=-
+F5D census profile=application-radix-v0 durability=in-memory-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=application-radix-v0 durability=in-memory-wal summary valid_rounds=5 append_p50_ms=653.35 per_append_p50_ms=0.1298 wal_bytes_max=-
+F5D census profile=legacy-reachable-v1 durability=filesystem-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=legacy-reachable-v1 durability=filesystem-wal summary valid_rounds=5 append_p50_ms=25525.67 per_append_p50_ms=5.0184 wal_bytes_max=20760256
+F5D census profile=application-radix-v0 durability=filesystem-wal fixture_nodes=5033 other_nodes=5001 fixture_edges=5032 other_edges=5000 fixture_node_attachments=5000 other_node_attachments=5000 edge_attachments=0
+F5D tier=M profile=application-radix-v0 durability=filesystem-wal summary valid_rounds=5 append_p50_ms=19768.71 per_append_p50_ms=3.9968 wal_bytes_max=20760256
+CAMPAIGN DONE
+GUARD END rc=0 used=2.89 GiB elapsed=2511s
+{"event":"released","job":"agent-A5754FB8-6B10-4436-A4BE-A6F95C3F41A2","paths":1}

@@ -1,0 +1,57 @@
+{"event":"claimed","job":"agent-26F6AFA9-79D1-4518-8D21-13F342CF3767","holder":"claude-echo-2df23d48","note":"Claude M0/E1: checks+suite on main, inline, commit-path candidates (guard 15GiB, scratch /private/tmp/claude-501/-Users-j-git-echo/2df23d48-982e-4dec-bd5a-3de7c779ebaf/scratchpad/runners)","claimed":1792521055,"expires":1792527055,"paths":["host/heavy-work"],"record":"22c1eb6741ffa4177799aff6fb4a3d1adf9e5caf","acquisition":"1792521055-04112-1271420148"}
+== base start HEAD=0faaf58a15a4b03036cf36b465d79af76c952193 dirty=0
+== fmt rc=0
+== clippy-all rc=0
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== suite rc=101
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+failures:
+thread 'special_files_are_rejected_before_a_read_attempt' (15871453) panicked at crates/warp-core/tests/bounded_workspace_observation_tests.rs:48:23:
+failures:
+test result: FAILED. 26 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+error: test failed, to rerun pass `-p warp-core --test bounded_workspace_observation_tests`
+error: 1 target failed:
+== suite passed=2054 failed=1
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+== base end HEAD=0faaf58a15a4b03036cf36b465d79af76c952193 dirty=0
+== base RESULT fail=1
+== inline start HEAD=d578e15747da2378eded4a74b5c1831459100948 dirty=0
+== fmt rc=0
+== clippy-all rc=0
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== suite rc=101
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+failures:
+thread 'special_files_are_rejected_before_a_read_attempt' (15939074) panicked at crates/warp-core/tests/bounded_workspace_observation_tests.rs:48:23:
+failures:
+test result: FAILED. 26 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+error: test failed, to rerun pass `-p warp-core --test bounded_workspace_observation_tests`
+error: 1 target failed:
+== suite passed=2054 failed=1
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+== inline end HEAD=d578e15747da2378eded4a74b5c1831459100948 dirty=0
+== inline RESULT fail=1
+== commitpath start HEAD=747f320c8dbfc888ed6b1d837151bb8af8ee9cf3 dirty=0
+== fmt rc=0
+== clippy-all rc=0
+== clippy-lib rc=0
+== spdx rc=0
+== gated rc=0
+== suite rc=101
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+failures:
+thread 'special_files_are_rejected_before_a_read_attempt' (16010103) panicked at crates/warp-core/tests/bounded_workspace_observation_tests.rs:48:23:
+failures:
+test result: FAILED. 26 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+error: test failed, to rerun pass `-p warp-core --test bounded_workspace_observation_tests`
+error: 1 target failed:
+== suite passed=2056 failed=1
+test special_files_are_rejected_before_a_read_attempt ... FAILED
+== commitpath end HEAD=747f320c8dbfc888ed6b1d837151bb8af8ee9cf3 dirty=0
+== commitpath RESULT fail=1
+GUARD END rc=1 used=1.47 GiB elapsed=471s
+{"event":"released","job":"agent-26F6AFA9-79D1-4518-8D21-13F342CF3767","paths":1}

@@ -1,0 +1,63 @@
+    Checking echo-registry-api v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-registry-api)
+   Compiling warp-core v0.1.1 (/Users/j/git/echo-claude-game/crates/warp-core)
+    Checking warp-math v0.1.0 (/Users/j/git/echo-claude-game/crates/warp-math)
+    Checking echo-runtime-schema v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-runtime-schema)
+    Checking echo-cas v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-cas)
+    Checking echo-edict-canonical v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-edict-canonical)
+    Checking echo-wasm-abi v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-wasm-abi)
+    Checking echo-dry-tests v0.1.0 (/Users/j/git/echo-claude-game/crates/echo-dry-tests)
+    Checking warp-benches v0.1.0 (/Users/j/git/echo-claude-game/crates/warp-benches)
+error: the loop variable `axis` is used to index `normal`
+   --> crates/warp-core/tests/../benches/support/fixtures/game.rs:537:25
+    |
+537 |             for axis in 0..2 {
+    |                         ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D clippy::all`
+    = help: to override `-D clippy::all` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+    |
+537 -             for axis in 0..2 {
+537 +             for (axis, <item>) in normal.iter().enumerate() {
+    |
+
+error: could not compile `warp-core` (test "scene_fixture_tests") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: the loop variable `axis` is used to index `normal`
+   --> crates/warp-core/benches/support/fixtures/game.rs:537:25
+    |
+537 |             for axis in 0..2 {
+    |                         ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D clippy::all`
+    = help: to override `-D clippy::all` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+    |
+537 -             for axis in 0..2 {
+537 +             for (axis, <item>) in normal.iter().enumerate() {
+    |
+
+error: casting `f64` to `usize` may truncate the value
+  --> crates/warp-core/benches/game_scenes.rs:41:17
+   |
+41 |     let index = ((sorted.len().saturating_sub(1)) as f64 * p).round() as usize;
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#cast_possible_truncation
+   = note: `-D clippy::cast-possible-truncation` implied by `-D clippy::pedantic`
+   = help: to override `-D clippy::pedantic` add `#[allow(clippy::cast_possible_truncation)]`
+
+error: casting `f64` to `usize` may lose the sign of the value
+  --> crates/warp-core/benches/game_scenes.rs:41:17
+   |
+41 |     let index = ((sorted.len().saturating_sub(1)) as f64 * p).round() as usize;
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#cast_sign_loss
+   = note: `-D clippy::cast-sign-loss` implied by `-D clippy::pedantic`
+   = help: to override `-D clippy::pedantic` add `#[allow(clippy::cast_sign_loss)]`
+
+error: could not compile `warp-core` (bench "game_scenes") due to 3 previous errors

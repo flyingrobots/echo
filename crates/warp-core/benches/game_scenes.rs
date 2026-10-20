@@ -35,10 +35,12 @@ fn ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1e3
 }
 
-fn percentile(samples: &[Duration], p: f64) -> f64 {
+/// The sample at `per_mille` thousandths of the way through the sorted
+/// samples, rounding half up.
+fn percentile(samples: &[Duration], per_mille: usize) -> f64 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    let index = ((sorted.len().saturating_sub(1)) as f64 * p).round() as usize;
+    let index = (sorted.len().saturating_sub(1) * per_mille + 500) / 1000;
     sorted.get(index).copied().map_or(0.0, ms)
 }
 
@@ -85,16 +87,16 @@ fn report(scene: Scene, profile: &str, obs: &Observation) {
         obs.peak_bodies,
         obs.peak_contacts,
         ms(t.startup),
-        percentile(&t.frames, 0.5),
-        percentile(&t.frames, 0.9),
-        percentile(&t.frames, 0.99),
-        percentile(&t.frames, 1.0),
-        percentile(&t.render, 0.5),
-        percentile(&t.physics, 0.5),
-        percentile(&in_frame_physics, 0.5),
-        percentile(&echo, 0.5),
-        percentile(&echo, 0.99),
-        percentile(&echo, 1.0),
+        percentile(&t.frames, 500),
+        percentile(&t.frames, 900),
+        percentile(&t.frames, 990),
+        percentile(&t.frames, 1000),
+        percentile(&t.render, 500),
+        percentile(&t.physics, 500),
+        percentile(&in_frame_physics, 500),
+        percentile(&echo, 500),
+        percentile(&echo, 990),
+        percentile(&echo, 1000),
         ms(t.teardown),
         ms(t.replay),
     );

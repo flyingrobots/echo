@@ -534,9 +534,9 @@ pub fn step(scene: Scene, seed: u64, world: &World, input: [i64; 2]) -> World {
             } else {
                 0
             };
-            for axis in 0..2 {
-                let shift = i64::try_from(normal[axis] * push / i128::from(ONE)).unwrap_or(0);
-                let kick = i64::try_from(normal[axis] * impulse / i128::from(ONE)).unwrap_or(0);
+            for (axis, n) in normal.iter().enumerate() {
+                let shift = i64::try_from(n * push / i128::from(ONE)).unwrap_or(0);
+                let kick = i64::try_from(n * impulse / i128::from(ONE)).unwrap_or(0);
                 bodies[i].pos[axis] -= shift;
                 bodies[j].pos[axis] += shift;
                 bodies[i].vel[axis] -= kick;

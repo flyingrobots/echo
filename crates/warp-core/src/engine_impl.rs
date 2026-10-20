@@ -538,8 +538,9 @@ pub struct Engine {
 struct ReserveOutcome {
     receipt: TickReceipt,
     reserved: Vec<PendingRewrite>,
-    in_slots: std::collections::BTreeSet<SlotId>,
-    out_slots: std::collections::BTreeSet<SlotId>,
+    /// Unsorted, with repeats: the patch sorts and dedups them once.
+    in_slots: Vec<SlotId>,
+    out_slots: Vec<SlotId>,
 }
 
 enum SavedField<T> {
@@ -2163,8 +2164,8 @@ impl Engine {
             policy_id,
             rule_pack_id,
             TickCommitStatus::Committed,
-            in_slots.into_iter().collect(),
-            out_slots.into_iter().collect(),
+            in_slots,
+            out_slots,
             ops,
         );
         let patch_digest = patch.digest();
@@ -2289,8 +2290,8 @@ impl Engine {
     ) -> Result<ReserveOutcome, EngineError> {
         // Reserve phase: enforce independence against active frontier.
         let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
-        let mut in_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
-        let mut out_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
+        let mut in_slots: Vec<SlotId> = Vec::new();
+        let mut out_slots: Vec<SlotId> = Vec::new();
         let mut blocked_by: Vec<Vec<u32>> = Vec::with_capacity(drained.len());
         let mut reserved: Vec<PendingRewrite> = Vec::new();
         let mut reserved_entry_indices: Vec<u32> = Vec::new();
@@ -3432,52 +3433,52 @@ pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
 /// for call-site compatibility but is no longer used (the `warp_id` is embedded
 /// in the footprint keys).
 fn extend_slots_from_footprint(
-    in_slots: &mut std::collections::BTreeSet<SlotId>,
-    out_slots: &mut std::collections::BTreeSet<SlotId>,
+    in_slots: &mut Vec<SlotId>,
+    out_slots: &mut Vec<SlotId>,
     _warp_id: &WarpId, // Kept for API compat; warp_id is now in the footprint keys
     fp: &crate::footprint::Footprint,
 ) {
     // Nodes (warp-scoped NodeKey)
     for key in fp.n_read.iter() {
-        in_slots.insert(SlotId::Node(*key));
+        in_slots.push(SlotId::Node(*key));
     }
     for key in fp.n_write.iter() {
-        in_slots.insert(SlotId::Node(*key));
-        out_slots.insert(SlotId::Node(*key));
+        in_slots.push(SlotId::Node(*key));
+        out_slots.push(SlotId::Node(*key));
     }
 
     // Edges (warp-scoped EdgeKey)
     for key in fp.e_read.iter() {
-        in_slots.insert(SlotId::Edge(*key));
+        in_slots.push(SlotId::Edge(*key));
     }
     for key in fp.e_write.iter() {
-        in_slots.insert(SlotId::Edge(*key));
-        out_slots.insert(SlotId::Edge(*key));
+        in_slots.push(SlotId::Edge(*key));
+        out_slots.push(SlotId::Edge(*key));
     }
     for key in fp.r_read.iter() {
-        in_slots.insert(SlotId::OutgoingEdges(*key));
+        in_slots.push(SlotId::OutgoingEdges(*key));
     }
     for key in fp.r_write.iter() {
-        in_slots.insert(SlotId::OutgoingEdges(*key));
-        out_slots.insert(SlotId::OutgoingEdges(*key));
+        in_slots.push(SlotId::OutgoingEdges(*key));
+        out_slots.push(SlotId::OutgoingEdges(*key));
     }
 
     // Attachments (already warp-scoped via AttachmentKey)
     for key in fp.a_read.iter() {
-        in_slots.insert(SlotId::Attachment(*key));
+        in_slots.push(SlotId::Attachment(*key));
     }
     for key in fp.a_write.iter() {
-        in_slots.insert(SlotId::Attachment(*key));
-        out_slots.insert(SlotId::Attachment(*key));
+        in_slots.push(SlotId::Attachment(*key));
+        out_slots.push(SlotId::Attachment(*key));
     }
 
     // Ports (warp-scoped: (WarpId, PortKey))
     for port_key in fp.b_in.keys() {
-        in_slots.insert(SlotId::Port(*port_key));
+        in_slots.push(SlotId::Port(*port_key));
     }
     for port_key in fp.b_out.keys() {
-        in_slots.insert(SlotId::Port(*port_key));
-        out_slots.insert(SlotId::Port(*port_key));
+        in_slots.push(SlotId::Port(*port_key));
+        out_slots.push(SlotId::Port(*port_key));
     }
 }
 

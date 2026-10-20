@@ -26,8 +26,9 @@ use warp_core::{
     ContractPackageIdentity, EdgeId, EdgeRecord, EngineBuilder, ExecutionGraphView, Footprint,
     GraphStore, GraphView, InboxPolicy, IngressEnvelope, IngressTarget, InstalledContractPackage,
     IntentOutcome, NodeId, NodeKey, NodeRecord, PatternGraph, PlaybackMode, RewriteRule,
-    RuleExecutor, SchedulerKind, TickDelta, TrustedRuntimeHost, WarpOp, WorldlineId,
-    WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead, WriterHeadKey,
+    RuleExecutor, SchedulerKind, TickDelta, TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId,
+    WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead,
+    WriterHeadKey,
 };
 
 use super::manifest::{hex32, Construction, EvidenceClass, Expectation, WorkloadSpec};
@@ -98,8 +99,37 @@ pub const M: Tier = Tier {
     checkpoints: 8,
 };
 
-/// The F5 workload for a tier and seed.
+/// The F5 workload for a tier and seed, with durability off.
 pub fn workload(tier: Tier, seed: u64) -> WorkloadSpec {
+    workload_with(tier, seed, &Durability::None)
+}
+
+/// Where the host's runtime WAL goes, if anywhere.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Durability {
+    /// No runtime WAL: the host acknowledges without recording.
+    None,
+    /// The reference in-memory WAL adapter, which proves acknowledgement
+    /// ordering but is not durable.
+    InMemory,
+    /// The filesystem WAL adapter rooted at this directory, which must be
+    /// empty when the run starts.
+    Filesystem(std::path::PathBuf),
+}
+
+impl Durability {
+    /// The workload setting label.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::InMemory => "in-memory-wal",
+            Self::Filesystem(_) => "filesystem-wal",
+        }
+    }
+}
+
+/// The F5 workload for a tier and seed with the given durability.
+pub fn workload_with(tier: Tier, seed: u64, durability: &Durability) -> WorkloadSpec {
     WorkloadSpec {
         fixture: "F5",
         fixture_version: FIXTURE_VERSION,
@@ -116,7 +146,7 @@ pub fn workload(tier: Tier, seed: u64) -> WorkloadSpec {
         settings: vec![
             ("inbox", "accept-all"),
             ("admission", "installed-contract"),
-            ("durability", "none"),
+            ("durability", durability.label()),
             ("ticks", "one-append-per-tick"),
             (
                 "source",
@@ -417,11 +447,77 @@ pub struct Observation {
     pub entries_verified: u64,
     /// Measured durations.
     pub timings: Timings,
+    /// Records in the fixture's warp at the end, by owner.
+    pub census: Census,
     /// Experimental application root (M1): whether the live incremental root
     /// equals its full rebuild, and whether the replayed state's root equals
     /// the live one.
     #[cfg(feature = "application_root_shadow")]
     pub application_root: Option<(bool, bool)>,
+}
+
+/// Records in the fixture's warp at the end of a run. Fixture records have
+/// one of the fixture's own types; every other record was put there by Echo,
+/// such as ingress bookkeeping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Census {
+    /// Nodes with a fixture type.
+    pub fixture_nodes: u64,
+    /// Nodes with any other type.
+    pub other_nodes: u64,
+    /// Edges with a fixture type.
+    pub fixture_edges: u64,
+    /// Edges with any other type.
+    pub other_edges: u64,
+    /// Node attachments on fixture nodes.
+    pub fixture_node_attachments: u64,
+    /// Node attachments on other nodes.
+    pub other_node_attachments: u64,
+    /// Edge attachments, whoever owns them.
+    pub edge_attachments: u64,
+}
+
+fn fixture_type(ty: TypeId) -> bool {
+    [
+        "bench/f5/entry",
+        "bench/f5/contains",
+        "bench/f5/root",
+        "bench/f5/bucket",
+        "bench/f5/bucket-of",
+    ]
+    .iter()
+    .any(|label| make_type_id(label) == ty)
+}
+
+fn census(store: &GraphStore) -> Census {
+    let mut census = Census::default();
+    let mut fixture_nodes = std::collections::BTreeSet::new();
+    for (id, record) in store.iter_nodes() {
+        if fixture_type(record.ty) {
+            census.fixture_nodes += 1;
+            fixture_nodes.insert(*id);
+        } else {
+            census.other_nodes += 1;
+        }
+    }
+    for (_, edges) in store.iter_edges() {
+        for edge in edges {
+            if fixture_type(edge.ty) {
+                census.fixture_edges += 1;
+            } else {
+                census.other_edges += 1;
+            }
+        }
+    }
+    for (id, _) in store.iter_node_attachments() {
+        if fixture_nodes.contains(id) {
+            census.fixture_node_attachments += 1;
+        } else {
+            census.other_node_attachments += 1;
+        }
+    }
+    census.edge_attachments = store.iter_edge_attachments().count() as u64;
+    census
 }
 
 /// Measured durations, each with a declared boundary.
@@ -437,7 +533,19 @@ pub struct Timings {
 
 /// Executes the fixture through the trusted host.
 pub fn run(tier: Tier, seed: u64) -> Observation {
-    run_from(tier, seed, initial_state(tier))
+    run_from(tier, seed, initial_state(tier), &Durability::None)
+}
+
+/// Executes the fixture with the given durability, on a worldline whose
+/// initial state `profile` prepares (for example, to set its commitment
+/// profile).
+pub fn run_durable(
+    tier: Tier,
+    seed: u64,
+    profile: impl FnOnce(WorldlineState) -> WorldlineState,
+    durability: &Durability,
+) -> Observation {
+    run_from(tier, seed, profile(initial_state(tier)), durability)
 }
 
 /// Executes the fixture on a worldline with commitment profile `profile`
@@ -452,10 +560,16 @@ pub fn run_with_profile(
         tier,
         seed,
         initial_state(tier).with_commitment_profile(profile),
+        &Durability::None,
     )
 }
 
-fn run_from(tier: Tier, seed: u64, initial: WorldlineState) -> Observation {
+fn run_from(
+    tier: Tier,
+    seed: u64,
+    initial: WorldlineState,
+    durability: &Durability,
+) -> Observation {
     let script = script(tier, seed);
     let base = initial.clone();
     let worldline_id = WorldlineId::from_bytes(WORLDLINE);
@@ -488,6 +602,15 @@ fn run_from(tier: Tier, seed: u64, initial: WorldlineState) -> Observation {
         .workers(1)
         .build();
     let mut host = TrustedRuntimeHost::new(runtime, engine).expect("host initializes");
+    match durability {
+        Durability::None => {}
+        Durability::InMemory => host
+            .enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+            .expect("in-memory WAL enables"),
+        Durability::Filesystem(root) => host
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(root))
+            .expect("filesystem WAL enables"),
+    }
     let registry = Registry;
     host.register_contract_package(package(&registry))
         .expect("package installs");
@@ -564,6 +687,7 @@ fn run_from(tier: Tier, seed: u64, initial: WorldlineState) -> Observation {
     obs.live_root = live.state_root();
     let warp_id = make_warp_id("bench-fixture-f5");
     if let Some(store) = live.store(&warp_id) {
+        obs.census = census(store);
         for append in &script {
             let entry = entry_node(&append.key);
             let payload_ok = matches!(

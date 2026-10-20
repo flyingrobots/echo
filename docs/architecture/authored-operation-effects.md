@@ -204,8 +204,23 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
 - Footprint independence is a set test: any write overlapping another Action's
   read or write conflicts, including two identical writes
   (`crates/warp-core/src/footprint.rs`, `Footprint::independent`). Its key
-  sets are nodes, edges, attachments, and ports; it has no key for a range
-  such as "all outgoing edges of one type from a node".
+  sets are nodes, edges, attachments, ports, and, since
+  [flyingrobots/echo#917](https://github.com/flyingrobots/echo/pull/917),
+  outgoing-edge ranges: an `OutgoingEdgeRange` names one source node
+  (including its WARP) and one edge type, and a footprint claims ranges read
+  (`r_read`, including an observed empty range) and ranges written
+  (`r_write`). A write to a range conflicts with another Action's read or
+  write of it, so a declared empty range conflicts with an insertion into it
+  under a fresh edge id. Range keys take part in footprint and patch
+  identities (`SlotId::OutgoingEdges` in `crates/warp-core/src/tick_patch.rs`)
+  and survive scheduling, retained patches, provenance, and admission, and a
+  rejected Action records the exact blocking range. The limits: range claims
+  are declared, not witnessed. No graph accessor or edge writer records them
+  automatically. A range claim does not cover the source node's presence,
+  which needs its own node dependency. No Edict program gains graph mutation
+  authority from it. The automatic witnessed reads, complete effect write
+  claims, exact-parent effect validation, and fresh-engine recovery that this
+  design requires remain to be built.
 - `WarpTickPatchV1::new` keeps one operation per canonical sort key, the last
   one supplied, and silently drops earlier operations with the same key
   (`crates/warp-core/src/tick_patch.rs`).
@@ -528,15 +543,18 @@ co-scheduled Action that creates the slot invalidates it like any other
 changed read.
 
 A read of the outgoing edges of one type from a node is a range, not a set of
-known edge ids, so it needs its own footprint key. Today's `Footprint` has
-none: if Action A observes no `canonicalHead` edge from `B` and co-scheduled
-Action B creates a fresh one, their edge-id sets are disjoint and the existing
-test calls them independent, although A's observed absence no longer holds.
-The bridge therefore adds an outgoing-edge range key `(source node, edge
-type)`. A range read claims it as a read. Every effect that creates or
-retargets an edge with that source and type claims it as a write, in addition
-to the edge id. Independence treats range keys like every other key: a write
-against a read or write conflicts.
+known edge ids, so it needs its own footprint key. With edge ids alone, if
+Action A observes no `canonicalHead` edge from `B` and co-scheduled Action B
+creates a fresh one, their edge-id sets are disjoint and the test calls them
+independent, although A's observed absence no longer holds. Echo's
+`Footprint` has carried that key since
+[flyingrobots/echo#917](https://github.com/flyingrobots/echo/pull/917): an
+`OutgoingEdgeRange` `(source node, edge type)`, claimed in `r_read` and
+`r_write`. Independence treats range keys like every other key: a write
+against a read or write conflicts. What #917 does not do, and the bridge
+must, is make the claims witnessed rather than declared. A range read claims
+its range as a read. Every effect that creates or retargets an edge with that
+source and type claims it as a write, in addition to the edge id.
 
 A range read is checked and metered before it materializes anything. A
 range read of an edge type outside the footprint law's `range_edge_types`
@@ -1453,8 +1471,10 @@ Two checks apply to every row and are not repeated in it, because recovery
 already performs them for every Action Tick: the basis posture is recomputed
 against the scheduler Tick's parent, and the whole Action batch's composition
 is reconstructed and every reconstructed outcome must equal the recorded one.
-The bridge keeps both and adds the outgoing-edge range keys and precondition
-reads to the reconstructed composition. The scoped-validity recomputation
+The bridge keeps both. The reconstruction already compares declared
+outgoing-edge range keys and recomputes range blockers (#917); the bridge
+supplies the range keys that its witnessed reads and effects claim, and its
+precondition reads, to that reconstructed composition. The scoped-validity recomputation
 above likewise applies to every row recorded as `Scoped`.
 
 | Outcome                                                                                                                                                                                                                                                            | Posture                  | Existing check                                                            | Added                                                                                                                                                                                                                |

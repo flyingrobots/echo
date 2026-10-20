@@ -178,7 +178,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 42-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 46-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every
@@ -193,7 +193,7 @@ before generation because the generator reads compile-time source carriers. Each
 without following its final symbolic link and read twice through the same
 retained descriptor; file-type, length, or byte disagreement refuses a moving
 owner. It never discovers a preferred owner or normalizes authored bytes. The
-20-file generator source closure and its carriers include the exact manifest
+21-file generator source closure and its carriers include the exact manifest
 and implementation occurrences for both `echo-edict-canonical` and
 `echo-registry-api`, including the provider-generic registry vocabulary, so
 provenance binds the canonicalization, operation-id, and registry laws actually
@@ -266,7 +266,21 @@ Run this only inside the same guarded worker, after refreshing the checked
 component carriers, with a new destination in its guarded data root. It selects
 `ProviderContractPublicationV1::SourceFunctions` and admits the complete package
 before writing it. The default checked generators retain the pure-binding
-publication. Neither route grants runtime authority merely by generating a
+publication. Supplying `--source-modules` after the new destination explicitly
+selects `SourceModules` and the source-module semantic variant:
+
+```bash
+cargo +1.96.0 run --locked -p echo-wesley-gen \
+  --example source_functions_publication_witness -- /owned-data/source-modules-provider --source-modules
+```
+
+That variant adds only the `source-closure.echo-operation` input alternative
+and its `edict.source-closure/v1` owning schema binding. It requires the
+source-module contract publication; a legacy pack lacks the required root and
+fails generation. Package admission accepts the exact legacy 31-binding set or
+the exact extended 32-binding set. This candidate route uses the supplied
+checked component carriers; structural package admission alone does not prove
+that those bytes execute a module build. Neither route grants runtime authority merely by generating a
 schema-valid package.
 
 ## Usage

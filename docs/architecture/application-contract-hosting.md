@@ -235,7 +235,7 @@ establish authorization. This function has no graph, scheduler, filesystem,
 clock, native callback, or WAL access and produces no Tick or Receipt.
 
 The interpreter implements the generic subset demanded by the first real
-compiler witness: unsigned integer constants, records, locals, field access,
+compiler witness: unsigned integer and raw byte constants, records, locals, field access,
 integer equality and ordering, bounded byte equality, lazy conditionals, and
 source-owned pure functions with ordered parameters and local bindings,
 separately authenticated zero-argument imported helpers, and
@@ -247,10 +247,25 @@ totality evidence; the interpreter additionally checks runtime values even when
 the supplied package pin matches. Calls resolve opaque source or lawpack
 coordinates to retained Edict bodies with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
-including unselected branches. Authored runtime types constrain input,
+including unselected branches. Conjunctive `all` predicates decode as closed
+recursive trees, including every child before execution. Evaluation visits
+children in source order and stops at the first false result. Empty conjunctions
+reject during decoding, matching Core's one-or-more child cardinality. Each visited predicate consumes an execution step, and
+predicate nesting participates in the same combined expression/helper depth
+and node limits. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared
 storage representations. Authored input constraints run before bindings, and
 the compiler's result projection must match the selected Target IR result.
+
+Compiler-produced byte constants retain raw octets, including NUL and invalid
+UTF-8. Their closed Core shape requires a byte payload and rejects text,
+missing fields, or integer-width fields. Materializing a constant uses the
+ordinary deterministic value-copy charges; package-size limits bound decoding.
+The retained public-build package and separate accepted report in
+[`edict_byte_literal_tests.rs`](../../crates/warp-core/tests/edict_byte_literal_tests.rs)
+exercise exact octets, repeatability, and exact/one-below evaluation budgets.
+CI and local full-test routes enable `trusted_runtime` for this target,
+including changes confined to its fixture or the shared decoder.
 
 The generic `core.bytes.length<OperandType>` operation measures one bounded byte
 value and returns U64. Its retained operand coordinate resolves through the
@@ -263,6 +278,24 @@ Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
 `Bytes<min=N,max=M>` coordinates also resolve directly, without a named type
 entry. Noncanonical numbers, inverted bounds, and an interval spelling with
 equal endpoints reject; equal endpoints use `exact=N`.
+
+The generic `core.bytes.isUtf8<OperandType>(bytes)` expression validates one
+bounded raw-byte value and returns Bool. It accepts empty bytes and embedded NUL,
+and rejects incomplete sequences, overlong encodings, surrogate encodings and
+code points above U+10FFFF without normalization or repair. It charges the full
+actual byte length before validation, including early invalid sequences, plus
+ordinary operand evaluation, bound validation and Boolean result storage.
+Bool values retain their canonical Boolean representation; integers are not
+Boolean substitutes. Predicates support Boolean equality, not ordering.
+The native pure interpreter's implementation does not by itself establish
+provider component support or a public compiler/provider/runtime witness.
+
+Negation uses the closed `not` predicate shape with exactly one `value` child.
+The interpreter validates the entire child before execution, evaluates it once,
+and inverts its Boolean result. A negation wrapper costs one predicate step;
+child errors and budget refusals propagate unchanged. Negation participates in
+the same syntax-node and combined expression/helper depth limits as conjunction.
+It adds no proof assumptions or byte-normalization behavior.
 
 The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
 raw bytes in the half-open range `[start, end)`. It validates the operand's byte
@@ -342,8 +375,8 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
-The source-function target subset supports unsigned words, bounded bytes,
-records and nominal types, with U32/U64 integer literals. Provider compatibility
+The native source-function target subset supports Boolean values, unsigned words,
+bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
@@ -353,8 +386,13 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. Boolean, string, list, variant and effectful helper forms
-receive provider refusal.
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
+receive provider refusal. Native lowerer and independent verifier judgments
+check bounded UTF-8 byte calls with exact operand types, Boolean equality and
+closed nonempty conjunction/negation trees. Their static cost includes the
+full declared scan aperture; conjunction cost bounds every child even though
+execution may stop early. The verifier dependency census traverses nested
+predicates before checking helper call order and cycles.
 For modules containing source functions, partial subtraction and slicing need
 literal evidence sufficient for totality: ordered unsigned operands, or ordered
 U64 slice offsets within the operand's guaranteed minimum length. Caller
@@ -394,6 +432,26 @@ mutation changes the runtime result. Its fixture retains separate verifier
 reports and reproduction coordinates. Reversed input ordering, invalid runtime
 representations, package substitution, noncanonical input, and exhausted host
 budgets produce errors without returning an application result.
+
+The retained UTF-8 replacement fixture in
+`crates/warp-core/tests/fixtures/edict-pure-utf8` binds its public producer and
+selected checked provider in provenance. Literal tests execute nine text-changing
+cases, thirteen invalid-text/boundary/no-op/range refusals, and five host resource
+apertures against the unchanged emitted package. Its authored declarations separate
+the constant helper's cost from the operation ceiling. This establishes flat-text
+computation on the selected existing provider route; native strict-helper/read
+judgment tests provide separate evidence. It does not establish a persistent rope,
+a decided Tick, atomic effects, recovery or final pinned integration.
+
+The companion fixture in `crates/warp-core/tests/fixtures/edict-pure-utf8-helper`
+selects the explicit source-function publication using the guarded Docker publisher
+with copied read-only sources. The public compiler then invokes both promoted
+components and retains their unchanged accepted package/report. A byte-parameter
+helper exercises UTF-8 validation, Boolean equality, conjunction, negation and
+Boolean return. Literal tests cover small valid/invalid values, valid and invalid
+full 1 MiB inputs, an over-bound input and insufficient scan work. Publication,
+component and package identities are recorded in its provenance. These are private
+computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
@@ -601,7 +659,31 @@ Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
 publications. The original `admit_provider_contract_pack_v1` entry point remains
 bound to its pure-binding publication. The opt-in
 `admit_provider_contract_pack_for_publication_v1` entry point additionally admits
-the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md).
+the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md),
+the source-function publication, and the explicit `SourceModules` publication
+from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
+The latter adds a `source-closure` contract and `edict.source-closure/v1` domain
+while retaining the exact bytes and inventories of earlier selections. Its
+CDDL validates the closed envelope, 1–64 module entries and typed SHA-256
+digests. Source import authentication, root membership, reachability and
+aggregate byte/depth budgets remain Edict semantic obligations; structural
+admission does not prove them. See the [publication boundary](../../schemas/edict-provider/contracts/source-modules-v1/README.md).
+The native lowerer and independent verifier accept exactly one source artifact
+in their existing invocation closure: the legacy `edict-source` byte string
+under `edict.source/v1`, or an `edict-source-closure` envelope under
+`edict.source-closure/v1`. Relabelling a kind or supplying both forms refuses.
+The common wire boundary checks every unit digest and UTF-8 under fixed bounds,
+selects the exact Core root and retains the distinct source identity. It does
+not replace Edict's source parsing or import-graph authentication. The generic
+bounded-read decoder applies the same bounded envelope checks and rechecks the
+closure identity under the selected source domain before any reading. Pure
+execution continues to require its independently supplied exact package pin.
+
+The explicit module semantic variant adds one source input alternative and
+schema binding. Generation refuses it with a legacy contract pack that lacks
+`source-closure`. Existing generation inputs keep their exact legacy inventory;
+raw package admission accepts only that inventory or the closed extension.
+
 The closed selector fixes both byte identities and the input size ceiling before
 parsing; mixed publications reject. This is structural schema authority only.
 It does not prove instruction ordering, select an executable profile, or confer
@@ -612,9 +694,10 @@ The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
 pure packages as effectful programs. Its expression subset includes typed
-source/imported helper calls, U32/U64 constants, lazy conditionals, byte length
-and concatenation, locals, record construction/selection, byte equality, and
-unsigned equality or ordering guards. The source-function totality and resource
+source/imported helper calls, Boolean and U32/U64 constants, lazy conditionals,
+byte length, UTF-8 validation and concatenation, locals, record construction/selection,
+byte/Boolean equality, unsigned equality or ordering guards, and closed
+conjunction/negation trees. The source-function totality and resource
 rules above also apply to this route. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,
@@ -795,7 +878,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 42-file package-local carrier tree
+The publishable Rust crate uses a separate 46-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

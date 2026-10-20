@@ -7,12 +7,12 @@ mod relation;
 use super::{
     as_map, canonical_map, canonical_text, encode_canonical_cbor_v1, encode_compiler_package,
     invalid_artifact, map_field, require_exact_fields, require_resource_ref, required_array,
-    required_nonempty_text, required_u64, single_text_map_entry, text_field, validate_bound,
-    validate_compiler_lawpack, validate_source, Artifact, BoundArtifact, CanonicalValueV1 as Value,
-    ClosureInputs, CompilerPackageProfile, LoweringOutputArtifact, LoweringOutputKind,
-    LoweringRequestV1, LoweringSuccessV1, ProviderRefusalV1, ADAPTER_DOMAIN, CONFIGURATION_ABI,
-    CONFIGURATION_DOMAIN, CORE_ABI, CORE_DOMAIN, EXPORTS_DOMAIN, LAWPACK_DOMAIN, PACKAGE_DOMAIN,
-    PACKAGE_ROLE, RESULT_PROJECTION_DOMAIN, SOURCE_DOMAIN, TARGET_IR_DOMAIN,
+    required_nonempty_text, required_u64, single_text_map_entry, source_domain, text_field,
+    validate_bound, validate_compiler_lawpack, validate_source, Artifact, BoundArtifact,
+    CanonicalValueV1 as Value, ClosureInputs, CompilerPackageProfile, LoweringOutputArtifact,
+    LoweringOutputKind, LoweringRequestV1, LoweringSuccessV1, ProviderRefusalV1, ADAPTER_DOMAIN,
+    CONFIGURATION_ABI, CONFIGURATION_DOMAIN, CORE_ABI, CORE_DOMAIN, EXPORTS_DOMAIN, LAWPACK_DOMAIN,
+    PACKAGE_DOMAIN, PACKAGE_ROLE, RESULT_PROJECTION_DOMAIN, TARGET_IR_DOMAIN,
 };
 
 const SUBJECT: &str = "compiler-produced-bounded-read";
@@ -65,7 +65,7 @@ pub(super) fn lower(
         &closure.result_projection.artifact,
         RESULT_PROJECTION_DOMAIN,
     )?;
-    let source = validate_bound(&closure.source.artifact, SOURCE_DOMAIN)?;
+    let source = validate_bound(&closure.source.artifact, source_domain(closure.source)?)?;
     let source = validate_source(&source, closure.source, &request.core)?;
     let mut core_fields = vec![
         "apiVersion",

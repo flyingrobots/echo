@@ -92,7 +92,66 @@ a Rust dependency consumer can explicitly enable the feature.
 It is not an access-control or security seal. Echo product and adapter code must
 not use it as an application authoring escape hatch.
 
+### Provider semantic type declarations
+
+The current `echo.edict-provider-semantics/v1` type model supports bounded
+Core string aliases, bounded Core byte aliases, and records with name-keyed
+references to declared types. A byte alias uses `shape.kind: coreBytesAlias`
+with explicit unsigned `minBytes` and `maxBytes`. Source admission requires
+`minBytes <= maxBytes`; an inverted interval yields `InvalidByteBounds` before
+artifact generation. Missing, mistyped or extra shape fields refuse.
+
+Byte aliases are bounded leaves for record-graph validation. A record that
+also references itself still refuses as `UnboundedTypeGraph`; an Echo-owned
+alias cannot claim an Edict Core `Bytes` coordinate. Lawpack exports retain
+exact source alias identities and emit canonical definitions: equal bounds
+use `Bytes<exact=N>`, a zero lower bound uses `Bytes<max=N>`, and other intervals
+use `Bytes<min=N,max=M>`. The empty exact-zero interval is valid.
+
+These declarations provide catalog and lawpack type metadata. Byte-valued
+Rust helper codecs and graph-effect lowering require their own implementation
+and verification. Catalog-to-export nominal agreement remains a separate
+required check.
+
 ## Execution Corridors
+
+### Bounded compiler-package computation
+
+`edict_pure::evaluate` interprets exact compiler-produced packages under an
+independently selected trusted-host pin and bounded input, work, storage and
+output limits. This is ordinary computation, not package admission, graph
+mutation, an Action, a Tick, a receipt or recovery evidence.
+
+The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
+against the declared unsigned width and checks the sum before copying the
+result through the ordinary resource meter. Overflow and invalid operands
+refuse rather than wrap. The literal-boundary witness needs eight work units
+and three 64-byte value cells; one fewer work unit or storage byte refuses.
+The public compiler fixture and arithmetic meter test in
+`edict_unsigned_addition_tests` and `edict_pure::evaluate` cover these boundaries.
+
+Native lowerer and verifier source-function judgments independently require
+exact same-width operands and a dominating no-overflow proof. Checked conjunctive
+prefixes can bound later terms; facts cannot escape negation or flow backward.
+Bounded-read relations reuse this established proof and require exactly
+matching declared and operand widths. New addition calls require this judgment
+even when the legacy Core function table is absent. Both implementations bound proof traversal and comparisons
+using their existing work ceilings. Rebound native tests exercise these checks;
+they do not establish public compiler acceptance.
+
+Runtime helper validation also proves addition within its fresh frame using
+literal and nested-sum bounds. Other terms retain their full unsigned width,
+so zero identity is total and an unbounded parameter plus one refuses. Caller
+constraints do not cross into a helper frame.
+
+The retained public compiler fixtures cover a legacy-producer execution control
+and a strict SourceFunctions publication containing an authored arithmetic helper.
+The accepted public verifier report binds the unmodified package bytes; repeated
+public compilation preserves both package and report identity.
+Checked provider components are promoted from two byte-identical designated
+builds, and the package manifest binds their exact digests. Component presence,
+runtime support and native judgments alone do not authorize a package or grant
+application mutation authority.
 
 ### Provider-v1 compatibility corridor
 
@@ -209,6 +268,15 @@ What is implemented today is a conservative subset:
 - **Evidence.** The receipt keeps the origin basis and records the parent in its
   Tick fields, and recovery recomputes the rule from retained history. A failed
   dependency is reported as `BasisChanged`.
+
+The interval write set includes both each retained replay patch's declared
+`out_slots` and every record slot written by its operations. This includes
+runtime-ingress materialization, whose writes occur outside rule footprints.
+Node and edge deletion include their removed attachment slots; portal creation
+includes its portal attachment and child root. A missing replay patch or a
+warp-instance upsert or deletion makes the interval write set unknown, so the
+scoped exception is unavailable and the whole-frontier rule applies. This
+corroboration change does not change patch encodings, digests, or roots.
 
 Every other Action follows the whole-frontier rule below.
 
@@ -425,6 +493,13 @@ path now has positive provider-native installation and invocation witnesses,
 but it still needs a deliberately false-footprint negative oracle before it may
 claim release qualification. Wesley still needs both a package emitter and its
 own positive installed generated-pack witness.
+
+The scheduler can reserve explicit outgoing-edge range claims, including empty
+ranges, as described in the [scheduler contract](../spec/scheduler-warp-core.md).
+This claim API does not instrument existing graph reads or edge writers. Range
+keys survive patch identity, retained provenance encoding and native Tick
+metadata. This does not admit a new authored-effect profile or qualify a
+generated package for release.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.

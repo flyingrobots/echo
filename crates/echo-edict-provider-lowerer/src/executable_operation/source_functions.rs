@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,6 +12,7 @@ const DEPTH: usize = 64;
 const WORK: usize = 65_536;
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Ty {
+    Bool,
     Word(u64),
     Bytes(u64, u64),
     Record(BTreeMap<String, Ty>),
@@ -63,6 +65,7 @@ struct Judgment<'a> {
     completed: BTreeMap<String, Fact>,
     active: BTreeSet<String>,
     work: usize,
+    proven: Vec<&'a Value>,
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
@@ -156,11 +159,12 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         completed: BTreeMap::new(),
         active: BTreeSet::new(),
         work: WORK,
+        proven: Vec::new(),
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
     }
-    if super::map_field(core, "functions").is_none() {
+    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
     }
     for (_, intent) in members(get(core, "intents")?)? {
@@ -168,7 +172,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     }
     Ok(())
 }
-impl Judgment<'_> {
+impl<'a> Judgment<'a> {
     fn charge(&mut self, depth: usize) -> Check<()> {
         self.work = self.work.checked_sub(1).ok_or(())?;
         if depth > DEPTH {
@@ -179,6 +183,9 @@ impl Judgment<'_> {
     }
     fn ty(&mut self, name: &str, depth: usize) -> Check<Ty> {
         self.charge(depth)?;
+        if name == "Bool" {
+            return Ok(Ty::Bool);
+        }
         if let Some(max) = match name {
             "U8" => Some(u8::MAX.into()),
             "U16" => Some(u16::MAX.into()),
@@ -214,6 +221,7 @@ impl Judgment<'_> {
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.core, "types")?, key)?;
         match string(get(definition, "kind")?)? {
+            "Bool" => Ok(Ty::Bool),
             "Int" => self.ty(string(get(definition, "width")?)?, depth + 1),
             "Nominal" => {
                 if string(get(definition, "contract")?)? != key {
@@ -250,7 +258,7 @@ impl Judgment<'_> {
             _ => Err(()),
         }
     }
-    fn declaration<'a>(&mut self, value: &'a Value, scope: &mut Scope<'a>) -> Check<Ty> {
+    fn declaration(&mut self, value: &'a Value, scope: &mut Scope<'a>) -> Check<Ty> {
         exact(value, &["id", "type", "alphaName"])?;
         let id = string(get(value, "id")?)?;
         string(get(value, "alphaName")?)?;
@@ -275,6 +283,15 @@ impl Judgment<'_> {
                 .ok_or(())?;
             return Ok(fact.clone());
         }
+        // A helper has a fresh proof scope. Restore the caller on success and
+        // failure, so recursive checks cannot change enclosing all/not scopes.
+        let caller_facts = std::mem::take(&mut self.proven);
+        let result = self.check_function_body(name, prefix);
+        self.proven = caller_facts;
+        self.active.remove(name);
+        result
+    }
+    fn check_function_body(&mut self, name: &str, prefix: usize) -> Check<Fact> {
         let function = *self.functions.get(name).ok_or(())?;
         self.active.insert(name.to_owned());
         exact(function.body, &["locals", "bindings", "result"])?;
@@ -338,14 +355,13 @@ impl Judgment<'_> {
         if prefix.checked_add(fact.depth).ok_or(())? > DEPTH {
             return Err(());
         }
-        self.active.remove(name);
         self.completed.insert(name.to_owned(), fact.clone());
         Ok(fact)
     }
     fn expression(
         &mut self,
-        value: &Value,
-        scope: &Scope<'_>,
+        value: &'a Value,
+        scope: &Scope<'a>,
         source: bool,
         prefix: usize,
     ) -> Check<Fact> {
@@ -371,6 +387,20 @@ impl Judgment<'_> {
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bool" {
+                    exact(literal, &["kind", "value"])?;
+                    if !matches!(get(literal, "value")?, Value::Bool(_)) {
+                        return Err(());
+                    }
+                    return Ok(Fact {
+                        ty: Ty::Bool,
+                        cost: cost.plus(Cost {
+                            steps: 1,
+                            bytes: 64,
+                        })?,
+                        depth: 0,
+                    });
+                }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
                 if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
@@ -469,6 +499,15 @@ impl Judgment<'_> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        ("core.bytes.isUtf8", [actual], [expected @ Ty::Bytes(_, max)])
+                            if expected == actual =>
+                        {
+                            cost = cost.plus(Cost {
+                                steps: max.checked_add(2).ok_or(())?,
+                                bytes: 64,
+                            })?;
+                            Ty::Bool
+                        }
                         ("core.bytes.length", [actual], [expected @ Ty::Bytes(_, _)])
                             if includes(expected, actual) =>
                         {
@@ -490,6 +529,23 @@ impl Judgment<'_> {
                                 bytes: max.checked_add(64).ok_or(())?,
                             })?;
                             Ty::Bytes(min, max)
+                        }
+                        ("core.integer.add", [left, right], [expected @ Ty::Word(max)])
+                            if left == expected
+                                && right == expected
+                                && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
+                        {
+                            unsigned_addition::prove(
+                                arguments,
+                                *max,
+                                &self.proven,
+                                &mut self.work,
+                            )?;
+                            cost = cost.plus(Cost {
+                                steps: 3,
+                                bytes: 64,
+                            })?;
+                            expected.clone()
                         }
                         ("core.integer.subtract", [left, right], [expected @ Ty::Word(_)])
                             if includes(expected, left) && includes(expected, right) =>
@@ -533,12 +589,39 @@ impl Judgment<'_> {
     }
     fn predicate(
         &mut self,
-        value: &Value,
-        scope: &Scope<'_>,
+        value: &'a Value,
+        scope: &Scope<'a>,
         source: bool,
         prefix: usize,
     ) -> Check<(Cost, usize)> {
         self.charge(prefix)?;
+        match string(get(value, "kind")?)? {
+            "not" => {
+                exact(value, &["kind", "value"])?;
+                let (cost, height) =
+                    self.predicate(get(value, "value")?, scope, source, prefix + 1)?;
+                return Ok((cost.plus(Cost { steps: 1, bytes: 0 })?, height + 1));
+            }
+            "all" => {
+                exact(value, &["kind", "values"])?;
+                let values = list(get(value, "values")?)?;
+                if values.is_empty() {
+                    return Err(());
+                }
+                let mut cost = Cost { steps: 1, bytes: 0 };
+                let mut height = 0;
+                let inherited = self.proven.len();
+                for value in values {
+                    let (child, depth) = self.predicate(value, scope, source, prefix + 1)?;
+                    cost = cost.plus(child)?;
+                    height = height.max(depth);
+                    self.proven.push(value);
+                }
+                self.proven.truncate(inherited);
+                return Ok((cost, height + 1));
+            }
+            _ => {}
+        }
         exact(value, &["kind", "op", "left", "right"])?;
         if string(get(value, "kind")?)? != "compare" {
             return Err(());
@@ -554,6 +637,7 @@ impl Judgment<'_> {
             left.ty.representation(),
             right.ty.representation(),
         ) {
+            ("==", Ty::Bool, Ty::Bool) => 0,
             ("==", Ty::Bytes(_, a), Ty::Bytes(_, b)) => (*a).max(*b),
             ("==" | "<=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
             _ => return Err(()),
@@ -566,7 +650,8 @@ impl Judgment<'_> {
             left.depth.max(right.depth) + 1,
         ))
     }
-    fn intent(&mut self, intent: &Value, read: bool) -> Check<()> {
+    fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        self.proven.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut pending = BTreeMap::new();
@@ -606,6 +691,7 @@ impl Judgment<'_> {
                 self.predicate(get(constraint, "predicate")?, &scope, true, 0)?
                     .0,
             )?;
+            self.proven.push(get(constraint, "predicate")?);
         }
         for node in list(get(body, "nodes")?)? {
             if read {
@@ -679,6 +765,15 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
     match ty {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
+        Ty::Bool => Ok((
+            Cost {
+                steps: 1,
+                bytes: 64,
+            },
+            1,
+            1,
+            0,
+        )),
         Ty::Word(_) => Ok((
             Cost {
                 steps: 1,

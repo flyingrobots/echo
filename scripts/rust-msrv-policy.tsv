@@ -8,6 +8,7 @@ workspace 1.90.0
 crates/echo-cas/Cargo.toml 1.90.0
 crates/echo-dind-harness/Cargo.toml 1.96.0
 crates/echo-dind-tests/Cargo.toml 1.96.0
+crates/echo-alloc-witness/Cargo.toml 1.96.0
 crates/echo-dry-tests/Cargo.toml 1.96.0
 crates/echo-edict-canonical/Cargo.toml 1.90.0
 crates/echo-edict-provider-lowerer/Cargo.toml 1.90.0

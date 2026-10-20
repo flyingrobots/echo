@@ -46,7 +46,7 @@ const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
 const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
-    "139ac50b29f4a6b524febd37e1735e9de3c905fe4b234779b705d68a19cd29e7";
+    "0a4e7ddf2f4087ef53fd3116db1623097c0df08658d9ddc7a80e02da04fba111";
 const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
 const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
 
@@ -949,6 +949,11 @@ fn generated_source_exposes_explicit_post_assembly_bundle_binding() {
 fn generated_source_binds_the_expected_provider_schema_identity() {
     let source = generated_source();
 
+    let current_schema = include_bytes!(
+        "../../../schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl"
+    );
+    let current_schema_sha256 = hex::encode(sha2::Sha256::digest(current_schema));
+    assert_eq!(EXPECTED_PROVIDER_SCHEMA_SHA256_HEX, current_schema_sha256);
     assert!(
         source.contains(&format!("\"{EXPECTED_PROVIDER_SCHEMA_SHA256_HEX}\"")),
         "generated source did not bind expected provider schema SHA-256 \

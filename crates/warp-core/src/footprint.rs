@@ -28,7 +28,54 @@
 use std::collections::BTreeSet;
 
 use crate::attachment::AttachmentKey;
-use crate::ident::{EdgeId, EdgeKey, NodeId, NodeKey, WarpId};
+use crate::ident::{EdgeId, EdgeKey, NodeId, NodeKey, TypeId, WarpId};
+
+#[cfg(test)]
+#[path = "footprint/range_tests.rs"]
+mod range_tests;
+
+/// One outgoing-edge range, including an observed empty range.
+///
+/// A fresh edge ID cannot evade a claim on its source and edge type. The source
+/// includes its WARP identity; the type is the edge type, not either node type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OutgoingEdgeRange {
+    /// Source of the outgoing edges.
+    pub source: NodeKey,
+    /// Type selecting the outgoing edges.
+    pub edge_type: TypeId,
+}
+
+/// Canonically ordered set of outgoing-edge ranges.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OutgoingEdgeRangeSet(BTreeSet<OutgoingEdgeRange>);
+
+impl OutgoingEdgeRangeSet {
+    /// Claims a range, even if it currently contains no edge.
+    pub fn insert(&mut self, key: OutgoingEdgeRange) {
+        self.0.insert(key);
+    }
+
+    /// Iterates in source-WARP, source-node, edge-type order.
+    pub fn iter(&self) -> impl Iterator<Item = &OutgoingEdgeRange> {
+        self.0.iter()
+    }
+
+    /// Whether the two sets share any range key.
+    pub fn intersects(&self, other: &Self) -> bool {
+        intersects_btree(&self.0, &other.0)
+    }
+
+    /// Whether no range is claimed.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Number of distinct claimed ranges.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
 
 // =============================================================================
 // Packed Port Key
@@ -261,6 +308,10 @@ pub struct Footprint {
     pub e_read: EdgeSet,
     /// Edges written/created/deleted by the rewrite (warp-scoped).
     pub e_write: EdgeSet,
+    /// Outgoing-edge ranges observed, including empty ranges.
+    pub r_read: OutgoingEdgeRangeSet,
+    /// Outgoing-edge ranges changed by edge insertion, removal or retargeting.
+    pub r_write: OutgoingEdgeRangeSet,
     /// Attachment slots read by the rewrite.
     pub a_read: AttachmentSet,
     /// Attachment slots written by the rewrite.
@@ -299,6 +350,8 @@ impl Footprint {
         self.n_write.0.extend(other.n_write.0.iter().copied());
         self.e_read.0.extend(other.e_read.0.iter().copied());
         self.e_write.0.extend(other.e_write.0.iter().copied());
+        self.r_read.0.extend(other.r_read.0.iter().copied());
+        self.r_write.0.extend(other.r_write.0.iter().copied());
         self.a_read.0.extend(other.a_read.0.iter().copied());
         self.a_write.0.extend(other.a_write.0.iter().copied());
         self.b_in.0.extend(other.b_in.0.iter().copied());
@@ -312,6 +365,8 @@ impl Footprint {
             && self.n_write.is_empty()
             && self.e_read.is_empty()
             && self.e_write.is_empty()
+            && self.r_read.is_empty()
+            && self.r_write.is_empty()
             && self.a_read.is_empty()
             && self.a_write.is_empty()
             && self.b_in.is_empty()
@@ -358,6 +413,12 @@ impl Footprint {
         if self.e_write.intersects(&other.e_write)
             || self.e_write.intersects(&other.e_read)
             || other.e_write.intersects(&self.e_read)
+        {
+            return false;
+        }
+        if self.r_write.intersects(&other.r_write)
+            || self.r_write.intersects(&other.r_read)
+            || other.r_write.intersects(&self.r_read)
         {
             return false;
         }

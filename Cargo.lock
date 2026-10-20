@@ -613,6 +613,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-alloc-witness"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytes",
+ "echo-dry-tests",
+ "echo-edict-canonical",
+ "hex",
+ "sha2",
+ "warp-core",
+]
+
+[[package]]
 name = "echo-cas"
 version = "0.1.0"
 dependencies = [

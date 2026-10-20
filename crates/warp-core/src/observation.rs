@@ -2546,6 +2546,12 @@ fn hash_slot(hasher: &mut Hasher, slot: &SlotId) {
             hasher.update(warp_id.as_bytes());
             hasher.update(&port_key.to_le_bytes());
         }
+        SlotId::OutgoingEdges(range) => {
+            hasher.update(&[5]);
+            hasher.update(range.source.warp_id.as_bytes());
+            hasher.update(range.source.local_id.as_bytes());
+            hasher.update(range.edge_type.as_bytes());
+        }
     }
 }
 

@@ -41,6 +41,8 @@ pub mod wsc;
 
 mod actual_footprint;
 mod admission;
+#[cfg(feature = "application_root_shadow")]
+pub mod application_root;
 mod attachment;
 mod braid;
 mod braid_shell;
@@ -291,7 +293,8 @@ pub use engine_impl::{
 pub use execution_evidence::{ExecutionEvidenceKey, ExecutionFootprintEvidence};
 pub use execution_graph_view::ExecutionGraphView;
 pub use footprint::{
-    pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
+    pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, OutgoingEdgeRange,
+    OutgoingEdgeRangeSet, PortKey, PortSet, WarpScopedPortKey,
 };
 pub use footprint_guard::{FootprintViolation, FootprintViolationWithPanic, ViolationKind};
 pub use graph::{DeleteNodeError, GraphStore};
@@ -583,3 +586,10 @@ pub trait AtomView<'a>: Sized {
         Self::parse(payload.bytes.as_ref())
     }
 }
+
+/// Whether this build cross-checks every tick delta against a whole-state
+/// copy (`delta_validate`). Allocation witnesses outside this crate read it:
+/// such a build copies the state on purpose, so their measurement does not
+/// apply to it.
+#[doc(hidden)]
+pub const DELTA_VALIDATE: bool = cfg!(feature = "delta_validate");

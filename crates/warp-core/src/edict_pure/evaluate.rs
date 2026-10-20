@@ -226,7 +226,7 @@ pub(crate) fn expression(
             validate(&value, &helper.ty, meter, depth + 1)?;
             Ok(value)
         }
-        Expr::UnsignedSubtract { max, left, right } => {
+        Expr::UnsignedSubtract { max, left, right } | Expr::UnsignedAdd { max, left, right } => {
             let left = expression(left, locals, helpers, meter, depth + 1)?;
             let right = expression(right, locals, helpers, meter, depth + 1)?;
             let ty = RuntimeType::Unsigned(*max);
@@ -235,11 +235,33 @@ pub(crate) fn expression(
             let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
                 return Err(Error::InvalidArtifact);
             };
-            let difference = left
-                .checked_sub(right)
-                .filter(|value| *value >= 0)
-                .ok_or(Error::InvalidArtifact)?;
+            let difference = if matches!(expr, Expr::UnsignedAdd { .. }) {
+                left.checked_add(right)
+                    .filter(|value| *value <= i128::from(*max))
+            } else {
+                left.checked_sub(right)
+            }
+            .filter(|value| *value >= 0)
+            .ok_or(Error::InvalidArtifact)?;
             meter.copy(&Value::Integer(difference))
+        }
+        Expr::ByteUtf8 { min, max, value } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            let Value::Bytes(bytes) = value else {
+                return Err(Error::InvalidArtifact);
+            };
+            let length = u64::try_from(bytes.len()).map_err(|_| Error::StepBudgetExceeded)?;
+            meter.charge_steps(length)?;
+            meter.copy(&Value::Bool(std::str::from_utf8(&bytes).is_ok()))
         }
         Expr::ByteLength { min, max, value } => {
             let value = expression(value, locals, helpers, meter, depth + 1)?;
@@ -345,9 +367,24 @@ pub(crate) fn predicate(
     depth: usize,
 ) -> Result<bool, Error> {
     meter.step(depth)?;
-    let left = expression(&predicate.left, locals, helpers, meter, depth + 1)?;
-    let right = expression(&predicate.right, locals, helpers, meter, depth + 1)?;
-    match (&predicate.op, left, right) {
+    let (op, left, right) = match predicate {
+        Predicate::Compare { op, left, right } => (op, left, right),
+        Predicate::Not(value) => {
+            return self::predicate(value, locals, helpers, meter, depth + 1).map(|value| !value);
+        }
+        Predicate::All(values) => {
+            for value in values {
+                if !self::predicate(value, locals, helpers, meter, depth + 1)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+    };
+    let left = expression(left, locals, helpers, meter, depth + 1)?;
+    let right = expression(right, locals, helpers, meter, depth + 1)?;
+    match (op, left, right) {
+        (Comparison::Equal, Value::Bool(left), Value::Bool(right)) => Ok(left == right),
         (Comparison::Equal, Value::Integer(left), Value::Integer(right)) => Ok(left == right),
         (Comparison::LessOrEqual, Value::Integer(left), Value::Integer(right)) => Ok(left <= right),
         (Comparison::Equal, Value::Bytes(left), Value::Bytes(right)) => {
@@ -370,6 +407,7 @@ pub(crate) fn validate(
 ) -> Result<(), Error> {
     meter.step(depth)?;
     match (value, ty) {
+        (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))
             if *value >= 0 && *value <= i128::from(*max) =>
         {
@@ -403,6 +441,70 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsigned_addition_checks_both_widths_and_charges_the_result() -> Result<(), Error> {
+        let limits = EvaluationLimits {
+            max_package_bytes: 1024,
+            max_input_bytes: 1024,
+            max_steps: 8,
+            max_allocated_bytes: 192,
+            max_output_bytes: 1024,
+        };
+        let sum = |max, left, right| Expr::UnsignedAdd {
+            max,
+            left: Box::new(Expr::Constant(Value::Integer(left))),
+            right: Box::new(Expr::Constant(Value::Integer(right))),
+        };
+        for max in [u64::from(u32::MAX), u64::MAX] {
+            let expr = sum(max, i128::from(max), 0);
+            let mut exact = Meter::new(limits);
+            assert_eq!(
+                expression(&expr, &BTreeMap::new(), &BTreeMap::new(), &mut exact, 0)?,
+                Value::Integer(i128::from(max))
+            );
+            assert_eq!(exact.usage(), (8, 192));
+            for (left, right) in [(i128::from(max), 1), (-1, 0), (i128::from(max) + 1, 0)] {
+                assert_eq!(
+                    expression(
+                        &sum(max, left, right),
+                        &BTreeMap::new(),
+                        &BTreeMap::new(),
+                        &mut Meter::new(limits),
+                        0
+                    ),
+                    Err(Error::InvalidArtifact)
+                );
+            }
+            assert_eq!(
+                expression(
+                    &expr,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    &mut Meter::new(EvaluationLimits {
+                        max_steps: 7,
+                        ..limits
+                    }),
+                    0
+                ),
+                Err(Error::StepBudgetExceeded)
+            );
+            assert_eq!(
+                expression(
+                    &expr,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    &mut Meter::new(EvaluationLimits {
+                        max_allocated_bytes: 191,
+                        ..limits
+                    }),
+                    0
+                ),
+                Err(Error::AllocationBudgetExceeded)
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn byte_concat_admits_both_copy_lengths_before_allocation() -> Result<(), Error> {

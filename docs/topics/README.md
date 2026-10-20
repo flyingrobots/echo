@@ -17,6 +17,8 @@ for the page and relationship contracts.
 
 ## Index
 
+- [Experimental application root](ApplicationRoot.md)
+- [Benchmark scene fixtures](BenchmarkSceneFixtures.md)
 - [Causal anchors](CausalAnchors.md)
 - [Causal receipt history](CausalReceiptHistory.md)
 - [Contract inverse admission](ContractInverseAdmission.md)

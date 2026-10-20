@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::attachment::AttachmentValue;
-use crate::ident::{EdgeId, Hash, NodeId, WarpId};
+use crate::ident::{EdgeId, Hash, NodeId, TypeId, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
 
 /// Error returned by [`GraphStore::delete_node_isolated`].
@@ -24,6 +24,88 @@ pub enum DeleteNodeError {
     /// The node has incoming edges; delete them first.
     #[error("node has incoming edges")]
     HasIncomingEdges,
+}
+
+/// Prior values of the slots written while a [`GraphStore`] records touches.
+///
+/// Each slot's value is captured the first time the slot is written after
+/// recording begins, so the log holds, for exactly the slots that may have
+/// changed, the value they had when recording began. A tick's delta is then
+/// computed over those slots alone instead of over a copy of the whole graph
+/// (see `tick_patch::touched_diff`). The log is bookkeeping, never part of the
+/// store's content: a clone starts with an empty, idle log, and `Debug` does
+/// not print it.
+#[derive(Default)]
+pub(crate) struct TouchLog {
+    pub(crate) recording: bool,
+    /// The state's recording epoch this log belongs to. A log from an older
+    /// epoch (left by an aborted commit) is stale and is never read.
+    pub(crate) epoch: u64,
+    pub(crate) nodes: BTreeMap<NodeId, Option<NodeRecord>>,
+    pub(crate) node_attachments: BTreeMap<NodeId, Option<AttachmentValue>>,
+    pub(crate) edges: BTreeMap<EdgeId, Option<EdgeRecord>>,
+    pub(crate) edge_attachments: BTreeMap<EdgeId, Option<AttachmentValue>>,
+    /// Every bucket mutation, in order, so a restore can undo each one
+    /// exactly and keep edge order. Its size tracks the edges changed, never
+    /// the size of the buckets they sit in.
+    pub(crate) bucket_undo: Vec<BucketUndo>,
+}
+
+/// One adjacency-bucket mutation recorded while touches are recorded.
+#[derive(Clone)]
+pub(crate) enum BucketUndo {
+    /// An outbound edge removed from position `index` of `node`'s bucket.
+    FromRemoved {
+        node: NodeId,
+        index: usize,
+        edge: EdgeRecord,
+    },
+    /// An outbound edge pushed onto `node`'s bucket; `created` when the push
+    /// created the bucket.
+    FromPushed { node: NodeId, created: bool },
+    /// `node`'s whole outbound bucket removed, moved here rather than copied.
+    FromTaken {
+        node: NodeId,
+        edges: Vec<EdgeRecord>,
+    },
+    /// An inbound edge id removed from position `index` of `node`'s bucket.
+    ToRemoved {
+        node: NodeId,
+        index: usize,
+        id: EdgeId,
+    },
+    /// An inbound edge id pushed onto `node`'s bucket.
+    ToPushed { node: NodeId, created: bool },
+    /// `node`'s whole inbound bucket removed, moved here rather than copied.
+    ToTaken { node: NodeId, ids: Vec<EdgeId> },
+}
+
+impl Clone for TouchLog {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl TouchLog {
+    /// Copies every prior value, unlike `clone`, which starts an empty log for
+    /// a cloned store.
+    pub(crate) fn duplicate(&self) -> Self {
+        Self {
+            recording: self.recording,
+            epoch: self.epoch,
+            nodes: self.nodes.clone(),
+            node_attachments: self.node_attachments.clone(),
+            edges: self.edges.clone(),
+            edge_attachments: self.edge_attachments.clone(),
+            bucket_undo: self.bucket_undo.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for TouchLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TouchLog")
+    }
 }
 
 /// In-memory graph storage for the spike.
@@ -51,16 +133,43 @@ pub struct GraphStore {
     ///
     /// Entries are present only when the attachment is `Some(...)`.
     pub(crate) edge_attachments: BTreeMap<EdgeId, AttachmentValue>,
-    /// Reverse index of `EdgeId -> from NodeId`.
+    /// Index of every edge by id: its source, target, and type.
     ///
-    /// This enables efficient edge migration/removal by id (used by tick patch replay),
-    /// avoiding `O(total_edges)` scans across all buckets.
-    pub(crate) edge_index: BTreeMap<EdgeId, NodeId>,
-    /// Reverse index of `EdgeId -> to NodeId`.
-    ///
-    /// This enables efficient maintenance of [`GraphStore::edges_to`] during
-    /// edge migration and deletion.
-    pub(crate) edge_to_index: BTreeMap<EdgeId, NodeId>,
+    /// With the id, these are the whole [`EdgeRecord`], so a lookup by id
+    /// never scans a bucket, whatever the source's degree. The index also
+    /// finds an edge's buckets for migration and removal (used by tick patch
+    /// replay) and maintains [`GraphStore::edges_to`].
+    pub(crate) edge_index: BTreeMap<EdgeId, EdgeEnds>,
+    /// Prior values of the slots written since recording began.
+    pub(crate) touched: TouchLog,
+}
+
+/// An edge's source, target, and type: its [`EdgeRecord`] less the id, which
+/// keys [`GraphStore::edge_index`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EdgeEnds {
+    pub(crate) from: NodeId,
+    pub(crate) to: NodeId,
+    pub(crate) ty: TypeId,
+}
+
+impl EdgeEnds {
+    fn of(edge: &EdgeRecord) -> Self {
+        Self {
+            from: edge.from,
+            to: edge.to,
+            ty: edge.ty,
+        }
+    }
+
+    fn record(self, id: EdgeId) -> EdgeRecord {
+        EdgeRecord {
+            id,
+            from: self.from,
+            to: self.to,
+            ty: self.ty,
+        }
+    }
 }
 
 impl Default for GraphStore {
@@ -81,7 +190,196 @@ impl GraphStore {
             node_attachments: BTreeMap::new(),
             edge_attachments: BTreeMap::new(),
             edge_index: BTreeMap::new(),
-            edge_to_index: BTreeMap::new(),
+            touched: TouchLog::default(),
+        }
+    }
+
+    /// Starts recording touches with an empty log.
+    pub(crate) fn begin_touch_log(&mut self, epoch: u64) {
+        self.touched = TouchLog {
+            recording: true,
+            epoch,
+            ..TouchLog::default()
+        };
+    }
+
+    /// Stops recording touches and discards the log.
+    pub(crate) fn end_touch_log(&mut self) {
+        self.touched = TouchLog::default();
+    }
+
+    /// Returns the edge record with `id`, wherever it is stored, from the
+    /// index alone: O(log edges), independent of the source's degree.
+    pub(crate) fn edge_record(&self, id: &EdgeId) -> Option<EdgeRecord> {
+        self.edge_index.get(id).map(|ends| ends.record(*id))
+    }
+
+    fn touch_node(&mut self, id: NodeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) = self.touched.nodes.entry(id) {
+                slot.insert(self.nodes.get(&id).cloned());
+            }
+        }
+    }
+
+    fn touch_node_attachment(&mut self, id: NodeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.node_attachments.entry(id)
+            {
+                slot.insert(self.node_attachments.get(&id).cloned());
+            }
+        }
+    }
+
+    fn touch_edge(&mut self, id: EdgeId) {
+        if self.touched.recording && !self.touched.edges.contains_key(&id) {
+            // The prior record is also the prior index entry, so restoring
+            // the record restores the index.
+            let prior = self.edge_record(&id);
+            self.touched.edges.insert(id, prior);
+        }
+    }
+
+    fn touch_edge_attachment(&mut self, id: EdgeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.edge_attachments.entry(id)
+            {
+                slot.insert(self.edge_attachments.get(&id).cloned());
+            }
+        }
+    }
+
+    fn log_bucket(&mut self, undo: BucketUndo) {
+        if self.touched.recording {
+            self.touched.bucket_undo.push(undo);
+        }
+    }
+
+    /// Removes edge `id` from `node`'s outbound bucket, dropping the bucket
+    /// when it empties. Returns whether the edge was there.
+    fn out_remove(&mut self, node: NodeId, id: EdgeId) -> bool {
+        let Some(edges) = self.edges_from.get_mut(&node) else {
+            return false;
+        };
+        let Some(index) = edges.iter().position(|e| e.id == id) else {
+            return false;
+        };
+        let edge = edges.remove(index);
+        let emptied = edges.is_empty();
+        self.log_bucket(BucketUndo::FromRemoved { node, index, edge });
+        if emptied {
+            self.out_take(node);
+        }
+        true
+    }
+
+    fn out_push(&mut self, node: NodeId, edge: EdgeRecord) {
+        let created = !self.edges_from.contains_key(&node);
+        self.edges_from.entry(node).or_default().push(edge);
+        self.log_bucket(BucketUndo::FromPushed { node, created });
+    }
+
+    fn out_take(&mut self, node: NodeId) {
+        if let Some(edges) = self.edges_from.remove(&node) {
+            self.log_bucket(BucketUndo::FromTaken { node, edges });
+        }
+    }
+
+    fn in_remove(&mut self, node: NodeId, id: EdgeId) -> bool {
+        let Some(ids) = self.edges_to.get_mut(&node) else {
+            return false;
+        };
+        let Some(index) = ids.iter().position(|candidate| *candidate == id) else {
+            return false;
+        };
+        ids.remove(index);
+        let emptied = ids.is_empty();
+        self.log_bucket(BucketUndo::ToRemoved { node, index, id });
+        if emptied {
+            self.in_take(node);
+        }
+        true
+    }
+
+    fn in_push(&mut self, node: NodeId, id: EdgeId) {
+        let created = !self.edges_to.contains_key(&node);
+        self.edges_to.entry(node).or_default().push(id);
+        self.log_bucket(BucketUndo::ToPushed { node, created });
+    }
+
+    fn in_take(&mut self, node: NodeId) {
+        if let Some(ids) = self.edges_to.remove(&node) {
+            self.log_bucket(BucketUndo::ToTaken { node, ids });
+        }
+    }
+
+    /// Restores the store exactly as it was when recording began, then stops
+    /// recording.
+    ///
+    /// Every touched entry of every map, and every touched bucket whole, gets
+    /// its prior value back, so the store is identical to its state at the
+    /// start, including the order of edges within each bucket.
+    pub(crate) fn restore_touches(&mut self) {
+        fn put_back<K: Ord, V>(map: &mut BTreeMap<K, V>, priors: BTreeMap<K, Option<V>>) {
+            for (key, prior) in priors {
+                match prior {
+                    Some(value) => {
+                        map.insert(key, value);
+                    }
+                    None => {
+                        map.remove(&key);
+                    }
+                }
+            }
+        }
+        let log = std::mem::take(&mut self.touched);
+        put_back(&mut self.nodes, log.nodes);
+        put_back(&mut self.node_attachments, log.node_attachments);
+        put_back(&mut self.edge_attachments, log.edge_attachments);
+        for undo in log.bucket_undo.into_iter().rev() {
+            match undo {
+                BucketUndo::FromRemoved { node, index, edge } => {
+                    self.edges_from.entry(node).or_default().insert(index, edge);
+                }
+                BucketUndo::FromPushed { node, created } => {
+                    if let Some(edges) = self.edges_from.get_mut(&node) {
+                        edges.pop();
+                        if created && edges.is_empty() {
+                            self.edges_from.remove(&node);
+                        }
+                    }
+                }
+                BucketUndo::FromTaken { node, edges } => {
+                    self.edges_from.insert(node, edges);
+                }
+                BucketUndo::ToRemoved { node, index, id } => {
+                    self.edges_to.entry(node).or_default().insert(index, id);
+                }
+                BucketUndo::ToPushed { node, created } => {
+                    if let Some(ids) = self.edges_to.get_mut(&node) {
+                        ids.pop();
+                        if created && ids.is_empty() {
+                            self.edges_to.remove(&node);
+                        }
+                    }
+                }
+                BucketUndo::ToTaken { node, ids } => {
+                    self.edges_to.insert(node, ids);
+                }
+            }
+        }
+        // An edge's prior record is its prior index entry.
+        for (id, prior) in log.edges {
+            match prior {
+                Some(edge) => {
+                    self.edge_index.insert(id, EdgeEnds::of(&edge));
+                }
+                None => {
+                    self.edge_index.remove(&id);
+                }
+            }
         }
     }
 
@@ -121,6 +419,7 @@ impl GraphStore {
 
     /// Returns a mutable reference to the node's attachment value (if any).
     pub fn node_attachment_mut(&mut self, id: &NodeId) -> Option<&mut AttachmentValue> {
+        self.touch_node_attachment(*id);
         self.node_attachments.get_mut(id)
     }
 
@@ -128,12 +427,19 @@ impl GraphStore {
     ///
     /// Edges are yielded in insertion order. For deterministic traversal
     /// (e.g., snapshot hashing), callers must sort by `EdgeId`.
-    pub fn edges_from(&self, id: &NodeId) -> impl Iterator<Item = &EdgeRecord> {
-        self.edges_from.get(id).into_iter().flatten()
+    /// The remaining bucket length is available in constant time, without
+    /// advancing or inspecting an edge. Bounded range readers can therefore
+    /// charge the entire bucket before filtering by edge type.
+    pub fn edges_from(&self, id: &NodeId) -> impl ExactSizeIterator<Item = &EdgeRecord> {
+        self.edges_from
+            .get(id)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
     }
 
     /// Returns a mutable reference to a node when it exists.
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeRecord> {
+        self.touch_node(*id);
         self.nodes.get_mut(id)
     }
 
@@ -141,6 +447,7 @@ impl GraphStore {
     ///
     /// Passing `None` clears any existing attachment.
     pub fn set_node_attachment(&mut self, id: NodeId, value: Option<AttachmentValue>) {
+        self.touch_node_attachment(id);
         match value {
             None => {
                 self.node_attachments.remove(&id);
@@ -172,6 +479,7 @@ impl GraphStore {
 
     /// Returns a mutable reference to the edge's attachment value (if any).
     pub fn edge_attachment_mut(&mut self, id: &EdgeId) -> Option<&mut AttachmentValue> {
+        self.touch_edge_attachment(*id);
         self.edge_attachments.get_mut(id)
     }
 
@@ -179,6 +487,7 @@ impl GraphStore {
     ///
     /// Passing `None` clears any existing attachment.
     pub fn set_edge_attachment(&mut self, id: EdgeId, value: Option<AttachmentValue>) {
+        self.touch_edge_attachment(id);
         match value {
             None => {
                 self.edge_attachments.remove(&id);
@@ -191,6 +500,7 @@ impl GraphStore {
 
     /// Inserts or replaces a node in the store.
     pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+        self.touch_node(id);
         self.nodes.insert(id, record);
     }
 
@@ -222,60 +532,21 @@ impl GraphStore {
         }
         let edge_id = edge.id;
         let to = edge.to;
-        let prev_from = self.edge_index.insert(edge_id, from);
-        let prev_to = self.edge_to_index.insert(edge_id, to);
-        if let Some(prev_from) = prev_from {
-            let bucket_is_empty = self.edges_from.get_mut(&prev_from).map_or_else(
-                || {
-                    debug_assert!(
-                        false,
-                        "edge index referenced a missing bucket for edge id: {edge_id:?}"
-                    );
-                    false
-                },
-                |edges| {
-                    let before = edges.len();
-                    edges.retain(|e| e.id != edge_id);
-                    if edges.len() == before {
-                        debug_assert!(
-                            false,
-                            "edge index referenced an edge missing from its bucket: {edge_id:?}"
-                        );
-                    }
-                    edges.is_empty()
-                },
+        self.touch_edge(edge_id);
+        if let Some(prev) = self.edge_index.insert(edge_id, EdgeEnds::of(&edge)) {
+            let removed = self.out_remove(prev.from, edge_id);
+            debug_assert!(
+                removed,
+                "edge index referenced an edge missing from its bucket: {edge_id:?}"
             );
-            if bucket_is_empty {
-                self.edges_from.remove(&prev_from);
-            }
-        }
-        if let Some(prev_to) = prev_to {
-            let bucket_is_empty = self.edges_to.get_mut(&prev_to).map_or_else(
-                || {
-                    debug_assert!(
-                        false,
-                        "edge-to index referenced a missing bucket for edge id: {edge_id:?}"
-                    );
-                    false
-                },
-                |edges| {
-                    let before = edges.len();
-                    edges.retain(|id| *id != edge_id);
-                    if edges.len() == before {
-                        debug_assert!(
-                            false,
-                            "edge-to index referenced an edge missing from its bucket: {edge_id:?}"
-                        );
-                    }
-                    edges.is_empty()
-                },
+            let removed = self.in_remove(prev.to, edge_id);
+            debug_assert!(
+                removed,
+                "edge index referenced an edge missing from its inbound bucket: {edge_id:?}"
             );
-            if bucket_is_empty {
-                self.edges_to.remove(&prev_to);
-            }
         }
-        self.edges_from.entry(from).or_default().push(edge);
-        self.edges_to.entry(to).or_default().push(edge_id);
+        self.out_push(from, edge);
+        self.in_push(to, edge_id);
     }
 
     /// Deletes a node and removes any attachments and incident edges.
@@ -293,80 +564,68 @@ impl GraphStore {
     /// This operation is not transactional on its own. If used during a transaction,
     /// the caller must ensure consistency with the transaction's isolation guarantees.
     pub fn delete_node_cascade(&mut self, node: NodeId) -> bool {
-        if self.nodes.remove(&node).is_none() {
+        if !self.nodes.contains_key(&node) {
             return false;
         }
+        self.touch_node(node);
+        self.touch_node_attachment(node);
+        self.nodes.remove(&node);
         self.node_attachments.remove(&node);
 
-        // Remove outgoing edges (the bucket).
-        if let Some(out_edges) = self.edges_from.remove(&node) {
-            for e in out_edges {
-                self.edge_index.remove(&e.id);
-                self.edge_to_index.remove(&e.id);
-                let remove_bucket = self.edges_to.get_mut(&e.to).map_or_else(
-                    || {
-                        debug_assert!(
-                            false,
-                            "edge-to index missing inbound bucket for edge id: {:?}",
-                            e.id
-                        );
-                        false
-                    },
-                    |edges| {
-                        edges.retain(|id| *id != e.id);
-                        edges.is_empty()
-                    },
-                );
-                if remove_bucket {
-                    self.edges_to.remove(&e.to);
-                }
-                self.edge_attachments.remove(&e.id);
-            }
+        // Remove outgoing edges: the whole bucket goes, since every edge in it
+        // is deleted.
+        let outbound: Vec<(EdgeId, NodeId)> = self
+            .edges_from
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .map(|e| (e.id, e.to))
+            .collect();
+        // Capture every outbound edge's prior record before its bucket goes.
+        for (edge_id, _) in &outbound {
+            self.touch_edge(*edge_id);
+            self.touch_edge_attachment(*edge_id);
+        }
+        self.out_take(node);
+        for (edge_id, to) in outbound {
+            self.edge_index.remove(&edge_id);
+            let removed = self.in_remove(to, edge_id);
+            debug_assert!(
+                removed,
+                "edge-to index missing inbound bucket entry for edge id: {edge_id:?}"
+            );
+            self.edge_attachments.remove(&edge_id);
         }
 
         // Remove inbound edges (reverse adjacency).
-        if let Some(inbound) = self.edges_to.remove(&node) {
-            for edge_id in inbound {
-                let Some(from) = self.edge_index.remove(&edge_id) else {
-                    debug_assert!(
-                        false,
-                        "edge index missing inbound edge id during delete_node_cascade: {edge_id:?}"
-                    );
-                    continue;
-                };
-                let Some(to) = self.edge_to_index.remove(&edge_id) else {
-                    debug_assert!(
-                        false,
-                        "edge-to index missing inbound edge id during delete_node_cascade: {edge_id:?}"
-                    );
-                    continue;
-                };
-                debug_assert_eq!(
-                    to, node,
-                    "inbound edge-to index desynced for edge id: {edge_id:?}"
+        let inbound: Vec<EdgeId> = self
+            .edges_to
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+        self.in_take(node);
+        for edge_id in inbound {
+            self.touch_edge(edge_id);
+            self.touch_edge_attachment(edge_id);
+            let Some(ends) = self.edge_index.remove(&edge_id) else {
+                debug_assert!(
+                    false,
+                    "edge index missing inbound edge id during delete_node_cascade: {edge_id:?}"
                 );
-                let Some(edges) = self.edges_from.get_mut(&from) else {
-                    debug_assert!(
-                        false,
-                        "edge index referenced a missing bucket for inbound edge id: {edge_id:?}"
-                    );
-                    continue;
-                };
-                let before = edges.len();
-                edges.retain(|e| e.id != edge_id);
-                if edges.len() == before {
-                    debug_assert!(
-                        false,
-                        "edge index referenced an inbound edge missing from its bucket: {edge_id:?}"
-                    );
-                    continue;
-                }
-                let bucket_is_empty = edges.is_empty();
-                if bucket_is_empty {
-                    self.edges_from.remove(&from);
-                }
-                self.edge_attachments.remove(&edge_id);
-            }
+                continue;
+            };
+            debug_assert_eq!(
+                ends.to, node,
+                "inbound edge index desynced for edge id: {edge_id:?}"
+            );
+            let removed = self.out_remove(ends.from, edge_id);
+            debug_assert!(
+                removed,
+                "edge index referenced an inbound edge missing from its bucket: {edge_id:?}"
+            );
+            self.edge_attachments.remove(&edge_id);
         }
         true
     }
@@ -405,12 +664,14 @@ impl GraphStore {
         }
 
         // Safe to delete: remove node and its attachment
+        self.touch_node(node);
+        self.touch_node_attachment(node);
         self.nodes.remove(&node);
         self.node_attachments.remove(&node);
 
         // Clean up empty edge buckets (defensive; should already be empty)
-        self.edges_from.remove(&node);
-        self.edges_to.remove(&node);
+        self.out_take(node);
+        self.in_take(node);
 
         Ok(())
     }
@@ -420,55 +681,25 @@ impl GraphStore {
     /// Returns `true` if an edge was removed; returns `false` if the edge did not exist or
     /// if the reverse index indicates the edge belongs to a different bucket.
     pub fn delete_edge_exact(&mut self, from: NodeId, edge_id: EdgeId) -> bool {
-        match self.edge_index.get(&edge_id) {
-            Some(current_from) if *current_from == from => {}
+        let to = match self.edge_index.get(&edge_id) {
+            Some(ends) if ends.from == from => ends.to,
             _ => return false,
-        }
-        let Some(to) = self.edge_to_index.get(&edge_id).copied() else {
-            debug_assert!(
-                false,
-                "edge-to index missing edge id referenced by edge_index: {edge_id:?}"
-            );
-            return false;
         };
-        let Some(edges) = self.edges_from.get_mut(&from) else {
-            debug_assert!(
-                false,
-                "edge index referenced a missing bucket for edge id: {edge_id:?}"
-            );
-            return false;
-        };
-        let before = edges.len();
-        edges.retain(|e| e.id != edge_id);
-        if edges.len() == before {
+        self.touch_edge(edge_id);
+        self.touch_edge_attachment(edge_id);
+        if !self.out_remove(from, edge_id) {
             debug_assert!(
                 false,
                 "edge index referenced an edge missing from its bucket: {edge_id:?}"
             );
             return false;
         }
-        let bucket_is_empty = edges.is_empty();
         self.edge_index.remove(&edge_id);
-        self.edge_to_index.remove(&edge_id);
-        if bucket_is_empty {
-            self.edges_from.remove(&from);
-        }
-        let remove_bucket = self.edges_to.get_mut(&to).map_or_else(
-            || {
-                debug_assert!(
-                    false,
-                    "edge-to index referenced a missing bucket for edge id: {edge_id:?}"
-                );
-                false
-            },
-            |edges| {
-                edges.retain(|id| *id != edge_id);
-                edges.is_empty()
-            },
+        let removed = self.in_remove(to, edge_id);
+        debug_assert!(
+            removed,
+            "edge-to index referenced an edge missing from its bucket: {edge_id:?}"
         );
-        if remove_bucket {
-            self.edges_to.remove(&to);
-        }
         self.edge_attachments.remove(&edge_id);
         true
     }
@@ -552,6 +783,55 @@ mod tests {
     use super::*;
     use crate::ident::{make_edge_id, make_node_id, make_type_id};
 
+    // A range budget must count nonmatching edges before advancing the iterator.
+    #[test]
+    fn outgoing_bucket_length_is_available_before_inspection_and_tracks_moves() {
+        let mut store = GraphStore::default();
+        let a = make_node_id("range/a");
+        let b = make_node_id("range/b");
+        let ty = make_type_id("range/matching");
+        let other = make_type_id("range/nonmatching");
+        for node in [a, b] {
+            store.insert_node(node, NodeRecord { ty });
+        }
+        assert_eq!(store.edges_from(&a).len(), 0);
+        for (name, edge_type) in [("first", ty), ("second", other), ("third", other)] {
+            store.insert_edge(
+                a,
+                EdgeRecord {
+                    id: make_edge_id(name),
+                    from: a,
+                    to: b,
+                    ty: edge_type,
+                },
+            );
+        }
+        let mut bucket = store.edges_from(&a);
+        assert_eq!(bucket.len(), 3);
+        assert_eq!(
+            bucket.next().map(|edge| edge.id),
+            Some(make_edge_id("first"))
+        );
+        assert_eq!(bucket.len(), 2);
+        drop(bucket);
+        store.insert_edge(
+            b,
+            EdgeRecord {
+                id: make_edge_id("second"),
+                from: b,
+                to: a,
+                ty: other,
+            },
+        );
+        assert_eq!(store.edges_from(&a).len(), 2);
+        assert_eq!(store.edges_from(&b).len(), 1);
+        assert!(store.delete_edge_exact(a, make_edge_id("first")));
+        assert_eq!(store.edges_from(&a).len(), 1);
+        assert!(store.delete_node_cascade(b));
+        assert_eq!(store.edges_from(&a).len(), 0);
+        assert_eq!(store.edges_from(&b).len(), 0);
+    }
+
     #[test]
     fn delete_node_cascade_updates_reverse_indexes() {
         let mut store = GraphStore::default();
@@ -615,13 +895,10 @@ mod tests {
         assert!(store.has_edge(&e4));
 
         assert!(!store.edge_index.contains_key(&e1));
-        assert!(!store.edge_to_index.contains_key(&e1));
         assert!(!store.edge_index.contains_key(&e2));
-        assert!(!store.edge_to_index.contains_key(&e2));
         assert!(!store.edge_index.contains_key(&e3));
-        assert!(!store.edge_to_index.contains_key(&e3));
-        assert_eq!(store.edge_index.get(&e4), Some(&a));
-        assert_eq!(store.edge_to_index.get(&e4), Some(&c));
+        assert_eq!(store.edge_index.get(&e4).map(|ends| ends.from), Some(a));
+        assert_eq!(store.edge_index.get(&e4).map(|ends| ends.to), Some(c));
 
         assert!(!store.edges_to.contains_key(&b));
         assert!(!store.edges_to.contains_key(&a));

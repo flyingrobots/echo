@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum Schema {
+    Truth,
     Word(u64),
     Blob {
         low: u64,
@@ -87,6 +88,7 @@ impl Schema {
         match self {
             // Nominal types retain identity without adding physical value tags.
             Self::Nominal { representation, .. } => return representation.measure(),
+            Self::Truth => size.encoded = 1,
             Self::Word(_) => {}
             Self::Blob { high, .. } => {
                 size.copy.storage += u128::from(*high);
@@ -128,6 +130,10 @@ impl<'a> Types<'a> {
             remaining: 65_536,
         }
     }
+    pub(super) fn proof_work(&mut self, bytes: usize) -> Check<()> {
+        self.remaining = self.remaining.checked_sub(bytes).ok_or(())?;
+        Ok(())
+    }
     pub(super) fn step(&mut self, depth: usize) -> Check<()> {
         if depth > 64 {
             return Err(());
@@ -142,6 +148,9 @@ impl<'a> Types<'a> {
     }
     pub(super) fn resolve(&mut self, name: &str, depth: usize) -> Check<Schema> {
         self.step(depth)?;
+        if name == "Bool" {
+            return Ok(Schema::Truth);
+        }
         if let Some(width) = match name {
             "U8" => Some(u8::MAX.into()),
             "U16" => Some(u16::MAX.into()),
@@ -190,6 +199,7 @@ impl<'a> Types<'a> {
         let resolved = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.module, "types")?, resolved)?;
         match string(get(definition, "kind")?)? {
+            "Bool" => Ok(Schema::Truth),
             "Int" => self.resolve(string(get(definition, "width")?)?, depth + 1),
             "Nominal" => {
                 let identity = string(get(definition, "contract")?)?;

@@ -32,3 +32,18 @@ registry dependency graph.
 This codec authenticates neither an artifact's schema nor its authority. A
 caller must separately validate the decoded value against the owning admitted
 CDDL root and must not treat a domain-framed digest as runtime Echo admission.
+
+## Source-closure encoding
+
+`source_closure::source_closure_root_v1` checks the distinct
+`edict.source-closure/v1` wire envelope and borrows its exact root source. It
+checks closed fields, unique module coordinates, 1–64 units, the 1 MiB aggregate
+original-byte ceiling, every unit's typed SHA-256 source digest, UTF-8 and the
+expected root coordinate. It shares the canonical digest primitives used by the
+provider models and bounded-read decoder. It performs no source parsing,
+import-pin verification, graph traversal or runtime admission. Edict's compiler
+still owns those source authentication obligations. The caller also checks the
+canonical outer artifact and its domain-framed identity.
+
+Run `cargo test -p echo-edict-canonical --test source_closure` for envelope,
+substitution and exact byte-budget boundary checks.

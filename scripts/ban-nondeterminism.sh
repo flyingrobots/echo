@@ -61,6 +61,9 @@ PATTERNS=(
   'unordered-container	\buse[[:space:]]+std::collections::\{[^;]*\bHash(Map|Set)\b'
   'unordered-container	\buse[[:space:]]+rustc_hash::\{?[^;]*\bFxHash(Map|Set)\b'
   'unordered-container	\b(HashMap|HashSet|FxHashMap|FxHashSet)[[:space:]]*<'
+  # A hand-written hash table escapes the named-type rules above. Each one needs
+  # its own waiver showing its contents and capacity cannot reach any output.
+  'hand-hashed-table	[Oo]pen[- ][Aa]ddressing'
 
   # JSON & “helpful” serialization in core paths
   'json-serialization	\bserde_json::\b'

@@ -20,6 +20,7 @@ members = [
     "crates/echo-edict-provider-verifier",
     "crates/echo-wesley-gen",
     "crates/echo-dry-tests",
+    "crates/echo-alloc-witness",
     "crates/echo-cas",
     "crates/echo-scene-port",
     "crates/echo-scene-codec",

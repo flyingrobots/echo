@@ -127,7 +127,11 @@ impl WorldlineTickPatchV1 {
             });
         }
 
+        #[cfg(feature = "application_root_shadow")]
+        let was_current = state.application_root_is_current();
         apply_ops_to_state(state.warp_state_mut(), &self.ops)?;
+        #[cfg(feature = "application_root_shadow")]
+        state.advance_application_root(was_current, &self.ops, &self.out_slots);
         Ok(())
     }
 }

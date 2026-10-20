@@ -349,7 +349,7 @@ pub fn build_provider_generator_source_bundle_v1(
 /// contract. No filesystem or environment discovery is performed.
 pub fn checked_provider_generator_source_bundle_v1(
 ) -> Result<ProviderGeneratorSourceBundleV1, ProviderArtifactCorpusError> {
-    let sources: [(&str, &[u8]); 20] = [
+    let sources: [(&str, &[u8]); 21] = [
         (
             "Cargo.lock",
             include_bytes!("../assets/v1/repository/Cargo.lock.source"),
@@ -365,6 +365,12 @@ pub fn checked_provider_generator_source_bundle_v1(
         (
             "crates/echo-edict-canonical/src/lib.rs",
             include_bytes!("../assets/v1/repository/crates/echo-edict-canonical/src/lib.rs.source"),
+        ),
+        (
+            "crates/echo-edict-canonical/src/source_closure.rs",
+            include_bytes!(
+                "../assets/v1/repository/crates/echo-edict-canonical/src/source_closure.rs.source"
+            ),
         ),
         (
             "crates/echo-registry-api/Cargo.toml",

@@ -3,6 +3,7 @@
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
 mod types;
+mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -97,8 +98,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                 }
                 "if" => {
                     let predicate = get(expression, "predicate")?;
-                    expressions.push((get(predicate, "left")?, depth + 2));
-                    expressions.push((get(predicate, "right")?, depth + 2));
+                    predicate_expressions(predicate, depth + 1, &mut types, &mut expressions)?;
                     expressions.push((get(expression, "then")?, depth + 1));
                     expressions.push((get(expression, "else")?, depth + 1));
                 }
@@ -110,10 +110,12 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         }
                         edges.insert(callee);
                     } else if ![
+                        "core.bytes.isUtf8",
                         "core.bytes.length",
                         "core.bytes.concat",
                         "core.bytes.slice",
                         "core.integer.subtract",
+                        "core.integer.add",
                     ]
                     .contains(&callee)
                     {
@@ -145,6 +147,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             types: &mut types,
             definitions: &definitions,
             summaries: &summaries,
+            proven: Vec::new(),
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -168,8 +171,9 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         types: &mut types,
         definitions: &definitions,
         summaries: &summaries,
+        proven: Vec::new(),
     };
-    if super::map_field(core, "functions").is_none() {
+    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
     }
     for (_, intent) in members(get(core, "intents")?)? {
@@ -277,9 +281,10 @@ struct Checker<'a, 'b> {
     types: &'b mut Types<'a>,
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
+    proven: Vec<&'a Value>,
 }
-impl Checker<'_, '_> {
-    fn function(&mut self, definition: &Definition<'_>) -> Check<Summary> {
+impl<'a> Checker<'a, '_> {
+    fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
         let mut frame = Frame::new(definition.params.iter().chain(declarations), self.types)?;
         let mut height = definition.result.measure()?.height;
@@ -323,7 +328,12 @@ impl Checker<'_, '_> {
             height: height.max(value.height),
         })
     }
-    fn expression(&mut self, value: &Value, frame: &Frame<'_>, depth: usize) -> Check<Expression> {
+    fn expression(
+        &mut self,
+        value: &'a Value,
+        frame: &Frame<'a>,
+        depth: usize,
+    ) -> Check<Expression> {
         self.types.step(depth)?;
         let mut charge = Charge {
             ticks: 1,
@@ -334,6 +344,21 @@ impl Checker<'_, '_> {
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bool" {
+                    exact(literal, &["kind", "value"])?;
+                    if !matches!(get(literal, "value")?, Value::Bool(_)) {
+                        return Err(());
+                    }
+                    charge.append(Charge {
+                        ticks: 1,
+                        storage: 64,
+                    })?;
+                    return Ok(Expression {
+                        schema: Schema::Truth,
+                        charge,
+                        height: 0,
+                    });
+                }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
                 if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
@@ -440,8 +465,25 @@ impl Checker<'_, '_> {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
                     height = height.max(1);
-                    let (schema, intrinsic) =
-                        intrinsic(name, arguments, &argument_schemas, &declared)?;
+                    let addition_proven = if name == "core.integer.add" {
+                        let [Schema::Word(max)] = declared.as_slice() else {
+                            return Err(());
+                        };
+                        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+                            return Err(());
+                        }
+                        unsigned_addition::prove(arguments, *max, &self.proven, self.types)?;
+                        true
+                    } else {
+                        false
+                    };
+                    let (schema, intrinsic) = intrinsic(
+                        name,
+                        arguments,
+                        &argument_schemas,
+                        &declared,
+                        addition_proven,
+                    )?;
                     charge.append(intrinsic)?;
                     schema
                 }
@@ -459,11 +501,45 @@ impl Checker<'_, '_> {
     }
     fn predicate(
         &mut self,
-        predicate: &Value,
-        frame: &Frame<'_>,
+        predicate: &'a Value,
+        frame: &Frame<'a>,
         depth: usize,
     ) -> Check<(Charge, usize)> {
         self.types.step(depth)?;
+        match string(get(predicate, "kind")?)? {
+            "all" => {
+                exact(predicate, &["kind", "values"])?;
+                let values = sequence(get(predicate, "values")?)?;
+                if values.is_empty() {
+                    return Err(());
+                }
+                let mut total = Charge {
+                    ticks: 1,
+                    storage: 0,
+                };
+                let mut height = 0;
+                let inherited = self.proven.len();
+                for child in values {
+                    let (charge, child_height) = self.predicate(child, frame, depth + 1)?;
+                    total.append(charge)?;
+                    height = height.max(child_height);
+                    self.proven.push(child);
+                }
+                self.proven.truncate(inherited);
+                return Ok((total, height + 1));
+            }
+            "not" => {
+                exact(predicate, &["kind", "value"])?;
+                let (mut charge, height) =
+                    self.predicate(get(predicate, "value")?, frame, depth + 1)?;
+                charge.append(Charge {
+                    ticks: 1,
+                    storage: 0,
+                })?;
+                return Ok((charge, height + 1));
+            }
+            _ => {}
+        }
         exact(predicate, &["kind", "op", "left", "right"])?;
         if string(get(predicate, "kind")?)? != "compare" {
             return Err(());
@@ -483,6 +559,7 @@ impl Checker<'_, '_> {
             left.schema.representation(),
             right.schema.representation(),
         ) {
+            ("==", Schema::Truth, Schema::Truth) => 0,
             ("==", Schema::Blob { high: a, .. }, Schema::Blob { high: b, .. }) => {
                 u128::from((*a).max(*b))
             }
@@ -499,7 +576,8 @@ impl Checker<'_, '_> {
         }
         Ok((charge, height))
     }
-    fn intent(&mut self, intent: &Value, read: bool) -> Check<()> {
+    fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        self.proven.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
@@ -525,6 +603,7 @@ impl Checker<'_, '_> {
         }
         for constraint in sequence(get(intent, "inputConstraints")?)? {
             charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
+            self.proven.push(get(constraint, "predicate")?);
         }
         for node in sequence(get(body, "nodes")?)? {
             if read {
@@ -597,6 +676,7 @@ fn intrinsic(
     arguments: &[Value],
     actual: &[Schema],
     declared: &[Schema],
+    addition_proven: bool,
 ) -> Check<(Schema, Charge)> {
     let literal = |value: &Value| -> Check<u64> {
         if string(get(value, "kind")?)? != "const" {
@@ -605,6 +685,17 @@ fn intrinsic(
         unsigned(get(get(value, "value")?, "value")?)
     };
     match (name, actual, declared) {
+        ("core.bytes.isUtf8", [actual], [expected @ Schema::Blob { high, .. }])
+            if expected == actual =>
+        {
+            Ok((
+                Schema::Truth,
+                Charge {
+                    ticks: u128::from(*high) + 2,
+                    storage: 64,
+                },
+            ))
+        }
         ("core.bytes.length", [actual], [expected @ Schema::Blob { .. }])
             if expected.encloses(actual) =>
         {
@@ -634,6 +725,17 @@ fn intrinsic(
                 Charge {
                     ticks: u128::from(high) + 3,
                     storage: u128::from(high) + 64,
+                },
+            ))
+        }
+        ("core.integer.add", [left, right], [expected @ Schema::Word(_)])
+            if addition_proven && expected == left && expected == right =>
+        {
+            Ok((
+                expected.clone(),
+                Charge {
+                    ticks: 3,
+                    storage: 64,
                 },
             ))
         }
@@ -713,6 +815,32 @@ fn exact(value: &Value, fields: &[&str]) -> Check<()> {
     for (name, _) in values {
         if !fields.contains(&string(name)?) {
             return Err(());
+        }
+    }
+    Ok(())
+}
+
+fn predicate_expressions<'a>(
+    predicate: &'a Value,
+    depth: usize,
+    types: &mut Types<'_>,
+    expressions: &mut Vec<(&'a Value, usize)>,
+) -> Check<()> {
+    let mut pending = vec![(predicate, depth)];
+    while let Some((predicate, depth)) = pending.pop() {
+        types.step(depth)?;
+        match string(get(predicate, "kind")?)? {
+            "compare" => {
+                expressions.push((get(predicate, "left")?, depth + 1));
+                expressions.push((get(predicate, "right")?, depth + 1));
+            }
+            "not" => pending.push((get(predicate, "value")?, depth + 1)),
+            "all" => {
+                for child in sequence(get(predicate, "values")?)? {
+                    pending.push((child, depth + 1));
+                }
+            }
+            _ => return Err(()),
         }
     }
     Ok(())

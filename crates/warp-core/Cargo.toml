@@ -45,6 +45,9 @@ native_rule_bootstrap = []
 # INTERNAL ONLY: exposes host/test fixture seams for Echo-owned admission
 # evidence. Downstream application crates must not enable this feature.
 host_test = []
+# EXPERIMENTAL (M1): keep an incremental application root beside the legacy
+# state root, in shadow mode. It changes no root, receipt or wire format.
+application_root_shadow = []
 # TRUSTED HOST ONLY: exposes runtime-owner authority constructors for host
 # adapters that own scheduler/runtime control. Application crates must not
 # enable this feature.
@@ -80,6 +83,11 @@ harness = false
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[bench]]
+name = "scene_fixtures"
+harness = false
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[bench]]
 name = "wal_record_cost"
 harness = false
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
@@ -101,11 +109,19 @@ name = "optic_invocation_admission_tests"
 required-features = ["host_test"]
 
 [[test]]
+name = "admission_comparison_tests"
+required-features = ["host_test"]
+
+[[test]]
 name = "scheduler_fault_recovery_authority"
 required-features = ["trusted_runtime"]
 
 [[test]]
 name = "installed_contract_registry_tests"
+required-features = ["native_rule_bootstrap"]
+
+[[test]]
+name = "commit_touch_log"
 required-features = ["native_rule_bootstrap"]
 
 [[test]]
@@ -126,6 +142,18 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[test]]
 name = "edict_pure_evaluation_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_pure_predicates_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_byte_literal_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_unsigned_addition_tests"
 required-features = ["trusted_runtime"]
 
 [[test]]
@@ -179,6 +207,10 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[test]]
 name = "trusted_runtime_host_loop_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "scene_fixture_tests"
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[test]]

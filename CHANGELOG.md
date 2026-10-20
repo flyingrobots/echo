@@ -95,6 +95,30 @@
 
 ### Changed
 
+- Provider semantic declarations now support explicitly bounded Core byte
+  aliases, including exact 32-byte identifiers. Byte aliases participate in
+  bounded record graphs and generate canonical lawpack type definitions.
+  Inverted ranges, malformed bounds, recursive records and claims on Edict
+  Core type identities refuse before artifact generation.
+
+- An engine keeps the state root's working memory across commits. Once that
+  memory has grown to the reachable graph, a commit's state-root hash
+  allocates nothing, except when the membership table falls back to the
+  original ordered walk (node ids that collide pathologically, or more
+  reachable nodes than a `u32` position can name), which allocates as before.
+  The hashed bytes are unchanged, and the state root is independent of the
+  scratch's history. The memory is reused, not bounded: it keeps its peak size
+  (about 144 bytes per reachable node, plus 8 bytes per edge of the largest
+  reachable edge bucket) until the engine is dropped. Before,
+  every commit allocated in proportion to the reachable graph (about 4 MB at
+  16,000 reachable entities). Reachability finds each node once, with one
+  membership probe per edge, then sorts once: O(edges + n log n) at any graph
+  depth. A traversal that falls back to the ordered walk costs
+  O(edges log n). Commit time is still proportional to the reachable graph, because the
+  state root is defined as one hash over it. The membership table is a
+  hand-written hash table; `ban-nondeterminism.sh` now flags such tables, and
+  this one carries a narrow waiver stating why it cannot affect output.
+
 - `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).
   It writes `EINGR002`, byte for byte as before, for an envelope without a
   Continuum occurrence, and `EINGR003` for one with an occurrence.
@@ -318,6 +342,42 @@
 
 ### Added
 
+- Bounded pure evaluation executes compiler-produced U32/U64 addition with
+  checked width bounds and ordinary work/value-storage charging. Independent
+  native provider judgments require same-width operands and a dominating
+  no-overflow proof, including legacy Core without a function table.
+
+- Experimental feature `application_root_shadow` (M1, off by default): an
+  incremental application root over every node, edge and attachment record of
+  a worldline state, kept beside the legacy state root, which it neither
+  replaces nor changes. It uses the `echo.application-root.radix.v0`
+  compressed radix trie, advances from each commit's complete write set, and
+  survives rollback, replay and forks. `WorldlineState::application_root`,
+  `application_opening` and `verify_application_opening` expose the root and
+  membership and absence openings.
+
+- Outgoing-edge range claims retain source WARP, source node and edge type in
+  footprint union and scheduler reservation, including observed empty ranges.
+  Range-bearing operation footprint identities bind both range axes separately;
+  footprints without ranges keep their V1 identities. Range slots survive patch
+  identity, retained provenance and native Tick input/output metadata. Historical
+  host range readings replay a selected prefix and preserve edge relabeling,
+  movement and deletion. This does not implement the authored operation effect
+  bridge.
+
+- Native Edict provider judgments accept the distinct bounded source-closure
+  artifact, preserve its identity and refuse mixed or relabelled source forms.
+  An explicit generation variant carries its owning schema binding; generic
+  bounded-read decoding rechecks the source domain and every retained unit.
+
+- Explicit Edict source-module contract publication admission pins the exact
+  upstream CDDL/manifest pair and validates its source-closure envelope without
+  changing existing publication selections or enabling executable module support.
+
+- Bounded pure Edict evaluation accepts compiler-produced byte constants with
+  raw octets and ordinary deterministic value-copy charges. Closed shape checks
+  reject text payloads and extra fields. A retained public compiler package and
+  separate accepted report exercise literal output and evaluation budgets.
 - Causal intents get an identity recipe that a plain intent cannot alias
   (#885). Under the original recipe a plain intent could reproduce a causal
   intent's hash input exactly and take its ingress and submission IDs. New
@@ -1985,6 +2045,36 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   future specs).
 
 ### Fixed
+
+- Completed shadow application-root benchmark rounds are invalid when their
+  recorded incremental/rebuild or live/replay parity is missing or failed, including
+  builds without `delta_validate`.
+
+- F5 benchmark validation rejects observations from a different executed
+  workload, including runs without a pinned script golden.
+
+- Stale-basis Action corroboration (#837) reads every slot a retained tick
+  wrote, not only its declared `out_slots`. Runtime-ingress materialization
+  writes the event node, its intent attachment and its kind edge outside any
+  rule footprint; those writes were invisible to the interval check. A tick
+  that upserts or deletes a warp instance now makes the interval's writes
+  unknown, so a stale Action across it keeps the whole-frontier rule.
+
+- Outgoing-edge bucket iterators expose their exact remaining length without
+  inspecting edges, so bounded readers can precharge the entire source bucket
+  before filtering by type.
+
+- The native pure interpreter evaluates bounded UTF-8 byte predicates with
+  complete aperture charging and typed Boolean values. Native provider judgments
+  independently validate matching helper/read guards and their bounded scan work.
+
+- Pure evaluation executes compiler-produced negated input guards, including
+  authored no-op refusal after checked byte-range predicates, with bounded
+  decoding, combined traversal and deterministic step accounting.
+
+- Pure evaluation accepts compiler-produced conjunctive input guards instead of
+  rejecting their `all` predicate shape as an invalid artifact. Conjunctions
+  retain deterministic short-circuit metering and combined traversal limits.
 
 - `dispatch_intent` no longer stages a witnessed suffix import against the
   kernel's default worldline (#892). It ignored the request's receiving

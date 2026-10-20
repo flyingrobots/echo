@@ -5905,16 +5905,28 @@ impl SchedulerCoordinator {
                             .frontier_mut(&key.worldline_id)
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                         // The engine rewrites the graph outside the journal.
-                        runtime_before
-                            .state_journal_mut(key.worldline_id)?
-                            .retain_copy(frontier.state().warp_state());
-                        engine
+                        // The commit's touch log is its undo record, handed to
+                        // the journal once the commit stands.
+                        #[cfg(feature = "application_root_shadow")]
+                        let application_root_was_current =
+                            frontier.state().application_root_is_current();
+                        let (outcome, touches) = engine
                             .commit_attributed_with_state(
                                 frontier.state_mut(),
                                 &admitted,
                                 &admitted_submission_ids(*key, &admitted),
                             )
-                            .map_err(RuntimeError::from)?
+                            .map_err(RuntimeError::from)?;
+                        #[cfg(feature = "application_root_shadow")]
+                        frontier.state_mut().advance_application_root(
+                            application_root_was_current,
+                            outcome.patch.ops(),
+                            outcome.patch.out_slots(),
+                        );
+                        runtime_before
+                            .state_journal_mut(key.worldline_id)?
+                            .push_touches(touches);
+                        outcome
                     };
                     (snapshot, patch, receipt)
                 };
@@ -5929,16 +5941,28 @@ impl SchedulerCoordinator {
                         .frontier_mut(&key.worldline_id)
                         .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                     // The engine rewrites the graph outside the journal.
-                    runtime_before
-                        .state_journal_mut(key.worldline_id)?
-                        .retain_copy(frontier.state().warp_state());
-                    engine
+                    // The commit's touch log is its undo record, handed to
+                    // the journal once the commit stands.
+                    #[cfg(feature = "application_root_shadow")]
+                    let application_root_was_current =
+                        frontier.state().application_root_is_current();
+                    let (outcome, touches) = engine
                         .commit_attributed_with_state(
                             frontier.state_mut(),
                             &admitted,
                             &admitted_submission_ids(*key, &admitted),
                         )
-                        .map_err(RuntimeError::from)?
+                        .map_err(RuntimeError::from)?;
+                    #[cfg(feature = "application_root_shadow")]
+                    frontier.state_mut().advance_application_root(
+                        application_root_was_current,
+                        outcome.patch.ops(),
+                        outcome.patch.out_slots(),
+                    );
+                    runtime_before
+                        .state_journal_mut(key.worldline_id)?
+                        .push_touches(touches);
+                    outcome
                 };
                 let tick_receipt_digest = receipt.digest();
 
@@ -8685,6 +8709,74 @@ mod tests {
             "installed contract handlers must only run for their generated op id"
         );
         assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+    }
+
+    #[cfg(feature = "application_root_shadow")]
+    #[test]
+    fn application_root_tracks_runtime_commits_forks_and_replay() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let mut provenance = mirrored_provenance(&runtime);
+        let base = runtime
+            .worldlines()
+            .get(&worldline_id)
+            .unwrap()
+            .state()
+            .clone();
+        for index in 0..4_u8 {
+            let envelope = IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(&[index]),
+            );
+            runtime.ingest(envelope).unwrap();
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+            let state = runtime.worldlines().get(&worldline_id).unwrap().state();
+            assert!(state.application_root_is_incremental(), "commit {index}");
+            assert_eq!(
+                state.application_root(),
+                state.application_root_rebuilt(),
+                "commit {index}"
+            );
+        }
+        let live = runtime.worldlines().get(&worldline_id).unwrap().state();
+        let replayed = provenance
+            .replay_worldline_state(worldline_id, &base)
+            .unwrap();
+        assert_eq!(replayed.state_root(), live.state_root());
+        assert!(replayed.application_root_is_incremental());
+        assert_eq!(replayed.application_root(), live.application_root());
+
+        let child_worldline_id = wl(42);
+        let source_root = live.application_root();
+        runtime
+            .fork_strand(
+                &mut provenance,
+                ForkStrandRequest {
+                    strand_id: make_strand_id("application-root-fork"),
+                    source_lane_id: worldline_id,
+                    fork_tick: wt(3),
+                    child_worldline_id,
+                    writer_heads: vec![WriterHead::with_routing(
+                        WriterHeadKey {
+                            worldline_id: child_worldline_id,
+                            head_id: make_head_id("application-root-child"),
+                        },
+                        PlaybackMode::Play,
+                        InboxPolicy::AcceptAll,
+                        None,
+                        true,
+                    )],
+                    retention_posture: test_retention_posture(10),
+                },
+            )
+            .unwrap();
+        let child = runtime
+            .worldlines()
+            .get(&child_worldline_id)
+            .unwrap()
+            .state();
+        assert_eq!(child.application_root(), source_root);
+        assert_eq!(child.application_root(), child.application_root_rebuilt());
     }
 
     #[test]

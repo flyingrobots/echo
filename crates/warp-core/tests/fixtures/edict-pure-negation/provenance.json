@@ -1,0 +1,10 @@
+{
+  "edict": "a2e28a8a9129c88eb96d91f4b3a6becfc561a4f6",
+  "echoProvider": "6a7c62fffac968e999b8ecc67c9cd8372d86f237",
+  "packagePin": "54ed142d19a230398da34a4754d3650842943401338678579833d725da785dd9",
+  "files": {
+    "ReplaceRange.edict": "07ed8f8232d6d0750afa3c0af451e82ad41b8b61a11109d5a2d70e4652347177",
+    "executable-operation-package.cbor": "4c1a68c6928f7d1c134ffc9c0379adf5d92af5260a72aa908a791f55809ba10c",
+    "verification-report.cbor": "77b10c7b8a1091ea1533295e3cf6daddfc1b488773b7fa45d83f754eaebb0bdf"
+  }
+}

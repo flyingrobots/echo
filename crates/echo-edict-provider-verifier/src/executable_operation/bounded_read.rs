@@ -6,12 +6,12 @@ mod audit;
 
 use super::{
     array_field, as_map, as_text, build_report, canonical_text, encode_canonical_cbor_v1 as encode,
-    hash_from_bound, invalid_artifact, map_field, profile_digest, text_field, validate_bound,
-    Artifact, BoundArtifact, CanonicalValueV1 as Value, ClosureInputs, Diagnostic,
+    hash_from_bound, invalid_artifact, map_field, profile_digest, source_domain, text_field,
+    validate_bound, Artifact, BoundArtifact, CanonicalValueV1 as Value, ClosureInputs, Diagnostic,
     DiagnosticSeverity, ProviderRefusalV1, VerificationOutputArtifact, VerificationOutputKind,
     VerificationRequestV1, VerificationSuccessV1, ADAPTER_DOMAIN, CONFIGURATION_DOMAIN,
     CORE_DOMAIN, EXPORTS_DOMAIN, LAWPACK_DOMAIN, PACKAGE_DOMAIN, REPORT_DOMAIN, REPORT_ROLE,
-    RESULT_PROJECTION_DOMAIN, SOURCE_DOMAIN, TARGET_IR_DOMAIN,
+    RESULT_PROJECTION_DOMAIN, TARGET_IR_DOMAIN,
 };
 
 type Check<T> = Result<T, ()>;
@@ -108,7 +108,7 @@ pub(super) fn verify(
         lawpack: validate_bound(&closure.lawpack.artifact, LAWPACK_DOMAIN)?,
         adapter: validate_bound(&closure.adapter.artifact, ADAPTER_DOMAIN)?,
         configuration: validate_bound(&closure.configuration.artifact, CONFIGURATION_DOMAIN)?,
-        source: validate_bound(&closure.source.artifact, SOURCE_DOMAIN)?,
+        source: validate_bound(&closure.source.artifact, source_domain(closure.source)?)?,
         projection: validate_bound(
             &closure.result_projection.artifact,
             RESULT_PROJECTION_DOMAIN,

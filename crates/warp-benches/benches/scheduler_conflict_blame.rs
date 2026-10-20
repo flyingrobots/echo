@@ -146,7 +146,7 @@ fn main() {
             let mut times = Vec::with_capacity(rounds);
             let mut applied = 0;
             let mut rejected = 0;
-            for round in 0..rounds {
+            for _ in 0..rounds {
                 let (mut engine, ids) = build(n, contended);
                 let tx = engine.begin();
                 for id in &ids {

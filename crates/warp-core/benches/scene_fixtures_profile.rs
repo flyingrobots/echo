@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(missing_docs, dead_code, clippy::expect_used, clippy::print_stdout)]
+#![allow(
+    missing_docs,
+    dead_code,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::cast_precision_loss
+)]
 //! F5 tier M under the application-root profile, repeated for a sampling
 //! profiler. Not a measurement: `scene_fixtures` is the measurement. This
 //! only keeps the append path hot long enough to sample it.

@@ -13,9 +13,8 @@ use thiserror::Error;
 use crate::clock::{GlobalTick, WorldlineTick};
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use crate::echo_operation::{
-    AdmittedEchoOperationInvocationV1, EchoOperationActionOutcomeV1,
-    EchoOperationApplicationBasisV1, EchoOperationCommitErrorV1,
-    EchoOperationEvaluationAuthorityV1, EchoOperationEvaluationBasisV1,
+    AdmittedEchoOperationInvocation, EchoOperationActionOutcomeV1, EchoOperationApplicationBasisV1,
+    EchoOperationCommitErrorV1, EchoOperationEvaluationAuthorityV1, EchoOperationEvaluationBasisV1,
     SchedulerEchoOperationCandidateV1,
 };
 use crate::engine_impl::{CommitOutcome, Engine, EngineError};
@@ -5665,7 +5664,7 @@ impl SchedulerCoordinator {
         runtime: &mut WorldlineRuntime,
         provenance: &mut ProvenanceService,
         engine: &mut Engine,
-        operation_actions: &BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+        operation_actions: &BTreeMap<Hash, AdmittedEchoOperationInvocation>,
         evaluation_authority: &EchoOperationEvaluationAuthorityV1,
     ) -> Result<
         (
@@ -5690,7 +5689,7 @@ impl SchedulerCoordinator {
         engine: &mut Engine,
         #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
         operation_actions: Option<(
-            &BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+            &BTreeMap<Hash, AdmittedEchoOperationInvocation>,
             &EchoOperationEvaluationAuthorityV1,
         )>,
         #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
@@ -5841,8 +5840,7 @@ impl SchedulerCoordinator {
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?
                             .state();
                         let preparation = crate::echo_operation::prepare_operation_v1(
-                            engine
-                                .installed_echo_operation_package_v1(admitted_action.package_id()),
+                            engine.installed_echo_operation_package(admitted_action.package_id()),
                             admitted_action.clone(),
                             current_basis,
                             state,
@@ -5869,7 +5867,11 @@ impl SchedulerCoordinator {
                         candidates.push(SchedulerEchoOperationCandidateV1 {
                             submission_id,
                             ingress_id,
-                            scope: admitted_action.scope(),
+                            scope: admitted_action.scope().ok_or(RuntimeError::Strand(
+                                StrandError::InvariantViolation(
+                                    "admitted fixed Action lacks its anchor",
+                                ),
+                            ))?,
                             rule_id: admitted_action.installed_operation_id().as_hash(),
                             preparation,
                         });

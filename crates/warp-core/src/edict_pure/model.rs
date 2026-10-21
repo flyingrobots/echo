@@ -84,6 +84,18 @@ pub(crate) enum RuntimeType {
     Unsigned(u64),
     Bytes { min: u64, max: u64 },
     Record(Vec<(String, RuntimeType)>),
+    Nominal(String, Box<RuntimeType>),
+}
+
+impl RuntimeType {
+    /// Nominal identity is static; the wire value uses its representation.
+    pub(crate) fn representation(&self) -> &Self {
+        let mut ty = self;
+        while let Self::Nominal(_, inner) = ty {
+            ty = inner;
+        }
+        ty
+    }
 }
 
 pub(crate) struct Binding {

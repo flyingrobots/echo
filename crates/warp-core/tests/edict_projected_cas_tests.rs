@@ -19,12 +19,12 @@ use warp_core::{
     echo_operation_action_envelope_v1, echo_operation_anchored_node_application_basis_v1,
     echo_operation_atom_value_digest_v1, echo_operation_package_id_v1, make_head_id, make_node_id,
     make_type_id, make_warp_id, AtomPayload, AttachmentValue, EchoOperationActionOutcomeV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
-    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
-    EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord,
-    PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    EchoOperationAdmissionPolicy, EchoOperationBudgetV1, EchoOperationInvocation,
+    EchoOperationInvocationAdmissionErrorKind, EchoOperationInvocationAdmissionPolicy,
+    EchoOperationObstructionKindV1, EchoOperationPreparationV1, EngineBuilder, GraphStore,
+    InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode, SchedulerKind,
+    TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey,
 };
 
 const OPERATION: &str = "examples.cas_echo@1.updateCell";
@@ -78,8 +78,8 @@ fn attachment_type() -> TypeId {
 fn budget() -> EchoOperationBudgetV1 {
     EchoOperationBudgetV1::new(16, 1024, 320)
 }
-fn policy() -> EchoOperationInvocationAdmissionPolicyV1 {
-    EchoOperationInvocationAdmissionPolicyV1::new(
+fn policy() -> EchoOperationInvocationAdmissionPolicy {
+    EchoOperationInvocationAdmissionPolicy::new(
         profile("cas.echo.authority.local-demo/v1"),
         GRANT,
         budget(),
@@ -162,9 +162,9 @@ impl Fixture {
         let bytes = package();
         let admitted = self
             .host
-            .admit_echo_operation_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    echo_operation_package_id_v1(&bytes),
+            .admit_echo_operation_package(
+                &EchoOperationAdmissionPolicy::exact(
+                    echo_operation_package_id_v1(&bytes).as_hash(),
                     OPERATION,
                     profile("cas.echo.authority.local-demo/v1"),
                     budget(),
@@ -173,7 +173,7 @@ impl Fixture {
             )
             .expect("actual compiler package admitted");
         self.host
-            .install_admitted_echo_operation_package_v1(admitted)
+            .install_admitted_echo_operation_package(admitted)
             .expect("install");
     }
     fn enable_wal(&mut self, dir: &WalDir) {
@@ -227,7 +227,7 @@ impl Fixture {
         .expect("input");
         // The package itself is the exact compiler output, with no test-side
         // rewriting; the invocation uses the public projected constructor.
-        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input(
+        EchoOperationInvocation::anchored_node_attachment_compare_and_set_with_application_input(
             echo_operation_package_id_v1(&package()),
             OPERATION,
             basis,
@@ -542,7 +542,7 @@ fn compiler_cas_recovers_pending_action_committed_result_and_stale_obstruction()
     assert!(pending
         .host
         .engine()
-        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .installed_echo_operation_package(echo_operation_package_id_v1(&package()))
         .is_some());
     assert!(pending
         .host
@@ -620,7 +620,7 @@ fn compiler_cas_recovers_pending_action_committed_result_and_stale_obstruction()
     );
     recovered
         .host
-        .admit_echo_operation_invocation_v1(&policy(), &stale)
+        .admit_echo_operation_invocation(&policy(), &stale)
         .expect("stale precondition passes static admission");
     recovered
         .host
@@ -676,10 +676,10 @@ fn compiler_cas_refuses_substituted_digest_and_missing_node_without_mutation() {
     assert_eq!(
         fixture
             .host
-            .admit_echo_operation_invocation_v1(&policy(), &substituted)
+            .admit_echo_operation_invocation(&policy(), &substituted)
             .expect_err("substituted digest refused")
             .kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+        EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
     );
     assert_eq!(fixture.value(), INITIAL);
     let wrong_basis =
@@ -687,13 +687,13 @@ fn compiler_cas_refuses_substituted_digest_and_missing_node_without_mutation() {
     assert_eq!(
         fixture
             .host
-            .admit_echo_operation_invocation_v1(&policy(), &wrong_basis)
+            .admit_echo_operation_invocation(&policy(), &wrong_basis)
             .expect_err("uncorroborated application basis refused")
             .kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
     let valid = fixture.invocation(INITIAL, initial_digest(), initial_digest(), "updated");
-    let other_grant = EchoOperationInvocationAdmissionPolicyV1::new(
+    let other_grant = EchoOperationInvocationAdmissionPolicy::new(
         profile("cas.echo.authority.local-demo/v1"),
         [74; 32],
         budget(),
@@ -701,10 +701,10 @@ fn compiler_cas_refuses_substituted_digest_and_missing_node_without_mutation() {
     assert_eq!(
         fixture
             .host
-            .admit_echo_operation_invocation_v1(&other_grant, &valid)
+            .admit_echo_operation_invocation(&other_grant, &valid)
             .expect_err("ungranted authority refused")
             .kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::AuthorityGrantMismatch
+        EchoOperationInvocationAdmissionErrorKind::AuthorityGrantMismatch
     );
     assert_eq!(fixture.value(), INITIAL);
     let mut missing = Fixture::new(false);
@@ -713,10 +713,10 @@ fn compiler_cas_refuses_substituted_digest_and_missing_node_without_mutation() {
     assert_eq!(
         missing
             .host
-            .admit_echo_operation_invocation_v1(&policy(), &invocation)
+            .admit_echo_operation_invocation(&policy(), &invocation)
             .expect_err("missing node refused")
             .kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
     assert!(missing
         .host
@@ -826,9 +826,9 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
     // merely a mismatch against the original package's hash.
     let error = fixture
         .host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                id,
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                id.as_hash(),
                 OPERATION,
                 profile("cas.echo.authority.local-demo/v1"),
                 budget(),
@@ -838,7 +838,7 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
         .expect_err("aliased projection refused");
     assert_eq!(
         error.kind(),
-        warp_core::EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+        warp_core::EchoOperationAdmissionErrorKind::ArtifactInvalid
     );
     assert_eq!(
         error.artifact().expect("artifact error").kind(),
@@ -847,7 +847,7 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
     assert!(fixture
         .host
         .engine()
-        .installed_echo_operation_package_v1(id)
+        .installed_echo_operation_package(id)
         .is_none());
     assert_eq!(fixture.value(), INITIAL);
 }
@@ -863,7 +863,7 @@ fn a_prepared_action_shares_its_installed_package_instead_of_copying_it() {
     let invocation = fixture.invocation(INITIAL, initial_digest(), initial_digest(), "updated");
     let admitted = fixture
         .host
-        .admit_echo_operation_invocation_v1(&policy(), &invocation)
+        .admit_echo_operation_invocation(&policy(), &invocation)
         .expect("invocation admitted");
     let EchoOperationPreparationV1::Prepared(prepared) =
         fixture.host.prepare_echo_operation_v1(admitted)
@@ -873,7 +873,7 @@ fn a_prepared_action_shares_its_installed_package_instead_of_copying_it() {
     let registered = fixture
         .host
         .engine()
-        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .installed_echo_operation_package(echo_operation_package_id_v1(&package()))
         .expect("installed");
     assert!(
         std::ptr::eq(

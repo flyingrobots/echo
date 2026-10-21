@@ -13,18 +13,19 @@ use super::{
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-struct Definition<'a> {
+pub(crate) struct Definition<'a> {
     params: &'a [Value],
     body: &'a Value,
     result_type: &'a str,
     source_owned: bool,
 }
 
-pub(crate) fn decode(
-    core: &Value,
-    exports: &Value,
-    parser: &mut Parser<'_>,
-) -> Result<BTreeMap<String, Helper>, Error> {
+/// Collect the one current source/imported helper signature authority.
+pub(crate) fn definitions<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    coordinate: &str,
+) -> Result<BTreeMap<String, Definition<'a>>, Error> {
     let mut definitions = BTreeMap::new();
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;
@@ -83,7 +84,7 @@ pub(crate) fn decode(
                 return Err(Error::InvalidArtifact);
             }
             exact_fields(value, &["params", "returnType", "body"])?;
-            let coordinate = format!("{}.{}", parser.coordinate, name);
+            let coordinate = format!("{coordinate}.{name}");
             if coordinate.starts_with("core.")
                 || effect_names.contains(coordinate.as_str())
                 || definitions
@@ -102,6 +103,15 @@ pub(crate) fn decode(
             }
         }
     }
+    Ok(definitions)
+}
+
+pub(crate) fn decode(
+    core: &Value,
+    exports: &Value,
+    parser: &mut Parser<'_>,
+) -> Result<BTreeMap<String, Helper>, Error> {
+    let definitions = definitions(core, exports, parser.coordinate)?;
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.
@@ -237,7 +247,8 @@ pub(crate) fn decode(
     Ok(helpers)
 }
 
-fn local(value: &Value) -> Result<(), Error> {
+/// Checks the one current complete Core local identity.
+pub(crate) fn local(value: &Value) -> Result<(), Error> {
     exact_fields(value, &["id", "type", "alphaName"])?;
     for name in ["id", "type", "alphaName"] {
         let value = text_field(value, name)?;
@@ -248,7 +259,7 @@ fn local(value: &Value) -> Result<(), Error> {
     Ok(())
 }
 
-fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
+pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
     match (expected, actual) {
         (RuntimeType::Bytes { min, max }, RuntimeType::Bytes { min: a, max: b }) => {
             min <= a && b <= max
@@ -283,15 +294,21 @@ type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
 /// dominating order facts (earlier conjuncts of enclosing `all`s).
 #[derive(Clone, Copy)]
-struct Proof<'c, 'v> {
+pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
     facts: &'c [&'v Value],
+}
+impl<'c, 'v> Proof<'c, 'v> {
+    /// What a caller has proven: binding caps it owns and dominating facts.
+    pub(crate) const fn new(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
+        Self { caps, facts }
+    }
 }
 /// Proven upper bounds of earlier unsigned bindings in the same helper body.
 /// Local identities are unique and immutable, so a cap names exactly the
 /// bound value. Bounds never cross helper results or record fields.
-type Caps<'a> = BTreeMap<&'a str, u64>;
-fn infer<'v>(
+pub(crate) type Caps<'a> = BTreeMap<&'a str, u64>;
+pub(crate) fn infer<'v>(
     value: &'v Value,
     scope: &Scope<'_>,
     proof: Proof<'_, 'v>,
@@ -589,7 +606,7 @@ fn unsigned_literal(value: &Value) -> Result<u64, Error> {
     }
     number(field(field(value, "value")?, "value")?)
 }
-fn check_predicate<'v>(
+pub(crate) fn check_predicate<'v>(
     value: &'v Value,
     scope: &Scope<'_>,
     proof: Proof<'_, 'v>,
@@ -659,6 +676,20 @@ fn check_predicate<'v>(
         parser,
         depth + 1,
     )?;
+    // Compare opaque values only within the exact same nominal contract. The
+    // scalar representation determines supported operators and runtime cost.
+    let (left, right) =
+        if matches!(left, RuntimeType::Nominal(..)) || matches!(right, RuntimeType::Nominal(..)) {
+            if left != right {
+                return Err(Error::InvalidArtifact);
+            }
+            (
+                left.representation().clone(),
+                right.representation().clone(),
+            )
+        } else {
+            (left, right)
+        };
     match (text_field(value, "op")?, left, right) {
         ("==", RuntimeType::Bool, RuntimeType::Bool)
         | ("==", RuntimeType::Bytes { .. }, RuntimeType::Bytes { .. }) => Ok(()),
@@ -830,6 +861,7 @@ impl Heights<'_> {
 }
 fn type_height(ty: &RuntimeType) -> usize {
     match ty {
+        RuntimeType::Nominal(_, representation) => type_height(representation),
         RuntimeType::Record(fields) => fields
             .iter()
             .map(|(_, ty)| type_height(ty) + 1)

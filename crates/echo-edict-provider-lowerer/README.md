@@ -202,3 +202,25 @@ Edict Git pins and uses Rust 1.96 for its Echo runtime dependency.
 These bytes implement a provider translation. They do not install a package,
 admit runtime authority, execute an operation, or attest an Echo consequence.
 Those remain explicit Echo runtime crossings.
+
+## Current effect proposal serialization
+
+The native Rust API `effect_publication::encode_effect_publication` serializes
+untrusted proposals using the current `echo.operation-package/v1` and
+`echo.operation-program/v1` effect kind. It preserves the compiler bundle's
+exact bytes, derives embedded Core/Target-IR/exports identities, carries explicit
+limits and graph/footprint data, and requires a declared obstruction coordinate.
+Its requested `authority_profile_identity` is derived only from the
+configuration's required `authorityProfile` label, by the same label digest
+fixed operations use; no caller supplies it.
+It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
+retains the actual lawpack inside the compiled bundle, without a duplicate outer
+lawpack identity.
+
+The witness uses synthetic crate-local inputs and the current runtime decoder
+as a separate native test oracle. Kernel dependencies and their trusted-host
+features are dev dependencies only. The factory does not verify compiler
+correspondence, graph-law semantics or authority. It is not yet called by the
+public lowerer, and it does not change the frozen WIT interface or enable
+installed effect execution. Producer integration and independent verification
+remain unfinished.

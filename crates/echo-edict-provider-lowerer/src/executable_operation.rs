@@ -3,6 +3,7 @@
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
 mod bounded_read;
+mod effect_resources;
 mod source_functions;
 
 use std::collections::BTreeSet;
@@ -210,6 +211,10 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
     let source = validate_source(&source, closure.source, &request.core)?;
+
+    if effect_resources::is_configuration(&configuration) {
+        effect_resources::validate(&configuration, &request.target_profile)?;
+    }
 
     if bounded_read::is_configuration(&configuration) {
         return bounded_read::lower(request, &closure);
@@ -2261,7 +2266,7 @@ fn hash_from_bound(bound: &BoundArtifact) -> Result<[u8; 32], ProviderRefusalV1>
         .map_err(|_| invalid_artifact(&bound.reference.coordinate, "digest must be 32 bytes"))
 }
 
-fn profile_digest(label: &str) -> [u8; 32] {
+pub(crate) fn profile_digest(label: &str) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"echo:operation-profile:v1\0");
     hasher.update(&(label.len() as u64).to_le_bytes());

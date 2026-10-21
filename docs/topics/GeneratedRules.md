@@ -13,6 +13,31 @@ no Jedit consumer emits one yet. Wesley packaging and the generated
 bounded-read corridor remain incomplete and must not borrow evidence from
 either mutation path.
 
+## One current version and explicit migration
+
+Each data structure, wire format, and implementation has exactly one supported
+version in the main crates. A replacement updates the current definition and
+its producers and consumers together. Main crates must not retain historical
+definitions, decoders, execution paths, compatibility aliases or wrappers,
+feature-gated old implementations, or runtime dispatch between old and new
+versions. Distinct current concepts may have distinct types; historical
+versions of the same concept may not coexist in the main crates.
+
+Old versions may exist only in separate upgrade or migration tools. If future
+persisted data needs conversion, those tools must explicitly convert and
+validate it before the current runtime consumes it. This policy does not claim
+that such tools already exist. Version labels on the one current format do
+not authorize retaining another version in the runtime.
+
+The user confirmed on 2026-10-19 that there are no existing saved histories to
+preserve. This decision supersedes the V1-preservation and dual-version
+installation/recovery direction in proposal #889, earlier compatibility
+promises, and any historical decision that would require old and new versions
+of the same structure to coexist in a main crate. The implementation sections
+below describe the current consolidation. Any remaining parallel historical
+implementations must be replaced while updating the compiler, runtime, tests,
+and consumers together.
+
 ## Current Implementation
 
 Wesley currently emits raw `RewriteRule` builders plus generated operation,
@@ -112,6 +137,31 @@ These declarations provide catalog and lawpack type metadata. Byte-valued
 Rust helper codecs and graph-effect lowering require their own implementation
 and verification. Catalog-to-export nominal agreement remains a separate
 required check.
+
+The authored-effect configuration carries the selected target's canonical
+catalog bytes in the required `intrinsicCatalog` field, bounded to 16 MiB.
+The native lowerer rejects absent, empty, oversized, malformed, or digest-mismatched
+catalogs before body lowering. Catalogs use `edict.target-profile.intrinsics/v1`
+and the selected profile's `echo.dpo.intrinsics/v1` owner-framed reference.
+This transport check does not validate individual native signatures, authorize
+execution, or enable the unfinished authored-effect producer. Existing exact
+profile admission and catalog-to-export nominal checks remain required.
+
+The pure `effect_publication::encode_effect_publication` API constructs the
+current operation-package/program wire shapes for untrusted effect proposals.
+It preserves the embedded compiler bundle, derives artifact identities and
+uses the current read/write/step budget fields. Native synthetic controls
+round-trip through the current runtime decoder. The public lowerer does not yet
+call this factory; compiler correspondence, graph-law semantics, independent
+verification, authority admission and execution remain separate obligations.
+
+The provider's `echo-operation-package` owning root also admits this current
+effect envelope. Anchored and effect envelopes share the current package field
+group. Effects use a six-field semantic closure without an outer lawpack;
+the compiled bundle retains the actual lawpack. Anchored envelopes retain their
+projection and outer lawpack requirements. The program byte string is opaque to
+metadata admission. A schema-admitted package with a malformed program still
+refuses runtime preparation; metadata admission is not semantic verification.
 
 ## Execution Corridors
 
@@ -224,9 +274,9 @@ operation-oriented corridor required for newly authored application mutations.
 The currently implemented generic runtime slice is:
 
 ```text
-exact canonical ExecutableOperationPackageV1 bytes
+exact canonical ExecutableOperationPackage bytes
 -> Echo-owned package admission under a separate policy
--> installed data-only EchoOperationProgramV1
+-> installed data-only EchoOperationProgram
 -> installed compiler-owned application-result projection
 -> exact basis-bearing projected invocation with canonical application input
 -> canonical Action submission retained before acknowledgement
@@ -259,7 +309,7 @@ The first external compiler-to-runtime singleton witness is:
 ```text
 standalone application-owned Edict source
 -> exact Core, lawpack, exports, target adapter, target configuration, and Target IR
--> compiler-produced ExecutableOperationPackageV1
+-> compiler-produced ExecutableOperationPackage
 -> structurally separate accepted verification report
 -> exact result-projection binding and generic typed-input binding
 -> projected invocation retaining exact canonical application input
@@ -529,6 +579,225 @@ keys survive patch identity, retained provenance encoding and native Tick
 metadata. This does not admit a new authored-effect profile or qualify a
 generated package for release.
 
+Under `trusted_runtime`, `edict_effects::EffectRangeReadSession` provides a
+host recording primitive for the effect interpreter under construction. The
+host selects an immutable frontier, allowed range edge types and a whole-bucket
+limit. Setup hashes the real state into a worldline/tick/state-root basis and
+indexes the policy outside the per-read budget. This reading coordinate is not
+an admitted commit-parent identity: the reachable state root alone does not
+bind unreachable by-key data. Admission must also bind the writer head and
+commit identity. A forbidden type fails before per-read state lookup, charging
+or recording. An allowed read first charges one step and
+64 read bytes to resolve the source node, recording presence or absence. If the
+source exists, the exact bucket length is checked against the edge limit, then
+charged in full at one step and 64 read bytes per edge before inspecting any
+edge. Nonmatching types count. A refused charge adds nothing to consumption;
+the already-observed source node remains recorded when a later scan refuses.
+Successful reads retain the source node and the full source/type range,
+including empty and absent ranges; matching edge records are ordered by edge
+ID. These are real values observed at the selected basis, not caller claims.
+
+Read value-storage declarations have a fixed 16 MiB ceiling. Every attempted
+node or range observation reserves 128 logical bytes; each source-bucket edge
+reserves 128 bytes in each of the returned and recorded row buffers, including
+nonmatches. Both buffers are provisioned before inspection, and unique edge IDs
+are sorted without a temporary heap buffer. Reservations are cumulative across
+repeated reads. Storage and I/O charges for each resolution succeed together
+or leave both counters unchanged; earlier successful resolutions remain
+recorded when a later one refuses. A host that cannot provide admitted buffer
+capacity reports `HostAllocationFailed`, not `BudgetExceeded`. That host fault
+must stop evaluation and must never become an Action obstruction or retained
+decision.
+
+`EffectEvaluationFrame` connects that view to the real compiler-package pure
+interpreter through one cumulative step and allocation meter. It consumes an
+unused session and intersects the interpreter's ceilings with the session's
+limits. Current frame declarations are bounded by 1,048,576 steps, 64 MiB of
+read bytes, 16 MiB of write bytes and 16 MiB of value storage. These host-frame
+bounds do not establish an admitted operation-profile contract. An already-used session cannot reenter as unspent capacity. Each read
+must fit both the view's I/O limits and the shared computation/storage budget;
+failed read reservations change neither meter. Each pure component retains its
+own declared ceiling relative to its starting usage, while the absolute frame
+ceiling continues to bind all components together. Component limits are restored
+between calls without refunding work or storage. Any identity, input,
+computation, read or resource failure ends the frame; later calls do no work.
+The shared interpreter uses atomic failed charges. An admitted concatenation
+buffer that cannot be provisioned is a host fault, never budget exhaustion.
+The existing standalone pure/read APIs retain their prior accounting behavior.
+
+`TrustedRuntimeHost::effect_evaluation_frame_v1` can now construct that frame
+against an expected full runtime parent. The host resolves the registered writer,
+worldline tick, committing global tick, state root and commit identity through
+the existing scheduler basis resolver, compares all runtime fields, and borrows
+its own frontier. Equal reading coordinates from a different commit history are
+refused before constructing a frame. The immutable host borrow prevents a
+scheduler tick during the frame's lifetime. The typed application basis is
+carried as a proposition; this constructor does not validate application input
+or grant invocation authority. A frame constructed by this host method exposes
+its full `evaluation_basis`; low-level `EffectEvaluationFrame::new` frames expose
+`None` and cannot mint a runtime-bound coordinate from caller-supplied storage.
+This is private host composition, not an installed or admitted effect profile.
+The state-root/by-key caveat of the low-level reading coordinate and the
+package-admission and recovery obligations remain as described above and below.
+The optional typed mode below constrains runtime-bound reads separately.
+
+A runtime-bound frame can also run an unchanged
+`compiler-produced-bounded-read/v1` package through `evaluate_read`. It uses the
+same decoded instructions and expression interpreter as standalone
+`edict_read::evaluate`, but its access adapter resolves the frame's own frontier
+and records dependencies. The trusted caller supplies a sorted, unique bounded
+node aperture. A key outside it is refused before graph observation. An unbound
+caller-frontier frame cannot enter this recorded interpreter path.
+
+Each source-node resolution charges one step, 64 read bytes and 128 logical
+storage bytes before lookup, and records presence or absence. A missing node
+stops that read without resolving its attachment. For a present owner, resolving
+its alpha attachment charges one step, 64 read bytes plus any atom payload
+length, and 128 logical storage bytes plus that payload length before retention
+or value delivery. The interpreter retains its existing byte-copy work and
+value-storage charges. Source and attachment reservations are individually
+atomic across the read and shared meters. A later failure retains the resolved
+prefix, including negative observations. Wrong types, oversized atoms, missing
+attachments and authored guards keep their existing obstruction coordinates;
+the actual observations remain distinct from the caller's expected values.
+
+The frame intersects package/input/output ceilings with each requested read
+component, preserves its declared local limits, and keeps work/storage consumed
+by earlier reads and computations. Every refusal or host fault terminates the
+frame. Failed observation reservations add no read/storage charge, and host
+allocation failure while provisioning precharged atom bytes remains a host
+fault rather than an authored obstruction. Standalone bounded-read accounting
+and outputs are unchanged. This legacy entry point uses an untyped trusted-host
+node aperture. It is refused before work or observation after a typed law is
+bound to the frame. It grants no application mutation or admission authority.
+
+An unused runtime-bound frame can bind an `EffectFootprintLaw` through
+`with_footprint_law`. The decoder requires canonical CBOR with exactly the nine
+footprint-law fields: six type-id sets and `max_reads`, `max_writes`, and
+`max_range_edges`. Set arrays contain distinct, strictly ascending 32-byte IDs;
+unsorted or repeated entries are refused rather than normalized. Zero counts
+are allowed. Read, write and whole-bucket ceilings are 4096, 256 and 65536.
+Decoding is bounded to 16 MiB and occurs during trusted-host preparation. The
+write permissions are validated as data but grant no write API. Binding refuses
+an unbound frame, previous work, a prior failure, or replacement of an existing
+law. These are host-selected permissions, not an authenticated package policy
+or admission token.
+
+Typed mode provides `read_typed_node`, `read_typed_range`, and
+`evaluate_typed_read`. Present nodes and atoms are authorized by their actual
+stored types. `TypedNodeRead::absent_node_type` authorizes node absence only;
+absent atoms use the requested atom type. A present, authorized atom with a
+different requested type still yields the existing authored type-mismatch
+obstruction. Node and atom permissions are checked before retaining or
+returning their values. Raw slot readings retain authorized resolved values;
+`authorized_reads` additionally retains distinct slot/type pairs, so absence
+under two named types does not collapse into one authorization. `max_reads`
+bounds those pairs after deduplication. Permission roles are checked on every
+resolution even when a pair already exists: a portal-owner permission does not
+permit an ordinary node read. Range pairs carry a zero read type, since their
+edge type is already in the range key. Range edge types must pass both the
+host's policy and the law before any state access. Source nodes use their
+actual or absent type, and the law's bucket ceiling intersects the host limit.
+Legacy untyped range and compiled-read entry points cannot bypass a bound law.
+
+Before a typed read resolves a descended-warp target, it follows bounded
+instance metadata back to the root or a previously validated ancestor. It then
+resolves and authorizes alpha portals root-first. Each portal contributes its
+actual owner-node and descent-attachment observations, both authorized by
+`portal_owner_types`. Edge-owned or non-alpha portals are refused before an
+owner record is read. Unknown, cyclic or disconnected chains report
+`UnreachableWarp`; no target value is resolved. A validated chain is reusable
+within the frame's immutable parent. This cache never grants a different
+permission role. The low-level untyped session retains its existing by-key
+behavior.
+
+Typed resolutions keep the existing atomic observation and payload charges.
+Each new authorization pair reserves 64 additional logical storage bytes. Each
+uncached reverse-metadata hop costs one step, 64 read bytes and 256 logical
+storage bytes before extending its bounded chain/cycle indexes; actual portal
+owner and attachment resolutions separately cost one step, 64 read bytes and
+128 observation bytes each. These are private-frame charges, not a shipped
+operation-profile recipe or a physical allocator limit. Failed charges change
+neither meter. Any law, reachability, resource or authored failure ends the
+frame. Accepted authorization pairs can precede a later payload-budget failure;
+they are host-private authorization evidence, not the persisted canonical
+`ReadRow` image. The executable-operation pipeline tests exercise real bound
+frontiers, compiled reads, nested alpha portals, beta refusal, distinct named
+absence, role separation, whole-bucket limits and atomic failure prefixes.
+
+`EffectEvaluationFrame::into_read_set_image(max_bytes)` consumes a typed,
+runtime-bound frame into an owned, eight-byte-aligned `EffectReadSetImage`.
+Successful and failed frames can export their completed observation prefix.
+Permission reservations without a completed raw value resolution are omitted;
+a failed atom payload charge cannot turn into a false absence row. Unbound or
+untyped frames report `MissingTypedParent`. The owned export preserves the
+actual full runtime parent, cumulative work/I/O and logical allocation usage
+separately from the image bytes. Consuming the frame prevents further evaluation
+against an already-exported read set.
+
+The image is the read-set digest preimage after its domain: a little-endian
+`u64` row count, the 192-byte `EffectReadRow`s, a little-endian `u64` pair count,
+and the 64-byte `EffectEdgePairRow`s. There is no new retained-history record
+magic. A read row contains a 104-byte `EffectSlotRow`, outcome and zero padding,
+a 32-byte authorizing type, a 32-byte subject digest and a WSC range descriptor.
+All rows are `repr(C, align(8))`, `Pod` and `Zeroable`, with explicit padding.
+The slot classes are node `0`, attachment `1`, edge `2`, range `3`. Their wire
+order is explicit and differs from native `SlotId` ordering. Slots sort by
+class, warp, local ID, range edge type, attachment owner and plane; read rows
+then sort by authorizing type. A present slot has one actual-type row. Only
+absent slots can repeat under distinct ascending named types.
+
+Node subjects hash `echo.bridge.node-value.v1\0` followed by the node type.
+Atom subjects hash `echo.bridge.attachment-value.v1\0`, tag `0`, atom type,
+little-endian byte length and bytes. Portal subjects use that attachment domain,
+tag `1` and the child warp ID; their read type is the owner's node type. Edge
+subjects hash `echo.bridge.edge-value.v1\0`, edge type, source and target local
+IDs. Absent subjects are zero. Range subjects and read types are zero; the range
+slot already names its edge type. Matching edge/target pairs are packed in
+range-row order, sorted and unique by edge local ID within each run. Separate
+source-node rows distinguish an absent source from a present empty bucket.
+The read-set digest hashes `echo.bridge.read-set.v1\0` and the exact image.
+The parent and accounting metadata are not part of this read-set digest; an
+admitted proposal/decision must separately bind them.
+
+`EffectReadSetView::parse` borrows rows and pairs directly from an aligned input
+buffer. Its structural validator allocates no collections and checks exact
+framing, checked size arithmetic, tag legality, zero padding/unused fields,
+canonical order, duplicate rules, pair bounds, strict edge order and contiguous
+complete pair-section coverage. A suffix, an orphan pair or overlapping range
+is invalid. The fixed ceiling is 4096 read rows and 65536 pairs per range, with
+an image no larger than 16 MiB. The total pair section can exceed 65536 when
+individual ranges and the image limit permit it. This view proves canonical
+structure only; it does not authenticate a law, parent, dependency completeness
+or historical Action decision.
+
+Export is bounded host retention work, outside the consumed evaluation budget.
+The caller's output limit intersects the fixed 16 MiB ceiling; the temporary
+sorted descriptor table is bounded by the authorized-read ceiling. Export uses
+only completed recorded values and does not resample the frontier. Provisioning
+failure reports `HostAllocationFailed`, while an insufficient output allowance
+reports `ExportLimitExceeded`; neither is an authored Action obstruction.
+These buffers are separate from the interpreter's logical reservations. This
+codec does not implement the single physical arena, receipt/WAL retention,
+proposal admission or fresh-engine effect recovery. Independent wire fixtures
+exercise malformed inputs, maximum counts, alignment and field encoding; real
+runtime witnesses exercise exact node bytes/digests, atoms, portals, absence,
+range packing, failed prefixes and preserved parent/resource metadata.
+The codec integration target declares `trusted_runtime` in Cargo's
+`required-features`; CI explicitly runs and lints it in the trusted-runtime
+lane. The feature-gated-test scheduling guard rejects missing declarations or
+missing feature-qualified CI execution.
+
+This is trusted-host composition of pinned pure packages and recorded reads.
+It provides no mutation or admission path and is not a compiler-authored
+effect-program format. Package/input decoding remains bounded host preparation.
+Logical value-storage reservations bound the row buffers and observation count;
+policy preparation, indexes and allocator overhead remain host storage. The
+physical interpreter arena, package-authenticated footprint law, receipt/WAL
+integration of typed read images, authored outgoing-range/effect instructions, derived effects and
+installed-profile validation remain required before a new authored-effect profile can ship.
+Existing package profiles and graph accessors are unchanged.
+
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.
 
@@ -543,8 +812,8 @@ trigger hidden retries or widen access.
   material through the appropriate provider-native or Wesley compatibility
   record—not an app-specific engine escape hatch.
 - Newly authored executable operations resolve installation and invocation from
-  an admitted `ExecutableOperationPackageV1`; a naked
-  `EchoOperationProgramV1` cannot install or invoke.
+  an admitted `ExecutableOperationPackage`; a naked
+  `EchoOperationProgram` cannot install or invoke.
 - Newly authored executable operations expose no application matcher, executor,
   footprint callback, or prebuilt mutation plan. Provider-v1 callback bindings
   remain explicitly labeled compatibility infrastructure.
@@ -555,3 +824,601 @@ trigger hidden retries or widen access.
   provider operation, and receipt evidence from the exact bound scheduler rule.
 - Runtime patches and receipts retain the generated package or rule-pack
   identity needed to explain execution.
+
+### Executable graph-schema preparation
+
+`EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
+the current authored-effect program contract. The root has exactly `node_types` and
+`edge_types`. A node-type entry has exactly `addressing` (`0` content or `1`
+mutable) and `atom_types`; an edge-type entry contains source/target node-type
+pairs. Every identifier is exactly 32 bytes. Set arrays are strictly ascending
+and distinct, including lexicographic ordering by both endpoint types. Invalid
+order or duplicates refuse rather than being normalized.
+
+The prepared value answers node-addressing, node/atom compatibility and edge
+endpoint-type membership queries. Empty relations deny membership. This is
+schema preparation, not graph-record resolution, identity-law enforcement,
+package authentication or Action admission. It creates no read or mutation
+capability. Input is bounded to 16 MiB and canonical decoding retains its
+combined node/depth ceilings; these host preparation allocations are outside
+the evaluation meter and do not implement its physical arena.
+
+### Current operation publication preparation
+
+`ExecutableOperationPackage::prepare` is a data-only check available without
+`trusted_runtime` or `native_rule_bootstrap`. It uses the same current package
+and embedded-program checker as trusted-host preparation. A fresh outer package
+pin does not bypass compiler-bundle or semantic-closure checks. This API neither
+authenticates source-to-Core compilation nor determines which release pin is
+authorized. The runtime helper modules remain private without `trusted_runtime`,
+and owner constructors retain their existing feature gates. Preparation grants
+no installation, invocation, scheduler, WAL or mutation authority.
+
+`ExecutableOperationPackage::prepare` checks a trusted host's expected current
+package identity against exact canonical publication bytes. There is one
+`ExecutableOperationPackage`, one `EchoOperationSemanticClosure`, and one
+`EchoOperationProgram` definition and codec. The program kind selects
+compare-and-set, create-if-absent, or the authored-effect payload. The former
+V2 package definition and decoder have been removed without aliases, wrappers,
+or schema-version dispatch.
+
+The current package and program schema strings are `echo.operation-package/v1`
+and `echo.operation-program/v1`. Their identities use the corresponding
+length-prefixed `echo:operation-package:v1\0` and
+`echo:operation-program:v1\0` domains. These are labels for the sole current
+formats; the former V2 publication/program schemas are refused even when their
+bytes have a matching current-domain pin.
+
+The shared package envelope binds the operation, obstruction, authority,
+semantic closure, exact nested program, budget, profile identities and footprint
+contract. Fixed programs require a real paired lawpack coordinate and identity.
+Authored effects forbid both lawpack fields and the application-result
+projection; their closure has exactly the six upstream source/meaning/Core/
+Target IR/schema fields. No sentinel lawpack is introduced. The closure and
+effect program must bind the same Target IR identity.
+
+The authored-effect program payload has exactly thirteen fields. Its
+`edict-effect-program/v1` kind requires the declared effect interpreter and
+intrinsic profiles, ContentAddressV1, exact executable graph schema, exact
+footprint law, compiled bytes, output type and resource ceilings. Its footprint
+identity is BLAKE3 over `echo:operation-footprint-law:v1\0` followed directly by
+the canonical law bytes. The package's effect target, input, result, obstruction,
+interpretation and basis profiles are checked by the same package validator
+that validates the fixed program kinds.
+
+Input and result declarations permit zero and are capped at 65,536 bytes.
+Allocation permits zero and is capped at 16 MiB. The output coordinate is
+nonempty UTF-8 of at most 1,024 bytes; other coordinates retain the current
+nonempty-text rule. Effect package steps must be positive and byte budgets may
+be zero. Preparation is outside evaluation metering and does not provision the
+physical evaluation arena.
+
+The generated provider configuration schema recognizes the current
+`edict-effect-program/v1` kind under `echo.operation-lowering-configuration/v1`.
+Its declaration requires `identityLaw: 1`, encoded `graphSchema` and
+`footprintLaw` byte payloads, explicit input/result/allocation limits, and an
+explicit steps/read-bytes/write-bytes budget ceiling, and a nonempty
+`authorityProfile` label. Input and result limits
+are at most 65,536 bytes, allocation at most 16 MiB, and the encoded law/schema
+payloads must be nonempty and at most 16 MiB. Zero resource declarations are
+explicit values; steps must be positive. Unknown or missing fields refuse.
+Edict lawpack authoring can carry those byte payloads through `$edictBytes`.
+
+The configuration is the only source of an effect package's requested
+authority. The package's `authority_profile_identity` is the same label digest
+fixed operations use: BLAKE3 over `echo:operation-profile:v1\0`, the label's
+length as a little-endian `u64`, and the label bytes. It hashes a label, not a
+permission manifest, so it is a request: a label does not make a package
+read-only or confine its writes. What the package may do follows from the runtime
+owner's independently selected admission policy, which pins the exact package,
+operation, authority profile and budget, and from the admitted program, grants,
+footprint law and runtime checks.
+
+An authored effect package carries no `obstruction_coordinate`. Its program can return several obstructions, and every one is declared in the package's embedded lawpack exports and checked arm by arm at admission: each arm's coordinate must name exactly one declared obstruction with the failure's authority class. A fixed-profile package keeps its single nonempty `obstruction_coordinate` unchanged, so its bytes and identities are the same as before; the program kind decides which shape a package has, as it already decides whether a lawpack binding is present.
+
+This schema crossing validates the configuration's shape and bounds. It does
+not validate the embedded law/schema semantics, produce an effect package, or
+provide runtime authority. The public lowerer/verifier effect branch and target
+resource declarations remain unfinished. Runtime preparation and private
+execution evidence above do not establish that producer path.
+
+The `compiled_program` payload uses one current
+`echo.compiler-produced-effect-program/v1` artifact bundle with exactly
+`schema`, `intent`, `core_artifact`, `target_ir_artifact`,
+`lawpack_exports_artifact`, and `lowering_artifacts`. The first three artifacts
+are exact canonical CBOR bytes. `lowering_artifacts` is null for a selected body
+without effects. For an effect body it is an exact map containing canonical
+`source_artifact`, `lawpack_artifact`, `adapter_artifact`,
+`target_profile_artifact`, and `intrinsics_artifact` byte strings;
+the source decodes to UTF-8 bytes. This replaces the former bundle shape;
+there is one decoder and no compatibility path. Opaque program bytes,
+an unbundled Core module, extra bundle fields, and noncanonical nested
+encodings refuse.
+
+Preparation recomputes the Edict canonical SHA-256 identities for Core, Target
+IR and exports and checks them against the package closure and program. The
+Target IR must name the same Core coordinate and SHA-256 Core identity. Only
+the current ordered Target IR schema is accepted. The selected bundle intent
+must name the package operation; its Core output type must equal the program's
+output type. The Core and Target IR must agree on operation profile, input
+constraints, evaluation budget, optional basis and result. Instruction IDs are
+nonempty and unique across step, requirement and pure-binding collections;
+execution order must contain each ID exactly once. Artifact roots and selected
+Core intent/body fields have exact shapes.
+
+The selected Core body and ordered Target IR must now correspond node for
+node. `let`, terminal `require`, and `effect` nodes preserve their bindings,
+values, predicates, failure reasons and inputs exactly. Added, omitted,
+reordered and substituted nodes refuse, as do unknown Core node kinds and
+extra Target node fields. A single validator
+checks the execution order against Core; the former ID-only check was removed.
+
+Core local declarations use the shared current local-identity check. IDs,
+complete type references and alpha names must match their declaration exactly;
+the input is `arg.0` with the authored input type. Declared types resolve through
+the existing bounded syntax parser. Basis and input constraints see only the
+input; a local becomes available after its definition. Each obstruction binder
+is available only within its own arm, every declaration is accounted for, and
+an obstruction local cannot leak into the operation's result. Source arm
+binders/values and lowered arm values have a one-to-one correspondence, and
+lowered failure names are unique and cover the lowered arm keys exactly.
+Expression syntax, type expansion and reference traversal retain the existing
+combined work/depth ceilings. Unsupported control-flow and optic bodies refuse
+until their instruction contracts exist.
+
+Effect bodies additionally require a single lawpack pinned identically by the
+Core imports and Target semantic closure. The lawpack must pin the exact exports
+and declarative adapter bytes. Its selected adapter entry must match the Target
+profile reference and Target IR schema ID. The current bounded source preamble
+requires the same package coordinate and an explicit lawpack import with that
+lawpack digest and one alias. Effect names must use that alias or the fully
+qualified lawpack coordinate. A uniquely matching adapter operation profile
+must authorize every effect. Each lowered intrinsic name must equal its adapter
+implementation. Source failure names map to the exact lowered tags and arm
+bodies through the adapter; mappings are bijective and agree with exported
+failure declarations. Effect result bindings and failure payload binders must
+use the exported type names. Collection storage order does not replace the
+explicit execution order.
+
+Every Core type declaration in the selected lawpack's namespace must now name
+an exported type and match its canonical definition. The metadata check uses
+exact Core declaration shapes, renders record fields in lexical name order,
+preserves explicit byte bounds and nominal contract names, and follows exported
+whole-definition aliases with bounded cycle detection. Unknown imported members,
+changed field types or bounds, duplicate export coordinates and extra declaration
+fields refuse even under recomputed Core/Target/package identities. It checks
+all declarations in that namespace, including unused ones. Alias/reference walks
+have fixed work, depth and reference-length limits.
+
+The metadata renderer authenticates the current primitive, string/bytes, record,
+nominal, option/list/map, capability-reference and external-action-request
+shapes. Unsupported shapes, including variants, refuse until implemented.
+Metadata authentication does not enable evaluation of those type families;
+the executable expression checker still admits its current pure subset.
+Named unsigned aliases use the compiler's canonical `{"kind":"U64"}` form
+and corresponding widths. The synthetic `Int`/`width` decoder was removed and
+its fixture producer updated; there is no alternate decoder for that shape.
+
+The bundled target profile's canonical identity must equal the Target IR
+reference and the lawpack adapter's selected profile reference. Its Core ABI,
+coordinate and intrinsic namespace must agree, and its Target IR resource
+reference must equal the adapter's complete accepted reference. The profile's
+`echo.dpo.intrinsics/v1` reference must pin the exact bundled intrinsic catalog.
+Only the current catalog schema is accepted, and the selected intrinsic must be
+present as an effect in the declared namespace. The previous evidence shape
+without profile/catalog artifacts refuses; there is no alternate decoder.
+
+Concrete catalog declarations must have exact fields and agree with the exported
+effect's execution class, write class and supported guard posture. Free type
+parameters and positional argument lists requiring unpacking refuse until
+implemented. Catalog named-fault entries are indexed by the adapter's mapped
+target tags; their complete tag set and authority classes must agree with
+exported failures. Cost/footprint template names are present and nonempty, but
+their calculus is not validated by this check.
+
+For an application intrinsic, the catalog's single argument type, return type
+and fault payload types must equal the exported effect's input, output and
+failure payload coordinates by name. This is concrete declared agreement, not
+general structural or polymorphic signature unification.
+
+The six shared runtime intrinsics below are the one exception. Echo's provider
+catalog is shared by every application, so it cannot name any application's
+types. For these exact intrinsic identities, and no others, the catalog names
+Echo-owned ABI coordinates, and the effect the adapter explicitly binds to the
+intrinsic must declare types whose representations conform to that ABI. The
+application's types keep their nominal identity: conformance establishes a
+lawful representation crossing at this one boundary, not that equal
+representations are equal types anywhere else. A matching shape never selects
+an intrinsic; the adapter's explicit binding and its ambiguity checks still
+apply.
+
+| Intrinsic                                          | Catalog argument / return                     | Input representation                                                      | Successful result                                         |
+| -------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `echo.dpo@1.node-atom-read`                        | `echo.dpo@1.node-atom-read.input` / `.result` | exactly `warpId`, `nodeId`, `typeId`                                      | bytes, minimum zero, positive maximum at most the ceiling |
+| `echo.dpo@1.ensure-node`, `echo.dpo@1.create-node` | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `nodeId`, `nodeType`, `atomType`, `atomBytes`           | the empty record                                          |
+| `echo.dpo@1.replace-atom`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` | the empty record                                          |
+| `echo.dpo@1.ensure-edge`                           | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `fromId`, `toId`, `edgeType`                  | the empty record                                          |
+| `echo.dpo@1.replace-edge`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `expectedToId`, `toId`                        | the empty record                                          |
+
+Every field other than `atomBytes` has a representation of exactly 32 bytes; a
+maximum-bounded or differently sized field does not conform. `atomBytes` and
+the read result are bytes with minimum zero and a positive declared maximum no
+greater than the 16 MiB runtime ceiling, so an application may declare a
+smaller maximum. Field membership is exact: a missing, renamed, duplicated or
+extra field does not conform. The mutation intrinsics declare no failures. The
+read intrinsic's four failures carry `echo.dpo@1.node-atom-read.input` in the
+catalog, and each exported failure must carry the effect's own declared input
+type, so the fault payload stays nominally tied to that application's input.
+
+The catalog names the read's failures with Edict ABI identifiers, and Echo pins each one, for this intrinsic only, to the versioned tag its runtime records:
+
+| Catalog name            | Runtime tag                        | Authority class  |
+| ----------------------- | ---------------------------------- | ---------------- |
+| `atomMissing`           | `echo.atom-missing/v1`             | `resourceFault`  |
+| `atomRequired`          | `echo.atom-required/v1`            | `integrityFault` |
+| `atomTypeMismatch`      | `echo.atom-type-mismatch/v1`       | `integrityFault` |
+| `atomByteBoundExceeded` | `echo.atom-byte-bound-exceeded/v1` | `integrityFault` |
+
+The pairs belong to `(echo.dpo@1.node-atom-read, catalog name)`; there is no global dictionary and no fallback that forwards an unfamiliar string. The provider's semantic source records each pair as the failure's `runtimeTag`, so changing one changes the pinned provider; the catalog entry itself carries only `authorityClass` and `payloadType`. On the authored route an adapter maps its own failure names to these catalog names, Edict keys the lowered read step's arms by them, and the runtime translates each arm to its tag before matching the obstruction it records: a missing, unknown, repeated or tag-spelled name refuses the package. Application aliases stay in the application's adapter. Jim's `missing` maps to `atomMissing`, which Echo records as `echo.atom-missing/v1`; `missing` never appears in Echo's table. The bounded-read route keeps its existing runtime-tag mappings.
+
+Declarations cannot redefine the existing node/atom recording primitive's ABI.
+The runtime currently recognizes `echo.dpo@1.node-atom-read` here. Its input
+representation has exactly `nodeId`, `typeId` and `warpId`, each 32 bytes; its
+output is a byte type with minimum zero and a positive maximum under the
+runtime's logical storage ceiling. The four named atom-read fault tags and their resource
+or integrity classes are fixed, and each carries the input-address type.
+Mutually agreeing Core, lawpack and catalog declarations cannot change these
+requirements. Five mutation-emitter ABIs are also supported as described below.
+Other intrinsic names refuse until their handlers and ABI contracts exist. Static
+binding does not itself execute instructions.
+
+The retained profile/catalog declares only the original replace fixture and a
+prior Target IR resource; it does not declare node/atom read. Positive tests now
+construct an explicitly synthetic read catalog and consistently repin its
+profile, lawpack, Core imports, Target references and source preamble. The raw
+capture remains a refusal case. Neither this synthetic chain nor matching hashes
+is evidence of successful public effect compilation or verifier approval.
+
+The retained raw public capture has inconsistent export/adapter pins in its
+lawpack and now refuses. Positive correspondence tests use an explicitly
+repinned synthetic chain derived from that capture. They do not prove a
+successful compiler build or verifier acceptance.
+
+Data-valued `let` expressions, effect inputs, operation results, basis expressions,
+terminal-reason payload values, and predicates now use the shared pure-expression
+type checker. Expected effect input names come from the pinned exports and
+resolve through Core's current type definitions. Byte bounds, integer widths,
+record fields, conditional branches and helper argument/result representations
+must agree. The same helper signature collector and body checker serve pure
+and effect preparation; there is no second helper authority implementation.
+Every source/imported helper body is checked, including unused definitions.
+Unpublished calls, effect names used as pure helpers, invalid arguments,
+recursive helper cycles, and excess combined expression/call depth refuse.
+These checks retain the existing pure-helper subset and bounded work limits.
+
+The shared inferred type model now preserves each nominal contract name and
+representation. Resolved nominal declarations must name their own Core table
+identity. Effect data expressions and checked helper bodies cannot substitute
+another nominal contract with the same representation, implicitly unwrap a
+nominal value, or construct one from an untyped literal. Helper argument/result
+checks and conditional joins retain this identity. Predicates require identical
+nominal identities before applying the supported scalar representation operator.
+The synthetic effect fixture's numeric result is now an ordinary unsigned alias,
+rather than relying on implicit construction of a nominal value.
+
+Nominal identity is static metadata over the existing wire representation.
+Runtime value validation follows that representation and retains its existing
+CBOR bounds, meter costs and physical value depth; it does not invent a nominal
+wire tag or charge an extra physical frame for the static name. This does not
+establish a complete static typing proof for every pure-program main/projection
+path. Those paths still require full refinement-aware checking or independent
+compiler/verifier authority, and explicit nominal construction operations are
+not introduced by this checkpoint.
+
+Failure-arm values currently support declared zero-argument obstruction
+constructors. Their exported authority class must equal the exported failure's
+class: `domainMappable`, `resourceFault`, or `integrityFault`. A matching arm body
+and fresh pins cannot turn an exported integrity failure into a resource or
+domain obstruction. Parameterized or computed obstruction expressions refuse
+until their contracts are implemented. Constructor payload schemas and terminal
+reason authority are not yet checked by this relation.
+
+These checks establish artifact binding, ordered correspondence, lexical scope,
+and data representation typing/helper authority within the current pure subset.
+Imported declarations in the selected lawpack namespace now bind to exports,
+but this does not authenticate every source/local definition or establish a
+complete typing proof across every pure main/projection path. General intrinsic families, structural/polymorphic signatures and the remaining
+runtime handlers remain open. Adapter
+correspondence binds declared names and failure arms; it does not prove a
+source-to-Core translation or an independently verified source closure. The
+bounded preamble reader is not a full Edict parser. Multiple lawpacks and
+ambiguous adapter profiles refuse explicitly. Complete target schema/profile
+artifacts beyond the supplied profile/catalog, obstruction-taxonomy resources,
+cost/footprint/configuration obligations and the complete lowering relation
+remain unchecked. These checks do not establish verifier approval,
+interpret instructions, or prove that an application graph schema corresponds
+to compiler exports. Resource execution and the physical arena remain required.
+Static preparation grants no invocation or mutation authority.
+
+### Private ordered authored evaluation
+
+`EffectEvaluationFrame::evaluate_effect` evaluates the prepared current authored
+program against the runtime-selected immutable parent and typed node aperture.
+The frame's exact footprint law must equal the prepared program's law. Whole
+authored evaluation requires an unused frame, so it cannot adopt reads or work
+from another private component. Unbound/used frames, mismatched laws and invalid
+apertures refuse before new graph observations.
+This is trusted-host private evaluation, without installed dispatch, invocation
+grants or mutation authority.
+
+The checked Core body and ordered Target IR are decoded into typed `let`,
+node/atom-read and terminal `require` instructions. Expressions, predicates,
+helper calls and value validation reuse the existing pure evaluator. Input,
+Core, program and frame ceilings intersect; computation and real recorded reads
+spend the same cumulative meter. Each component retains its own declared work
+and storage ceiling. Basis expressions are evaluated and must yield 32 bytes;
+this does not establish the invocation's separate input-derived basis grant.
+
+Reads resolve the actual atom through the existing typed recording adapter.
+Successful node/atom pairs must satisfy the prepared graph schema before their
+values reach subsequent instructions. Actual absence and mapped read failures
+retain completed dependencies. The currently supported zero-argument failure
+constructors yield their authored source-context name and empty canonical
+payload; false requirements evaluate their terminal payload expressions. These
+are private evaluation errors, not persisted Action decisions or a complete
+obstruction taxonomy/schema proof.
+
+The final result is validated and encoded under the intersected output ceiling.
+Failure or successful whole authored evaluation ends the frame; later evaluation
+calls do no work. Completed output, usage and observations remain available for
+inspection or consuming retention. The result is borrowed from frame-owned
+storage, so completion retention does not make an uncharged second output copy. The new runtime witnesses use the
+explicitly synthetic, coherently pinned read fixture, not a genuine public
+compiler/verifier output. Private whole-parent derivation is described below.
+Physical arena guarantees, atomic scheduler settlement, receipts/WAL and
+original-decision recovery remain required for the complete bridge.
+
+### Buffered compiled mutation intents
+
+The current interpreter recognizes five `echo.dpo@1` mutation-emitter names.
+Each declares the provider effect kind that names what it does, `create` for
+`create-node`, `ensure` for `ensure-node` and `ensure-edge`, and `replace` for
+`replace-atom` and `replace-edge`, and declares that same value as its
+`writeClass`, because Edict's intrinsic ABI has no `write` class. Its named
+intrinsic failure set must be empty. They require the explicit
+`continuum.profile.graph-effects/v1` Core/Target operation profile; a matching
+read-only profile and adapter cannot authorize them.
+
+Each emitter accepts one record argument and returns an empty record. The
+runtime fixes every field other than `atomBytes` to exactly 32 bytes. The byte
+payload has minimum zero and a positive declared maximum within the 16 MiB
+logical storage ceiling. Declaration/catalog agreement cannot redefine this ABI.
+
+| Intrinsic suffix             | Required input fields                                             |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `ensure-node`, `create-node` | `warpId`, `nodeId`, `nodeType`, `atomType`, `atomBytes`           |
+| `replace-atom`               | `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` |
+| `ensure-edge`                | `warpId`, `edgeId`, `fromId`, `toId`, `edgeType`                  |
+| `replace-edge`               | `warpId`, `edgeId`, `expectedToId`, `toId`                        |
+
+At emission the evaluator admits one fixed step, a deterministic 280-byte row
+reservation, and fixed write bytes atomically: 64 plus the atom payload length
+for node/atom effects, or 128 for edge effects. The typed intent moves the already
+charged expression payload without copying it. A failed row/step/write reservation
+commits none of that emission charge. Earlier expression work remains consumed. It
+retains separate node and atom types and both sides of replacement comparisons.
+Host allocation failure remains a host error. Only a successfully completed whole authored operation exposes intents through
+`EffectEvaluationFrame::buffered_mutations`, in execution order. Later
+output/resource/guard failure discards the operation's entire partial buffer.
+Another program cannot append to the completed operation, and prior private
+component work cannot be adopted into it. The buffer is not a validated proposal.
+
+`EffectMutation` values are data. No public API accepts caller-constructed
+values as evaluation evidence or grants a write from them. Emission does not resolve or modify graph slots. Its write-byte charge applies
+even when a later Ensure resolves identically and contributes no write slots. A
+whole operation may emit at most 1,024 effects, including identical targets and
+intents that later become no-ops; the next emission refuses without exposing a
+partial intent buffer. Completed read-image usage retains these emission costs
+alongside computation and read costs. These intents are not a canonical
+proposal, approved footprint, derived patch or successful Action. Reachability,
+canonical ordering, duplicate targets, schema/identity/footprint rules,
+preconditions and validation-read charges are handled by the private whole-parent
+derivation crossing described below. Scheduler integration remains required.
+Tests use explicitly synthetic pinned artifacts; genuine
+compiler/verifier production and physical arena guarantees remain open.
+
+### Completed authored origin evidence
+
+`EffectEvaluationFrame::into_effect_evaluation` consumes a successful whole
+operation into one `CompletedEffectEvaluation`. It retains the exact producing
+program identity, canonical-input application-basis binding, actual result,
+emitted intents and bounded recorded-read image. The image supplies the sole
+full runtime parent and the actual usage counters. Result and intent storage move
+into the completed value without copying their payloads. There is no public
+constructor or setter for this completed value.
+
+Program identity uses the same current program identity recipe as
+`EchoOperationProgram::identity`; preparation caches the identity over the exact
+canonical program. Input binding reuses the current invocation-admission recipe,
+not a second projection/hash rule. Completion requires that binding to equal the
+runtime-selected parent's application basis. Changing otherwise valid input
+under an original parent therefore cannot yield completed origin evidence.
+The frame also carries the runtime owner's process-local evaluation authority
+into completion. No public API constructs or replaces that authority. Matching
+program and parent coordinates do not permit another owner's completion to
+cross the derivation boundary: reachable-state roots exclude detached records,
+so matching roots alone cannot establish equal underlying stores. This owner
+binding is process-local origin evidence, not a serialized recovery proof.
+Unused, failed or mixed-component frames cannot complete, and read-image export
+limits/faults deliver no partial completed value. Failed typed read prefixes may
+still be retained through the existing diagnostic read-image path.
+
+This value establishes private execution origin. It does not authenticate an
+installed package or independent compiler/verifier approval, resolve mutation
+preconditions, derive a patch or grant invocation authority. Proposal validation
+and installed scheduler dispatch must still check the producing program and exact
+parent against their own authoritative evidence.
+
+### Private whole-parent patch derivation
+
+The trusted runtime owner can consume `CompletedEffectEvaluation` through
+`derive_echo_operation_effects` with an independently admitted invocation.
+The owner checks both admission and completed-evaluation authority, current
+installation, producing program
+and exact full parent before resolving mutation intents against immutable state.
+This returns a `DerivedEffectPatch` for inspection without applying its operations.
+The patch binds the runtime policy, installation and invocation identities.
+
+Resolution retains charged validation reads alongside evaluation usage and
+checks schema, content or mutable-slot identity, duplicate targets, typed write
+permissions, resolved write limits, comparisons and endpoint presence. All five
+mutation forms derive operations; identical Ensure intents derive no writes but
+retain emission charges and must still have write permission. Attachment and
+outgoing-range writes count toward the resolved write limit.
+
+This is a private whole-parent checkpoint. It does not provide scoped-history
+admission, same-Tick composition, installed Action execution, receipt/WAL
+publication or fresh-engine effect-decision recovery. The physical arena and
+public compiler/verifier production proof also remain required. Synthetic
+runtime fixtures do not establish those obligations.
+
+### Current invocation input, basis and owner grant admission
+
+`EchoOperationInvocation` is the sole current invocation representation and
+codec. All program kinds use `echo.operation-invocation/v1` with an explicit
+`kind` field. Fixed compare-and-set and create-if-absent kinds retain their
+actual node anchor and optional projected input. Authored-effect invocations
+require canonical application input and carry no node anchor or replacement
+bytes. Unknown fields, old kind-specific invocation schemas, and the former
+V2 schema refuse. Historical decoders and compatibility aliases were removed.
+Observation envelopes remain a separate fixed-operation reading precondition;
+nested envelopes and effect observation wrappers refuse.
+
+`EchoOperationInvocation::prepare` checks the selected publication identity,
+operation, program kind, input contract and each package budget axis. Effect
+input must fit the selected program's declared ceiling, including CBOR framing.
+The effect application-basis schema is the effect-basis profile. Its value is
+BLAKE3 over `echo:operation-edict-effect-basis:v1\0`, the input length as a
+little-endian u64, and the exact input bytes. All kinds share the current
+invocation identity domain. Static preparation establishes neither runtime
+freshness nor a grant.
+
+`TrustedRuntimeHost::admit_echo_operation_invocation` resolves the installed
+package and the actual current worldline parent. The common owner policy checks
+the independent authority profile and grant identity, delegated package and
+policy budgets, input binding and exact parent evidence. The admitted token
+retains the current invocation, including the absence of an effect anchor.
+Admission does not execute the compiled program or mutate the graph.
+
+Authored-effect Action execution remains unfinished. Scheduler admission and
+Action recovery inspection explicitly refuse that unsupported execution path;
+the direct preparation seam yields an obstruction rather than a fabricated
+successful patch. Fixed-operation Action evaluation and recovery continue to
+use their real anchors. Private mutation execution and whole-parent derivation
+do not enable Action execution. The physical arena, scoped-history admission,
+Tick integration and effect decision recovery remain required.
+
+### Runtime-owner package policy admission
+
+`TrustedRuntimeHost::admit_echo_operation_package` is the sole package-admission
+crossing. It consumes the current `EchoOperationAdmissionPolicy` and exact
+canonical publication bytes for any supported program kind, returning one
+opaque `AdmittedExecutableOperationPackage`. The former version-specific owner
+methods, effect-admission module and effect token definition were removed
+without aliases or wrappers. Retained recovery reruns the same validator.
+
+The independently selected policy pins package identity, operation coordinate,
+authority profile and maximum budget. The common validator checks the exact
+pin, canonical artifact and profile contracts, operation/authority agreement,
+and every budget axis. A matching pin does not replace structural validation
+or independent authority policy. Both fixed and authored-effect programs cross
+these same checks and produce the same current evidence type.
+
+The token retains the prepared package, exact publication bytes, checked
+package/program identities, policy and policy identity. Its admission identity
+uses `echo:operation-package-admission:v1\0` followed by the raw package and
+policy identities. There is no alternative effect-admission identity recipe.
+Policy identity uses the existing current
+`echo:operation-admission-policy:v1\0` recipe. Different independent policies
+therefore retain distinct admission evidence for otherwise identical bytes.
+Installation consumes the token's checked program identity; recovery rebuilds
+and checks this evidence rather than trusting retained hashes alone.
+
+This method is exposed only on the runtime-owner host, under the existing
+`native_rule_bootstrap` and `trusted_runtime` boundary. The restricted
+application handle cannot admit a package. The token has no public constructor
+and is neither an installation nor an invocation grant. Installation uses one evidence type and catalog for every program kind.
+Invocation admission is described above; authored-effect Action execution remains
+unfinished. Package admission does not infer compiler/verifier approval from
+publication identities.
+
+### Runtime-owned installation and retained catalog recovery
+
+`TrustedRuntimeHost::install_admitted_echo_operation_package` consumes the
+opaque common package-admission token and installs one `InstalledEchoOperation`
+in the engine's sole package catalog and operation-coordinate index. Fixed and
+authored-effect program kinds use the same owner API, evidence type, preflight,
+retained codec, recovery collection and restoration path. The former effect
+installation module/type, second catalog/index, version-dispatch decoder and
+version-specific methods were removed without aliases or wrappers. Application
+handles cannot call the owner method.
+
+The installed object retains the exact admitted package/program/policy evidence.
+A lawpack identity is `Some` for fixed programs and `None` for authored effects;
+absence is not a sentinel hash. Installation grants no invocation authority and
+does not validate the compiled effect instruction language. Its read-only
+`retained_bytes` and `from_retained_bytes` methods reconstruct evidence without
+inserting registry entries.
+
+Exact repeats are idempotent. A changed policy for the same package or a changed
+package at an occupied operation coordinate refuses before any WAL append,
+regardless of program kind. Batch recovery preflights the same single catalog
+before publication. The installation identity uses
+`echo:operation-installation:v1\0`, then raw package identity, package-admission
+identity, length-prefixed operation coordinate, program identity and
+length-prefixed exact package bytes, in that order.
+
+The sole retained installation record has exactly seven fields with schema
+`echo.operation-installation/v1`: independent policy, policy identity, exact
+package bytes and identity, package-admission identity and installation identity.
+Recovery reruns the common package-policy validator, recomputes the identities
+and reproduces exact record bytes. Unsupported installation schemas, including
+the former V2 schema, refuse. Recomputed hashes cannot make a false independent
+policy acceptable.
+
+With a runtime WAL configured, installation commits before the registry entry
+becomes visible. Failed append/commit paths publish no entry. Uncertain
+filesystem errors refresh the writer and compare the exact recovered
+installation, including policy and program evidence, before reporting success.
+A commit-marker sync failure leaves the live adapter closed and publishes no
+entry; a fresh store reopen may establish and recover the committed history.
+Without a WAL, installation is volatile; an empty WAL cannot attest an earlier
+volatile installation. These checks apply to every program kind.
+
+The current receipt type has nullable lawpack evidence. Its canonical field
+is either a 32-byte identity or null; its identity hash includes a presence byte
+and, when present, the raw identity. Absence therefore differs from a present
+zero hash. Receipt corroboration checks the value against the exact installed
+program evidence; a structurally valid absent claim cannot replace a fixed
+program's real lawpack. This updates the one current receipt recipe rather than
+retaining an older decoder or hash path.
+
+The existing installation transaction and catalog-frontier recipes bind the
+exact retained bytes. Recovery certificates use one current operation-index
+recipe, under `echo:trusted-runtime-wal:executable-operation-index:v3\0`, for
+every catalog and outcome shape. It hashes the preceding index root, then three
+count-prefixed sections: installations, execution receipts, and Action outcomes.
+Each record is length-prefixed. Installations are ordered by raw package identity
+and then retained bytes; receipts and Action outcomes retain their causal order.
+Action-outcome records bind the submission and ingress identities as well as the
+typed outcome. Empty sections contribute their zero counts, including when all
+three sections are empty. There is no older index recipe, empty-index bypass,
+or recipe switch based on the presence of effect installations or Action outcomes.
+The historical index recipes were removed under the one-current-version policy.
+
+A fresh filesystem-backed host restores all supported program kinds through
+the sole installation collection and rechecks coordinate conflicts. The common
+invocation model and owner grant admission are described above. Installation
+recovery does not establish recovery of an authored-effect decision. Physical
+allocation guarantees, scoped-history admission and authored-effect
+Action/Tick/receipt recovery remain unfinished.

@@ -25,7 +25,8 @@ wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macr
 [dev-dependencies]
 hex = "0.4"
 sha2 = "0.10"
-warp-core = { workspace = true }
+# Echo-owned native decoder oracle only; not a component/runtime dependency.
+warp-core = { workspace = true, features = ["trusted_runtime", "native_rule_bootstrap"] }
 
 [lints]
 workspace = true

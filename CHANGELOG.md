@@ -95,6 +95,183 @@
 
 ### Changed
 
+- An authored effect package no longer carries a single `obstruction_coordinate`.
+  Its embedded exports declare every obstruction the program can return, and
+  admission checks each arm against them. The effect-package shape exists only
+  on this unreleased route, so it is amended in place; fixed-profile packages keep
+  the field, and their bytes and identities are unchanged. The lowerer's effect
+  publication no longer takes an obstruction input.
+
+- The authored route names `echo.dpo@1.node-atom-read`'s failures by Edict ABI
+  identifiers (`atomMissing`, `atomRequired`, `atomTypeMismatch`,
+  `atomByteBoundExceeded`). One Echo-owned table, scoped to that intrinsic,
+  translates each to the runtime tag Echo records; missing, unknown, repeated
+  or tag-spelled names refuse the package. The bounded-read route is unchanged.
+
+- `receipt_correlations_for_current_basis` compiles only where the trusted
+  runtime host that calls it does, removing a dead-code warning from
+  `trusted_runtime` builds without `native_rule_bootstrap`.
+
+- Make current effect publication preparation available as a data-only check
+  without trusted-host features, sharing the existing runtime checker while
+  retaining private host helpers and gated authority constructors.
+
+- Admit the current authored-effect envelope through the provider's owning
+  operation-package schema, sharing current package fields with anchored
+  operations and preserving kind-specific closure/projection requirements.
+  Program verification and runtime authority remain separate checks.
+
+- Added a pure current-format effect proposal serializer that preserves compiler
+  bundle bytes and derives embedded artifact identities. Synthetic controls
+  round-trip through the current runtime decoder; public producer integration,
+  independent verification and effect execution remain unfinished.
+
+- Required explicit bounded intrinsic-catalog bytes in authored-effect lowering
+  configurations and reject catalogs that do not reproduce the selected
+  target profile's owner-framed reference. This validates resource transport;
+  authored-effect body lowering and execution remain unfinished.
+
+- Provider configuration validation recognizes an explicit bounded declaration
+  for the current authored-effect program kind. Graph schema and footprint-law bytes, identity
+  recipe, resource limits and I/O budget are required. This declaration does not
+  implement the public effect lowerer/verifier or grant runtime authority.
+
+- Completed authored evaluations now retain their runtime owner's private
+  authority through frame consumption. Patch derivation refuses foreign-owner
+  completion even when program and parent coordinates match. This closes a
+  substitution gap because equal reachable-state roots can conceal different
+  detached store records. The authority is process-local and adds no wire format.
+
+- Trusted runtime owners can privately derive counterfactual patches from
+  completed authored evaluation at an exact unchanged full parent. Validation
+  checks all five mutation forms, schema and identity rules, typed write laws,
+  comparisons and endpoint presence while retaining evaluation and validation
+  costs. Derivation does not apply the patch or enable scheduler, scoped-history,
+  receipt/WAL or fresh-engine effect recovery.
+
+- Authored mutation emission now follows the fixed effect contract: one step,
+  64 write bytes plus atom payload for node/atom effects, or 128 write bytes for
+  edges, and at most 1,024 emitted effects. Step/write/row admission is atomic,
+  failed operations expose no partial buffer, and retained usage includes write
+  charges even for Ensure intents that may later resolve without writes. This
+  replaces the buffering prototype's incorrect deferral of emission charges.
+
+- Completed authored evaluation now has one runtime-owned origin record binding
+  its exact program, canonical input basis, actual result, mutation intents and
+  recorded reads to the same parent. Whole authored evaluation requires an
+  unused frame and stops further evaluation on success. Consuming completion
+  refuses substituted input bindings, failed frames and read-export failures;
+  result storage is borrowed during evaluation and moved into completion.
+  Completion grants no installation or scheduler authority; the runtime owner
+  independently validates its origin when deriving a private patch.
+
+- Prepared authored programs can now emit all five typed mutation intents into
+  private frames under the explicit graph-effects profile. Fixed input layouts,
+  empty-record results and row reservations apply. Failed operations discard
+  partial emission. Emission does not modify the frontier or derive a patch;
+  the owner crossing separately resolves and validates intents. Physical
+  allocation guarantees and durable scheduler execution remain unfinished.
+
+- Runtime-bound private frames now evaluate prepared authored read/let/require
+  programs through the shared expression evaluator and typed recording adapter.
+  Exact footprint-law binding, graph-schema checks and cumulative component
+  budgets apply; authored failures retain read dependencies and terminate the
+  frame. Installed Action execution, the physical arena and decision recovery
+  remain unfinished.
+
+- Effect compiler bundles now require the pinned target profile and intrinsic
+  catalog. Preparation checks catalog registration and concrete signature/fault
+  agreement, then enforces the existing node/atom recording ABI independently
+  of those declarations. Fresh pins cannot redefine 32-byte addresses or fault
+  authority. Further intrinsic families, general signature unification, complete
+  profile obligations and installed effect execution remain unfinished.
+
+- Shared expression/helper inference now preserves nominal contract identity.
+  Effect expressions cannot interchange equal representations across contracts,
+  implicitly unwrap opaque values, or construct them from untyped literals.
+  Nominal declarations must bind their own Core identity. Wire validation keeps
+  the existing representation and value-metering rules; complete pure-main
+  static typing, explicit construction operations and installed effect execution remain
+  unfinished.
+
+- Effect compiler preparation now authenticates imported Core type declarations
+  in the selected lawpack namespace against pinned export definitions, including
+  bounds, record fields, nominal contract names and unused declarations. Fresh
+  pins cannot hide imported type redefinitions or unknown members. Named unsigned
+  aliases now use the actual compiler's canonical width-kind encoding; the
+  synthetic `Int`/`width` form and its decoder were replaced.
+
+- Effect compiler preparation now shares the pure expression and helper checker
+  for data values, predicates, effect inputs and results. Matching Core/Target
+  bytes cannot hide wrong representations, unpublished calls or invalid helper
+  arguments. Declared failure-arm constructors must preserve their exported
+  failure authority class. Complete type/source authentication, nominal and
+  intrinsic semantics, and installed effect Action execution remain unfinished.
+
+- Effect compiler preparation now binds the declared lawpack's exports and
+  adapter bytes and checks each lowered intrinsic and failure arm against that
+  adapter. Fresh artifact/package pins cannot hide a swapped failure tag or a
+  substituted intrinsic name. The sole compiler bundle now includes lowering
+  artifacts; source-to-Core proof, full intrinsic signatures and execution
+  remain unfinished. The inconsistent retained raw capture refuses; positive
+  correspondence tests use an explicitly repinned synthetic chain.
+
+- Effect compiler preparation now checks ordered Core/Target IR node
+  correspondence and exact lexical local identities. Fresh artifact/package
+  pins cannot hide altered inputs, effects, predicates, failure reasons,
+  definitions, or instruction order. Source and lowered failure-arm values
+  must correspond without duplication, and obstruction locals stay scoped to
+  their arms. One relation validator replaces the former ID-only order check;
+  full typing, complete intrinsic signatures and execution remain open.
+
+- Authored-effect payloads now bind a single canonical compiler-artifact bundle
+  containing Core, ordered Target IR and exports. Fresh package pins cannot
+  admit opaque bytes, false artifact identities, a different selected operation
+  or output type, inconsistent Core/Target metadata, or invalid instruction
+  ordering. This replaces the opaque-byte placeholder; full instruction
+  semantics and authored-effect Action execution remain unfinished.
+
+- Invocations now use one `EchoOperationInvocation`, codec, owner policy and
+  admitted token for fixed and authored-effect program kinds. The current
+  schema has an explicit kind and no invented anchor for effects; historical
+  invocation schemas and the duplicate effect decoder were removed. Owner
+  admission checks installed meaning, independent grants, all budget axes,
+  canonical input binding and the actual exact parent. Authored-effect Action
+  execution remains unfinished and refuses explicitly.
+
+- Installation now uses one `InstalledEchoOperation`, runtime-owner API, engine
+  catalog, retained record codec and recovery collection for all program kinds.
+  The duplicate effect installation module and schema-version dispatch were
+  removed. Lawpack evidence is optional for installed programs and receipts;
+  current receipt hashes bind its presence explicitly. Uncertain WAL errors
+  reconcile the exact installation evidence before registry publication.
+
+- Package admission now uses one runtime-owner method, opaque
+  `AdmittedExecutableOperationPackage`, validator and evidence identity recipe
+  for all supported program kinds. Version-specific admission methods and the
+  duplicate effect token/module were removed. Installation and retained recovery
+  consume the common checked evidence; this does not grant invocation rights.
+
+- Operation publications now use one `ExecutableOperationPackage`, one
+  `EchoOperationProgram` sum and one semantic closure. Fixed and authored-effect
+  program kinds share the current package/program schemas and identity domains;
+  the former V2 package type and decoder were removed. Program-kind validation
+  requires real lawpack bindings for fixed programs and forbids them for authored
+  effects. Invocation consolidation is complete; authored-effect Action execution
+  remains unfinished.
+
+- Recovery certificates now use one current operation-index recipe for empty,
+  installation-only, receipt-bearing and Action-bearing histories. It binds
+  count-prefixed retained sections, canonical installation ordering, and causal
+  receipt/outcome ordering. Historical index recipes and conditional switches
+  were removed; this does not consolidate the remaining package formats.
+
+- Operation package admission now uses one `EchoOperationAdmissionPolicy`,
+  one structured refusal contract, and shared authority/operation/budget checks.
+  Version-specific policy definitions were removed; runtime entry points,
+  retained recovery, compiler tooling, tests, and allocation witnesses use the
+  current API directly. Package and installation format consolidation remains
+  separate work.
 - A Core without a function table that contains `core.bytes.slice` or
   `core.integer.subtract` is now judged in full by the lowerer and verifier,
   including its declared budget, as addition already was. Previously such a
@@ -350,6 +527,58 @@
 
 ### Added
 
+- Runtime-owned installation retains exact policy and package evidence in the
+  current WAL catalog and restores all program kinds through one fresh-host
+  recovery path. Conflicts and failed WAL appends publish no registry entry.
+  Installation recovery does not authorize or execute effects.
+
+- Runtime-owner package admission checks independently pinned publication,
+  operation, authority profile and budget policy, retaining checked
+  admission evidence under one shared recipe. Restricted application handles cannot admit packages.
+  This does not install or execute an effect program or grant invocation rights.
+
+- V2 invocation preparation binds canonical application input to its recorded
+  basis, selected package and operation, and checks declared input and budget
+  ceilings. It retains the V1 parent format without granting authority or
+  establishing frontier freshness.
+
+- Current effect publication preparation binds exact package/program bytes, validates
+  profile and Target IR equalities, and decodes the program's schema and exact
+  footprint-law contract together. This does not admit, install or execute the
+  effect program; all program kinds use the shared current publication codec.
+
+- Strict executable graph-schema preparation validates content/mutable node
+  addressing, node/atom compatibility and edge endpoint-type relations with
+  exact canonical shapes and ordered sets. It grants no graph access or Action
+  admission authority.
+
+- Typed private frames can export bounded canonical read-set images while
+  preserving their runtime parent and evaluation accounting. The aligned row
+  format has explicit wire ordering, typed absence, value digests and packed
+  range pairs. An allocation-free borrowed validator refuses malformed framing,
+  padding, duplicates and ranges. This does not add receipt/WAL formats,
+  authenticated effect admission or a physical interpreter arena.
+
+- Runtime-bound private frames can bind strict typed read laws. Actual node and
+  atom types authorize present values, named types authorize absence, and
+  descended reads witness authorized alpha-portal chains before target access.
+  Typed ranges retain whole-bucket limits and untyped entry points cannot bypass
+  a bound law. This remains host-private evaluation without a new admitted
+  effect profile, persisted read image or mutation authority.
+
+- Runtime-bound private frames interpret existing compiled node-atom reads with recorded presence/absence dependencies, shared metering and host-selected apertures. This does not admit a new authored-effect profile.
+
+- Bind private effect evaluation frames to the runtime-selected writer and exact commit parent, refusing substituted histories even when reading coordinates match.
+
+- Trusted-host range-read sessions record real source-node and range values at
+  an immutable basis, including absence and empty ranges. They reject forbidden
+  types before access and charge whole buckets before inspection. This is read
+  infrastructure for the unfinished authored-effect interpreter, without new
+  installation or mutation authority. Read storage reservations now have a
+  fixed ceiling, atomic charging with I/O and explicit host-allocation faults.
+  A trusted-host evaluation frame now shares cumulative work and storage with
+  the real pure interpreter, preserves each component's local ceiling and stops
+  after failure. Existing standalone APIs retain their accounting behavior.
 - Runtime operands for `core.bytes.slice` and `core.integer.subtract` under
   Edict's proven-range rules. The lowerer, the verifier and the native helper
   checker each require a dominating fact (an input constraint or an earlier

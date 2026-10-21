@@ -15,8 +15,8 @@ use echo_edict_provider_lowerer::{
 };
 use warp_core::{
     echo_operation_create_if_absent_target_profile_identity_v1,
-    echo_operation_target_profile_identity_v1, EchoOperationBudgetV1, EchoOperationProgramV1,
-    EchoOperationSemanticClosureV1, ExecutableOperationPackageV1, TypeId,
+    echo_operation_target_profile_identity_v1, EchoOperationBudgetV1, EchoOperationProgram,
+    EchoOperationSemanticClosure, ExecutableOperationPackage, TypeId,
 };
 
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
@@ -1292,7 +1292,7 @@ fn replace_projection(request: &mut LoweringRequestV1, value: CanonicalValueV1) 
 fn expected_package(
     request: &LoweringRequestV1,
     names: FixtureNames<'_>,
-) -> ExecutableOperationPackageV1 {
+) -> ExecutableOperationPackage {
     expected_package_for(request, names, false)
 }
 
@@ -1300,7 +1300,7 @@ fn expected_package_for(
     request: &LoweringRequestV1,
     names: FixtureNames<'_>,
     compare_and_set: bool,
-) -> ExecutableOperationPackageV1 {
+) -> ExecutableOperationPackage {
     let input = |kind: &SemanticInputKind| {
         &request
             .semantic_inputs
@@ -1319,10 +1319,10 @@ fn expected_package_for(
     let core_identity = hash(&request.core.reference.digest);
     let node_type = TypeId(profile_digest(names.node_type));
     let attachment_type = TypeId(profile_digest(names.attachment_type));
-    let package = ExecutableOperationPackageV1::new(
+    let package = ExecutableOperationPackage::new(
         format!("{}.{}", names.application, names.intent),
         names.obstruction,
-        EchoOperationSemanticClosureV1::new(
+        EchoOperationSemanticClosure::new(
             hash(&source.reference.digest),
             core_identity,
             core_identity,
@@ -1340,13 +1340,13 @@ fn expected_package_for(
         profile_digest(names.authority),
         EchoOperationBudgetV1::new(16, 64, 320),
         if compare_and_set {
-            EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+            EchoOperationProgram::anchored_node_attachment_compare_and_set(
                 node_type,
                 attachment_type,
                 256,
             )
         } else {
-            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            EchoOperationProgram::anchored_node_attachment_create_if_absent(
                 node_type,
                 attachment_type,
                 256,

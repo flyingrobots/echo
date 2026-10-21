@@ -70,9 +70,24 @@ pub mod domain;
 )]
 mod echo_operation;
 #[cfg(feature = "trusted_runtime")]
+pub mod edict_effects;
+// Compile the same data checker without exposing trusted-host helper APIs.
+#[cfg(not(feature = "trusted_runtime"))]
+#[allow(dead_code, unused_imports)]
+mod edict_effects;
+#[cfg(feature = "trusted_runtime")]
 pub mod edict_pure;
+// Compile the same data checker without exposing trusted-host helper APIs.
+#[cfg(not(feature = "trusted_runtime"))]
+#[allow(dead_code, unused_imports)]
+mod edict_pure;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_read;
+// Compile the same data checker without exposing trusted-host helper APIs.
+#[cfg(not(feature = "trusted_runtime"))]
+#[allow(dead_code, unused_imports)]
+mod edict_read;
+pub use edict_effects::EffectPackageError;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;
@@ -257,24 +272,24 @@ pub use echo_operation::{
     echo_operation_anchored_node_creation_application_basis_v1,
     echo_operation_atom_value_digest_v1,
     echo_operation_create_if_absent_target_profile_identity_v1, echo_operation_package_id_v1,
-    echo_operation_target_profile_identity_v1, AdmittedEchoOperationInvocationV1,
-    AdmittedExecutableOperationPackageV1, EchoOperationActionDecisionCoordinateV1,
-    EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKindV1, EchoOperationAdmissionErrorV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationAnchoredNodeOccupancyV1,
+    echo_operation_target_profile_identity_v1, AdmittedEchoOperationInvocation,
+    AdmittedExecutableOperationPackage, EchoOperationActionDecisionCoordinateV1,
+    EchoOperationActionOutcomeV1, EchoOperationAdmissionError, EchoOperationAdmissionErrorKind,
+    EchoOperationAdmissionPolicy, EchoOperationAnchoredNodeOccupancyV1,
     EchoOperationApplicationBasisV1, EchoOperationApplicationResultV1,
     EchoOperationArtifactErrorKindV1, EchoOperationArtifactErrorV1, EchoOperationBudgetV1,
     EchoOperationCommitErrorV1, EchoOperationEvaluationBasisIdV1, EchoOperationEvaluationBasisV1,
     EchoOperationExecutionEvidenceV1, EchoOperationFootprintConflictV1,
     EchoOperationFootprintContractV1, EchoOperationInstallationErrorKindV1,
-    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
-    EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionIdV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationIdV1,
-    EchoOperationInvocationV1, EchoOperationObservationV1, EchoOperationObstructionIdV1,
+    EchoOperationInstallationErrorV1, EchoOperationInvocation,
+    EchoOperationInvocationAdmissionError, EchoOperationInvocationAdmissionErrorKind,
+    EchoOperationInvocationAdmissionIdV1, EchoOperationInvocationAdmissionPolicy,
+    EchoOperationInvocationIdV1, EchoOperationObservationV1, EchoOperationObstructionIdV1,
     EchoOperationObstructionKindV1, EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1,
     EchoOperationPackageIdV1, EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1,
-    EchoOperationProgramIdV1, EchoOperationProgramV1, EchoOperationReceiptV1,
-    EchoOperationResultIdV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
-    ExecutableOperationPackageV1, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
+    EchoOperationProgram, EchoOperationProgramIdV1, EchoOperationReceiptV1,
+    EchoOperationResultIdV1, EchoOperationSemanticClosure, EchoOperationTerminalPostureV1,
+    ExecutableOperationPackage, InstalledEchoOperation, InstalledEchoOperationIdV1,
     PreparedEchoOperationIdV1, PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
 };
 pub use edict_target_ir::{

@@ -25,11 +25,11 @@ use sha2::{Digest, Sha256};
 use warp_core::{
     echo_operation_anchored_node_application_basis_v1, echo_operation_atom_value_digest_v1,
     echo_operation_package_id_v1, make_head_id, make_node_id, make_type_id, make_warp_id,
-    AtomPayload, AttachmentValue, EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
-    EchoOperationPreparationV1, EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey,
-    NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost, TypeId, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    AtomPayload, AttachmentValue, EchoOperationAdmissionPolicy, EchoOperationBudgetV1,
+    EchoOperationInvocation, EchoOperationInvocationAdmissionPolicy, EchoOperationPreparationV1,
+    EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey, NodeRecord, PlaybackMode,
+    SchedulerKind, TrustedRuntimeHost, TypeId, WorldlineId, WorldlineRuntime, WorldlineState,
+    WriterHead, WriterHeadKey,
 };
 
 /// Counts bytes requested while `ACTIVE` is set.
@@ -182,9 +182,9 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
     let bytes = package();
     let package_len = bytes.len();
     let admitted = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                echo_operation_package_id_v1(&bytes),
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                echo_operation_package_id_v1(&bytes).as_hash(),
                 OPERATION,
                 profile("cas.echo.authority.local-demo/v1"),
                 budget(),
@@ -192,13 +192,13 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
             bytes,
         )
         .expect("package admitted");
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .expect("install");
 
     // Copying the installed operation allocates nothing.
     let installed = host
         .engine()
-        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .installed_echo_operation_package(echo_operation_package_id_v1(&package()))
         .expect("installed")
         .clone();
     let (copy, copy_bytes) = measure(|| installed.clone());
@@ -226,7 +226,7 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
     ]))
     .expect("input");
     let invocation =
-        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input(
+        EchoOperationInvocation::anchored_node_attachment_compare_and_set_with_application_input(
             echo_operation_package_id_v1(&package()),
             OPERATION,
             basis,
@@ -240,8 +240,8 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
         .to_canonical_bytes()
         .expect("invocation");
     let admitted = host
-        .admit_echo_operation_invocation_v1(
-            &EchoOperationInvocationAdmissionPolicyV1::new(
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
                 profile("cas.echo.authority.local-demo/v1"),
                 GRANT,
                 budget(),

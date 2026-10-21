@@ -7,10 +7,10 @@ use super::{
     echo_operation_anchored_node_creation_application_basis_v1, echo_operation_package_id_v1, fs,
     install_package, parse_input, parse_package, read_bounded, validate_closure,
     validate_package_configuration, validate_verification_report, Context, Digest,
-    EchoOperationActionOutcomeV1, EchoOperationAnchoredNodeOccupancyV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1, HostFixture,
-    IngressTarget, NodeId, NodeKey, PackageMetadata, Result, RunEdictOperationConfig, Sha256,
-    TargetConfiguration, TrustedRuntimeWalConfig, MAX_ARTIFACT_BYTES, MAX_INPUT_BYTES,
+    EchoOperationActionOutcomeV1, EchoOperationAnchoredNodeOccupancyV1, EchoOperationInvocation,
+    EchoOperationInvocationAdmissionPolicy, HostFixture, IngressTarget, NodeId, NodeKey,
+    PackageMetadata, Result, RunEdictOperationConfig, Sha256, TargetConfiguration,
+    TrustedRuntimeWalConfig, MAX_ARTIFACT_BYTES, MAX_INPUT_BYTES,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
@@ -72,7 +72,7 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
     if fixture
         .host
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_none()
     {
         install_package(&mut fixture.host, &package, package_id, package_bytes)?;
@@ -84,7 +84,7 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
     fixture
         .host
         .install_echo_operation_action_admission_policy_v1(
-            EchoOperationInvocationAdmissionPolicyV1::new(
+            EchoOperationInvocationAdmissionPolicy::new(
                 package.authority_profile_identity,
                 grant,
                 package.budget,
@@ -325,7 +325,7 @@ impl Session {
                     .fixture
                     .host
                     .echo_operation_evaluation_basis_v1(self.fixture.head, application_basis)?;
-                let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+                let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
                     self.package_id, &self.package.operation_coordinate, basis, self.grant, self.package.budget,
                     node, input.replacement, input.canonical_bytes,
                 );

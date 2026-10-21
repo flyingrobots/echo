@@ -1057,6 +1057,26 @@ fn compute_patch_digest_v2(
     // The encoding is gathered first and hashed in one call. Fed a few bytes
     // at a time, BLAKE3 compresses one block per call; given the whole
     // input, it can hash several chunks at once. The digest is the same.
+    let input = patch_digest_input_v2(
+        policy_id,
+        rule_pack_id,
+        commit_status,
+        in_slots,
+        out_slots,
+        ops,
+    );
+    blake3::hash(&input).into()
+}
+
+/// The exact bytes `patch_digest` hashes: the patch's canonical encoding.
+fn patch_digest_input_v2(
+    policy_id: u32,
+    rule_pack_id: &ContentHash,
+    commit_status: TickCommitStatus,
+    in_slots: &[SlotId],
+    out_slots: &[SlotId],
+    ops: &[WarpOp],
+) -> Vec<u8> {
     let mut h = DigestBytes(Vec::with_capacity(
         64 + 72 * (in_slots.len() + out_slots.len()) + 160 * ops.len(),
     ));
@@ -1070,7 +1090,7 @@ fn compute_patch_digest_v2(
     encode_slots(&mut h, in_slots);
     encode_slots(&mut h, out_slots);
     encode_ops(&mut h, ops);
-    blake3::hash(&h.0).into()
+    h.0
 }
 
 /// The patch digest's input, gathered before it is hashed.
@@ -3180,3 +3200,6 @@ mod touched_diff_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod compat_vectors;

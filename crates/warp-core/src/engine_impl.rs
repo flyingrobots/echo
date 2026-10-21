@@ -53,6 +53,9 @@ use crate::worldline_state::WorldlineState;
 use crate::ContractInverseHandler;
 
 #[cfg(test)]
+#[path = "engine_impl/overlap_slot_tests.rs"]
+mod overlap_slot_tests;
+#[cfg(test)]
 #[path = "engine_impl/range_tests.rs"]
 mod range_tests;
 use std::sync::Arc;

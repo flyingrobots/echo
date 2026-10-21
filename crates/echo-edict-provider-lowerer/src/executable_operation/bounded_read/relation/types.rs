@@ -317,6 +317,9 @@ impl<'a> Scope<'a> {
         let args = super::array(value, "args")?;
         let types = super::array(value, "typeArgs")?;
         let name = text(value, "callee")?;
+        // A count's needle is a one-byte constant, checked structurally.
+        let args = crate::executable_operation::source_functions::checked_arguments(name, args)
+            .map_err(|()| invalid())?;
         let actual = args
             .iter()
             .map(|value| self.expression(value, depth + 1))
@@ -371,6 +374,11 @@ impl<'a> Scope<'a> {
                 if expected == actual =>
             {
                 Ok(ReadType::Bool)
+            }
+            ("core.bytes.count", [actual], [expected @ ReadType::Bytes(_, _)])
+                if expected == actual =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
             }
             ("core.bytes.length", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected.accepts(actual) =>

@@ -66,6 +66,11 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    /// Proven caps of earlier unsigned let bindings in the current body.
+    bound: Vec<(&'a Value, u64)>,
+    /// The refined cap of the addition `expression` last proved, keyed by the
+    /// node's address, so the binding that holds it reuses the proof.
+    proven_sum: Option<(usize, u64)>,
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
@@ -160,6 +165,8 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        bound: Vec::new(),
+        proven_sum: None,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -173,6 +180,51 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     Ok(())
 }
 impl<'a> Judgment<'a> {
+    /// An unsigned binding carries its proven cap to later evaluation in the
+    /// same body. Local identities are unique and immutable.
+    fn record_bound(&mut self, local: &'a Value, value: &Value, ty: &Ty) -> Check<()> {
+        let Ty::Word(max) = ty else { return Ok(()) };
+        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+            return Ok(());
+        }
+        // `expression` already proved this addition and computed its cap.
+        let proven = self.proven_sum.take();
+        if let Some((node, cap)) = proven {
+            if node == std::ptr::from_ref(value).addr() {
+                if cap < *max {
+                    self.bound.push((local, cap));
+                }
+                return Ok(());
+            }
+        }
+        let counts = self.count_maxima(std::slice::from_ref(value))?;
+        let facts = unsigned_addition::Facts {
+            predicates: &self.proven,
+            locals: &self.bound,
+            counts: &counts,
+        };
+        let cap = unsigned_addition::ceiling(value, *max, &facts, &mut self.work)?;
+        if cap < *max {
+            self.bound.push((local, cap));
+        }
+        Ok(())
+    }
+    /// The byte maximum of every counted operand an addition proof can reach,
+    /// resolved through this module's type table so named byte types count.
+    fn count_maxima(&mut self, exprs: &[Value]) -> Check<Vec<(String, u64)>> {
+        let mut found = Vec::new();
+        for expr in exprs {
+            unsigned_addition::counted_coordinates(expr, &mut found, 0)?;
+        }
+        let mut counts = Vec::with_capacity(found.len());
+        for coordinate in found {
+            let Ty::Bytes(_, max) = self.ty(coordinate, 0)? else {
+                return Err(());
+            };
+            counts.push((coordinate.to_owned(), max));
+        }
+        Ok(counts)
+    }
     fn charge(&mut self, depth: usize) -> Check<()> {
         self.work = self.work.checked_sub(1).ok_or(())?;
         if depth > DEPTH {
@@ -286,8 +338,10 @@ impl<'a> Judgment<'a> {
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.bound = caller_bounds;
         self.active.remove(name);
         result
     }
@@ -323,6 +377,7 @@ impl<'a> Judgment<'a> {
             if !includes(&expected, &fact.ty) {
                 return Err(());
             }
+            self.record_bound(local, get(binding, "value")?, &expected)?;
             let (_, validations, _, ty_depth) = shape(&expected)?;
             cost = cost.plus(fact.cost)?.plus(Cost {
                 steps: validations,
@@ -463,7 +518,7 @@ impl<'a> Judgment<'a> {
                 let arguments = list(get(value, "args")?)?;
                 let types = list(get(value, "typeArgs")?)?;
                 let mut actual = Vec::new();
-                for argument in arguments {
+                for argument in checked_arguments(name, arguments)? {
                     let fact = self.expression(argument, scope, source, prefix + 1)?;
                     cost = cost.plus(fact.cost)?;
                     depth = depth.max(fact.depth + 1);
@@ -508,6 +563,16 @@ impl<'a> Judgment<'a> {
                             })?;
                             Ty::Bool
                         }
+                        ("core.bytes.count", [actual], [expected @ Ty::Bytes(_, max)])
+                            if expected == actual =>
+                        {
+                            // One complete scan plus the materialized one-byte needle.
+                            cost = cost.plus(Cost {
+                                steps: max.checked_add(3).ok_or(())?,
+                                bytes: 128,
+                            })?;
+                            Ty::Word(u64::MAX)
+                        }
                         ("core.bytes.length", [actual], [expected @ Ty::Bytes(_, _)])
                             if includes(expected, actual) =>
                         {
@@ -535,12 +600,15 @@ impl<'a> Judgment<'a> {
                                 && right == expected
                                 && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            unsigned_addition::prove(
-                                arguments,
-                                *max,
-                                &self.proven,
-                                &mut self.work,
-                            )?;
+                            let counts = self.count_maxima(arguments)?;
+                            let facts = unsigned_addition::Facts {
+                                predicates: &self.proven,
+                                locals: &self.bound,
+                                counts: &counts,
+                            };
+                            let cap =
+                                unsigned_addition::prove(value, *max, &facts, &mut self.work)?;
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                             cost = cost.plus(Cost {
                                 steps: 3,
                                 bytes: 64,
@@ -652,6 +720,7 @@ impl<'a> Judgment<'a> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut pending = BTreeMap::new();
@@ -712,6 +781,7 @@ impl<'a> Judgment<'a> {
                     if !includes(&ty, &fact.ty) {
                         return Err(());
                     }
+                    self.record_bound(get(node, "binding")?, get(node, "value")?, &ty)?;
                     cost = cost.plus(fact.cost)?.plus(Cost {
                         steps: shape(&ty)?.1,
                         bytes: 0,
@@ -882,6 +952,29 @@ fn decimal(value: &str) -> Check<u64> {
         return Err(());
     }
     Ok(parsed)
+}
+/// A count's needle is a Core constant of exactly one byte, checked
+/// structurally and excluded from ordinary expression typing.
+pub(super) fn checked_arguments<'a>(name: &str, arguments: &'a [Value]) -> Check<&'a [Value]> {
+    if name != "core.bytes.count" {
+        return Ok(arguments);
+    }
+    let [operand, needle] = arguments else {
+        return Err(());
+    };
+    exact(needle, &["kind", "value"])?;
+    let literal = get(needle, "value")?;
+    exact(literal, &["kind", "value"])?;
+    if string(get(needle, "kind")?)? != "const" || string(get(literal, "kind")?)? != "bytes" {
+        return Err(());
+    }
+    let Value::Bytes(byte) = get(literal, "value")? else {
+        return Err(());
+    };
+    if byte.len() != 1 {
+        return Err(());
+    }
+    Ok(std::slice::from_ref(operand))
 }
 fn literal(value: &Value) -> Check<u64> {
     if string(get(value, "kind")?)? != "const" {

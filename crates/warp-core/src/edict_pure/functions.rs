@@ -108,6 +108,7 @@ pub(crate) fn decode(
         parser.enter(0)?;
         exact_fields(definition.body, &["locals", "bindings", "result"])?;
         let mut scope = BTreeMap::new();
+        let mut caps = Caps::new();
         let mut params = Vec::new();
         for parameter in definition.params {
             local(parameter)?;
@@ -141,6 +142,7 @@ pub(crate) fn decode(
             let actual = infer(
                 value,
                 &scope,
+                &caps,
                 &definitions,
                 definition.source_owned,
                 parser,
@@ -149,6 +151,12 @@ pub(crate) fn decode(
             let ty = parser.ty(text_field(declaration, "type")?, 0)?;
             if !accepts(&ty, &actual) {
                 return Err(Error::InvalidArtifact);
+            }
+            if let RuntimeType::Unsigned(max) = ty {
+                let cap = unsigned_ceiling(value, max, &caps, parser, 0)?;
+                if cap < max {
+                    caps.insert(id, cap);
+                }
             }
             bindings.push(Binding {
                 id: id.to_owned(),
@@ -164,6 +172,7 @@ pub(crate) fn decode(
         let actual = infer(
             result,
             &scope,
+            &caps,
             &definitions,
             definition.source_owned,
             parser,
@@ -199,9 +208,10 @@ pub(crate) fn decode(
                 .ok_or(Error::InvalidArtifact)?;
             local(input)?;
             let scope = BTreeMap::from([("arg.0", input)]);
+            let caps = Caps::new();
             // A pure basis is retained authority, not executed work. Admit its
             // input-only scope, calls and combined depth without spending Meter.
-            infer(basis, &scope, &definitions, true, parser, 0)?;
+            infer(basis, &scope, &caps, &definitions, true, parser, 0)?;
             basis_roots.push(parser.expr(basis, 0)?);
         }
     }
@@ -252,9 +262,14 @@ fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
 }
 
 type Scope<'a> = BTreeMap<&'a str, &'a Value>;
+/// Proven upper bounds of earlier unsigned bindings in the same helper body.
+/// Local identities are unique and immutable, so a cap names exactly the
+/// bound value. Bounds never cross helper results or record fields.
+type Caps<'a> = BTreeMap<&'a str, u64>;
 fn infer(
     value: &Value,
     scope: &Scope<'_>,
+    caps: &Caps<'_>,
     definitions: &BTreeMap<String, Definition<'_>>,
     source: bool,
     parser: &mut Parser<'_>,
@@ -294,6 +309,7 @@ fn infer(
             let RuntimeType::Record(fields) = infer(
                 field(value, "base")?,
                 scope,
+                caps,
                 definitions,
                 source,
                 parser,
@@ -316,7 +332,15 @@ fn infer(
                 .map(|(name, expression)| {
                     Ok((
                         text(name)?.to_owned(),
-                        infer(expression, scope, definitions, source, parser, depth + 1)?,
+                        infer(
+                            expression,
+                            scope,
+                            caps,
+                            definitions,
+                            source,
+                            parser,
+                            depth + 1,
+                        )?,
                     ))
                 })
                 .collect::<Result<Vec<_>, Error>>()?;
@@ -327,6 +351,7 @@ fn infer(
             check_predicate(
                 field(value, "predicate")?,
                 scope,
+                caps,
                 definitions,
                 source,
                 parser,
@@ -335,6 +360,7 @@ fn infer(
             let left = infer(
                 field(value, "then")?,
                 scope,
+                caps,
                 definitions,
                 source,
                 parser,
@@ -343,6 +369,7 @@ fn infer(
             let right = infer(
                 field(value, "else")?,
                 scope,
+                caps,
                 definitions,
                 source,
                 parser,
@@ -363,7 +390,15 @@ fn infer(
                     return Err(Error::InvalidArtifact);
                 }
                 for (argument, parameter) in arguments.iter().zip(callee.params) {
-                    let actual = infer(argument, scope, definitions, source, parser, depth + 1)?;
+                    let actual = infer(
+                        argument,
+                        scope,
+                        caps,
+                        definitions,
+                        source,
+                        parser,
+                        depth + 1,
+                    )?;
                     let expected = parser.ty(text_field(parameter, "type")?, 0)?;
                     if !accepts(&expected, &actual) {
                         return Err(Error::InvalidArtifact);
@@ -371,9 +406,31 @@ fn infer(
                 }
                 return parser.ty(callee.result_type, 0);
             }
+            if name == "core.bytes.count" {
+                let ([operand, needle], [coordinate]) = (arguments, types) else {
+                    return Err(Error::UnsupportedProgram);
+                };
+                super::syntax::count_needle(needle)?;
+                let actual = infer(operand, scope, caps, definitions, source, parser, depth + 1)?;
+                let expected = parser.ty(text(coordinate)?, depth + 1)?;
+                if !matches!(expected, RuntimeType::Bytes { .. }) || expected != actual {
+                    return Err(Error::UnsupportedProgram);
+                }
+                return Ok(RuntimeType::Unsigned(u64::MAX));
+            }
             let actual = arguments
                 .iter()
-                .map(|argument| infer(argument, scope, definitions, source, parser, depth + 1))
+                .map(|argument| {
+                    infer(
+                        argument,
+                        scope,
+                        caps,
+                        definitions,
+                        source,
+                        parser,
+                        depth + 1,
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             let declared = types
                 .iter()
@@ -407,8 +464,8 @@ fn infer(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left = unsigned_ceiling(&arguments[0], *max, parser, depth + 1)?;
-                    let right = unsigned_ceiling(&arguments[1], *max, parser, depth + 1)?;
+                    let left = unsigned_ceiling(&arguments[0], *max, caps, parser, depth + 1)?;
+                    let right = unsigned_ceiling(&arguments[1], *max, caps, parser, depth + 1)?;
                     if left.checked_add(right).is_none_or(|sum| sum > *max) {
                         return Err(Error::UnsupportedProgram);
                     }
@@ -453,10 +510,25 @@ fn infer(
 fn unsigned_ceiling(
     value: &Value,
     max: u64,
+    caps: &Caps<'_>,
     parser: &mut Parser<'_>,
     depth: usize,
 ) -> Result<u64, Error> {
     parser.enter(depth)?;
+    if text_field(value, "kind")? == "local" {
+        let id = text_field(field(value, "ref")?, "id")?;
+        return Ok(caps.get(id).map_or(max, |cap| (*cap).min(max)));
+    }
+    if text_field(value, "kind")? == "call" && text_field(value, "callee")? == "core.bytes.count" {
+        // A count never exceeds its operand's byte maximum.
+        let [coordinate] = array(field(value, "typeArgs")?)? else {
+            return Err(Error::InvalidArtifact);
+        };
+        let RuntimeType::Bytes { max: bytes, .. } = parser.ty(text(coordinate)?, depth + 1)? else {
+            return Err(Error::InvalidArtifact);
+        };
+        return Ok(bytes.min(max));
+    }
     if text_field(value, "kind")? == "const" {
         return unsigned_literal(value);
     }
@@ -464,8 +536,8 @@ fn unsigned_ceiling(
         let [left, right] = array(field(value, "args")?)? else {
             return Err(Error::InvalidArtifact);
         };
-        return unsigned_ceiling(left, max, parser, depth + 1)?
-            .checked_add(unsigned_ceiling(right, max, parser, depth + 1)?)
+        return unsigned_ceiling(left, max, caps, parser, depth + 1)?
+            .checked_add(unsigned_ceiling(right, max, caps, parser, depth + 1)?)
             .ok_or(Error::UnsupportedProgram);
     }
     Ok(max)
@@ -480,6 +552,7 @@ fn unsigned_literal(value: &Value) -> Result<u64, Error> {
 fn check_predicate(
     value: &Value,
     scope: &Scope<'_>,
+    caps: &Caps<'_>,
     definitions: &BTreeMap<String, Definition<'_>>,
     source: bool,
     parser: &mut Parser<'_>,
@@ -494,7 +567,7 @@ fn check_predicate(
                 return Err(Error::InvalidArtifact);
             }
             for value in values {
-                check_predicate(value, scope, definitions, source, parser, depth + 1)?;
+                check_predicate(value, scope, caps, definitions, source, parser, depth + 1)?;
             }
             return Ok(());
         }
@@ -503,6 +576,7 @@ fn check_predicate(
             return check_predicate(
                 field(value, "value")?,
                 scope,
+                caps,
                 definitions,
                 source,
                 parser,
@@ -516,6 +590,7 @@ fn check_predicate(
     let left = infer(
         field(value, "left")?,
         scope,
+        caps,
         definitions,
         source,
         parser,
@@ -524,6 +599,7 @@ fn check_predicate(
     let right = infer(
         field(value, "right")?,
         scope,
+        caps,
         definitions,
         source,
         parser,
@@ -651,9 +727,9 @@ impl Heights<'_> {
                 }
                 maximum + 1
             }
-            Expr::ByteUtf8 { value, .. } | Expr::ByteLength { value, .. } => {
-                self.expr(value, depth + 1)? + 1
-            }
+            Expr::ByteUtf8 { value, .. }
+            | Expr::ByteLength { value, .. }
+            | Expr::ByteCount { value, .. } => self.expr(value, depth + 1)? + 1,
             Expr::ByteSlice {
                 value, start, end, ..
             } => {
@@ -761,6 +837,7 @@ mod predicate_validation_tests {
             wire,
             &BTreeMap::new(),
             &BTreeMap::new(),
+            &BTreeMap::new(),
             true,
             &mut parser,
             0,
@@ -825,7 +902,15 @@ mod predicate_validation_tests {
                 coordinate: "generic.predicates@1",
                 remaining: MAX_PROGRAM_NODES,
             };
-            let result = infer(&call, &scope, &BTreeMap::new(), true, &mut parser, 0);
+            let result = infer(
+                &call,
+                &scope,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                true,
+                &mut parser,
+                0,
+            );
             if accepted {
                 assert_eq!(result, Ok(RuntimeType::Bool));
             } else {
@@ -876,6 +961,7 @@ mod predicate_validation_tests {
                 let result = infer(
                     &call,
                     &BTreeMap::from([("arg.0", &local)]),
+                    &BTreeMap::new(),
                     &BTreeMap::new(),
                     true,
                     &mut parser,

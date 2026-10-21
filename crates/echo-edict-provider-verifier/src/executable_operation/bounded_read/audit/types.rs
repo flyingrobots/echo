@@ -303,7 +303,9 @@ impl<'a> Symbols<'a> {
         let args = super::sequence(value, "args")?;
         let types = super::sequence(value, "typeArgs")?;
         let mut actual = Vec::new();
-        for argument in args {
+        for argument in
+            crate::executable_operation::source_functions::checked_arguments(name, args)?
+        {
             actual.push(self.expression(argument, depth + 1)?);
         }
         let core = self.core;
@@ -352,6 +354,11 @@ impl<'a> Symbols<'a> {
                 if expected == actual =>
             {
                 Ok(Schema::Boolean)
+            }
+            ("core.bytes.count", [actual], [expected @ Schema::Bytes { .. }])
+                if expected == actual =>
+            {
+                Ok(Schema::Word(u64::MAX))
             }
             ("core.bytes.length", [actual], [expected @ Schema::Bytes { .. }])
                 if expected.includes(actual) =>

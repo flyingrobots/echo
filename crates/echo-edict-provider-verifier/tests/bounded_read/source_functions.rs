@@ -48,6 +48,11 @@ fn read_helper() -> LoweringRequestV1 {
     read_helper_with_budget(4_194_304)
 }
 fn read_helper_with_budget(max_steps: u64) -> LoweringRequestV1 {
+    read_with_budget(max_steps, true)
+}
+/// The real read fixture at an explicit step ceiling, with or without the
+/// pure source helper; without it, the Core has no function table.
+fn read_with_budget(max_steps: u64, helper: bool) -> LoweringRequestV1 {
     let mut source = fixture();
     let mut core = decode(&source.core.artifact.bytes).expect("core");
     let mut target = decode(&source.semantic_inputs[5].artifact.artifact.bytes).expect("target");
@@ -61,88 +66,90 @@ fn read_helper_with_budget(max_steps: u64) -> LoweringRequestV1 {
         panic!("output type")
     };
     let output_type = output_type.clone();
-    let parameter = local("arg.0", &output_type);
-    let helper_local = local("local.0", &output_type);
-    insert(
-        &mut core,
-        "functions",
-        map([(
-            "retain",
-            map([
-                ("params", Value::Array(vec![parameter.clone()])),
-                ("returnType", text(&output_type)),
-                (
-                    "body",
-                    map([
-                        ("locals", Value::Array(vec![helper_local.clone()])),
-                        (
-                            "bindings",
-                            Value::Array(vec![map([
-                                ("kind", text("let")),
-                                ("binding", helper_local.clone()),
-                                ("value", reference(&parameter)),
-                            ])]),
-                        ),
-                        ("result", reference(&helper_local)),
-                    ]),
-                ),
-            ]),
-        )]),
-    );
-    let saved = local("source.return", &output_type);
-    let body = field_mut(intent(&mut core), "body");
-    let call = map([
-        ("kind", text("call")),
-        ("callee", text(&format!("{coordinate}.retain"))),
-        ("args", Value::Array(vec![field(body, "result").clone()])),
-        ("typeArgs", Value::Array(vec![])),
-    ]);
-    let Value::Array(locals) = field_mut(body, "locals") else {
-        panic!("locals")
-    };
-    locals.push(saved.clone());
-    let Value::Array(nodes) = field_mut(body, "nodes") else {
-        panic!("nodes")
-    };
-    nodes.push(map([
-        ("kind", text("let")),
-        ("binding", saved.clone()),
-        ("value", call.clone()),
-    ]));
-    *field_mut(body, "result") = reference(&saved);
-    let target_intent = intent(&mut target);
-    let binding = map([
-        ("id", text("replaceRange.binding.0")),
-        ("binding", saved.clone()),
-        ("value", call),
-    ]);
-    let Value::Map(entries) = target_intent else {
-        panic!("intent")
-    };
-    match entries
-        .iter_mut()
-        .find(|(key, _)| key == &text("pureBindings"))
-    {
-        Some((_, Value::Array(bindings))) => bindings.push(binding),
-        None => entries.push((text("pureBindings"), Value::Array(vec![binding]))),
-        _ => panic!("pure bindings"),
+    if helper {
+        let parameter = local("arg.0", &output_type);
+        let helper_local = local("local.0", &output_type);
+        insert(
+            &mut core,
+            "functions",
+            map([(
+                "retain",
+                map([
+                    ("params", Value::Array(vec![parameter.clone()])),
+                    ("returnType", text(&output_type)),
+                    (
+                        "body",
+                        map([
+                            ("locals", Value::Array(vec![helper_local.clone()])),
+                            (
+                                "bindings",
+                                Value::Array(vec![map([
+                                    ("kind", text("let")),
+                                    ("binding", helper_local.clone()),
+                                    ("value", reference(&parameter)),
+                                ])]),
+                            ),
+                            ("result", reference(&helper_local)),
+                        ]),
+                    ),
+                ]),
+            )]),
+        );
+        let saved = local("source.return", &output_type);
+        let body = field_mut(intent(&mut core), "body");
+        let call = map([
+            ("kind", text("call")),
+            ("callee", text(&format!("{coordinate}.retain"))),
+            ("args", Value::Array(vec![field(body, "result").clone()])),
+            ("typeArgs", Value::Array(vec![])),
+        ]);
+        let Value::Array(locals) = field_mut(body, "locals") else {
+            panic!("locals")
+        };
+        locals.push(saved.clone());
+        let Value::Array(nodes) = field_mut(body, "nodes") else {
+            panic!("nodes")
+        };
+        nodes.push(map([
+            ("kind", text("let")),
+            ("binding", saved.clone()),
+            ("value", call.clone()),
+        ]));
+        *field_mut(body, "result") = reference(&saved);
+        let target_intent = intent(&mut target);
+        let binding = map([
+            ("id", text("replaceRange.binding.0")),
+            ("binding", saved.clone()),
+            ("value", call),
+        ]);
+        let Value::Map(entries) = target_intent else {
+            panic!("intent")
+        };
+        match entries
+            .iter_mut()
+            .find(|(key, _)| key == &text("pureBindings"))
+        {
+            Some((_, Value::Array(bindings))) => bindings.push(binding),
+            None => entries.push((text("pureBindings"), Value::Array(vec![binding]))),
+            _ => panic!("pure bindings"),
+        }
+        let Value::Array(order) = field_mut(target_intent, "executionOrder") else {
+            panic!("order")
+        };
+        order.push(text("replaceRange.binding.0"));
+        *field_mut(target_intent, "result") = reference(&saved);
+        *field_mut(&mut projection, "expression") = map([
+            ("kind", text("source")),
+            (
+                "source",
+                map([
+                    ("kind", text("pureBinding")),
+                    ("bindingId", text("replaceRange.binding.0")),
+                ]),
+            ),
+            ("path", Value::Array(vec![])),
+        ]);
     }
-    let Value::Array(order) = field_mut(target_intent, "executionOrder") else {
-        panic!("order")
-    };
-    order.push(text("replaceRange.binding.0"));
-    *field_mut(target_intent, "result") = reference(&saved);
-    *field_mut(&mut projection, "expression") = map([
-        ("kind", text("source")),
-        (
-            "source",
-            map([
-                ("kind", text("pureBinding")),
-                ("bindingId", text("replaceRange.binding.0")),
-            ]),
-        ),
-        ("path", Value::Array(vec![])),
-    ]);
     // This synthetic fixture explicitly increases its declared step ceiling.
     // At FactBytes.max=1 MiB, read work plus the required byte equality already
     // exceeds the legacy 1 MiB step ceiling. Allocation stays at its old 16 MiB.
@@ -585,6 +592,8 @@ fn verifier_source_function_names_cannot_shadow_imported_read_effects() {
 #[path = "imported_calls.rs"]
 mod imported_calls;
 
+#[path = "source_functions/count.rs"]
+mod count;
 #[path = "source_functions/utf8.rs"]
 mod utf8;
 

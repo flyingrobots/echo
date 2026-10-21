@@ -1712,3 +1712,7 @@ mod derivation;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/proven_ranges.rs"]
 mod proven_ranges;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/provider_corpus.rs"]
+mod provider_corpus;

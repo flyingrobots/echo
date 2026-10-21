@@ -26,6 +26,9 @@ pub enum EffectPublicationError {
     InvalidConfiguration,
     /// A required coordinate is missing or unbounded.
     InvalidCoordinate,
+    /// The compiled effect program is unsafe or does not match its own
+    /// artifacts, intrinsic contracts or declared budget.
+    UnsupportedProgram,
 }
 
 impl std::fmt::Display for EffectPublicationError {
@@ -34,10 +37,26 @@ impl std::fmt::Display for EffectPublicationError {
             Self::InvalidArtifact => "invalid effect publication artifact envelope",
             Self::InvalidConfiguration => "invalid effect publication configuration or limits",
             Self::InvalidCoordinate => "missing or unbounded effect publication coordinate",
+            Self::UnsupportedProgram => {
+                "the compiled effect program is outside the checked profile"
+            }
         })
     }
 }
 impl std::error::Error for EffectPublicationError {}
+
+/// Judges compiler-produced effect-program bytes without serializing them.
+///
+/// The lowerer establishes artifact binding, adapter authorization, each
+/// effect's intrinsic ABI and failure contract, Core/Target IR
+/// correspondence, typing, proven ranges and the declared budget itself.
+/// # Errors
+/// [`EffectPublicationError::UnsupportedProgram`] for any program outside
+/// that judgment.
+pub fn judge_effect_program(compiled_program: &[u8]) -> Result<(), EffectPublicationError> {
+    crate::executable_operation::effect_program::judge(compiled_program)
+        .map_err(|()| EffectPublicationError::UnsupportedProgram)
+}
 
 /// Serializes the single current operation-package and effect-program formats.
 ///
@@ -190,6 +209,8 @@ pub fn encode_effect_publication(
     }
     let reads = number(field(budget, "readBytes", C)?)?;
     let writes = number(field(budget, "writeBytes", C)?)?;
+    // The program is judged only once its envelope and configuration are.
+    judge_effect_program(input.compiler_program)?;
     let mut footprint = blake3::Hasher::new();
     footprint.update(b"echo:operation-footprint-law:v1\0");
     footprint.update(law);

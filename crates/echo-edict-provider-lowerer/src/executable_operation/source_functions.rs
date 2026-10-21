@@ -2,10 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+mod effect_intent;
 mod order;
 mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 
 type Check<T> = Result<T, ()>;
@@ -83,6 +85,18 @@ pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), 
     })
 }
 fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
+    let mut proof = judgment(core, exports)?;
+    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        proof.intent(intent, read)?;
+    }
+    Ok(())
+}
+/// Registers and checks every helper, imported and source-owned, so intent
+/// bodies can call them.
+fn judgment<'a>(core: &'a Value, exports: &'a Value) -> Check<Judgment<'a>> {
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -172,13 +186,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
     }
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
-        return Ok(());
-    }
-    for (_, intent) in members(get(core, "intents")?)? {
-        proof.intent(intent, read)?;
-    }
-    Ok(())
+    Ok(proof)
 }
 impl<'a> Judgment<'a> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -276,6 +284,11 @@ impl<'a> Judgment<'a> {
         match string(get(definition, "kind")?)? {
             "Bool" => Ok(Ty::Bool),
             "Int" => self.ty(string(get(definition, "width")?)?, depth + 1),
+            // A table entry may also name an unsigned width directly, as Core does.
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                exact(definition, &["kind"])?;
+                self.ty(kind, depth + 1)
+            }
             "Nominal" => {
                 if string(get(definition, "contract")?)? != key {
                     return Err(());

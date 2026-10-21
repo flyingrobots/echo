@@ -16,6 +16,10 @@ Each `.hex` file contains the canonical bytes of one whole input artifact.
 Copies live in this crate so its source archive does not depend on another
 crate's test files.
 
+The Core intent declares a step budget of 1,024. Publication judges the program
+before serializing it, and the provider cost model needs more than one step for
+even this constant result, so a smaller declared budget is refused.
+
 The witness checks deterministic current-format serialization and the current
 runtime decoder's exact round trip. It does not establish compiler correctness,
 policy or profile authority, independent verifier acceptance, installed Action

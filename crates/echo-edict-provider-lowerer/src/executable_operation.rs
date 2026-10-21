@@ -3,6 +3,7 @@
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
 mod bounded_read;
+pub(crate) mod effect_program;
 mod effect_resources;
 mod source_functions;
 

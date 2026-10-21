@@ -206,10 +206,11 @@ Those remain explicit Echo runtime crossings.
 ## Current effect proposal serialization
 
 The native Rust API `effect_publication::encode_effect_publication` serializes
-untrusted proposals using the current `echo.operation-package/v1` and
+proposals using the current `echo.operation-package/v1` and
 `echo.operation-program/v1` effect kind. It preserves the compiler bundle's
-exact bytes, derives embedded Core/Target-IR/exports identities, carries explicit
-limits and graph/footprint data, and requires a declared obstruction coordinate.
+exact bytes, derives embedded Core/Target-IR/exports identities, and carries
+explicit limits and graph/footprint data. The program's own exports declare
+every obstruction it can return.
 Its requested `authority_profile_identity` is derived only from the
 configuration's required `authorityProfile` label, by the same label digest
 fixed operations use; no caller supplies it.
@@ -217,10 +218,18 @@ It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
 retains the actual lawpack inside the compiled bundle, without a duplicate outer
 lawpack identity.
 
+Before serializing, publication runs the lowerer's own effect-program
+judgment, also available as `effect_publication::judge_effect_program`, and
+refuses an unsafe program with `UnsupportedProgram`. The judgment establishes
+the program's binding to its own artifacts, the pinned lawpack, adapter,
+profile and catalog that authorize each effect, each effect's intrinsic ABI and
+failure contract, declared obstructions, Core and Target IR correspondence, and
+the body's types, proven ranges and declared budget. It does not judge
+graph-law semantics or grant authority. The verifier judges the same programs
+independently in `effect_package::verify_effect_package`.
+
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
-features are dev dependencies only. The factory does not verify compiler
-correspondence, graph-law semantics or authority. It is not yet called by the
-public lowerer, and it does not change the frozen WIT interface or enable
-installed effect execution. Producer integration and independent verification
-remain unfinished.
+features are dev dependencies only. The public lowerer's component interface
+does not yet produce effect packages, and publication does not change the frozen
+WIT interface or enable installed effect execution.

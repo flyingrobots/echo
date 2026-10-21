@@ -156,3 +156,7 @@ from the digest-locked package assembled by the next campaign goalpost, which
 binds the static inputs and verifier component together. Neither proposition
 has an Echo causal site or witnessed hologram, and neither grants Echo runtime
 installation, execution, or consequence authority.
+
+## Authored effect packages
+
+The native Rust API `effect_package::verify_effect_package` judges an authored effect package before installation, without trusting the lowerer that produced it or the runtime that will execute it. It judges the compiled effect program itself: its binding to its own Core, Target IR and exports; the pinned lawpack, adapter, target profile and intrinsic catalog that authorize each effect; each effect's intrinsic ABI and version-scoped failure contract; one declared obstruction per failure arm; Core and Target IR correspondence; and the body's types, proven ranges and declared budget under the verifier's own cost model. It then requires every identity the package claims, its operation, its output type and its footprint contract to name the program it carries. It refuses with `InvalidEnvelope`, `InvalidBinding` or `UnsupportedProgram`. It does not judge graph-law semantics or grant authority, and the verifier component's interface does not yet call it.

@@ -265,6 +265,7 @@ impl<'a> Scope<'a> {
         let actual = functions::infer(
             value,
             &self.available,
+            functions::Proof::none(),
             &self.definitions,
             true,
             &mut self.parser,
@@ -286,6 +287,7 @@ impl<'a> Scope<'a> {
         functions::check_predicate(
             value,
             &self.available,
+            functions::Proof::none(),
             &self.definitions,
             true,
             &mut self.parser,

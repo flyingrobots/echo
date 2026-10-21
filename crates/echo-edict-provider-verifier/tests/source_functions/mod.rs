@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deliberately rebound native-provider tests, not compiler acceptance evidence.
 use super::*;
+mod proven_ranges;
 mod unsigned_addition;
 
 fn fixture_with_functions(
@@ -756,4 +757,5 @@ fn source_functions_pure_basis_has_complete_input_only_call_authority() {
 
 mod nominal_types;
 
+mod count;
 mod utf8;

@@ -886,6 +886,8 @@ owner's independently selected admission policy, which pins the exact package,
 operation, authority profile and budget, and from the admitted program, grants,
 footprint law and runtime checks.
 
+An authored effect package carries no `obstruction_coordinate`. Its program can return several obstructions, and every one is declared in the package's embedded lawpack exports and checked arm by arm at admission: each arm's coordinate must name exactly one declared obstruction with the failure's authority class. A fixed-profile package keeps its single nonempty `obstruction_coordinate` unchanged, so its bytes and identities are the same as before; the program kind decides which shape a package has, as it already decides whether a lawpack binding is present.
+
 This schema crossing validates the configuration's shape and bounds. It does
 not validate the embedded law/schema semantics, produce an effect package, or
 provide runtime authority. The public lowerer/verifier effect branch and target
@@ -1019,6 +1021,17 @@ extra field does not conform. The mutation intrinsics declare no failures. The
 read intrinsic's four failures carry `echo.dpo@1.node-atom-read.input` in the
 catalog, and each exported failure must carry the effect's own declared input
 type, so the fault payload stays nominally tied to that application's input.
+
+The catalog names the read's failures with Edict ABI identifiers, and Echo pins each one, for this intrinsic only, to the versioned tag its runtime records:
+
+| Catalog name            | Runtime tag                        | Authority class  |
+| ----------------------- | ---------------------------------- | ---------------- |
+| `atomMissing`           | `echo.atom-missing/v1`             | `resourceFault`  |
+| `atomRequired`          | `echo.atom-required/v1`            | `integrityFault` |
+| `atomTypeMismatch`      | `echo.atom-type-mismatch/v1`       | `integrityFault` |
+| `atomByteBoundExceeded` | `echo.atom-byte-bound-exceeded/v1` | `integrityFault` |
+
+The pairs belong to `(echo.dpo@1.node-atom-read, catalog name)`; there is no global dictionary and no fallback that forwards an unfamiliar string. The provider's semantic source records each pair as the failure's `runtimeTag`, so changing one changes the pinned provider; the catalog entry itself carries only `authorityClass` and `payloadType`. On the authored route an adapter maps its own failure names to these catalog names, Edict keys the lowered read step's arms by them, and the runtime translates each arm to its tag before matching the obstruction it records: a missing, unknown, repeated or tag-spelled name refuses the package. Application aliases stay in the application's adapter. Jim's `missing` maps to `atomMissing`, which Echo records as `echo.atom-missing/v1`; `missing` never appears in Echo's table. The bounded-read route keeps its existing runtime-tag mappings.
 
 Declarations cannot redefine the existing node/atom recording primitive's ABI.
 The runtime currently recognizes `echo.dpo@1.node-atom-read` here. Its input

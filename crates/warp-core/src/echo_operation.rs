@@ -1856,7 +1856,9 @@ fn require_field_names(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecutableOperationPackage {
     operation_coordinate: String,
-    obstruction_coordinate: String,
+    /// Present for fixed-profile programs and absent for authored effect
+    /// programs, whose embedded exports declare every obstruction.
+    obstruction_coordinate: Option<String>,
     semantic_closure: EchoOperationSemanticClosure,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
@@ -1915,7 +1917,7 @@ impl ExecutableOperationPackage {
         let application_basis_schema_identity = profile_digest(program.application_basis_schema());
         Self {
             operation_coordinate: operation_coordinate.into(),
-            obstruction_coordinate: obstruction_coordinate.into(),
+            obstruction_coordinate: Some(obstruction_coordinate.into()),
             semantic_closure,
             target_profile_identity,
             interpreter_profile_identity: profile_digest(program.interpreter_profile()),
@@ -2043,10 +2045,12 @@ impl ExecutableOperationPackage {
         &self.operation_coordinate
     }
 
-    /// Returns the application-authored obstruction coordinate.
+    /// Returns the application-authored obstruction coordinate of a
+    /// fixed-profile package. An authored effect package has none: its
+    /// embedded exports declare every obstruction its program can return.
     #[must_use]
-    pub fn obstruction_coordinate(&self) -> &str {
-        &self.obstruction_coordinate
+    pub fn obstruction_coordinate(&self) -> Option<&str> {
+        self.obstruction_coordinate.as_deref()
     }
 
     /// Returns the Edict semantic identity bound by this package.
@@ -2101,12 +2105,7 @@ impl ExecutableOperationPackage {
                 "operation coordinate must not be empty",
             ));
         }
-        if self.obstruction_coordinate.is_empty() {
-            return Err(artifact_error(
-                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
-                "obstruction coordinate must not be empty",
-            ));
-        }
+        self.validate_obstruction_header()?;
         if !self.budget_ceiling.is_nonzero() {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::InvalidBudget,
@@ -2164,10 +2163,6 @@ impl ExecutableOperationPackage {
                 hash_value(self.obstruction_interpretation_identity),
             ),
             (
-                "obstruction_coordinate",
-                text_value(&self.obstruction_coordinate),
-            ),
-            (
                 "operation_coordinate",
                 text_value(&self.operation_coordinate),
             ),
@@ -2187,6 +2182,9 @@ impl ExecutableOperationPackage {
                 hash_value(self.target_profile_identity),
             ),
         ];
+        if let Some(obstruction) = &self.obstruction_coordinate {
+            fields.push(("obstruction_coordinate", text_value(obstruction)));
+        }
         if let Some(projection) = &self.application_result_projection {
             fields.push(("application_result_projection", projection.to_value()));
         }
@@ -2201,12 +2199,14 @@ impl ExecutableOperationPackage {
 
     fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
-        let has_application_result_projection = match &value {
-            CanonicalValueV1::Map(entries) => entries.iter().any(|(key, _)| {
-                key == &CanonicalValueV1::Text("application_result_projection".to_owned())
-            }),
+        let has_key = |name: &str| match &value {
+            CanonicalValueV1::Map(entries) => entries
+                .iter()
+                .any(|(key, _)| key == &CanonicalValueV1::Text(name.to_owned())),
             _ => false,
         };
+        let has_application_result_projection = has_key("application_result_projection");
+        let has_obstruction_coordinate = has_key("obstruction_coordinate");
         let mut expected_fields = vec![
             "authority_profile_identity",
             "application_basis_schema_identity",
@@ -2218,7 +2218,6 @@ impl ExecutableOperationPackage {
             "intrinsic_profile_identity",
             "obstruction_schema_identity",
             "obstruction_interpretation_identity",
-            "obstruction_coordinate",
             "operation_coordinate",
             "program",
             "result_schema_identity",
@@ -2230,6 +2229,9 @@ impl ExecutableOperationPackage {
         if has_application_result_projection {
             expected_fields.push("application_result_projection");
         }
+        if has_obstruction_coordinate {
+            expected_fields.push("obstruction_coordinate");
+        }
         let mut fields = exact_text_map(value, &expected_fields)?;
         require_text(&mut fields, "schema", PACKAGE_SCHEMA)?;
         let operation_coordinate = take_text(&mut fields, "operation_coordinate")?;
@@ -2239,13 +2241,11 @@ impl ExecutableOperationPackage {
                 "operation coordinate must not be empty",
             ));
         }
-        let obstruction_coordinate = take_text(&mut fields, "obstruction_coordinate")?;
-        if obstruction_coordinate.is_empty() {
-            return Err(artifact_error(
-                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
-                "obstruction coordinate must not be empty",
-            ));
-        }
+        let obstruction_coordinate = if has_obstruction_coordinate {
+            Some(take_text(&mut fields, "obstruction_coordinate")?)
+        } else {
+            None
+        };
         let program_bytes = take_bytes(&mut fields, "program")?;
         let program = EchoOperationProgram::from_canonical_bytes(&program_bytes)?;
         let application_result_projection = if has_application_result_projection {
@@ -2303,7 +2303,28 @@ impl ExecutableOperationPackage {
         Ok(package)
     }
 
+    /// A fixed-profile package names one nonempty obstruction coordinate; an
+    /// authored effect package names none.
+    fn validate_obstruction_header(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        let effect = matches!(&self.program, EchoOperationProgram::EdictEffect(_));
+        match (&self.obstruction_coordinate, effect) {
+            (Some(coordinate), false) if !coordinate.is_empty() => Ok(()),
+            (None, true) => Ok(()),
+            (Some(_), false) => Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
+                "obstruction coordinate must not be empty",
+            )),
+            (None, false) => Err(invalid_structure(
+                "a fixed-profile package requires its obstruction coordinate",
+            )),
+            (Some(_), true) => Err(invalid_structure(
+                "an authored effect package declares its obstructions in its exports",
+            )),
+        }
+    }
+
     fn self_validate_supported_profile(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        self.validate_obstruction_header()?;
         if !self.budget_ceiling.is_nonzero() {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::InvalidBudget,
@@ -8543,7 +8564,10 @@ mod tests {
             let mut package = if cas {
                 ExecutableOperationPackage::new(
                     create.operation_coordinate.clone(),
-                    create.obstruction_coordinate.clone(),
+                    create
+                        .obstruction_coordinate()
+                        .expect("a fixed-profile package names its obstruction")
+                        .to_owned(),
                     create.semantic_closure.clone(),
                     echo_operation_target_profile_identity_v1(),
                     create.authority_profile_identity,
@@ -8616,7 +8640,10 @@ mod tests {
                 .expect("valid create package");
         let mut package = ExecutableOperationPackage::new(
             create.operation_coordinate.clone(),
-            create.obstruction_coordinate.clone(),
+            create
+                .obstruction_coordinate()
+                .expect("a fixed-profile package names its obstruction")
+                .to_owned(),
             create.semantic_closure.clone(),
             echo_operation_target_profile_identity_v1(),
             create.authority_profile_identity,

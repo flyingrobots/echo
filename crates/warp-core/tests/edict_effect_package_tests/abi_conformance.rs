@@ -182,10 +182,7 @@ fn a_read_catalog_naming_the_application_type_is_refused() {
     });
     refused(&publication_for_lowering(&lowering_fixture(Some(catalog))));
     let catalog = read_catalog_with(|intrinsic| {
-        let failure = value_field_mut(
-            value_field_mut(intrinsic, "effectFailures"),
-            "echo.atom-missing/v1",
-        );
+        let failure = value_field_mut(value_field_mut(intrinsic, "effectFailures"), "atomMissing");
         set(failure, "payloadType", text("jedit.text@1.FactAddress"));
     });
     refused(&publication_for_lowering(&lowering_fixture(Some(catalog))));
@@ -233,4 +230,109 @@ fn each_mutation_write_class_is_its_effect_kind() {
             );
         }
     }
+}
+
+const READ: &str = "echo.dpo@1.node-atom-read";
+
+fn rename_read_failure(catalog: &mut V, from: &str, to: &str) {
+    let V::Map(failures) = value_field_mut(
+        value_field_mut(value_field_mut(catalog, "intrinsics"), READ),
+        "effectFailures",
+    ) else {
+        panic!("failures")
+    };
+    let entry = failures
+        .iter_mut()
+        .find(|(name, _)| name == &text(from))
+        .expect("failure");
+    entry.0 = text(to);
+}
+
+#[test]
+fn the_read_catalog_names_its_failures_by_identifier() {
+    let catalog = catalog_fixture();
+    let V::Map(failures) = get(get(get(&catalog, "intrinsics"), READ), "effectFailures") else {
+        panic!("failures")
+    };
+    let mut names = failures
+        .iter()
+        .map(|(name, _)| match name {
+            V::Text(name) => name.clone(),
+            _ => panic!("name"),
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "atomByteBoundExceeded",
+            "atomMissing",
+            "atomRequired",
+            "atomTypeMismatch"
+        ]
+    );
+    assert!(prepare(&publication_for_lowering(&repinned_lowering_artifacts())).is_ok());
+}
+
+#[test]
+fn a_read_spelled_with_runtime_tags_is_refused_on_the_authored_route() {
+    // The bounded-read route's adapter maps to runtime tags. The authored
+    // route's catalog names failures by identifier, so no tag passes through.
+    let mut catalog = catalog_fixture();
+    for (tag, name) in READ_FAILURE_NAMES {
+        rename_read_failure(&mut catalog, name, tag);
+    }
+    let lowering = lowering_fixture_inputs(Some(catalog), None, Some(captured_adapter()));
+    refused(&publication_for_lowering(&lowering));
+}
+
+#[test]
+fn unknown_missing_and_crossed_read_failure_names_are_refused() {
+    // Unknown: a catalog identifier the read does not define, consistently
+    // used by catalog and adapter.
+    let mut catalog = catalog_fixture();
+    rename_read_failure(&mut catalog, "atomMissing", "atomAbsent");
+    let mut adapter = catalog_named_adapter(&captured_adapter());
+    let V::Map(mappings) = value_field_mut(
+        value_field_mut(
+            value_field_mut(&mut adapter, "effectImplementations"),
+            "jedit.text@1.readFact",
+        ),
+        "failureMappings",
+    ) else {
+        panic!("mappings")
+    };
+    for (_, target) in mappings.iter_mut() {
+        if target == &text("atomMissing") {
+            *target = text("atomAbsent");
+        }
+    }
+    refused(&publication_for_lowering(&lowering_fixture_inputs(
+        Some(catalog),
+        None,
+        Some(adapter),
+    )));
+    // Missing: a catalog without one of the read's four failures.
+    let catalog = read_catalog_with(|intrinsic| {
+        let V::Map(failures) = value_field_mut(intrinsic, "effectFailures") else {
+            panic!("failures")
+        };
+        failures.retain(|(name, _)| name != &text("atomRequired"));
+    });
+    refused(&publication_for_lowering(&lowering_fixture(Some(catalog))));
+    // Crossed: two identifiers swapping their authority classes.
+    let catalog = read_catalog_with(|intrinsic| {
+        let failures = value_field_mut(intrinsic, "effectFailures");
+        set(
+            value_field_mut(failures, "atomMissing"),
+            "authorityClass",
+            text("integrityFault"),
+        );
+        set(
+            value_field_mut(failures, "atomRequired"),
+            "authorityClass",
+            text("resourceFault"),
+        );
+    });
+    refused(&publication_for_lowering(&lowering_fixture(Some(catalog))));
 }

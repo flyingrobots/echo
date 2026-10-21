@@ -241,7 +241,6 @@ fn current_effect_output_fields_are_required_typed_and_closed() {
     }
     for (name, replacement) in [
         ("schema", text("echo.operation-package/v2")),
-        ("obstruction_coordinate", text("")),
         ("operation_coordinate", text("")),
         ("program", V::Null),
         (
@@ -260,6 +259,17 @@ fn current_effect_output_fields_are_required_typed_and_closed() {
     let mut extra = fields.clone();
     extra.push((text("package_kind"), text("edict-effect-program/v1")));
     assert!(!accepts(&V::Map(extra)));
+    // An effect package declares its obstructions in its embedded exports; the
+    // single fixed-profile header is not part of its shape.
+    assert!(!fields
+        .iter()
+        .any(|(key, _)| key == &text("obstruction_coordinate")));
+    let mut header = fields.clone();
+    header.push((text("obstruction_coordinate"), text("app.Refusal")));
+    assert!(
+        !accepts(&V::Map(header)),
+        "an effect package carrying the header"
+    );
     let mut malformed = value.clone();
     let V::Map(fields) = &mut malformed else {
         panic!("package")

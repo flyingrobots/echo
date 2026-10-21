@@ -63,7 +63,6 @@ fn emit(
         application_schema_coordinate: "app.Exports",
         source_artifact: source,
         source_domain: "edict.source/v1",
-        obstruction_coordinate: "app.Refusal",
         configuration,
     })
 }
@@ -89,6 +88,15 @@ fn proposal_round_trips_the_current_runtime_decoder_without_rewriting_compiler_b
         panic!("closure")
     };
     assert!(!closure.iter().any(|(k, _)| k == &text("lawpack_identity")));
+    // Every obstruction the program can return is declared by its embedded
+    // exports and checked arm by arm at admission; no header picks one.
+    let V::Map(fields) = &value else {
+        panic!("package map")
+    };
+    assert!(!fields
+        .iter()
+        .any(|(k, _)| k == &text("obstruction_coordinate")));
+    assert_eq!(package.obstruction_coordinate(), None);
     assert_eq!(
         get(&value, "authority_profile_identity"),
         &V::Bytes(label_digest("app.effect-writer@1"))
@@ -218,7 +226,7 @@ fn explicit_zero_storage_limits_and_maximum_integer_budgets_remain_declarations(
 }
 
 #[test]
-fn undeclared_obstruction_and_source_domain_refuse() {
+fn an_unknown_source_domain_refuses() {
     use echo_edict_provider_lowerer::effect_publication::EffectPublicationError as E;
     let (bundle, source, config) = material();
     let input = EffectPublicationInput {
@@ -226,16 +234,8 @@ fn undeclared_obstruction_and_source_domain_refuse() {
         application_schema_coordinate: "app.Exports",
         source_artifact: &source,
         source_domain: "edict.source/v1",
-        obstruction_coordinate: "app.Refusal",
         configuration: &config,
     };
-    assert_eq!(
-        encode_effect_publication(EffectPublicationInput {
-            obstruction_coordinate: "app.Undeclared",
-            ..input
-        }),
-        Err(E::InvalidCoordinate)
-    );
     assert_eq!(
         encode_effect_publication(EffectPublicationInput {
             source_domain: "edict.source/v2",
@@ -299,4 +299,19 @@ fn authority_profile_is_required_text() {
         emit(&bundle, &source, &encoded(&V::Map(fields))),
         Err(E::InvalidConfiguration)
     );
+}
+
+/// The synthetic package retained by warp-core and the provider schema tests
+/// is exactly what this serializer emits for the wire-control material, so a
+/// change to the package shape cannot leave a stale control behind.
+#[test]
+fn the_retained_publication_controls_are_this_serializers_output() {
+    let (bundle, source, config) = material();
+    let emitted = hex::encode(emit(&bundle, &source, &config).expect("current emission"));
+    for retained in [
+        include_str!("../../warp-core/tests/fixtures/current-effect-publication/package.hex"),
+        include_str!("../../echo-wesley-gen/tests/fixtures/current-effect-publication/package.hex"),
+    ] {
+        assert_eq!(retained.trim(), emitted, "retained control is stale");
+    }
 }

@@ -641,6 +641,7 @@ fn compiler_fixture(artifacts: &V) -> (V, V, V) {
     let mut target = decode(include_str!(
         "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/06-target-ir.hex"
     ));
+    catalog_named_target(&mut target);
     let exports = decode(include_str!(
         "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"
     ));
@@ -1218,7 +1219,7 @@ fn typed_contract_refuses_mapping_an_integrity_failure_to_a_resource_obstruction
     let arm = arm.clone();
     set(
         value_field_mut(first_step_mut(&mut target), "obstructionArms"),
-        "echo.atom-required/v1",
+        "atomRequired",
         arm,
     );
     repin_core(&core, &mut target);
@@ -1584,10 +1585,7 @@ fn intrinsic_catalog_fault_contracts_must_agree_with_exported_failures() {
             value_field_mut(&mut catalog, "intrinsics"),
             "echo.dpo@1.node-atom-read",
         );
-        let failure = value_field_mut(
-            value_field_mut(intrinsic, "effectFailures"),
-            "echo.atom-required/v1",
-        );
+        let failure = value_field_mut(value_field_mut(intrinsic, "effectFailures"), "atomRequired");
         if mode == 0 {
             set(failure, "authorityClass", text("resourceFault"));
         } else {

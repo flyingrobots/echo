@@ -101,21 +101,17 @@ pub(super) fn validate(
     {
         return Err(Error::UnsupportedProgram);
     }
+    // The catalog names each failure by the identifier Echo pins for this
+    // intrinsic, and carries the call's ABI input; the contract checker binds
+    // the exported failure to this effect's own input type.
     let failures = field(intrinsic, "effectFailures")?;
-    if map(failures)?.len() != 4 {
+    let declared = super::failure_names::failures(name).ok_or(Error::InvalidArtifact)?;
+    if map(failures)?.len() != declared.len() {
         return Err(Error::InvalidArtifact);
     }
-    for (name, authority) in [
-        ("echo.atom-missing/v1", "resourceFault"),
-        ("echo.atom-required/v1", "integrityFault"),
-        ("echo.atom-type-mismatch/v1", "integrityFault"),
-        ("echo.atom-byte-bound-exceeded/v1", "integrityFault"),
-    ] {
-        // The catalog says each read failure carries the call's ABI input; the
-        // contract checker binds the exported failure to this effect's own
-        // input type, keeping that nominal relationship.
-        let failure = field(failures, name)?;
-        require_text(failure, "authorityClass", authority)?;
+    for expected in declared {
+        let failure = field(failures, expected.catalog)?;
+        require_text(failure, "authorityClass", expected.authority)?;
         require_text(failure, "payloadType", abi.input)?;
     }
     Ok(())

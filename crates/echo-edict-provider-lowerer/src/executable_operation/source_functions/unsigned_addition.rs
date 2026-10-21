@@ -3,13 +3,19 @@
 //! Lowerer-owned recursive upper bounds over checked, dominating predicates.
 use super::{get, list, literal, string, Check, Value};
 
+/// Whether an intent body calls an operation only this judgment checks: an
+/// addition's no-overflow proof or a count's full-byte scan charge. A Core
+/// without a function table still needs the judgment for either.
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut pending = vec![get(core, "intents")?];
     while let Some(value) = pending.pop() {
         match value {
             Value::Map(fields) => {
                 if get(value, "kind").and_then(string) == Ok("call")
-                    && get(value, "callee").and_then(string) == Ok("core.integer.add")
+                    && matches!(
+                        get(value, "callee").and_then(string),
+                        Ok("core.integer.add" | "core.bytes.count")
+                    )
                 {
                     return Ok(true);
                 }
@@ -30,19 +36,19 @@ pub(super) struct Facts<'f, 'v> {
     pub counts: &'f [(String, u64)],
 }
 
-pub(super) fn prove(
-    args: &[Value],
-    max: u64,
-    facts: &Facts<'_, '_>,
-    work: &mut usize,
-) -> Check<()> {
-    let [left, right] = args else { return Err(()) };
+/// Proves an addition total and returns its refined cap, exactly the value
+/// [`ceiling`] gives the same expression, so a binding need not recompute it.
+pub(super) fn prove(expr: &Value, max: u64, facts: &Facts<'_, '_>, work: &mut usize) -> Check<u64> {
+    let [left, right] = list(get(expr, "args")?)? else {
+        return Err(());
+    };
     let left = bound(left, max, facts, work, 0)?;
     let right = bound(right, max, facts, work, 0)?;
-    left.checked_add(right)
+    let sum = left
+        .checked_add(right)
         .filter(|sum| *sum <= max)
         .ok_or(())?;
-    Ok(())
+    refined(expr, sum, facts, work, 0)
 }
 fn debit(work: &mut usize, amount: usize) -> Check<()> {
     *work = work.checked_sub(amount).ok_or(())?;
@@ -104,7 +110,7 @@ fn bound(
     if depth > 64 {
         return Err(());
     }
-    let mut upper = if string(get(expr, "kind")?)? == "call"
+    let upper = if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.integer.add"
     {
         let [left, right] = list(get(expr, "args")?)? else {
@@ -140,6 +146,16 @@ fn bound(
     } else {
         literal(expr).unwrap_or(max)
     };
+    refined(expr, upper, facts, work, depth)
+}
+/// Narrows a structural cap by every dominating predicate about `expr`.
+fn refined(
+    expr: &Value,
+    mut upper: u64,
+    facts: &Facts<'_, '_>,
+    work: &mut usize,
+    depth: usize,
+) -> Check<u64> {
     for predicate in facts.predicates {
         refine(predicate, expr, &mut upper, work, depth + 1)?;
     }

@@ -76,6 +76,19 @@ fn count_fixture(case: &str, addend: u64) -> (FixtureNames<'static>, RawFixture,
                 ])],
                 add(reference(&breaks), addend),
             ),
+            // The binding's own value is an addition, so its cap is the one
+            // the addition proof already established: 32 + 1.
+            "sum-let" => function(
+                vec![parameter],
+                "U64",
+                vec![breaks.clone()],
+                vec![map([
+                    ("kind", text("let")),
+                    ("binding", breaks.clone()),
+                    ("value", add(scan, 1)),
+                ])],
+                add(reference(&breaks), addend),
+            ),
             "helper-result" => {
                 functions.push((
                     "countBreaks",
@@ -148,4 +161,13 @@ fn source_function_count_rejects_needle_signature_and_result_forgeries() {
         let (names, fixture, package) = count_fixture(case, 1);
         both_refuse(names, &fixture, package, case);
     }
+}
+#[test]
+fn a_bound_addition_carries_its_proven_cap_to_later_sums() {
+    let (names, fixture, package) = count_fixture("sum-let", u64::MAX - 33);
+    let lowered = lowerer::lower(lowering_request(names, &fixture)).expect("sum-let lowers");
+    assert_eq!(lowered.outputs[0].artifact.bytes, package);
+    assert!(verifier_accepts(names, &fixture, package));
+    let (names, fixture, package) = count_fixture("sum-let", u64::MAX - 32);
+    both_refuse(names, &fixture, package, "sum-let one past the carried cap");
 }

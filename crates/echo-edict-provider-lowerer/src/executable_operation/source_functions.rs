@@ -68,6 +68,9 @@ struct Judgment<'a> {
     proven: Vec<&'a Value>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
+    /// The refined cap of the addition `expression` last proved, keyed by the
+    /// node's address, so the binding that holds it reuses the proof.
+    proven_sum: Option<(usize, u64)>,
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
@@ -163,6 +166,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         work: WORK,
         proven: Vec::new(),
         bound: Vec::new(),
+        proven_sum: None,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -182,6 +186,16 @@ impl<'a> Judgment<'a> {
         let Ty::Word(max) = ty else { return Ok(()) };
         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
             return Ok(());
+        }
+        // `expression` already proved this addition and computed its cap.
+        let proven = self.proven_sum.take();
+        if let Some((node, cap)) = proven {
+            if node == std::ptr::from_ref(value).addr() {
+                if cap < *max {
+                    self.bound.push((local, cap));
+                }
+                return Ok(());
+            }
         }
         let counts = self.count_maxima(std::slice::from_ref(value))?;
         let facts = unsigned_addition::Facts {
@@ -592,7 +606,9 @@ impl<'a> Judgment<'a> {
                                 locals: &self.bound,
                                 counts: &counts,
                             };
-                            unsigned_addition::prove(arguments, *max, &facts, &mut self.work)?;
+                            let cap =
+                                unsigned_addition::prove(value, *max, &facts, &mut self.work)?;
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                             cost = cost.plus(Cost {
                                 steps: 3,
                                 bytes: 64,

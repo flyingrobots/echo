@@ -150,6 +150,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             summaries: &summaries,
             proven: Vec::new(),
             bound: Vec::new(),
+            proven_sum: None,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -175,6 +176,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         summaries: &summaries,
         proven: Vec::new(),
         bound: Vec::new(),
+        proven_sum: None,
     };
     if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
@@ -287,6 +289,9 @@ struct Checker<'a, 'b> {
     proven: Vec<&'a Value>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
+    /// The refined cap of the addition `expression` last proved, keyed by the
+    /// node's address, so the binding that holds it reuses the proof.
+    proven_sum: Option<(usize, u64)>,
 }
 impl<'a> Checker<'a, '_> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -297,6 +302,15 @@ impl<'a> Checker<'a, '_> {
         };
         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
             return Ok(());
+        }
+        // `expression` already proved this addition and computed its cap.
+        if let Some((node, cap)) = self.proven_sum.take() {
+            if node == std::ptr::from_ref(value).addr() {
+                if cap < *max {
+                    self.bound.push((local, cap));
+                }
+                return Ok(());
+            }
         }
         let cap =
             unsigned_addition::ceiling_of(value, *max, &self.proven, &self.bound, self.types)?;
@@ -494,13 +508,14 @@ impl<'a> Checker<'a, '_> {
                         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
                             return Err(());
                         }
-                        unsigned_addition::prove(
-                            arguments,
+                        let cap = unsigned_addition::prove(
+                            value,
                             *max,
                             &self.proven,
                             &self.bound,
                             self.types,
                         )?;
+                        self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                         true
                     } else {
                         false

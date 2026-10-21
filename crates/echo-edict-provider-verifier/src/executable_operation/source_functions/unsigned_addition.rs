@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Verifier-owned inventory of canonical-expression caps and independent composition.
-use super::{get, sequence, string, unsigned, Check, Types, Value};
+use super::{get, sequence, string, unsigned, Check, Schema, Types, Value};
 
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut layers = vec![get(core, "intents")?];
@@ -114,11 +114,19 @@ fn ceiling(
     } else if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.bytes.count"
     {
-        // A count never exceeds its operand's structural byte maximum.
+        // A count never exceeds its operand's structural byte maximum, resolved
+        // through the module's type table so named byte types count too.
         let [coordinate] = sequence(get(expr, "typeArgs")?)? else {
             return Err(());
         };
-        u128::from(bytes_max(string(coordinate)?).map_or(max, |bytes| bytes.min(max)))
+        let Schema::Blob { high, .. } = types
+            .resolve(string(coordinate)?, depth + 1)?
+            .representation()
+            .clone()
+        else {
+            return Err(());
+        };
+        u128::from(high.min(max))
     } else if string(get(expr, "kind")?)? == "local" {
         let reference = get(expr, "ref")?;
         let mut upper = max;
@@ -140,12 +148,4 @@ fn ceiling(
         }
     }
     u64::try_from(value).map_err(|_| ())
-}
-fn bytes_max(coordinate: &str) -> Option<u64> {
-    let bounds = coordinate.strip_prefix("Bytes<")?.strip_suffix('>')?;
-    let max = bounds
-        .strip_prefix("exact=")
-        .or_else(|| bounds.strip_prefix("max="))
-        .or_else(|| bounds.split_once(",max=").map(|(_, max)| max))?;
-    max.parse().ok()
 }

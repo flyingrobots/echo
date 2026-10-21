@@ -22,16 +22,23 @@ pub(super) fn present(core: &Value) -> Check<bool> {
     Ok(false)
 }
 
+/// Facts a proof reads: dominating predicates, carried binding caps, and the
+/// resolved byte maximum of every counted operand coordinate.
+pub(super) struct Facts<'f, 'v> {
+    pub predicates: &'f [&'v Value],
+    pub locals: &'f [(&'v Value, u64)],
+    pub counts: &'f [(String, u64)],
+}
+
 pub(super) fn prove(
     args: &[Value],
     max: u64,
-    facts: &[&Value],
-    locals: &[(&Value, u64)],
+    facts: &Facts<'_, '_>,
     work: &mut usize,
 ) -> Check<()> {
     let [left, right] = args else { return Err(()) };
-    let left = bound(left, max, facts, locals, work, 0)?;
-    let right = bound(right, max, facts, locals, work, 0)?;
+    let left = bound(left, max, facts, work, 0)?;
+    let right = bound(right, max, facts, work, 0)?;
     left.checked_add(right)
         .filter(|sum| *sum <= max)
         .ok_or(())?;
@@ -52,17 +59,44 @@ fn same(a: &Value, b: &Value, work: &mut usize) -> Check<bool> {
 pub(super) fn ceiling(
     expr: &Value,
     max: u64,
-    facts: &[&Value],
-    locals: &[(&Value, u64)],
+    facts: &Facts<'_, '_>,
     work: &mut usize,
 ) -> Check<u64> {
-    bound(expr, max, facts, locals, work, 0)
+    bound(expr, max, facts, work, 0)
+}
+/// Coordinates of every count a bound can reach through additions; the caller
+/// resolves each through its own type table.
+pub(super) fn counted_coordinates<'v>(
+    expr: &'v Value,
+    found: &mut Vec<&'v str>,
+    depth: usize,
+) -> Check<()> {
+    if depth > 64 {
+        return Err(());
+    }
+    if string(get(expr, "kind")?)? != "call" {
+        return Ok(());
+    }
+    match string(get(expr, "callee")?)? {
+        "core.integer.add" => {
+            for operand in list(get(expr, "args")?)? {
+                counted_coordinates(operand, found, depth + 1)?;
+            }
+        }
+        "core.bytes.count" => {
+            let [coordinate] = list(get(expr, "typeArgs")?)? else {
+                return Err(());
+            };
+            found.push(string(coordinate)?);
+        }
+        _ => {}
+    }
+    Ok(())
 }
 fn bound(
     expr: &Value,
     max: u64,
-    facts: &[&Value],
-    locals: &[(&Value, u64)],
+    facts: &Facts<'_, '_>,
     work: &mut usize,
     depth: usize,
 ) -> Check<u64> {
@@ -76,21 +110,28 @@ fn bound(
         let [left, right] = list(get(expr, "args")?)? else {
             return Err(());
         };
-        bound(left, max, facts, locals, work, depth + 1)?
-            .checked_add(bound(right, max, facts, locals, work, depth + 1)?)
+        bound(left, max, facts, work, depth + 1)?
+            .checked_add(bound(right, max, facts, work, depth + 1)?)
             .ok_or(())?
     } else if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.bytes.count"
     {
-        // A count never exceeds its operand's structural byte maximum.
+        // A count never exceeds its operand's structural byte maximum, named or
+        // literal, as the caller resolved it.
         let [coordinate] = list(get(expr, "typeArgs")?)? else {
             return Err(());
         };
-        bytes_max(string(coordinate)?).map_or(max, |bytes| bytes.min(max))
+        let coordinate = string(coordinate)?;
+        facts
+            .counts
+            .iter()
+            .find(|(name, _)| name == coordinate)
+            .map(|(_, bytes)| (*bytes).min(max))
+            .ok_or(())?
     } else if string(get(expr, "kind")?)? == "local" {
         let reference = get(expr, "ref")?;
         let mut upper = max;
-        for (local, cap) in locals {
+        for (local, cap) in facts.locals {
             if same(local, reference, work)? {
                 upper = upper.min(*cap);
             }
@@ -99,7 +140,7 @@ fn bound(
     } else {
         literal(expr).unwrap_or(max)
     };
-    for predicate in facts {
+    for predicate in facts.predicates {
         refine(predicate, expr, &mut upper, work, depth + 1)?;
     }
     Ok(upper)
@@ -143,12 +184,4 @@ fn refine(
         _ => {}
     }
     Ok(())
-}
-fn bytes_max(coordinate: &str) -> Option<u64> {
-    let bounds = coordinate.strip_prefix("Bytes<")?.strip_suffix('>')?;
-    let max = bounds
-        .strip_prefix("exact=")
-        .or_else(|| bounds.strip_prefix("max="))
-        .or_else(|| bounds.split_once(",max=").map(|(_, max)| max))?;
-    max.parse().ok()
 }

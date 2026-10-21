@@ -102,7 +102,11 @@
   (edge type, target) is refused rather than hashed. Identities are unchanged:
   a regression test admits ids captured before the move, and independent
   vectors, frozen hex and mutation postcards check the law without calling
-  the module.
+  the module. A two-effect proposal, a content node with an edge from it, is
+  admitted under independently computed ids, and admission refuses a content
+  edge id computed for another target, a slot id from a content source, and a
+  node id that omits an edge the same proposal adds. Edges already in
+  ascending order are hashed without a copy, and admission sorts its own.
 
 - An authored effect package no longer carries a single `obstruction_coordinate`.
   Its embedded exports declare every obstruction the program can return, and

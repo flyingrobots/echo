@@ -246,11 +246,7 @@ pub fn lowering_fixture_inputs(
     let mut lawpack = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/03-lawpack.hex"
     ));
-    let adapter = adapter_override.unwrap_or_else(|| {
-        captured(include_str!(
-        "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"
-    ))
-    });
+    let adapter = adapter_override.unwrap_or_else(|| catalog_named_adapter(&captured_adapter()));
     let exports = exports_override.unwrap_or_else(|| {
         captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"
@@ -457,7 +453,6 @@ pub fn package(program: &V) -> V {
     map([
         ("schema", text("echo.operation-package/v1")),
         ("operation_coordinate", text("app.update@1")),
-        ("obstruction_coordinate", text("app.Refusal")),
         ("authority_profile_identity", id(8)),
         (
             "semantic_closure",
@@ -543,4 +538,89 @@ pub fn refused(v: &V) {
         prepare(v).is_err(),
         "must refuse malformed or inconsistent package"
     );
+}
+
+/// The read's catalog identifiers and the runtime tags Echo records for them,
+/// written out independently of Echo's own table.
+pub const READ_FAILURE_NAMES: [(&str, &str); 4] = [
+    ("echo.atom-missing/v1", "atomMissing"),
+    ("echo.atom-required/v1", "atomRequired"),
+    ("echo.atom-type-mismatch/v1", "atomTypeMismatch"),
+    ("echo.atom-byte-bound-exceeded/v1", "atomByteBoundExceeded"),
+];
+fn catalog_name(tag: &V) -> V {
+    let V::Text(tag) = tag else { panic!("tag") };
+    let (_, name) = READ_FAILURE_NAMES
+        .iter()
+        .find(|(runtime, _)| runtime == tag)
+        .expect("a captured runtime tag");
+    text(name)
+}
+/// The captured bounded-read adapter, whose mappings target runtime tags.
+pub fn captured_adapter() -> V {
+    echo_edict_canonical::decode_canonical_cbor_v1(
+        &hex::decode(
+            include_str!(
+                "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"
+            )
+            .trim(),
+        )
+        .expect("captured bytes"),
+    )
+    .expect("captured value")
+}
+/// The adapter an author writes for the authored route: Jim's own failure
+/// names map to the read's catalog identifiers. Edict copies mapping targets
+/// verbatim, so this is the only change from the captured adapter.
+pub fn catalog_named_adapter(adapter: &V) -> V {
+    let mut adapter = adapter.clone();
+    let implementation = value_field_mut(
+        value_field_mut(&mut adapter, "effectImplementations"),
+        "jedit.text@1.readFact",
+    );
+    let V::Map(mappings) = value_field_mut(implementation, "failureMappings") else {
+        panic!("mappings")
+    };
+    for (_, target) in mappings.iter_mut() {
+        *target = catalog_name(target);
+    }
+    adapter
+}
+/// The Target IR Edict emits for `catalog_named_adapter`: its read step's arms
+/// and declared failures are keyed by the mapping targets.
+pub fn catalog_named_target(target: &mut V) {
+    let V::Map(intents) = value_field_mut(target, "intents") else {
+        panic!("intents")
+    };
+    for (_, intent) in intents.iter_mut() {
+        let V::Array(steps) = value_field_mut(intent, "steps") else {
+            panic!("steps")
+        };
+        for step in steps {
+            let V::Map(fields) = step else { panic!("step") };
+            for (key, value) in fields.iter_mut() {
+                match (key, value) {
+                    (V::Text(key), V::Map(arms)) if key == "obstructionArms" => {
+                        for (tag, _) in arms.iter_mut() {
+                            *tag = catalog_name(tag);
+                        }
+                    }
+                    (V::Text(key), V::Array(failures)) if key == "obstructionFailures" => {
+                        for tag in failures.iter_mut() {
+                            *tag = catalog_name(tag);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+pub fn value_field_mut<'a>(value: &'a mut V, key: &str) -> &'a mut V {
+    let V::Map(fields) = value else { panic!("map") };
+    &mut fields
+        .iter_mut()
+        .find(|(name, _)| name == &text(key))
+        .unwrap_or_else(|| panic!("field {key}"))
+        .1
 }

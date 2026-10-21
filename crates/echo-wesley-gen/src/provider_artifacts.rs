@@ -254,7 +254,6 @@ echo-current-operation-package-fields = (
   "interpreter_profile_identity": bstr .size 32,
   "input_schema_identity": bstr .size 32,
   "intrinsic_profile_identity": bstr .size 32,
-  "obstruction_coordinate": echo-nonempty-tstr,
   "obstruction_schema_identity": bstr .size 32,
   "obstruction_interpretation_identity": bstr .size 32,
   "operation_coordinate": echo-nonempty-tstr,
@@ -268,6 +267,7 @@ echo-current-operation-package-fields = (
 echo-anchored-operation-package = {
   echo-current-operation-package-fields,
   "application_result_projection": echo-operation-application-result-projection,
+  "obstruction_coordinate": echo-nonempty-tstr,
   "semantic_closure": echo-operation-semantic-closure,
 }
 

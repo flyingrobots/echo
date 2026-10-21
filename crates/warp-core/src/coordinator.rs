@@ -2253,7 +2253,10 @@ impl WorldlineRuntime {
     /// Results are ordered by deterministic ticketed-ingress identity. A commit
     /// can admit more than one correlated submission, so this lookup is
     /// intentionally one-to-many.
-    #[cfg(any(test, feature = "trusted_runtime"))]
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
     pub(crate) fn receipt_correlations_for_current_basis(
         &self,
         worldline_id: WorldlineId,

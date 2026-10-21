@@ -95,6 +95,23 @@
 
 ### Changed
 
+- An authored effect package no longer carries a single `obstruction_coordinate`.
+  Its embedded exports declare every obstruction the program can return, and
+  admission checks each arm against them. The effect-package shape exists only
+  on this unreleased route, so it is amended in place; fixed-profile packages keep
+  the field, and their bytes and identities are unchanged. The lowerer's effect
+  publication no longer takes an obstruction input.
+
+- The authored route names `echo.dpo@1.node-atom-read`'s failures by Edict ABI
+  identifiers (`atomMissing`, `atomRequired`, `atomTypeMismatch`,
+  `atomByteBoundExceeded`). One Echo-owned table, scoped to that intrinsic,
+  translates each to the runtime tag Echo records; missing, unknown, repeated
+  or tag-spelled names refuse the package. The bounded-read route is unchanged.
+
+- `receipt_correlations_for_current_basis` compiles only where the trusted
+  runtime host that calls it does, removing a dead-code warning from
+  `trusted_runtime` builds without `native_rule_bootstrap`.
+
 - Make current effect publication preparation available as a data-only check
   without trusted-host features, sharing the existing runtime checker while
   retaining private host helpers and gated authority constructors.

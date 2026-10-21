@@ -14,6 +14,7 @@
 //! Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
 mod execution;
+mod failure_names;
 mod imported_types;
 mod instruction_relation;
 mod intrinsic_contract;

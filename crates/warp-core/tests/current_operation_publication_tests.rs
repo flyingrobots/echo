@@ -92,6 +92,59 @@ fn current_package_uses_program_kind_to_require_or_forbid_a_real_lawpack() {
     refused(&effect);
 }
 
+// The single obstruction header belongs to fixed-profile packages, which main
+// already publishes; their bytes and identities are unchanged. An authored
+// effect program declares every obstruction in its embedded exports instead,
+// so its package carries no header.
+#[test]
+fn current_package_uses_program_kind_to_require_or_forbid_the_obstruction_header() {
+    use echo_edict_canonical::{decode_canonical_cbor_v1 as decode, CanonicalValueV1 as V};
+    use warp_core::{EchoOperationBudgetV1, EchoOperationProgram, EchoOperationSemanticClosure};
+    let fixed = ExecutableOperationPackage::new(
+        "app.fixed@1",
+        "app.Refusal",
+        EchoOperationSemanticClosure::new(
+            [1; 32],
+            [2; 32],
+            [3; 32],
+            [4; 32],
+            "app.Schema",
+            [5; 32],
+            "app.Law",
+            [6; 32],
+        ),
+        warp_core::echo_operation_target_profile_identity_v1(),
+        [8; 32],
+        EchoOperationBudgetV1::new(4, 64, 32),
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
+            TypeId([1; 32]),
+            TypeId([2; 32]),
+            16,
+        ),
+    );
+    assert_eq!(fixed.obstruction_coordinate(), Some("app.Refusal"));
+    let fixed_bytes = fixed.to_canonical_bytes().expect("fixed publication");
+    let mut fixed_value = decode(&fixed_bytes).expect("canonical fixed publication");
+    let V::Map(fields) = &mut fixed_value else {
+        panic!("map")
+    };
+    assert!(fields
+        .iter()
+        .any(|(key, _)| key == &text("obstruction_coordinate")));
+    fields.retain(|(key, _)| key != &text("obstruction_coordinate"));
+    refused(&fixed_value);
+
+    let effect = package(&program());
+    let prepared = prepare(&effect).expect("an effect package has no header");
+    assert_eq!(prepared.obstruction_coordinate(), None);
+    let mut carrying = effect;
+    add(&mut carrying, "obstruction_coordinate", text("app.Refusal"));
+    refused(&carrying);
+    let mut empty = package(&program());
+    add(&mut empty, "obstruction_coordinate", text(""));
+    refused(&empty);
+}
+
 #[test]
 fn historical_package_and_program_versions_are_refused_even_with_matching_pins() {
     let mut value = package(&program());

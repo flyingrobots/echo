@@ -1141,8 +1141,10 @@ Consequences:
           below.
 
         Together with the profile identities the program carries, this fixes
-        every identity field of the package. `obstruction_coordinate` and
-        `operation_coordinate` remain the application's text, as in V1.
+        every identity field of the package. `operation_coordinate` remains the
+        application's text, as in V1. A V2 package carries no
+        `obstruction_coordinate`: its program can return several obstructions,
+        all declared in its embedded exports and checked arm by arm.
 
     - **Semantic closure.** The V1 closure map, with `lawpack_coordinate` and
       `lawpack_identity` both omitted. A V2 package carries only an effect

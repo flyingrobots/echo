@@ -111,13 +111,18 @@ impl Program {
                     let RuntimeType::Bytes { max, .. } = binding.ty else {
                         return Err(Error::UnsupportedProgram);
                     };
-                    let mut failures = BTreeMap::new();
-                    for (tag, arm) in map(field(step, "obstructionArms")?)? {
-                        failures.insert(
-                            text(tag)?.to_owned(),
+                    // Arms are keyed by catalog name; the read raises runtime tags.
+                    let mut arms = BTreeMap::new();
+                    for (name, arm) in map(field(step, "obstructionArms")?)? {
+                        arms.insert(
+                            text(name)?.to_owned(),
                             text_field(field(arm, "value")?, "callee")?.to_owned(),
                         );
                     }
+                    let failures = super::failure_names::runtime_arms(
+                        text_field(step, "targetIntrinsic")?,
+                        arms,
+                    )?;
                     Instruction::Read {
                         binding,
                         failures,

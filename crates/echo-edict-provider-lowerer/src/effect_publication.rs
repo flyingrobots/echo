@@ -13,8 +13,6 @@ pub struct EffectPublicationInput<'a> {
     pub source_artifact: &'a [u8],
     /// Either `edict.source/v1` or `edict.source-closure/v1`.
     pub source_domain: &'a str,
-    /// Explicit obstruction coordinate declared by the exports artifact.
-    pub obstruction_coordinate: &'a str,
     /// Current canonical authored-effect configuration.
     pub configuration: &'a [u8],
 }
@@ -26,7 +24,7 @@ pub enum EffectPublicationError {
     InvalidArtifact,
     /// Explicit configuration or its resource limits are invalid.
     InvalidConfiguration,
-    /// A required coordinate is missing, unbounded, or undeclared.
+    /// A required coordinate is missing or unbounded.
     InvalidCoordinate,
 }
 
@@ -35,9 +33,7 @@ impl std::fmt::Display for EffectPublicationError {
         f.write_str(match self {
             Self::InvalidArtifact => "invalid effect publication artifact envelope",
             Self::InvalidConfiguration => "invalid effect publication configuration or limits",
-            Self::InvalidCoordinate => {
-                "missing, unbounded or undeclared effect publication coordinate"
-            }
+            Self::InvalidCoordinate => "missing or unbounded effect publication coordinate",
         })
     }
 }
@@ -58,9 +54,7 @@ impl std::error::Error for EffectPublicationError {}
 pub fn encode_effect_publication(
     input: EffectPublicationInput<'_>,
 ) -> Result<Vec<u8>, EffectPublicationError> {
-    use EffectPublicationError::{
-        InvalidArtifact as A, InvalidConfiguration as C, InvalidCoordinate as N,
-    };
+    use EffectPublicationError::{InvalidArtifact as A, InvalidConfiguration as C};
     let bundle = decode(input.compiler_program).map_err(|_| A)?;
     exact(
         &bundle,
@@ -98,19 +92,6 @@ pub fn encode_effect_publication(
     let operation = format!("{module}.{intent_name}");
     coordinate(&text(&operation))?;
     coordinate(&text(input.application_schema_coordinate))?;
-    coordinate(&text(input.obstruction_coordinate))?;
-    let V::Array(obstructions) = field(&exports, "obstructions", A)? else {
-        return Err(A);
-    };
-    let mut selected = 0;
-    for obstruction in obstructions {
-        if coordinate(field(obstruction, "coordinate", A)?)? == input.obstruction_coordinate {
-            selected += 1;
-        }
-    }
-    if selected != 1 {
-        return Err(N);
-    }
     let core_id = identity("edict.core.module/v1", &core)?;
     let target_id = identity("edict.target-ir.artifact/v1", &target)?;
     let exports_id = identity("edict.lawpack-exports/v1", &exports)?;
@@ -241,7 +222,6 @@ pub fn encode_effect_publication(
     let mut package = vec![
         ("schema", text("echo.operation-package/v1")),
         ("operation_coordinate", text(&operation)),
-        ("obstruction_coordinate", text(input.obstruction_coordinate)),
         ("authority_profile_identity", authority),
         (
             "semantic_closure",

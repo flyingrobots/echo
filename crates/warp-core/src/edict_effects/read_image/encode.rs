@@ -132,7 +132,7 @@ fn prepare<'a>(
         (SlotId::Attachment(_), SlotReading::Attachment(Some(AttachmentValue::Atom(atom))))
             if atom.type_id == ty =>
         {
-            row.subject = super::super::value_digest::atom(atom);
+            row.subject = crate::content_address_v1::attachment_digest(atom.type_id, &atom.bytes);
         }
         (
             SlotId::Attachment(key),
@@ -147,11 +147,7 @@ fn prepare<'a>(
                 return Err(Error::InconsistentObservation);
             }
             row.outcome = 3;
-            let mut hash = blake3::Hasher::new();
-            hash.update(b"echo.bridge.attachment-value.v1\0");
-            hash.update(&[1]);
-            hash.update(&warp.0);
-            row.subject = hash.finalize().into();
+            row.subject = crate::content_address_v1::descend_attachment_digest(*warp);
         }
         (SlotId::OutgoingEdges(range), SlotReading::OutgoingEdges(edges)) if ty.0 == [0; 32] => {
             let owner = source.readings.get(&SlotId::Node(range.source));

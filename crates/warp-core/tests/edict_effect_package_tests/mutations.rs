@@ -243,6 +243,187 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
     );
     (publication, encoded(&input))
 }
+/// A program emitting two mutations in order: `first` from the intent input's
+/// `first` field through `jedit.text@1.readFact`, then `second` from its `second`
+/// field through a second exported effect, `jedit.text@1.linkFact`. Both use
+/// their conforming runtime-ABI shapes; every pin is re-derived.
+pub(super) fn fixture_pair(first: &str, second: &str, profile: &str) -> V {
+    const SECOND: &str = "jedit.text@1.linkFact";
+    let artifacts = repinned_lowering_artifacts();
+    let decode = |key| {
+        let V::Bytes(raw) = get(&artifacts, key) else {
+            panic!("artifact")
+        };
+        echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("artifact")
+    };
+    let shapes = [
+        ("FirstInput", Shape::conforming(first)),
+        ("SecondInput", Shape::conforming(second)),
+    ];
+    let (_, _, mut exports) = compiler_fixture(&artifacts);
+    let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
+        panic!("effects")
+    };
+    let mut declared = effects[0].clone();
+    set(&mut declared, "outputType", text("MutationUnit"));
+    set(&mut declared, "effectFailures", map([]));
+    let mut linked = declared.clone();
+    set(&mut declared, "inputType", text(shapes[0].0));
+    set(&mut linked, "inputType", text(shapes[1].0));
+    set(&mut linked, "coordinate", text(SECOND));
+    *effects = vec![declared, linked];
+    let mut adapter = decode("adapter_artifact");
+    let implementations = value_field_mut(&mut adapter, "effectImplementations");
+    let mut read = get(implementations, "jedit.text@1.readFact").clone();
+    set(&mut read, "failureMappings", map([]));
+    let mut link = read.clone();
+    for (implementation, (name, shape)) in [
+        (&mut read, (first, &shapes[0].1)),
+        (&mut link, (second, &shapes[1].1)),
+    ] {
+        set(
+            implementation,
+            "targetIntrinsic",
+            text(&format!("echo.dpo@1.{name}")),
+        );
+        set(implementation, "writeClass", text(&shape.write_class));
+    }
+    *implementations = map([("jedit.text@1.readFact", read), (SECOND, link)]);
+    let V::Map(profiles) = value_field_mut(&mut adapter, "operationProfiles") else {
+        panic!("profiles")
+    };
+    set(&mut profiles[0].1, "core", text(profile));
+    let V::Array(authorized) = value_field_mut(&mut profiles[0].1, "semanticEffects") else {
+        panic!("semantic effects")
+    };
+    authorized.push(text(SECOND));
+    let mut catalog = catalog_fixture();
+    let template = get(get(&catalog, "intrinsics"), "echo.dpo@1.node-atom-read").clone();
+    let mut intrinsics = Vec::new();
+    for (name, shape) in [(first, &shapes[0].1), (second, &shapes[1].1)] {
+        let mut intrinsic = template.clone();
+        set(
+            &mut intrinsic,
+            "argumentTypes",
+            V::Array(vec![text(&shape.catalog_argument)]),
+        );
+        set(&mut intrinsic, "returnType", text(&shape.catalog_return));
+        set(&mut intrinsic, "effectKind", text(&shape.effect_kind));
+        set(&mut intrinsic, "writeClass", text(&shape.write_class));
+        set(&mut intrinsic, "effectFailures", map([]));
+        intrinsics.push((text(&format!("echo.dpo@1.{name}")), intrinsic));
+    }
+    set(&mut catalog, "intrinsics", V::Map(intrinsics));
+    let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
+    let (mut core, mut target, _) = compiler_fixture(&lowering);
+    let types = value_field_mut(&mut core, "types");
+    for (type_name, shape) in &shapes {
+        let record = map([
+            ("kind", text("Record")),
+            (
+                "fields",
+                V::Map(
+                    shape
+                        .fields
+                        .iter()
+                        .map(|(k, t)| (text(k), text(t)))
+                        .collect(),
+                ),
+            ),
+        ]);
+        add(types, type_name, record);
+    }
+    add(
+        types,
+        "PairInput",
+        map([
+            ("kind", text("Record")),
+            (
+                "fields",
+                map([("first", text(shapes[0].0)), ("second", text(shapes[1].0))]),
+            ),
+        ]),
+    );
+    add(types, "MutationUnit", shapes[0].1.output.clone());
+    let arg = map([
+        ("id", text("arg.0")),
+        ("type", text("PairInput")),
+        ("alphaName", text("$arg0")),
+    ]);
+    let locals = [0, 1].map(|index| {
+        map([
+            ("id", text(&format!("local.{index}"))),
+            ("type", text("MutationUnit")),
+            ("alphaName", text(&format!("$local{index}"))),
+        ])
+    });
+    let argument = |field_name: &str| {
+        map([
+            ("kind", text("field")),
+            ("base", map([("kind", text("local")), ("ref", arg.clone())])),
+            ("field", text(field_name)),
+        ])
+    };
+    let effects = [
+        ("text.readFact", first, "first"),
+        ("text.linkFact", second, "second"),
+    ];
+    let mut nodes = Vec::new();
+    let mut steps = Vec::new();
+    for (index, (effect, name, field_name)) in effects.into_iter().enumerate() {
+        nodes.push(map([
+            ("kind", text("effect")),
+            ("binding", locals[index].clone()),
+            ("effect", text(effect)),
+            ("input", argument(field_name)),
+            ("obstructionMap", map([])),
+        ]));
+        steps.push(map([
+            ("id", text(&format!("effect.{index}"))),
+            ("binding", locals[index].clone()),
+            ("effect", text(effect)),
+            ("input", argument(field_name)),
+            ("targetIntrinsic", text(&format!("echo.dpo@1.{name}"))),
+            ("obstructionArms", map([])),
+            ("obstructionFailures", V::Array(vec![])),
+        ]));
+    }
+    let result = map([("kind", text("local")), ("ref", locals[1].clone())]);
+    let intent = value_field_mut(value_field_mut(&mut core, "intents"), "replaceRange");
+    set(intent, "input", text("PairInput"));
+    set(intent, "output", text("MutationUnit"));
+    set(intent, "requiredOperationProfile", text(profile));
+    if let V::Map(fields) = intent {
+        fields.retain(|(k, _)| k != &text("basis"));
+    }
+    set(
+        intent,
+        "body",
+        map([
+            (
+                "locals",
+                V::Array(vec![arg, locals[0].clone(), locals[1].clone()]),
+            ),
+            ("nodes", V::Array(nodes)),
+            ("result", result.clone()),
+        ]),
+    );
+    let selected = selected_target_mut(&mut target);
+    set(selected, "operationProfile", text(profile));
+    if let V::Map(fields) = selected {
+        fields.retain(|(k, _)| k != &text("basis"));
+    }
+    set(selected, "steps", V::Array(steps));
+    set(selected, "requirements", V::Array(vec![]));
+    set(selected, "result", result);
+    set(
+        selected,
+        "executionOrder",
+        V::Array(vec![text("effect.0"), text("effect.1")]),
+    );
+    repin_core(&core, &mut target);
+    publication_from_parts(&core, &target, &exports, &lowering)
+}
 #[test]
 fn all_five_compiled_mutation_emitters_prepare_and_run_without_writing_the_frontier() {
     for name in NAMES {

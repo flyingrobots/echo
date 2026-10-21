@@ -39,6 +39,8 @@ pub mod math {
 /// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
 pub mod wsc;
 
+pub mod content_address_v1;
+
 mod actual_footprint;
 mod admission;
 #[cfg(feature = "application_root_shadow")]

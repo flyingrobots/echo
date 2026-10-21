@@ -102,6 +102,18 @@
   constant. A runtime `slice` or `subtract` in an effect program verifies when
   those facts prove its range, so Jim's `isUtf8(slice(text, 0, at))` can run
   inside the edit. A `require` still proves nothing after it, matching Edict.
+- `ContentAddressV1` now lives in one module, `warp_core::content_address_v1`,
+  with content node ids, content and slot edge ids, and attachment digests.
+  Effect admission and read evidence use it, replacing the inline hashing in
+  derivation and `edict_effects::value_digest`. A duplicate outgoing
+  (edge type, target) is refused rather than hashed. Identities are unchanged:
+  a regression test admits ids captured before the move, and independent
+  vectors, frozen hex and mutation postcards check the law without calling
+  the module. A two-effect proposal, a content node with an edge from it, is
+  admitted under independently computed ids, and admission refuses a content
+  edge id computed for another target, a slot id from a content source, and a
+  node id that omits an edge the same proposal adds. Edges already in
+  ascending order are hashed without a copy, and admission sorts its own.
 
 - An authored effect package no longer carries a single `obstruction_coordinate`.
   Its embedded exports declare every obstruction the program can return, and

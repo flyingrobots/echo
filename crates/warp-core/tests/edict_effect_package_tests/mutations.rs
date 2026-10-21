@@ -15,7 +15,8 @@ const NAMES: [&str; 5] = [
     "ensure-edge",
     "replace-edge",
 ];
-/// The provider effect kind each mutation intrinsic declares.
+/// The provider effect kind each mutation intrinsic declares; Edict's
+/// intrinsic ABI also makes it the write class.
 pub(super) fn effect_kind(name: &str) -> &'static str {
     match name {
         "create-node" => "create",
@@ -66,6 +67,7 @@ pub(super) struct Shape {
     pub(super) fields: Vec<(&'static str, &'static str)>,
     pub(super) output: V,
     pub(super) effect_kind: String,
+    pub(super) write_class: String,
 }
 impl Shape {
     /// The conforming shape: the catalog names Echo's ABI coordinates and the
@@ -79,6 +81,7 @@ impl Shape {
             fields: layout(name),
             output: map([("kind", text("Record")), ("fields", map([]))]),
             effect_kind: effect_kind(name).to_owned(),
+            write_class: effect_kind(name).to_owned(),
         }
     }
 }
@@ -111,7 +114,7 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
         "targetIntrinsic",
         text(&format!("echo.dpo@1.{name}")),
     );
-    set(implementation, "writeClass", text("write"));
+    set(implementation, "writeClass", text(&shape.write_class));
     set(implementation, "failureMappings", map([]));
     let V::Map(profiles) = value_field_mut(&mut adapter, "operationProfiles") else {
         panic!("profiles")
@@ -127,7 +130,7 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
     );
     set(&mut intrinsic, "returnType", text(&shape.catalog_return));
     set(&mut intrinsic, "effectKind", text(&shape.effect_kind));
-    set(&mut intrinsic, "writeClass", text("write"));
+    set(&mut intrinsic, "writeClass", text(&shape.write_class));
     set(&mut intrinsic, "effectFailures", map([]));
     set(
         &mut catalog,

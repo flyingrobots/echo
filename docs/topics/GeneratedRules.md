@@ -1142,7 +1142,8 @@ original-decision recovery remain required for the complete bridge.
 The current interpreter recognizes five `echo.dpo@1` mutation-emitter names.
 Each declares the provider effect kind that names what it does, `create` for
 `create-node`, `ensure` for `ensure-node` and `ensure-edge`, and `replace` for
-`replace-atom` and `replace-edge`, with `writeClass` `write`, and its named
+`replace-atom` and `replace-edge`, and declares that same value as its
+`writeClass`, because Edict's intrinsic ABI has no `write` class. Its named
 intrinsic failure set must be empty. They require the explicit
 `continuum.profile.graph-effects/v1` Core/Target operation profile; a matching
 read-only profile and adapter cannot authorize them.

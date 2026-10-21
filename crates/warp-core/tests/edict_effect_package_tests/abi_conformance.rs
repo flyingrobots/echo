@@ -219,3 +219,18 @@ fn each_mutation_declares_its_own_effect_kind() {
     crossed.effect_kind = "ensure".to_owned();
     refuses("create-node", &crossed, "create-node declaring ensure");
 }
+
+#[test]
+fn each_mutation_write_class_is_its_effect_kind() {
+    for name in MUTATIONS {
+        for wrong in ["write", "read", "delete"] {
+            let mut shape = Shape::conforming(name);
+            shape.write_class = wrong.to_owned();
+            refuses(
+                name,
+                &shape,
+                "a write class outside Edict's ABI or another kind",
+            );
+        }
+    }
+}

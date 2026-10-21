@@ -402,6 +402,10 @@ impl WarpTickPatchV1 {
         in_slots.dedup();
         out_slots.sort();
         out_slots.dedup();
+        // The engine hands over lists that held repeats; the patch outlives
+        // the tick, so it keeps only the room its slots need.
+        in_slots.shrink_to_fit();
+        out_slots.shrink_to_fit();
         let ops = {
             let mut keyed: Vec<(WarpOpKey, WarpOp)> =
                 ops.into_iter().map(|op| (op.sort_key(), op)).collect();

@@ -3443,46 +3443,68 @@ fn extend_slots_from_footprint(
 ) {
     // Nodes (warp-scoped NodeKey)
     for key in fp.n_read.iter() {
-        in_slots.push(SlotId::Node(*key));
+        push_slot(in_slots, SlotId::Node(*key));
     }
     for key in fp.n_write.iter() {
-        in_slots.push(SlotId::Node(*key));
-        out_slots.push(SlotId::Node(*key));
+        push_slot(in_slots, SlotId::Node(*key));
+        push_slot(out_slots, SlotId::Node(*key));
     }
 
     // Edges (warp-scoped EdgeKey)
     for key in fp.e_read.iter() {
-        in_slots.push(SlotId::Edge(*key));
+        push_slot(in_slots, SlotId::Edge(*key));
     }
     for key in fp.e_write.iter() {
-        in_slots.push(SlotId::Edge(*key));
-        out_slots.push(SlotId::Edge(*key));
+        push_slot(in_slots, SlotId::Edge(*key));
+        push_slot(out_slots, SlotId::Edge(*key));
     }
     for key in fp.r_read.iter() {
-        in_slots.push(SlotId::OutgoingEdges(*key));
+        push_slot(in_slots, SlotId::OutgoingEdges(*key));
     }
     for key in fp.r_write.iter() {
-        in_slots.push(SlotId::OutgoingEdges(*key));
-        out_slots.push(SlotId::OutgoingEdges(*key));
+        push_slot(in_slots, SlotId::OutgoingEdges(*key));
+        push_slot(out_slots, SlotId::OutgoingEdges(*key));
     }
 
     // Attachments (already warp-scoped via AttachmentKey)
     for key in fp.a_read.iter() {
-        in_slots.push(SlotId::Attachment(*key));
+        push_slot(in_slots, SlotId::Attachment(*key));
     }
     for key in fp.a_write.iter() {
-        in_slots.push(SlotId::Attachment(*key));
-        out_slots.push(SlotId::Attachment(*key));
+        push_slot(in_slots, SlotId::Attachment(*key));
+        push_slot(out_slots, SlotId::Attachment(*key));
     }
 
     // Ports (warp-scoped: (WarpId, PortKey))
     for port_key in fp.b_in.keys() {
-        in_slots.push(SlotId::Port(*port_key));
+        push_slot(in_slots, SlotId::Port(*port_key));
     }
     for port_key in fp.b_out.keys() {
-        in_slots.push(SlotId::Port(*port_key));
-        out_slots.push(SlotId::Port(*port_key));
+        push_slot(in_slots, SlotId::Port(*port_key));
+        push_slot(out_slots, SlotId::Port(*port_key));
     }
+}
+
+/// Below this many slots, a full vector simply grows.
+const SLOT_COMPACTION_MIN: usize = 256;
+
+/// Adds `slot` to a tick's unsorted slot list.
+///
+/// The list keeps repeats, because the patch sorts and dedups it once. When
+/// the list is full, it first drops its repeats; if that frees less than
+/// half of it, it doubles. So it holds at most about four times the tick's
+/// distinct slots however much the footprints overlap, and each compaction
+/// is paid for by at least half a list of pushes. The stable sort keeps the
+/// already sorted prefix cheap to sort again.
+fn push_slot(slots: &mut Vec<SlotId>, slot: SlotId) {
+    if slots.len() == slots.capacity() && slots.len() >= SLOT_COMPACTION_MIN {
+        slots.sort();
+        slots.dedup();
+        if slots.len() > slots.capacity() / 2 {
+            slots.reserve(slots.len());
+        }
+    }
+    slots.push(slot);
 }
 
 fn runtime_ingress_kind_node_id(intent_kind: &IntentKind) -> NodeId {

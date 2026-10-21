@@ -8,6 +8,7 @@ use super::{
     EffectDerivationKind, Hash, NodeId, NodeKey, NodeRecord, OutgoingEdgeRange, SlotId,
     SlotReading, TypeId, WarpId,
 };
+use crate::content_address_v1;
 pub(super) struct Resolved<'a> {
     effect: &'a M,
     node: Option<NodeRecord>,
@@ -291,19 +292,22 @@ pub(super) fn identities(
                 if schema.node_addressing(*ty) != Some(Addressing::Content) {
                     return Err(bad());
                 }
-                let mut edges = edges_for(node, effects);
-                edges.sort_by_key(|e| (e.ty, e.to));
-                let mut hash = blake3::Hasher::new();
-                hash.update(b"echo.bridge.node-id.v1\0");
-                hash.update(&node.warp_id.0);
-                hash.update(&ty.0);
-                hash.update(&super::super::value_digest::atom(atom));
-                hash.update(&(edges.len() as u64).to_le_bytes());
-                for edge in edges {
-                    hash.update(&edge.ty.0);
-                    hash.update(&edge.to.0);
-                }
-                if hash.finalize().as_bytes() != &node.local_id.0 {
+                let edges = edges_for(node, effects)
+                    .iter()
+                    .map(|e| content_address_v1::OutgoingEdge {
+                        edge_type: e.ty,
+                        to: e.to,
+                    })
+                    .collect::<Vec<_>>();
+                let id = content_address_v1::content_node_id(
+                    node.warp_id,
+                    *ty,
+                    atom.type_id,
+                    &atom.bytes,
+                    &edges,
+                )
+                .map_err(|_| bad())?;
+                if id != node.local_id {
                     return Err(bad());
                 }
             }
@@ -358,19 +362,10 @@ pub(super) fn identities(
     Ok(())
 }
 fn edge_id(warp: WarpId, from: NodeId, ty: TypeId, to: NodeId, kind: Addressing) -> Hash {
-    let mut hash = blake3::Hasher::new();
-    hash.update(if kind == Addressing::Content {
-        b"echo.bridge.edge-id.v1\0"
-    } else {
-        b"echo.bridge.slot-edge-id.v1\0"
-    });
-    hash.update(&warp.0);
-    hash.update(&from.0);
-    hash.update(&ty.0);
-    if kind == Addressing::Content {
-        hash.update(&to.0);
+    match kind {
+        Addressing::Content => content_address_v1::content_edge_id(warp, from, ty, to).0,
+        Addressing::Mutable => content_address_v1::slot_edge_id(warp, from, ty).0,
     }
-    hash.finalize().into()
 }
 pub(super) fn writes(resolved: &[Resolved<'_>]) -> BTreeSet<SlotId> {
     let mut slots = BTreeSet::new();
@@ -485,7 +480,7 @@ pub(super) fn preconditions(
             {
                 Some(EffectDerivationKind::ContentIdentityConflict)
             }
-            M::ReplaceAtom { expected, .. } if !matches!(&r.atom,Some(AttachmentValue::Atom(atom)) if super::super::value_digest::atom(atom)==*expected) => {
+            M::ReplaceAtom { expected, .. } if !matches!(&r.atom,Some(AttachmentValue::Atom(atom)) if content_address_v1::attachment_digest(atom.type_id, &atom.bytes)==*expected) => {
                 Some(EffectDerivationKind::PreconditionMismatch)
             }
             M::EnsureEdge { .. } if r.edge.is_some() && !r.noop => {

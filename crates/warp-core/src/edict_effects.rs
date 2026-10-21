@@ -26,7 +26,6 @@ pub use package::{EffectPackageError, EffectProgram};
 mod completion;
 #[cfg(feature = "native_rule_bootstrap")]
 pub(crate) mod derive;
-mod value_digest;
 #[cfg(feature = "native_rule_bootstrap")]
 pub use derive::{DerivedEffectPatch, EffectDerivationError, EffectDerivationKind};
 mod frame;

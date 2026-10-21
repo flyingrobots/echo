@@ -995,3 +995,89 @@ fn competing_mutation_failures_follow_the_validation_phase_order() {
         assert_eq!(error.kind(), want, "{name}: {input_field}");
     }
 }
+// Identities admission accepted before ContentAddressV1 moved into its own
+// module, captured from the pre-extraction runtime. Moving the law must not
+// change an identity Echo has already admitted.
+const ADMITTED_LEAF_ID: &str = "127c0d47351ee88620bec24603a1b8949610d792f06f913227308ee5c7e47f90";
+const ADMITTED_SLOT_EDGE_ID: &str =
+    "bd913d145bb0da61dc572cf56a5a4abd442bf295b7020c32aa1de85a3dd70aa2";
+fn hex_id(hex: &str) -> V {
+    V::Bytes(
+        (0..32)
+            .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex"))
+            .collect(),
+    )
+}
+#[test]
+fn identities_admitted_before_the_law_moved_are_still_admitted() {
+    let mut body = input("ensure-node");
+    set(&mut body, "nodeId", hex_id(ADMITTED_LEAF_ID));
+    derive_case(
+        "ensure-node",
+        body,
+        publication_for("ensure-node"),
+        false,
+        false,
+        false,
+    )
+    .expect("pre-extraction content node id");
+    let mut body = input("ensure-edge");
+    set(&mut body, "edgeId", hex_id(ADMITTED_SLOT_EDGE_ID));
+    derive_case(
+        "ensure-edge",
+        body,
+        publication_for("ensure-edge"),
+        false,
+        false,
+        false,
+    )
+    .expect("pre-extraction slot edge id");
+}
+// An id is bound to the exact atom and edge set it was computed from.
+// The surrounding package stays valid so refusal comes from the identity law.
+#[test]
+fn a_node_id_is_refused_when_the_submitted_atom_or_edge_set_differs() {
+    use warp_core::edict_effects::EffectDerivationKind as K;
+    for (field, value) in [
+        ("atomBytes", V::Bytes(b"newer".to_vec())),
+        ("atomBytes", V::Bytes(b"ne".to_vec())),
+        ("atomBytes", V::Bytes(b"nex".to_vec())),
+    ] {
+        let mut body = input("ensure-node");
+        set(&mut body, field, value);
+        let error = derive_case(
+            "ensure-node",
+            body,
+            publication_for("ensure-node"),
+            false,
+            false,
+            false,
+        )
+        .expect_err("different atom");
+        assert_eq!(error.kind(), K::IdentityLawViolation);
+    }
+    // Computed with one outgoing edge, submitted with none.
+    let with_edge = warp_core::content_address_v1::content_node_id(
+        warp_core::WarpId([3; 32]),
+        TypeId([7; 32]),
+        TypeId([2; 32]),
+        b"new",
+        &[warp_core::content_address_v1::OutgoingEdge {
+            edge_type: TypeId([6; 32]),
+            to: NodeId([5; 32]),
+        }],
+    )
+    .expect("one edge");
+    let mut body = input("ensure-node");
+    set(&mut body, "nodeId", V::Bytes(with_edge.0.to_vec()));
+    let error = derive_case(
+        "ensure-node",
+        body,
+        publication_for("ensure-node"),
+        false,
+        false,
+        false,
+    )
+    .expect_err("different edge set");
+    assert_eq!(error.kind(), K::IdentityLawViolation);
+}

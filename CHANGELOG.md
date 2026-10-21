@@ -95,6 +95,15 @@
 
 ### Changed
 
+- `ContentAddressV1` now lives in one module, `warp_core::content_address_v1`,
+  with content node ids, content and slot edge ids, and attachment digests.
+  Effect admission and read evidence use it, replacing the inline hashing in
+  derivation and `edict_effects::value_digest`. A duplicate outgoing
+  (edge type, target) is refused rather than hashed. Identities are unchanged:
+  a regression test admits ids captured before the move, and independent
+  vectors, frozen hex and mutation postcards check the law without calling
+  the module.
+
 - Make current effect publication preparation available as a data-only check
   without trusted-host features, sharing the existing runtime checker while
   retaining private host helpers and gated authority constructors.

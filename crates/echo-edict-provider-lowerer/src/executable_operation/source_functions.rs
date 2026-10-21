@@ -184,12 +184,33 @@ impl<'a> Judgment<'a> {
         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
             return Ok(());
         }
-        let cap =
-            unsigned_addition::ceiling(value, *max, &self.proven, &self.bound, &mut self.work)?;
+        let counts = self.count_maxima(std::slice::from_ref(value))?;
+        let facts = unsigned_addition::Facts {
+            predicates: &self.proven,
+            locals: &self.bound,
+            counts: &counts,
+        };
+        let cap = unsigned_addition::ceiling(value, *max, &facts, &mut self.work)?;
         if cap < *max {
             self.bound.push((local, cap));
         }
         Ok(())
+    }
+    /// The byte maximum of every counted operand an addition proof can reach,
+    /// resolved through this module's type table so named byte types count.
+    fn count_maxima(&mut self, exprs: &[Value]) -> Check<Vec<(String, u64)>> {
+        let mut found = Vec::new();
+        for expr in exprs {
+            unsigned_addition::counted_coordinates(expr, &mut found, 0)?;
+        }
+        let mut counts = Vec::with_capacity(found.len());
+        for coordinate in found {
+            let Ty::Bytes(_, max) = self.ty(coordinate, 0)? else {
+                return Err(());
+            };
+            counts.push((coordinate.to_owned(), max));
+        }
+        Ok(counts)
     }
     fn charge(&mut self, depth: usize) -> Check<()> {
         self.work = self.work.checked_sub(1).ok_or(())?;
@@ -566,13 +587,13 @@ impl<'a> Judgment<'a> {
                                 && right == expected
                                 && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            unsigned_addition::prove(
-                                arguments,
-                                *max,
-                                &self.proven,
-                                &self.bound,
-                                &mut self.work,
-                            )?;
+                            let counts = self.count_maxima(arguments)?;
+                            let facts = unsigned_addition::Facts {
+                                predicates: &self.proven,
+                                locals: &self.bound,
+                                counts: &counts,
+                            };
+                            unsigned_addition::prove(arguments, *max, &facts, &mut self.work)?;
                             cost = cost.plus(Cost {
                                 steps: 3,
                                 bytes: 64,

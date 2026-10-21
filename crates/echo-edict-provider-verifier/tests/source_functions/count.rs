@@ -31,8 +31,23 @@ fn count_fixture(case: &str, addend: u64) -> (FixtureNames<'static>, RawFixture,
         let coordinate = text_field(core, "coordinate")
             .expect("coordinate")
             .to_owned();
-        let parameter = local("arg.0", "Bytes<max=32>");
-        let mut types = vec!["Bytes<max=32>"];
+        // A named operand type must give the same structural maximum.
+        let named = format!("{coordinate}.Blob");
+        let operand = if case.starts_with("named") {
+            add_field(
+                map_field_mut(core, "types"),
+                "Blob",
+                map([
+                    ("kind", text("Bytes")),
+                    ("max", CanonicalValueV1::Integer(32)),
+                ]),
+            );
+            named.as_str()
+        } else {
+            "Bytes<max=32>"
+        };
+        let parameter = local("arg.0", operand);
+        let mut types = vec![operand];
         let mut args = vec![reference(&parameter), bytes(b"\n")];
         match case {
             "empty-needle" => args[1] = bytes(b""),
@@ -50,7 +65,7 @@ fn count_fixture(case: &str, addend: u64) -> (FixtureNames<'static>, RawFixture,
         let breaks = local("local.0", "U64");
         let mut functions = Vec::new();
         let lines = match case {
-            "let" => function(
+            "let" | "named-let" => function(
                 vec![parameter],
                 "U64",
                 vec![breaks.clone()],
@@ -91,7 +106,7 @@ fn count_fixture(case: &str, addend: u64) -> (FixtureNames<'static>, RawFixture,
 }
 #[test]
 fn source_function_counts_prove_line_count_directly_and_through_let_bindings() {
-    for case in ["direct", "let"] {
+    for case in ["direct", "let", "named", "named-let"] {
         for addend in [1, u64::MAX - 32] {
             let (names, fixture, package) = count_fixture(case, addend);
             let lowered = lowerer::lower(lowering_request(names, &fixture))
@@ -106,7 +121,7 @@ fn source_function_counts_prove_line_count_directly_and_through_let_bindings() {
 }
 #[test]
 fn source_function_count_sums_that_overflow_at_the_operand_maximum_refuse() {
-    for case in ["direct", "let"] {
+    for case in ["direct", "let", "named", "named-let"] {
         let (names, fixture, package) = count_fixture(case, u64::MAX - 31);
         both_refuse(names, &fixture, package, case);
     }

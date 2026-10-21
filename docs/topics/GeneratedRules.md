@@ -144,8 +144,10 @@ the result of the same intent or helper body, in the lowerer, the verifier and
 the native helper checker alike. Local identities are unique and immutable, so
 the carried bound names exactly that value. Bounds do not cross helper results
 or record fields. `core.bytes.count<OperandType>` contributes its operand's
-structural byte maximum, so `count(text, b"\n") + 1` is proven for any operand
-below the width maximum, directly or through a binding.
+structural byte maximum, which each of the three resolves through the module's
+type table, so a named byte type such as `jedit.text@1.FactBytes` gives the same
+bound as its literal `Bytes<...>` form. `count(text, b"\n") + 1` is therefore
+proven for any operand below the width maximum, directly or through a binding.
 
 Partial `core.bytes.slice` and `core.integer.subtract` calls accept runtime
 operands under Edict's proven-range rules. A slice needs `start <= end` and

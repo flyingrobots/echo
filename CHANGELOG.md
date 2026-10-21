@@ -365,7 +365,8 @@
   raw single-byte counting with a structurally checked one-byte constant
   needle and one complete scan charged. The lowerer and verifier type it
   independently, including on the bounded-read route, and their addition
-  proofs bound it by the operand's byte maximum. Proven unsigned bounds now
+  proofs bound it by the operand's byte maximum, resolving named byte types
+  through the module's type table. Proven unsigned bounds now
   travel through let bindings in intent and helper bodies, so Jim's
   `lineCount = lineBreaks + 1` is proven.
 

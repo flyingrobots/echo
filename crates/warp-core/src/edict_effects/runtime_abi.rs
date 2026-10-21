@@ -76,7 +76,7 @@ pub(super) fn validate(
     let input = parser.ty(input_name, 0)?;
     let output = parser.ty(text_field(effect, "outputType")?, 0)?;
     if let Some(kind) = mutation {
-        require_text(intrinsic, "effectKind", "write")?;
+        require_text(intrinsic, "effectKind", kind.effect_kind())?;
         require_text(intrinsic, "writeClass", "write")?;
         if !map(field(intrinsic, "effectFailures")?)?.is_empty() {
             return Err(Error::InvalidArtifact);

@@ -21,6 +21,14 @@ impl MutationKind {
             _ => None,
         }
     }
+    /// The provider effect kind the catalog must declare for this mutation.
+    pub(super) const fn effect_kind(self) -> &'static str {
+        match self {
+            Self::CreateNode => "create",
+            Self::EnsureNode | Self::EnsureEdge => "ensure",
+            Self::ReplaceAtom | Self::ReplaceEdge => "replace",
+        }
+    }
     pub(super) fn fields(self) -> &'static [&'static str] {
         match self {
             Self::EnsureNode | Self::CreateNode => {

@@ -204,3 +204,18 @@ fn a_read_failure_must_carry_the_effects_own_input_type() {
     let lowering = lowering_fixture_inputs(None, Some(exports), None);
     refused(&publication_for_lowering(&lowering));
 }
+
+#[test]
+fn each_mutation_declares_its_own_effect_kind() {
+    for name in MUTATIONS {
+        accepts(name, &Shape::conforming(name));
+        for wrong in ["write", "read", "delete"] {
+            let mut shape = Shape::conforming(name);
+            shape.effect_kind = wrong.to_owned();
+            refuses(name, &shape, "a mutation declaring another effect kind");
+        }
+    }
+    let mut crossed = Shape::conforming("create-node");
+    crossed.effect_kind = "ensure".to_owned();
+    refuses("create-node", &crossed, "create-node declaring ensure");
+}

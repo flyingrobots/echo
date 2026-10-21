@@ -15,6 +15,15 @@ const NAMES: [&str; 5] = [
     "ensure-edge",
     "replace-edge",
 ];
+/// The provider effect kind each mutation intrinsic declares.
+pub(super) fn effect_kind(name: &str) -> &'static str {
+    match name {
+        "create-node" => "create",
+        "ensure-node" | "ensure-edge" => "ensure",
+        "replace-atom" | "replace-edge" => "replace",
+        _ => panic!("fixture kind"),
+    }
+}
 fn layout(name: &str) -> Vec<(&'static str, &'static str)> {
     match name {
         "ensure-node" | "create-node" => vec![
@@ -56,6 +65,7 @@ pub(super) struct Shape {
     pub(super) catalog_return: String,
     pub(super) fields: Vec<(&'static str, &'static str)>,
     pub(super) output: V,
+    pub(super) effect_kind: String,
 }
 impl Shape {
     /// The conforming shape: the catalog names Echo's ABI coordinates and the
@@ -68,6 +78,7 @@ impl Shape {
             catalog_return: format!("echo.dpo@1.{name}.result"),
             fields: layout(name),
             output: map([("kind", text("Record")), ("fields", map([]))]),
+            effect_kind: effect_kind(name).to_owned(),
         }
     }
 }
@@ -115,7 +126,7 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
         V::Array(vec![text(&shape.catalog_argument)]),
     );
     set(&mut intrinsic, "returnType", text(&shape.catalog_return));
-    set(&mut intrinsic, "effectKind", text("write"));
+    set(&mut intrinsic, "effectKind", text(&shape.effect_kind));
     set(&mut intrinsic, "writeClass", text("write"));
     set(&mut intrinsic, "effectFailures", map([]));
     set(

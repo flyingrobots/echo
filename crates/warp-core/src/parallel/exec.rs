@@ -1028,6 +1028,18 @@ pub fn build_work_units(
 /// This is the **only** spawn site for cross-warp execution. Workers claim
 /// units atomically and execute items serially within each unit.
 ///
+/// # Threads
+///
+/// With `workers >= 2`, each worker runs on its own scoped thread. With
+/// `workers == 1` (the engine default) no thread is spawned: the single
+/// worker runs on the caller's thread and stack, and returns before this
+/// function does. Rule executors therefore cannot rely on a fresh thread or
+/// thread-local environment per tick. Thread-local values a rule sets persist
+/// on the caller's thread across ticks (as they already do per worker thread
+/// with two or more workers), and a deeply recursive rule uses the caller's
+/// stack rather than a spawned thread's default stack. Results, their order,
+/// and panic payloads are the same either way.
+///
 /// # Footprint Enforcement (cfg-gated)
 ///
 /// When enforcement is active, the worker loop:
@@ -1060,7 +1072,10 @@ pub fn build_work_units(
 ///
 /// # Panics
 ///
-/// Panics if `workers == 0` or if any worker thread panics.
+/// Panics if `workers == 0`, or if a worker panics outside the per-item
+/// `catch_unwind` (for example, the enforcement invariant on guards). With one
+/// worker the panic unwinds directly from the caller's thread; with more it is
+/// re-raised from the join with the same payload.
 pub fn execute_work_queue<'state, F>(
     units: &[WorkUnit],
     workers: usize,
@@ -1080,7 +1095,8 @@ where
     let next_unit = AtomicUsize::new(0);
 
     // One worker gains nothing from a thread: it would run the same loop
-    // while this thread waits to join it. Run it here instead.
+    // while this thread waits to join it. Run it here instead. Rules then run
+    // on the caller's thread and stack (see "Threads" above).
     if workers == 1 {
         return vec![drain_units(units, &next_unit, &resolve_store)];
     }
@@ -1851,5 +1867,45 @@ mod tests {
             resolve_adaptive_shard_routing(&large_items, worker_hint(8)),
             (ParallelExecutionPolicy::DYNAMIC_PER_SHARD, worker_hint(4),)
         );
+    }
+
+    /// A missing store surfaces identically whether the single worker runs
+    /// inline on the caller's thread or workers run on scoped threads: exactly
+    /// one `MissingStore` naming the unresolvable warp, and every other worker
+    /// an empty success. The engine maps that to `EngineError::UnknownWarp`.
+    #[test]
+    fn missing_store_propagates_identically_for_every_worker_count() {
+        use super::{execute_work_queue, WorkUnit, WorkerResult};
+        use crate::make_warp_id;
+
+        let missing = make_warp_id("exec-test/missing-store");
+        let units = [WorkUnit {
+            warp_id: missing,
+            items: Vec::new(),
+            #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+            #[cfg(not(feature = "unsafe_graph"))]
+            guards: Vec::new(),
+        }];
+
+        for workers in [1_usize, 2, 4, 8] {
+            let results = execute_work_queue(&units, workers, |_| None);
+            assert_eq!(results.len(), workers, "one result per worker");
+            let missing_stores: Vec<_> = results
+                .iter()
+                .filter_map(|result| match result {
+                    WorkerResult::MissingStore(warp_id) => Some(*warp_id),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(missing_stores, vec![missing], "{workers} workers");
+            let empty_successes = results
+                .iter()
+                .filter(|result| {
+                    matches!(result, WorkerResult::Success(execution)
+                        if execution.delta.is_empty() && execution.evidence.is_empty())
+                })
+                .count();
+            assert_eq!(empty_successes, workers - 1, "{workers} workers");
+        }
     }
 }

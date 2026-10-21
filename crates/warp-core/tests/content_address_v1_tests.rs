@@ -18,6 +18,9 @@ use warp_core::content_address_v1::{
 };
 use warp_core::{NodeId, TypeId, WarpId};
 
+/// Outgoing edges in input order, the same edges sorted, and the frozen id.
+type NodeCase<'a> = (&'a [OutgoingEdge], &'a [([u8; 32], [u8; 32])], &'a str);
+
 const WARP: [u8; 32] = [3; 32];
 const NODE_TYPE: [u8; 32] = [7; 32];
 const ATOM_TYPE: [u8; 32] = [2; 32];
@@ -83,7 +86,7 @@ fn attachment_digest_matches_its_independent_preimage_and_frozen_vector() {
 
 #[test]
 fn node_ids_with_zero_one_and_two_edges_match_independent_preimages() {
-    let cases: [(&[OutgoingEdge], &[([u8; 32], [u8; 32])], &str); 3] = [
+    let cases: [NodeCase<'_>; 3] = [
         (&[], &[], NODE_ZERO_EDGES),
         (
             &[edge(EDGE_A, TO_HIGH)],

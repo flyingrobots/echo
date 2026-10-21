@@ -344,6 +344,10 @@ impl<S> EngineBuilder<S> {
     /// - Workers are capped at `NUM_SHARDS` (256) internally
     /// - Values less than 1 are treated as 1
     /// - Use explicit worker counts in benchmarks to compare parallelism levels
+    /// - With one worker (including when the cap leaves one), rules execute on
+    ///   the thread that calls commit, on its stack; no thread is spawned. With
+    ///   two or more, each worker runs on its own scoped thread. Native rules
+    ///   must not rely on a fresh thread-local environment per tick.
     #[must_use]
     pub fn workers(mut self, n: usize) -> Self {
         self.worker_count = n.max(1);

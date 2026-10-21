@@ -589,3 +589,103 @@ fn multiwarp_worker_count_invariance_stress() {
         }
     }
 }
+
+/// A rule panic surfaces identically whether the single worker runs inline on
+/// the caller's thread (`workers(1)`) or workers run on scoped threads.
+///
+/// One of twenty independent scopes panics in its executor. For every worker
+/// count the commit must unwind with the executor's own payload, commit
+/// nothing, retain no evidence, keep the poisoned item's evidence as a
+/// failure artifact, and leave the state root unchanged.
+#[test]
+fn rule_panic_propagates_identically_for_every_worker_count() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use warp_core::{ApplyResult, EngineBuilder, NodeRecord};
+
+    const RULE_NAME: &str = "t16p/touch";
+    const PAYLOAD: &str = "t16p: executor failure on the poisoned scope";
+
+    let node_ty = warp_core::make_type_id("t16p/node");
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16p/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+    let mut scopes = vec![root];
+    for i in 1..20 {
+        let scope = warp_core::make_node_id(&format!("t16p/node{i}"));
+        base_store.insert_node(scope, NodeRecord { ty: node_ty });
+        scopes.push(scope);
+    }
+    let poisoned = warp_core::make_node_id("t16p/node7");
+
+    let make_rule = || {
+        let mut rule = make_touch_rule!(RULE_NAME, "t16p/marker", b"touched-t16p");
+        rule.executor = warp_core::RuleExecutor::observed(
+            |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+                assert!(
+                    *scope != warp_core::make_node_id("t16p/node7"),
+                    "t16p: executor failure on the poisoned scope"
+                );
+                let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                let payload = warp_core::AtomPayload::new(
+                    warp_core::make_type_id("t16p/marker"),
+                    bytes::Bytes::from_static(b"touched-t16p"),
+                );
+                delta.push(warp_core::WarpOp::SetAttachment {
+                    key,
+                    value: Some(warp_core::AttachmentValue::Atom(payload)),
+                });
+            },
+        );
+        rule
+    };
+
+    let run = |workers: usize| -> warp_core::Hash {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(workers)
+            .build();
+        engine.register_rule(make_rule()).expect("register rule");
+        let before = engine.snapshot().state_root;
+        let tx = engine.begin();
+        for scope in &scopes {
+            assert!(matches!(
+                engine.apply(tx, RULE_NAME, scope),
+                Ok(ApplyResult::Applied)
+            ));
+        }
+
+        let Err(payload) = catch_unwind(AssertUnwindSafe(|| engine.commit(tx))) else {
+            panic!("commit must unwind with {workers} workers");
+        };
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some(PAYLOAD),
+            "panic payload changed with {workers} workers"
+        );
+        assert!(
+            engine.last_execution_footprints().is_empty(),
+            "a failed tick retains no evidence ({workers} workers)"
+        );
+        assert!(
+            engine
+                .last_aborted_execution_footprints()
+                .iter()
+                .any(|record| record.scope() == poisoned),
+            "the poisoned item's evidence is kept as a failure artifact ({workers} workers)"
+        );
+        let after = engine.snapshot().state_root;
+        assert_eq!(before, after, "state changed with {workers} workers");
+        after
+    };
+
+    let baseline = run(1);
+    for &workers in WORKER_COUNTS {
+        assert_eq!(
+            run(workers),
+            baseline,
+            "outcome differs for {workers} workers"
+        );
+    }
+}

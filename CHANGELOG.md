@@ -95,6 +95,12 @@
 
 ### Changed
 
+- With one execution worker (the engine default), a tick now runs its rules
+  on the thread that commits it instead of spawning a thread and waiting for
+  it. Results, their order, and panic payloads are unchanged; two or more
+  workers still each get a scoped thread. Native rules run on the caller's
+  stack and must not rely on a fresh thread-local environment per tick.
+
 - Provider semantic declarations now support explicitly bounded Core byte
   aliases, including exact 32-byte identifiers. Byte aliases participate in
   bounded record graphs and generate canonical lawpack type definitions.

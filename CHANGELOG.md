@@ -95,6 +95,19 @@
 
 ### Changed
 
+- `ContentAddressV1` now lives in one module, `warp_core::content_address_v1`,
+  with content node ids, content and slot edge ids, and attachment digests.
+  Effect admission and read evidence use it, replacing the inline hashing in
+  derivation and `edict_effects::value_digest`. A duplicate outgoing
+  (edge type, target) is refused rather than hashed. Identities are unchanged:
+  a regression test admits ids captured before the move, and independent
+  vectors, frozen hex and mutation postcards check the law without calling
+  the module. A two-effect proposal, a content node with an edge from it, is
+  admitted under independently computed ids, and admission refuses a content
+  edge id computed for another target, a slot id from a content source, and a
+  node id that omits an edge the same proposal adds. Edges already in
+  ascending order are hashed without a copy, and admission sorts its own.
+
 - An authored effect package no longer carries a single `obstruction_coordinate`.
   Its embedded exports declare every obstruction the program can return, and
   admission checks each arm against them. The effect-package shape exists only

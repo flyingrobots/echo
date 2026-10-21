@@ -504,6 +504,16 @@ a digest alone could not be executed. One law is defined:
       reads](#basis-budget-retries)) for every `EnsureEdge` and `ReplaceEdge`
       from a mutable source. Any other edge of the same type from that source is
       an alias, and the effect obstructs with `IdentityLawViolation`.
+    - The law is implemented once, in `warp_core::content_address_v1`
+      (`crates/warp-core/src/content_address_v1.rs`), which admission uses and
+      which documents every domain byte, field order, width and endianness.
+      A content node's outgoing edges are a set: the same edge type and `to`
+      twice would share one content edge id, which admission refuses as a
+      duplicate effect target, so `content_node_id` refuses a duplicate tuple
+      rather than hashing or dropping it. The law has no edge-count ceiling;
+      authoring interfaces may set their own. Independent vectors, frozen hex
+      and mutation postcards in `crates/warp-core/tests/content_address_v1_tests.rs`
+      check it without calling the module.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal

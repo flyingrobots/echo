@@ -621,9 +621,10 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
         let mut rule = make_touch_rule!(RULE_NAME, "t16p/marker", b"touched-t16p");
         rule.executor = warp_core::RuleExecutor::observed(
             |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
-                if *scope == warp_core::make_node_id("t16p/node7") {
-                    panic!("t16p: executor failure on the poisoned scope");
-                }
+                assert!(
+                    *scope != warp_core::make_node_id("t16p/node7"),
+                    "t16p: executor failure on the poisoned scope"
+                );
                 let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
                     warp_id: view.warp_id(),
                     local_id: *scope,

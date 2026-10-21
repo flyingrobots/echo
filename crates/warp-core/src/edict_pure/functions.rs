@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Closed source/imported helper authority, lexical scopes, and runtime apertures.
+use super::proven_order::{length_of, proven};
 use super::{
     model::{
         Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
@@ -142,7 +143,10 @@ pub(crate) fn decode(
             let actual = infer(
                 value,
                 &scope,
-                &caps,
+                Proof {
+                    caps: &caps,
+                    facts: &[],
+                },
                 &definitions,
                 definition.source_owned,
                 parser,
@@ -172,7 +176,10 @@ pub(crate) fn decode(
         let actual = infer(
             result,
             &scope,
-            &caps,
+            Proof {
+                caps: &caps,
+                facts: &[],
+            },
             &definitions,
             definition.source_owned,
             parser,
@@ -211,7 +218,18 @@ pub(crate) fn decode(
             let caps = Caps::new();
             // A pure basis is retained authority, not executed work. Admit its
             // input-only scope, calls and combined depth without spending Meter.
-            infer(basis, &scope, &caps, &definitions, true, parser, 0)?;
+            infer(
+                basis,
+                &scope,
+                Proof {
+                    caps: &caps,
+                    facts: &[],
+                },
+                &definitions,
+                true,
+                parser,
+                0,
+            )?;
             basis_roots.push(parser.expr(basis, 0)?);
         }
     }
@@ -262,14 +280,21 @@ fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
 }
 
 type Scope<'a> = BTreeMap<&'a str, &'a Value>;
+/// What is proven at one evaluation point: carried binding caps and the
+/// dominating order facts (earlier conjuncts of enclosing `all`s).
+#[derive(Clone, Copy)]
+struct Proof<'c, 'v> {
+    caps: &'c Caps<'c>,
+    facts: &'c [&'v Value],
+}
 /// Proven upper bounds of earlier unsigned bindings in the same helper body.
 /// Local identities are unique and immutable, so a cap names exactly the
 /// bound value. Bounds never cross helper results or record fields.
 type Caps<'a> = BTreeMap<&'a str, u64>;
-fn infer(
-    value: &Value,
+fn infer<'v>(
+    value: &'v Value,
     scope: &Scope<'_>,
-    caps: &Caps<'_>,
+    proof: Proof<'_, 'v>,
     definitions: &BTreeMap<String, Definition<'_>>,
     source: bool,
     parser: &mut Parser<'_>,
@@ -309,7 +334,7 @@ fn infer(
             let RuntimeType::Record(fields) = infer(
                 field(value, "base")?,
                 scope,
-                caps,
+                proof,
                 definitions,
                 source,
                 parser,
@@ -335,7 +360,7 @@ fn infer(
                         infer(
                             expression,
                             scope,
-                            caps,
+                            proof,
                             definitions,
                             source,
                             parser,
@@ -351,7 +376,7 @@ fn infer(
             check_predicate(
                 field(value, "predicate")?,
                 scope,
-                caps,
+                proof,
                 definitions,
                 source,
                 parser,
@@ -360,7 +385,7 @@ fn infer(
             let left = infer(
                 field(value, "then")?,
                 scope,
-                caps,
+                proof,
                 definitions,
                 source,
                 parser,
@@ -369,7 +394,7 @@ fn infer(
             let right = infer(
                 field(value, "else")?,
                 scope,
-                caps,
+                proof,
                 definitions,
                 source,
                 parser,
@@ -393,7 +418,7 @@ fn infer(
                     let actual = infer(
                         argument,
                         scope,
-                        caps,
+                        proof,
                         definitions,
                         source,
                         parser,
@@ -411,7 +436,15 @@ fn infer(
                     return Err(Error::UnsupportedProgram);
                 };
                 super::syntax::count_needle(needle)?;
-                let actual = infer(operand, scope, caps, definitions, source, parser, depth + 1)?;
+                let actual = infer(
+                    operand,
+                    scope,
+                    proof,
+                    definitions,
+                    source,
+                    parser,
+                    depth + 1,
+                )?;
                 let expected = parser.ty(text(coordinate)?, depth + 1)?;
                 if !matches!(expected, RuntimeType::Bytes { .. }) || expected != actual {
                     return Err(Error::UnsupportedProgram);
@@ -424,7 +457,7 @@ fn infer(
                     infer(
                         argument,
                         scope,
-                        caps,
+                        proof,
                         definitions,
                         source,
                         parser,
@@ -464,38 +497,45 @@ fn infer(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left = unsigned_ceiling(&arguments[0], *max, caps, parser, depth + 1)?;
-                    let right = unsigned_ceiling(&arguments[1], *max, caps, parser, depth + 1)?;
+                    let left =
+                        unsigned_ceiling(&arguments[0], *max, proof.caps, parser, depth + 1)?;
+                    let right =
+                        unsigned_ceiling(&arguments[1], *max, proof.caps, parser, depth + 1)?;
                     if left.checked_add(right).is_none_or(|sum| sum > *max) {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
                 }
-                // No caller where proof crosses a fresh frame. This target's
-                // first source-function subset proves partial intrinsics only
-                // from literal offsets/operands, refusing all other cases.
+                // Partial intrinsics need a dominating order proof. A helper frame
+                // starts with no caller facts; only its own conjunct prefixes count.
                 ("core.integer.subtract", [left, right], [expected @ RuntimeType::Unsigned(_)])
                     if accepts(expected, left) && accepts(expected, right) =>
                 {
-                    let left = unsigned_literal(&arguments[0])?;
-                    let right = unsigned_literal(&arguments[1])?;
-                    left.checked_sub(right).ok_or(Error::UnsupportedProgram)?;
+                    if !proven(&arguments[0], &arguments[1], proof.facts, parser, depth + 1)? {
+                        return Err(Error::UnsupportedProgram);
+                    }
                     Ok(expected.clone())
                 }
                 (
                     "core.bytes.slice",
                     [actual, RuntimeType::Unsigned(a), RuntimeType::Unsigned(b)],
-                    [expected @ RuntimeType::Bytes { min, .. }],
+                    [expected @ RuntimeType::Bytes { min, max }],
                 ) if *a == u64::MAX && *b == u64::MAX && accepts(expected, actual) => {
-                    let start = unsigned_literal(&arguments[1])?;
-                    let end = unsigned_literal(&arguments[2])?;
-                    if start > end || end > *min {
+                    // Literal offsets within the guaranteed minimum length need no
+                    // fact; any other offsets need start <= end <= len(bytes).
+                    let literal = matches!(
+                        (unsigned_literal(&arguments[1]), unsigned_literal(&arguments[2])),
+                        (Ok(start), Ok(end)) if start <= end && end <= *min
+                    );
+                    let length = length_of(&types[0], &arguments[0]);
+                    if !literal
+                        && (!proven(&arguments[2], &arguments[1], proof.facts, parser, depth + 1)?
+                            || !proven(&length, &arguments[2], proof.facts, parser, depth + 1)?)
+                    {
                         return Err(Error::UnsupportedProgram);
                     }
-                    Ok(RuntimeType::Bytes {
-                        min: 0,
-                        max: end - start,
-                    })
+                    // As in Edict, a slice keeps its operand's maximum and no minimum.
+                    Ok(RuntimeType::Bytes { min: 0, max: *max })
                 }
                 _ => Err(Error::UnsupportedProgram),
             }
@@ -549,10 +589,10 @@ fn unsigned_literal(value: &Value) -> Result<u64, Error> {
     }
     number(field(field(value, "value")?, "value")?)
 }
-fn check_predicate(
-    value: &Value,
+fn check_predicate<'v>(
+    value: &'v Value,
     scope: &Scope<'_>,
-    caps: &Caps<'_>,
+    proof: Proof<'_, 'v>,
     definitions: &BTreeMap<String, Definition<'_>>,
     source: bool,
     parser: &mut Parser<'_>,
@@ -566,8 +606,22 @@ fn check_predicate(
             if values.is_empty() {
                 return Err(Error::InvalidArtifact);
             }
+            // Each conjunct is proven only by the conjuncts before it.
+            let mut prefix = proof.facts.to_vec();
             for value in values {
-                check_predicate(value, scope, caps, definitions, source, parser, depth + 1)?;
+                check_predicate(
+                    value,
+                    scope,
+                    Proof {
+                        caps: proof.caps,
+                        facts: &prefix,
+                    },
+                    definitions,
+                    source,
+                    parser,
+                    depth + 1,
+                )?;
+                prefix.push(value);
             }
             return Ok(());
         }
@@ -576,7 +630,7 @@ fn check_predicate(
             return check_predicate(
                 field(value, "value")?,
                 scope,
-                caps,
+                proof,
                 definitions,
                 source,
                 parser,
@@ -590,7 +644,7 @@ fn check_predicate(
     let left = infer(
         field(value, "left")?,
         scope,
-        caps,
+        proof,
         definitions,
         source,
         parser,
@@ -599,7 +653,7 @@ fn check_predicate(
     let right = infer(
         field(value, "right")?,
         scope,
-        caps,
+        proof,
         definitions,
         source,
         parser,
@@ -836,7 +890,10 @@ mod predicate_validation_tests {
         check_predicate(
             wire,
             &BTreeMap::new(),
-            &BTreeMap::new(),
+            Proof {
+                caps: &BTreeMap::new(),
+                facts: &[],
+            },
             &BTreeMap::new(),
             true,
             &mut parser,
@@ -905,7 +962,10 @@ mod predicate_validation_tests {
             let result = infer(
                 &call,
                 &scope,
-                &BTreeMap::new(),
+                Proof {
+                    caps: &BTreeMap::new(),
+                    facts: &[],
+                },
                 &BTreeMap::new(),
                 true,
                 &mut parser,
@@ -961,7 +1021,10 @@ mod predicate_validation_tests {
                 let result = infer(
                     &call,
                     &BTreeMap::from([("arg.0", &local)]),
-                    &BTreeMap::new(),
+                    Proof {
+                        caps: &BTreeMap::new(),
+                        facts: &[],
+                    },
                     &BTreeMap::new(),
                     true,
                     &mut parser,

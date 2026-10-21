@@ -149,6 +149,24 @@ type table, so a named byte type such as `jedit.text@1.FactBytes` gives the same
 bound as its literal `Bytes<...>` form. `count(text, b"\n") + 1` is therefore
 proven for any operand below the width maximum, directly or through a binding.
 
+Partial `core.bytes.slice` and `core.integer.subtract` calls accept runtime
+operands under Edict's proven-range rules. A slice needs `start <= end` and
+`end <= len(bytes)` over that same operand: its actual length, not its declared
+maximum. A subtraction needs `right <= left`. Each order holds for equal terms, a
+zero right side, ordered constants, an input constraint, or an earlier conjunct
+of the same `all`. Conditional predicates, negations, later conjuncts and
+helper callers prove nothing. Literal slice offsets within the operand's
+guaranteed minimum length still need no fact. The lowerer, the verifier and the
+native helper checker each implement this independently, comparing terms by
+canonical encoding within their work ceilings. Every slice is typed
+`Bytes<max=N>` with the operand's maximum and no minimum, as Edict types it. A
+Core without a function table that contains either call is judged in full,
+including its declared budget, as addition already was. Runtime evaluation of
+`all` stops at the first false conjunct, so a guarded slice never runs out of
+range: `at <= len(text) && isUtf8(slice(text, 0, at))` is false for an
+out-of-range `at` and takes the authored path, while a program without the guard
+is refused before installation.
+
 Runtime helper validation also proves addition within its fresh frame using
 literal and nested-sum bounds. Other terms retain their full unsigned width,
 so zero identity is total and an unbounded parameter plus one refuses. Caller

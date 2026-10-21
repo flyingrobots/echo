@@ -95,6 +95,14 @@
 
 ### Changed
 
+- A Core without a function table that contains `core.bytes.slice` or
+  `core.integer.subtract` is now judged in full by the lowerer and verifier,
+  including its declared budget, as addition already was. Previously such a
+  Core skipped that judgment, so an unproven runtime slice was not refused
+  before installation. Jim's retained leaf-slice package declares a 1 MiB step
+  budget, 93 steps below Echo's worst-case charge for slicing its whole 1 MiB
+  operand, and is now refused until it declares an adequate budget.
+
 - Provider semantic declarations now support explicitly bounded Core byte
   aliases, including exact 32-byte identifiers. Byte aliases participate in
   bounded record graphs and generate canonical lawpack type definitions.
@@ -341,6 +349,17 @@
   hook regressions.
 
 ### Added
+
+- Runtime operands for `core.bytes.slice` and `core.integer.subtract` under
+  Edict's proven-range rules. The lowerer, the verifier and the native helper
+  checker each require a dominating fact (an input constraint or an earlier
+  conjunct of the same `all`) for `start <= end <= len(bytes)` or
+  `right <= left`; conditional predicates, negations and later conjuncts prove
+  nothing. The bounded-read relations type both calls, so a read guard such as
+  `at <= len(text) && isUtf8(slice(text, 0, at))` verifies, and short-circuit
+  evaluation sends an out-of-range `at` down the authored path. Slices are now
+  typed `Bytes<max=N>`, as Edict types them, rather than narrowed for literal
+  offsets, so `isUtf8` of a literal slice type-checks.
 
 - Bounded pure evaluation executes Edict's `core.bytes.count` (edict#269):
   raw single-byte counting with a structurally checked one-byte constant

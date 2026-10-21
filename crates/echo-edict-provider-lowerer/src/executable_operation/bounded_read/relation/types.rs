@@ -364,11 +364,24 @@ impl<'a> Scope<'a> {
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
             // source_functions::validate already established the independent
-            // no-overflow proof before this read relation is constructed.
+            // no-overflow and order proofs before this read relation is constructed.
             ("core.integer.add", [left, right], [expected @ ReadType::Unsigned(_)])
                 if left == expected && right == expected =>
             {
                 Ok(expected.clone())
+            }
+            ("core.integer.subtract", [left, right], [expected @ ReadType::Unsigned(_)])
+                if expected.accepts(left) && expected.accepts(right) =>
+            {
+                Ok(expected.clone())
+            }
+            // The same validation established start <= end <= len(bytes).
+            (
+                "core.bytes.slice",
+                [actual, ReadType::Unsigned(a), ReadType::Unsigned(b)],
+                [expected @ ReadType::Bytes(_, max)],
+            ) if *a == u64::MAX && *b == u64::MAX && expected.accepts(actual) => {
+                Ok(ReadType::Bytes(0, *max))
             }
             ("core.bytes.isUtf8", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected == actual =>

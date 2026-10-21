@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+mod order;
 mod types;
 mod unsigned_addition;
 use super::ProviderRefusalV1;
@@ -520,12 +521,28 @@ impl<'a> Checker<'a, '_> {
                     } else {
                         false
                     };
+                    let order_proven = match name {
+                        "core.integer.subtract" => {
+                            let [left, right] = arguments else {
+                                return Err(());
+                            };
+                            order::proven(left, right, &self.proven, self.types)?
+                        }
+                        "core.bytes.slice" => {
+                            let [coordinate] = types else {
+                                return Err(());
+                            };
+                            order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
+                        }
+                        _ => false,
+                    };
                     let (schema, intrinsic) = intrinsic(
                         name,
                         arguments,
                         &argument_schemas,
                         &declared,
                         addition_proven,
+                        order_proven,
                     )?;
                     charge.append(intrinsic)?;
                     schema
@@ -745,6 +762,7 @@ fn intrinsic(
     actual: &[Schema],
     declared: &[Schema],
     addition_proven: bool,
+    order_proven: bool,
 ) -> Check<(Schema, Charge)> {
     let literal = |value: &Value| -> Check<u64> {
         if string(get(value, "kind")?)? != "const" {
@@ -822,9 +840,9 @@ fn intrinsic(
         ("core.integer.subtract", [left, right], [expected @ Schema::Word(_)])
             if expected.encloses(left) && expected.encloses(right) =>
         {
-            literal(&arguments[0])?
-                .checked_sub(literal(&arguments[1])?)
-                .ok_or(())?;
+            if !order_proven {
+                return Err(());
+            }
             Ok((
                 expected.clone(),
                 Charge {
@@ -836,19 +854,24 @@ fn intrinsic(
         (
             "core.bytes.slice",
             [actual, Schema::Word(a), Schema::Word(b)],
-            [expected @ Schema::Blob { low, .. }],
+            [expected @ Schema::Blob { low, high }],
         ) if *a == u64::MAX && *b == u64::MAX && expected.encloses(actual) => {
-            let start = literal(&arguments[1])?;
-            let end = literal(&arguments[2])?;
-            if start > end || end > *low {
-                return Err(());
-            }
-            let high = end - start;
+            // Literal offsets within the guaranteed minimum length need no
+            // fact; any other offsets need start <= end <= len(bytes).
+            let copied = match (literal(&arguments[1]), literal(&arguments[2])) {
+                (Ok(start), Ok(end)) if start <= end && end <= *low => end - start,
+                _ if order_proven => *high,
+                _ => return Err(()),
+            };
+            // As in Edict, a slice keeps its operand's maximum and no minimum.
             Ok((
-                Schema::Blob { low: 0, high },
+                Schema::Blob {
+                    low: 0,
+                    high: *high,
+                },
                 Charge {
-                    ticks: u128::from(high) + 4,
-                    storage: u128::from(high) + 64,
+                    ticks: u128::from(copied) + 4,
+                    storage: u128::from(copied) + 64,
                 },
             ))
         }

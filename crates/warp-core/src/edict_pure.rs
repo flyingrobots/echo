@@ -14,6 +14,7 @@ mod decode;
 pub(crate) mod evaluate;
 pub(crate) mod functions;
 pub(crate) mod model;
+pub(crate) mod proven_order;
 pub(crate) mod syntax;
 pub(crate) mod values;
 
@@ -101,3 +102,5 @@ mod predicate_tests;
 mod byte_count_tests;
 #[cfg(test)]
 mod byte_utf8_tests;
+#[cfg(test)]
+mod proven_range_tests;

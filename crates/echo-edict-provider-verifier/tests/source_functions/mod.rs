@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deliberately rebound native-provider tests, not compiler acceptance evidence.
 use super::*;
+mod proven_ranges;
 mod unsigned_addition;
 
 fn fixture_with_functions(

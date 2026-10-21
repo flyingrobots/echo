@@ -4,17 +4,23 @@
 use super::{get, list, literal, string, Check, Value};
 
 /// Whether an intent body calls an operation only this judgment checks: an
-/// addition's no-overflow proof or a count's full-byte scan charge. A Core
-/// without a function table still needs the judgment for either.
+/// addition's no-overflow proof, a subtraction's or slice's range proof, or a
+/// count's full-byte scan charge. A Core without a function table still needs
+/// the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut pending = vec![get(core, "intents")?];
     while let Some(value) = pending.pop() {
         match value {
             Value::Map(fields) => {
+                // Each of these needs an intent-level proof, even without a
+                // source-function table.
                 if get(value, "kind").and_then(string) == Ok("call")
                     && matches!(
                         get(value, "callee").and_then(string),
-                        Ok("core.integer.add" | "core.bytes.count")
+                        Ok("core.integer.add"
+                            | "core.integer.subtract"
+                            | "core.bytes.slice"
+                            | "core.bytes.count")
                     )
                 {
                     return Ok(true);

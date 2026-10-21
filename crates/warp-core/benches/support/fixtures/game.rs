@@ -13,8 +13,12 @@
 //! bodies into a broadphase grid, and resolves overlapping pairs with a
 //! position correction and an impulse, in canonical order. The same pure
 //! [`step`] function drives both the Echo rule and the in-memory reference
-//! the fixture validates against, so a valid run means Echo stored exactly
-//! what the game computed.
+//! the fixture validates against. A valid run therefore shows that hosted
+//! execution stored, and the graph gave back, exactly what the reference path
+//! computed. It does not show that [`step`] is correct physics: a bug in
+//! [`step`] occurs on both sides and still validates. Small hand-computed
+//! scenes in the tests check collision, despawn and contact edges
+//! independently of [`step`].
 //!
 //! **The graph.** A root links a world node, which links one node per grid
 //! cell. Each body is a node with its state as an attachment, and an edge
@@ -405,7 +409,9 @@ fn cell_of(scene: Scene, pos: [i64; 2]) -> u32 {
 }
 
 /// One frame of the game. Pure and deterministic: the Echo rule, its
-/// footprint and the reference all call it.
+/// footprint and the reference all call it, so comparing the hosted result
+/// with the reference checks Echo's storage and recovery of this function's
+/// output, not this function's correctness.
 pub fn step(scene: Scene, seed: u64, world: &World, input: [i64; 2]) -> World {
     let frame = world.frame;
     let mut next_id = world.next_id;
@@ -1139,7 +1145,9 @@ pub struct Observation {
     pub one_tick_frames: u64,
     /// The world read back from the live graph at the end.
     pub final_world: Option<World>,
-    /// The reference world after the same frames.
+    /// The reference world after the same frames: [`step`] run directly,
+    /// outside Echo. It shares [`step`] with the rule, so it is an oracle
+    /// for hosting, not for the physics.
     pub reference_world: World,
     /// Live state root at the end.
     pub live_root: [u8; 32],
@@ -1166,7 +1174,8 @@ pub struct Timings {
     pub render: Vec<Duration>,
     /// Dropping the host and everything it owns.
     pub teardown: Duration,
-    /// Per frame: the reference step alone, as the game's own cost.
+    /// Per frame: the reference step alone, timed outside Echo, before the
+    /// hosted run.
     pub physics: Vec<Duration>,
     /// Replay of the whole run by applying retained patches.
     pub replay: Duration,
@@ -1174,7 +1183,13 @@ pub struct Timings {
 
 /// Runs `scene` under the legacy commitment profile.
 pub fn run(scene: Scene, seed: u64) -> Observation {
-    run_scene(scene, seed, |state| state)
+    run_scene(scene, seed, initial_world(scene, seed), |state| state)
+}
+
+/// Runs `scene` from `start` instead of the scene's generated world, under
+/// the legacy commitment profile. Tests use it for hand-built worlds.
+pub fn run_from(scene: Scene, seed: u64, start: World) -> Observation {
+    run_scene(scene, seed, start, |state| state)
 }
 
 /// Runs `scene` on a worldline with commitment profile `profile`.
@@ -1184,7 +1199,7 @@ pub fn run_with_profile(
     seed: u64,
     profile: warp_core::application_root::CommitmentProfile,
 ) -> Observation {
-    run_scene(scene, seed, move |state| {
+    run_scene(scene, seed, initial_world(scene, seed), move |state| {
         state.with_commitment_profile(profile)
     })
 }
@@ -1192,10 +1207,10 @@ pub fn run_with_profile(
 fn run_scene(
     scene: Scene,
     seed: u64,
+    start_world: World,
     profile: impl FnOnce(WorldlineState) -> WorldlineState,
 ) -> Observation {
     let mut obs = Observation::default();
-    let start_world = initial_world(scene, seed);
     let inputs: Vec<[i64; 2]> = (0..scene.frames).map(|f| input(scene, seed, f)).collect();
 
     // The reference: the game alone, timed per frame.

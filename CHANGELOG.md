@@ -535,6 +535,19 @@
 
 ### Added
 
+- Echo's provider lowerer and verifier judge authored effect programs
+  themselves before publication and installation: artifact binding, adapter
+  authorization, each effect's intrinsic ABI and version-scoped failure
+  contract, declared obstructions, Core and Target IR correspondence, and
+  typing, proven ranges and budget under each component's own cost model.
+  `effect_publication::judge_effect_program` and
+  `encode_effect_publication` refuse unsafe programs with
+  `UnsupportedProgram`; `effect_package::verify_effect_package` also refuses a
+  package whose identities name another program. A retained corpus generated
+  by warp-core pins the verdict all three judgments reach.
+- The lowerer's and verifier's Core type readers accept an unsigned width named
+  directly in a type table (`{ kind: "U32" }`), as Core and the runtime do.
+
 - Runtime-owned installation retains exact policy and package evidence in the
   current WAL catalog and restores all program kinds through one fresh-host
   recovery path. Conflicts and failed WAL appends publish no registry entry.

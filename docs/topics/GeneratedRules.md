@@ -233,6 +233,24 @@ literals, sums or a constraint such as `at <= 10`. Earlier conjuncts of one
 its guard ends evaluation on failure but is not a dominating fact. A guard on
 another operand or offset proves nothing.
 
+The provider lowerer and verifier each judge an authored effect program
+themselves, sharing no code with the runtime or each other. Each establishes
+the program's binding to its own Core, Target IR and exports; the pinned
+lawpack, adapter, target profile and intrinsic catalog that authorize each
+effect; each effect's runtime ABI, write class and failure contract through
+the intrinsic-scoped failure table; one declared obstruction per failure arm
+with a matching authority class; node-for-node Core and Target IR
+correspondence; and the body's types, proven ranges and declared budget under
+its own cost model. The lowerer runs this judgment before it serializes an
+effect publication, and the verifier runs it, then binds every identity the
+package claims to the program it carries, before installation. Both reach the
+runtime's verdict on a retained corpus of accepted programs and forgeries that
+warp-core generates and pins. Their cost models are stricter than the runtime's
+meter: a program whose declared step budget cannot cover its worst case, such
+as the captured node-atom read's 1 MiB budget for a 1 MiB read and scan, is
+refused before installation, where the runtime would refuse it only when it
+executes.
+
 The retained public compiler fixtures cover a legacy-producer execution control
 and a strict SourceFunctions publication containing an authored arithmetic helper.
 The accepted public verifier report binds the unmodified package bytes; repeated

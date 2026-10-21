@@ -3,6 +3,7 @@
 //! Independent verification for generic bounded executable-operation packages.
 
 mod bounded_read;
+pub(crate) mod effect_program;
 mod source_functions;
 
 use std::collections::BTreeSet;

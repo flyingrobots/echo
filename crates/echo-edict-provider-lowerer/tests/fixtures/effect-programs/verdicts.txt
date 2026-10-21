@@ -1,0 +1,14 @@
+read-control accept
+ensure-node-control accept
+slice-proven accept
+slice-unproven refuse
+slice-other-operand refuse
+slice-require-only refuse
+forged-node-order refuse
+wrong-intrinsic-input-type refuse
+undeclared-obstruction refuse
+failure-mapping-tag-spelled refuse
+failure-mapping-unknown refuse
+failure-mapping-duplicate refuse
+over-budget refuse
+read-captured-budget refuse

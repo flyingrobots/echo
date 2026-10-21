@@ -201,6 +201,13 @@ impl<'a> Types<'a> {
         match string(get(definition, "kind")?)? {
             "Bool" => Ok(Schema::Truth),
             "Int" => self.resolve(string(get(definition, "width")?)?, depth + 1),
+            // A table entry may also name an unsigned width directly, as Core does.
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                if members(definition)?.len() != 1 {
+                    return Err(());
+                }
+                self.resolve(kind, depth + 1)
+            }
             "Nominal" => {
                 let identity = string(get(definition, "contract")?)?;
                 if identity != resolved {

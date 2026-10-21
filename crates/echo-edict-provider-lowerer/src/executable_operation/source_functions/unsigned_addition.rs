@@ -22,10 +22,16 @@ pub(super) fn present(core: &Value) -> Check<bool> {
     Ok(false)
 }
 
-pub(super) fn prove(args: &[Value], max: u64, facts: &[&Value], work: &mut usize) -> Check<()> {
+pub(super) fn prove(
+    args: &[Value],
+    max: u64,
+    facts: &[&Value],
+    locals: &[(&Value, u64)],
+    work: &mut usize,
+) -> Check<()> {
     let [left, right] = args else { return Err(()) };
-    let left = bound(left, max, facts, work, 0)?;
-    let right = bound(right, max, facts, work, 0)?;
+    let left = bound(left, max, facts, locals, work, 0)?;
+    let right = bound(right, max, facts, locals, work, 0)?;
     left.checked_add(right)
         .filter(|sum| *sum <= max)
         .ok_or(())?;
@@ -42,7 +48,24 @@ fn same(a: &Value, b: &Value, work: &mut usize) -> Check<bool> {
     }
     Ok(a == b)
 }
-fn bound(expr: &Value, max: u64, facts: &[&Value], work: &mut usize, depth: usize) -> Check<u64> {
+/// The proven cap of one expression, for a binding's carried bound.
+pub(super) fn ceiling(
+    expr: &Value,
+    max: u64,
+    facts: &[&Value],
+    locals: &[(&Value, u64)],
+    work: &mut usize,
+) -> Check<u64> {
+    bound(expr, max, facts, locals, work, 0)
+}
+fn bound(
+    expr: &Value,
+    max: u64,
+    facts: &[&Value],
+    locals: &[(&Value, u64)],
+    work: &mut usize,
+    depth: usize,
+) -> Check<u64> {
     debit(work, 1)?;
     if depth > 64 {
         return Err(());
@@ -53,9 +76,26 @@ fn bound(expr: &Value, max: u64, facts: &[&Value], work: &mut usize, depth: usiz
         let [left, right] = list(get(expr, "args")?)? else {
             return Err(());
         };
-        bound(left, max, facts, work, depth + 1)?
-            .checked_add(bound(right, max, facts, work, depth + 1)?)
+        bound(left, max, facts, locals, work, depth + 1)?
+            .checked_add(bound(right, max, facts, locals, work, depth + 1)?)
             .ok_or(())?
+    } else if string(get(expr, "kind")?)? == "call"
+        && string(get(expr, "callee")?)? == "core.bytes.count"
+    {
+        // A count never exceeds its operand's structural byte maximum.
+        let [coordinate] = list(get(expr, "typeArgs")?)? else {
+            return Err(());
+        };
+        bytes_max(string(coordinate)?).map_or(max, |bytes| bytes.min(max))
+    } else if string(get(expr, "kind")?)? == "local" {
+        let reference = get(expr, "ref")?;
+        let mut upper = max;
+        for (local, cap) in locals {
+            if same(local, reference, work)? {
+                upper = upper.min(*cap);
+            }
+        }
+        upper
     } else {
         literal(expr).unwrap_or(max)
     };
@@ -103,4 +143,12 @@ fn refine(
         _ => {}
     }
     Ok(())
+}
+fn bytes_max(coordinate: &str) -> Option<u64> {
+    let bounds = coordinate.strip_prefix("Bytes<")?.strip_suffix('>')?;
+    let max = bounds
+        .strip_prefix("exact=")
+        .or_else(|| bounds.strip_prefix("max="))
+        .or_else(|| bounds.split_once(",max=").map(|(_, max)| max))?;
+    max.parse().ok()
 }

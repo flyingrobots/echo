@@ -66,6 +66,8 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    /// Proven caps of earlier unsigned let bindings in the current body.
+    bound: Vec<(&'a Value, u64)>,
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
@@ -160,6 +162,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        bound: Vec::new(),
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -173,6 +176,20 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     Ok(())
 }
 impl<'a> Judgment<'a> {
+    /// An unsigned binding carries its proven cap to later evaluation in the
+    /// same body. Local identities are unique and immutable.
+    fn record_bound(&mut self, local: &'a Value, value: &Value, ty: &Ty) -> Check<()> {
+        let Ty::Word(max) = ty else { return Ok(()) };
+        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+            return Ok(());
+        }
+        let cap =
+            unsigned_addition::ceiling(value, *max, &self.proven, &self.bound, &mut self.work)?;
+        if cap < *max {
+            self.bound.push((local, cap));
+        }
+        Ok(())
+    }
     fn charge(&mut self, depth: usize) -> Check<()> {
         self.work = self.work.checked_sub(1).ok_or(())?;
         if depth > DEPTH {
@@ -286,8 +303,10 @@ impl<'a> Judgment<'a> {
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.bound = caller_bounds;
         self.active.remove(name);
         result
     }
@@ -323,6 +342,7 @@ impl<'a> Judgment<'a> {
             if !includes(&expected, &fact.ty) {
                 return Err(());
             }
+            self.record_bound(local, get(binding, "value")?, &expected)?;
             let (_, validations, _, ty_depth) = shape(&expected)?;
             cost = cost.plus(fact.cost)?.plus(Cost {
                 steps: validations,
@@ -463,7 +483,7 @@ impl<'a> Judgment<'a> {
                 let arguments = list(get(value, "args")?)?;
                 let types = list(get(value, "typeArgs")?)?;
                 let mut actual = Vec::new();
-                for argument in arguments {
+                for argument in checked_arguments(name, arguments)? {
                     let fact = self.expression(argument, scope, source, prefix + 1)?;
                     cost = cost.plus(fact.cost)?;
                     depth = depth.max(fact.depth + 1);
@@ -508,6 +528,16 @@ impl<'a> Judgment<'a> {
                             })?;
                             Ty::Bool
                         }
+                        ("core.bytes.count", [actual], [expected @ Ty::Bytes(_, max)])
+                            if expected == actual =>
+                        {
+                            // One complete scan plus the materialized one-byte needle.
+                            cost = cost.plus(Cost {
+                                steps: max.checked_add(3).ok_or(())?,
+                                bytes: 128,
+                            })?;
+                            Ty::Word(u64::MAX)
+                        }
                         ("core.bytes.length", [actual], [expected @ Ty::Bytes(_, _)])
                             if includes(expected, actual) =>
                         {
@@ -539,6 +569,7 @@ impl<'a> Judgment<'a> {
                                 arguments,
                                 *max,
                                 &self.proven,
+                                &self.bound,
                                 &mut self.work,
                             )?;
                             cost = cost.plus(Cost {
@@ -652,6 +683,7 @@ impl<'a> Judgment<'a> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut pending = BTreeMap::new();
@@ -712,6 +744,7 @@ impl<'a> Judgment<'a> {
                     if !includes(&ty, &fact.ty) {
                         return Err(());
                     }
+                    self.record_bound(get(node, "binding")?, get(node, "value")?, &ty)?;
                     cost = cost.plus(fact.cost)?.plus(Cost {
                         steps: shape(&ty)?.1,
                         bytes: 0,
@@ -882,6 +915,29 @@ fn decimal(value: &str) -> Check<u64> {
         return Err(());
     }
     Ok(parsed)
+}
+/// A count's needle is a Core constant of exactly one byte, checked
+/// structurally and excluded from ordinary expression typing.
+pub(super) fn checked_arguments<'a>(name: &str, arguments: &'a [Value]) -> Check<&'a [Value]> {
+    if name != "core.bytes.count" {
+        return Ok(arguments);
+    }
+    let [operand, needle] = arguments else {
+        return Err(());
+    };
+    exact(needle, &["kind", "value"])?;
+    let literal = get(needle, "value")?;
+    exact(literal, &["kind", "value"])?;
+    if string(get(needle, "kind")?)? != "const" || string(get(literal, "kind")?)? != "bytes" {
+        return Err(());
+    }
+    let Value::Bytes(byte) = get(literal, "value")? else {
+        return Err(());
+    };
+    if byte.len() != 1 {
+        return Err(());
+    }
+    Ok(std::slice::from_ref(operand))
 }
 fn literal(value: &Value) -> Check<u64> {
     if string(get(value, "kind")?)? != "const" {

@@ -756,4 +756,5 @@ fn source_functions_pure_basis_has_complete_input_only_call_authority() {
 
 mod nominal_types;
 
+mod count;
 mod utf8;

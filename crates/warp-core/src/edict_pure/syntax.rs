@@ -130,6 +130,20 @@ impl Parser<'_> {
                 value: Box::new(self.expr(value, depth + 1)?),
             });
         }
+        if callee == "core.bytes.count" {
+            let ([value, needle], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteCount {
+                min,
+                max,
+                needle: count_needle(needle)?,
+                value: Box::new(self.expr(value, depth + 1)?),
+            });
+        }
         if callee == "core.bytes.length" {
             let ([value], [coordinate]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);
@@ -385,4 +399,22 @@ mod tests {
             assert!(matches!(constant(&malformed), Err(Error::InvalidArtifact)));
         }
     }
+}
+
+/// The counted byte is a Core constant of exactly one byte. Its shape is
+/// checked structurally, never inferred from a type.
+pub(crate) fn count_needle(needle: &Value) -> Result<u8, Error> {
+    exact_fields(needle, &["kind", "value"])?;
+    if text_field(needle, "kind")? != "const" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let literal = field(needle, "value")?;
+    exact_fields(literal, &["kind", "value"])?;
+    if text_field(literal, "kind")? != "bytes" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let [byte] = bytes(field(literal, "value")?)? else {
+        return Err(Error::UnsupportedProgram);
+    };
+    Ok(*byte)
 }

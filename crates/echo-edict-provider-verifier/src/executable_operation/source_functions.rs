@@ -110,6 +110,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         }
                         edges.insert(callee);
                     } else if ![
+                        "core.bytes.count",
                         "core.bytes.isUtf8",
                         "core.bytes.length",
                         "core.bytes.concat",
@@ -148,6 +149,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             definitions: &definitions,
             summaries: &summaries,
             proven: Vec::new(),
+            bound: Vec::new(),
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -172,6 +174,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         definitions: &definitions,
         summaries: &summaries,
         proven: Vec::new(),
+        bound: Vec::new(),
     };
     if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
@@ -282,8 +285,26 @@ struct Checker<'a, 'b> {
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
     proven: Vec<&'a Value>,
+    /// Proven caps of earlier unsigned let bindings in the current body.
+    bound: Vec<(&'a Value, u64)>,
 }
 impl<'a> Checker<'a, '_> {
+    /// An unsigned binding carries its proven cap to later evaluation in the
+    /// same body. Local identities are unique and immutable.
+    fn record_bound(&mut self, local: &'a Value, value: &Value, schema: &Schema) -> Check<()> {
+        let Schema::Word(max) = schema else {
+            return Ok(());
+        };
+        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+            return Ok(());
+        }
+        let cap =
+            unsigned_addition::ceiling_of(value, *max, &self.proven, &self.bound, self.types)?;
+        if cap < *max {
+            self.bound.push((local, cap));
+        }
+        Ok(())
+    }
     fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
         let mut frame = Frame::new(definition.params.iter().chain(declarations), self.types)?;
@@ -304,6 +325,7 @@ impl<'a> Checker<'a, '_> {
             if !declared.encloses(&value.schema) {
                 return Err(());
             }
+            self.record_bound(local, get(binding, "value")?, &declared)?;
             let size = declared.measure()?;
             charge.append(value.charge)?;
             charge.append(Charge {
@@ -432,7 +454,7 @@ impl<'a> Checker<'a, '_> {
                 let arguments = sequence(get(value, "args")?)?;
                 let types = sequence(get(value, "typeArgs")?)?;
                 let mut argument_schemas = Vec::new();
-                for argument in arguments {
+                for argument in checked_arguments(name, arguments)? {
                     let argument = self.expression(argument, frame, depth + 1)?;
                     charge.append(argument.charge)?;
                     height = height.max(argument.height + 1);
@@ -472,7 +494,13 @@ impl<'a> Checker<'a, '_> {
                         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
                             return Err(());
                         }
-                        unsigned_addition::prove(arguments, *max, &self.proven, self.types)?;
+                        unsigned_addition::prove(
+                            arguments,
+                            *max,
+                            &self.proven,
+                            &self.bound,
+                            self.types,
+                        )?;
                         true
                     } else {
                         false
@@ -578,6 +606,7 @@ impl<'a> Checker<'a, '_> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
@@ -620,6 +649,7 @@ impl<'a> Checker<'a, '_> {
                     if !expected.encloses(&value.schema) {
                         return Err(());
                     }
+                    self.record_bound(local, get(node, "value")?, &expected)?;
                     charge.append(value.charge)?;
                     charge.append(Charge {
                         ticks: expected.measure()?.checks,
@@ -671,6 +701,29 @@ impl<'a> Checker<'a, '_> {
         Ok(())
     }
 }
+/// A count's needle is a Core constant of exactly one byte, checked
+/// structurally and excluded from ordinary expression typing.
+pub(super) fn checked_arguments<'v>(name: &str, arguments: &'v [Value]) -> Check<&'v [Value]> {
+    if name != "core.bytes.count" {
+        return Ok(arguments);
+    }
+    let [operand, needle] = arguments else {
+        return Err(());
+    };
+    exact(needle, &["kind", "value"])?;
+    let literal = get(needle, "value")?;
+    exact(literal, &["kind", "value"])?;
+    if string(get(needle, "kind")?)? != "const" || string(get(literal, "kind")?)? != "bytes" {
+        return Err(());
+    }
+    let Value::Bytes(byte) = get(literal, "value")? else {
+        return Err(());
+    };
+    if byte.len() != 1 {
+        return Err(());
+    }
+    Ok(std::slice::from_ref(operand))
+}
 fn intrinsic(
     name: &str,
     arguments: &[Value],
@@ -693,6 +746,18 @@ fn intrinsic(
                 Charge {
                     ticks: u128::from(*high) + 2,
                     storage: 64,
+                },
+            ))
+        }
+        ("core.bytes.count", [actual], [expected @ Schema::Blob { high, .. }])
+            if expected == actual =>
+        {
+            // One complete scan plus the materialized one-byte needle.
+            Ok((
+                Schema::Word(u64::MAX),
+                Charge {
+                    ticks: u128::from(*high) + 3,
+                    storage: 128,
                 },
             ))
         }

@@ -98,4 +98,6 @@ pub fn evaluate(
 mod predicate_tests;
 
 #[cfg(test)]
+mod byte_count_tests;
+#[cfg(test)]
 mod byte_utf8_tests;

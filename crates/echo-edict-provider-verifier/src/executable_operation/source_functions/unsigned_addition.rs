@@ -29,9 +29,30 @@ pub(super) fn prove(
     args: &[Value],
     max: u64,
     facts: &[&Value],
+    locals: &[(&Value, u64)],
     types: &mut Types<'_>,
 ) -> Check<()> {
     let [left, right] = args else { return Err(()) };
+    let caps = caps(facts, types)?;
+    let a = ceiling(left, max, &caps, locals, types, 0)?;
+    let b = ceiling(right, max, &caps, locals, types, 0)?;
+    if u128::from(a) + u128::from(b) > u128::from(max) {
+        return Err(());
+    }
+    Ok(())
+}
+/// The proven cap of one expression, for a binding's carried bound.
+pub(super) fn ceiling_of(
+    expr: &Value,
+    max: u64,
+    facts: &[&Value],
+    locals: &[(&Value, u64)],
+    types: &mut Types<'_>,
+) -> Check<u64> {
+    let caps = caps(facts, types)?;
+    ceiling(expr, max, &caps, locals, types, 0)
+}
+fn caps(facts: &[&Value], types: &mut Types<'_>) -> Check<Vec<(Vec<u8>, u64)>> {
     let mut pending: Vec<_> = facts.iter().map(|value| (*value, 0)).collect();
     let mut caps = Vec::new();
     while let Some((predicate, depth)) = pending.pop() {
@@ -60,12 +81,7 @@ pub(super) fn prove(
             _ => {}
         }
     }
-    let a = ceiling(left, max, &caps, types, 0)?;
-    let b = ceiling(right, max, &caps, types, 0)?;
-    if u128::from(a) + u128::from(b) > u128::from(max) {
-        return Err(());
-    }
-    Ok(())
+    Ok(caps)
 }
 fn constant(expr: &Value) -> Option<u64> {
     if string(get(expr, "kind").ok()?).ok()? != "const" {
@@ -82,6 +98,7 @@ fn ceiling(
     expr: &Value,
     max: u64,
     caps: &[(Vec<u8>, u64)],
+    locals: &[(&Value, u64)],
     types: &mut Types<'_>,
     depth: usize,
 ) -> Check<u64> {
@@ -92,8 +109,26 @@ fn ceiling(
         let [a, b] = sequence(get(expr, "args")?)? else {
             return Err(());
         };
-        u128::from(ceiling(a, max, caps, types, depth + 1)?)
-            + u128::from(ceiling(b, max, caps, types, depth + 1)?)
+        u128::from(ceiling(a, max, caps, locals, types, depth + 1)?)
+            + u128::from(ceiling(b, max, caps, locals, types, depth + 1)?)
+    } else if string(get(expr, "kind")?)? == "call"
+        && string(get(expr, "callee")?)? == "core.bytes.count"
+    {
+        // A count never exceeds its operand's structural byte maximum.
+        let [coordinate] = sequence(get(expr, "typeArgs")?)? else {
+            return Err(());
+        };
+        u128::from(bytes_max(string(coordinate)?).map_or(max, |bytes| bytes.min(max)))
+    } else if string(get(expr, "kind")?)? == "local" {
+        let reference = get(expr, "ref")?;
+        let mut upper = max;
+        for (local, cap) in locals {
+            types.proof_work(1)?;
+            if *local == reference {
+                upper = upper.min(*cap);
+            }
+        }
+        u128::from(upper)
     } else {
         constant(expr).map_or_else(|| u128::from(max), u128::from)
     };
@@ -105,4 +140,12 @@ fn ceiling(
         }
     }
     u64::try_from(value).map_err(|_| ())
+}
+fn bytes_max(coordinate: &str) -> Option<u64> {
+    let bounds = coordinate.strip_prefix("Bytes<")?.strip_suffix('>')?;
+    let max = bounds
+        .strip_prefix("exact=")
+        .or_else(|| bounds.strip_prefix("max="))
+        .or_else(|| bounds.split_once(",max=").map(|(_, max)| max))?;
+    max.parse().ok()
 }

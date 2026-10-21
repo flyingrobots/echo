@@ -342,6 +342,14 @@
 
 ### Added
 
+- Bounded pure evaluation executes Edict's `core.bytes.count` (edict#269):
+  raw single-byte counting with a structurally checked one-byte constant
+  needle and one complete scan charged. The lowerer and verifier type it
+  independently, including on the bounded-read route, and their addition
+  proofs bound it by the operand's byte maximum. Proven unsigned bounds now
+  travel through let bindings in intent and helper bodies, so Jim's
+  `lineCount = lineBreaks + 1` is proven.
+
 - Bounded pure evaluation executes compiler-produced U32/U64 addition with
   checked width bounds and ordinary work/value-storage charging. Independent
   native provider judgments require same-width operands and a dominating

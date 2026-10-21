@@ -263,6 +263,33 @@ pub(crate) fn expression(
             meter.charge_steps(length)?;
             meter.copy(&Value::Bool(std::str::from_utf8(&bytes).is_ok()))
         }
+        Expr::ByteCount {
+            min,
+            max,
+            value,
+            needle,
+        } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            let Value::Bytes(bytes) = value else {
+                return Err(Error::InvalidArtifact);
+            };
+            let length = u64::try_from(bytes.len()).map_err(|_| Error::StepBudgetExceeded)?;
+            meter.charge_steps(length)?;
+            // Never exceeds the already-charged byte length.
+            let count = bytes
+                .iter()
+                .fold(0_u64, |count, byte| count + u64::from(byte == needle));
+            meter.copy(&Value::Integer(i128::from(count)))
+        }
         Expr::ByteLength { min, max, value } => {
             let value = expression(value, locals, helpers, meter, depth + 1)?;
             validate(

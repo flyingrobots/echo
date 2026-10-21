@@ -9,9 +9,13 @@ pub(super) fn present(core: &Value) -> Check<bool> {
         let mut next = Vec::new();
         for value in layers {
             if let Value::Map(entries) = value {
+                // Each of these needs an intent-level proof, even without a
+                // source-function table.
                 if string(get(value, "kind").unwrap_or(&Value::Null)) == Ok("call")
-                    && string(get(value, "callee").unwrap_or(&Value::Null))
-                        == Ok("core.integer.add")
+                    && matches!(
+                        string(get(value, "callee").unwrap_or(&Value::Null)),
+                        Ok("core.integer.add" | "core.integer.subtract" | "core.bytes.slice")
+                    )
                 {
                     return Ok(true);
                 }

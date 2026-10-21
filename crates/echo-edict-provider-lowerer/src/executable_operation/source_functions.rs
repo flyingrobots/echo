@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+mod order;
 mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -581,9 +582,14 @@ impl<'a> Judgment<'a> {
                         ("core.integer.subtract", [left, right], [expected @ Ty::Word(_)])
                             if includes(expected, left) && includes(expected, right) =>
                         {
-                            literal(&arguments[0])?
-                                .checked_sub(literal(&arguments[1])?)
-                                .ok_or(())?;
+                            if !order::proven(
+                                &arguments[0],
+                                &arguments[1],
+                                &self.proven,
+                                &mut self.work,
+                            )? {
+                                return Err(());
+                            }
                             cost = cost.plus(Cost {
                                 steps: 3,
                                 bytes: 64,
@@ -593,19 +599,36 @@ impl<'a> Judgment<'a> {
                         (
                             "core.bytes.slice",
                             [actual, Ty::Word(a), Ty::Word(b)],
-                            [expected @ Ty::Bytes(min, _)],
+                            [expected @ Ty::Bytes(min, max)],
                         ) if *a == u64::MAX && *b == u64::MAX && includes(expected, actual) => {
-                            let start = literal(&arguments[1])?;
-                            let end = literal(&arguments[2])?;
-                            if start > end || end > *min {
-                                return Err(());
-                            }
-                            let count = end - start;
+                            // Literal offsets within the guaranteed minimum length need
+                            // no fact; any other offsets need start <= end <= len(bytes).
+                            let copied = match (literal(&arguments[1]), literal(&arguments[2])) {
+                                (Ok(start), Ok(end)) if start <= end && end <= *min => end - start,
+                                _ => {
+                                    let length = order::length_of(&types[0], &arguments[0]);
+                                    if !order::proven(
+                                        &arguments[2],
+                                        &arguments[1],
+                                        &self.proven,
+                                        &mut self.work,
+                                    )? || !order::proven(
+                                        &length,
+                                        &arguments[2],
+                                        &self.proven,
+                                        &mut self.work,
+                                    )? {
+                                        return Err(());
+                                    }
+                                    *max
+                                }
+                            };
                             cost = cost.plus(Cost {
-                                steps: count.checked_add(4).ok_or(())?,
-                                bytes: count.checked_add(64).ok_or(())?,
+                                steps: copied.checked_add(4).ok_or(())?,
+                                bytes: copied.checked_add(64).ok_or(())?,
                             })?;
-                            Ty::Bytes(0, count)
+                            // As in Edict, a slice keeps its operand's maximum and no minimum.
+                            Ty::Bytes(0, *max)
                         }
                         _ => return Err(()),
                     }

@@ -48,6 +48,10 @@ fn read_helper() -> LoweringRequestV1 {
     read_helper_with_budget(4_194_304)
 }
 fn read_helper_with_budget(max_steps: u64) -> LoweringRequestV1 {
+    read_helper_with_limits(max_steps, None)
+}
+/// Also raises the allocation ceiling when `max_allocated` is given.
+fn read_helper_with_limits(max_steps: u64, max_allocated: Option<u64>) -> LoweringRequestV1 {
     let mut source = fixture();
     let mut core = decode(&source.core.artifact.bytes).expect("core");
     let mut target = decode(&source.semantic_inputs[5].artifact.artifact.bytes).expect("target");
@@ -151,8 +155,20 @@ fn read_helper_with_budget(max_steps: u64) -> LoweringRequestV1 {
             field_mut(intent(artifact), "coreEvaluationBudget"),
             "maxSteps",
         ) = Value::Integer(i128::from(max_steps));
+        if let Some(max_allocated) = max_allocated {
+            *field_mut(
+                field_mut(intent(artifact), "coreEvaluationBudget"),
+                "maxAllocatedBytes",
+            ) = Value::Integer(i128::from(max_allocated));
+        }
     }
-    fork_adapter_budget(&mut source, &mut core, &mut target, max_steps);
+    fork_adapter_budget(
+        &mut source,
+        &mut core,
+        &mut target,
+        max_steps,
+        max_allocated,
+    );
     source.core = bound(
         &coordinate,
         "edict.core.module/v1",
@@ -222,6 +238,7 @@ fn fork_adapter_budget(
     core: &mut Value,
     target: &mut Value,
     max_steps: u64,
+    max_allocated: Option<u64>,
 ) {
     let mut adapter = decode(&source.semantic_inputs[0].artifact.artifact.bytes).expect("adapter");
     let Value::Map(profiles) = field(&adapter, "operationProfiles") else {
@@ -235,6 +252,12 @@ fn fork_adapter_budget(
         field_mut(field_mut(&mut adapter, "budgets"), &obligation),
         "maxSteps",
     ) = Value::Integer(i128::from(max_steps));
+    if let Some(max_allocated) = max_allocated {
+        *field_mut(
+            field_mut(field_mut(&mut adapter, "budgets"), &obligation),
+            "maxAllocatedBytes",
+        ) = Value::Integer(i128::from(max_allocated));
+    }
     let adapter_id = source.semantic_inputs[0]
         .artifact
         .reference
@@ -587,6 +610,8 @@ mod imported_calls;
 
 #[path = "source_functions/count.rs"]
 mod count;
+#[path = "source_functions/slice.rs"]
+mod slice;
 #[path = "source_functions/utf8.rs"]
 mod utf8;
 

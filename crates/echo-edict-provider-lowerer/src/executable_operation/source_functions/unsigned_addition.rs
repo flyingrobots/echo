@@ -8,8 +8,13 @@ pub(super) fn present(core: &Value) -> Check<bool> {
     while let Some(value) = pending.pop() {
         match value {
             Value::Map(fields) => {
+                // Each of these needs an intent-level proof, even without a
+                // source-function table.
                 if get(value, "kind").and_then(string) == Ok("call")
-                    && get(value, "callee").and_then(string) == Ok("core.integer.add")
+                    && matches!(
+                        get(value, "callee").and_then(string),
+                        Ok("core.integer.add" | "core.integer.subtract" | "core.bytes.slice")
+                    )
                 {
                     return Ok(true);
                 }

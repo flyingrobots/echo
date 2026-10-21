@@ -262,10 +262,13 @@ impl<'a> Scope<'a> {
         self.references(value, binder, 0)
     }
     fn data_type(&mut self, value: &Value) -> Result<RuntimeType, Error> {
+        // Effect programs carry no proof yet, so runtime slices and
+        // subtractions need literal operands.
+        let caps = functions::Caps::new();
         let actual = functions::infer(
             value,
             &self.available,
-            functions::Proof::none(),
+            functions::Proof::new(&caps, &[]),
             &self.definitions,
             true,
             &mut self.parser,
@@ -284,10 +287,11 @@ impl<'a> Scope<'a> {
         Ok(())
     }
     fn predicate(&mut self, value: &Value) -> Result<(), Error> {
+        let caps = functions::Caps::new();
         functions::check_predicate(
             value,
             &self.available,
-            functions::Proof::none(),
+            functions::Proof::new(&caps, &[]),
             &self.definitions,
             true,
             &mut self.parser,

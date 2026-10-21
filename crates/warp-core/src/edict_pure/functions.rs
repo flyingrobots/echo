@@ -298,15 +298,10 @@ pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
     facts: &'c [&'v Value],
 }
-static NO_CAPS: Caps<'static> = BTreeMap::new();
-impl Proof<'_, '_> {
-    /// Nothing proven: no binding caps and no dominating facts, so every
-    /// runtime slice or subtraction needs a literal operand.
-    pub(crate) const fn none() -> Self {
-        Self {
-            caps: &NO_CAPS,
-            facts: &[],
-        }
+impl<'c, 'v> Proof<'c, 'v> {
+    /// What a caller has proven: binding caps it owns and dominating facts.
+    pub(crate) const fn new(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
+        Self { caps, facts }
     }
 }
 /// Proven upper bounds of earlier unsigned bindings in the same helper body.

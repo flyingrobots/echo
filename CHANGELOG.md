@@ -366,7 +366,10 @@
   needle and one complete scan charged. The lowerer and verifier type it
   independently, including on the bounded-read route, and their addition
   proofs bound it by the operand's byte maximum, resolving named byte types
-  through the module's type table. Proven unsigned bounds now
+  through the module's type table. A count triggers that judgment even in a
+  Core without source functions or additions, so its scan is always charged
+  against the step ceiling. A binding whose value is an addition reuses the cap
+  its no-overflow proof established instead of recomputing it. Proven unsigned bounds now
   travel through let bindings in intent and helper bodies, so Jim's
   `lineCount = lineBreaks + 1` is proven.
 

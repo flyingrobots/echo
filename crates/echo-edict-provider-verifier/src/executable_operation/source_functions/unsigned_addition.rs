@@ -3,6 +3,10 @@
 //! Verifier-owned inventory of canonical-expression caps and independent composition.
 use super::{get, sequence, string, unsigned, Check, Schema, Types, Value};
 
+/// Whether an intent body calls an operation only this judgment checks: an
+/// addition's no-overflow proof, a subtraction's or slice's range proof, or a
+/// count's full-byte scan charge. A Core without a function table still needs
+/// the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut layers = vec![get(core, "intents")?];
     while !layers.is_empty() {
@@ -14,7 +18,10 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                 if string(get(value, "kind").unwrap_or(&Value::Null)) == Ok("call")
                     && matches!(
                         string(get(value, "callee").unwrap_or(&Value::Null)),
-                        Ok("core.integer.add" | "core.integer.subtract" | "core.bytes.slice")
+                        Ok("core.integer.add"
+                            | "core.integer.subtract"
+                            | "core.bytes.slice"
+                            | "core.bytes.count")
                     )
                 {
                     return Ok(true);
@@ -29,21 +36,26 @@ pub(super) fn present(core: &Value) -> Check<bool> {
     Ok(false)
 }
 
+/// Proves an addition total and returns its refined cap, exactly the value
+/// [`ceiling_of`] gives the same expression, so a binding need not recompute it.
 pub(super) fn prove(
-    args: &[Value],
+    expr: &Value,
     max: u64,
     facts: &[&Value],
     locals: &[(&Value, u64)],
     types: &mut Types<'_>,
-) -> Check<()> {
-    let [left, right] = args else { return Err(()) };
+) -> Check<u64> {
+    let [left, right] = sequence(get(expr, "args")?)? else {
+        return Err(());
+    };
     let caps = caps(facts, types)?;
     let a = ceiling(left, max, &caps, locals, types, 0)?;
     let b = ceiling(right, max, &caps, locals, types, 0)?;
-    if u128::from(a) + u128::from(b) > u128::from(max) {
+    let sum = u128::from(a) + u128::from(b);
+    if sum > u128::from(max) {
         return Err(());
     }
-    Ok(())
+    refined(expr, sum, &caps, types)
 }
 /// The proven cap of one expression, for a binding's carried bound.
 pub(super) fn ceiling_of(
@@ -107,7 +119,7 @@ fn ceiling(
     depth: usize,
 ) -> Check<u64> {
     types.step(depth)?;
-    let mut value = if string(get(expr, "kind")?)? == "call"
+    let value = if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.integer.add"
     {
         let [a, b] = sequence(get(expr, "args")?)? else {
@@ -144,6 +156,15 @@ fn ceiling(
     } else {
         constant(expr).map_or_else(|| u128::from(max), u128::from)
     };
+    refined(expr, value, caps, types)
+}
+/// Narrows a structural cap by every proven cap on exactly `expr`.
+fn refined(
+    expr: &Value,
+    mut value: u128,
+    caps: &[(Vec<u8>, u64)],
+    types: &mut Types<'_>,
+) -> Check<u64> {
     let encoded = key(expr, types)?;
     for (term, cap) in caps {
         types.proof_work(encoded.len().min(term.len()).checked_add(1).ok_or(())?)?;

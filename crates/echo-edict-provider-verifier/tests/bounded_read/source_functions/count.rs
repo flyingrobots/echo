@@ -73,7 +73,10 @@ fn edit_target(intent: &mut Value, case: &str) {
     *field_mut(&mut requirements[0], "predicate") = guarded(old, case);
 }
 fn source(case: &str, budget: u64) -> LoweringRequestV1 {
-    let mut source = read_helper_with_budget(budget);
+    source_with(case, budget, true)
+}
+fn source_with(case: &str, budget: u64, helper: bool) -> LoweringRequestV1 {
+    let mut source = read_with_budget(budget, helper);
     let mut core = decode(&source.core.artifact.bytes).expect("canonical rebound artifact");
     let mut target = decode(&source.semantic_inputs[5].artifact.artifact.bytes)
         .expect("canonical rebound artifact");
@@ -102,8 +105,11 @@ fn source(case: &str, budget: u64) -> LoweringRequestV1 {
     source
 }
 fn verification(case: &str, budget: u64) -> verifier::VerificationRequestV1 {
+    verification_with(case, budget, true)
+}
+fn verification_with(case: &str, budget: u64, helper: bool) -> verifier::VerificationRequestV1 {
     // The new guard is never submitted to the lowerer to obtain this carrier.
-    let mut request = request(read_helper_with_budget(budget));
+    let mut request = request(read_with_budget(budget, helper));
     changed_core(&mut request, |core| edit_core(core, case));
     changed_target(&mut request, |intent| edit_target(intent, case));
     request
@@ -134,4 +140,18 @@ fn bounded_read_count_rejects_needle_type_and_step_budget_forgeries() {
         .expect("without scan, baseline fits this exact same step ceiling");
     assert!(lower(source("valid", 2_500_000)).is_err());
     assert_rejected(verification("valid", 2_500_000));
+}
+#[test]
+fn a_count_guard_is_charged_even_without_a_function_table() {
+    // With no source functions and no addition, the count's full-byte scan is
+    // still the only judgment that charges it against the step ceiling.
+    lower(read_with_budget(2_500_000, false))
+        .expect("without scan, the plain read fits this step ceiling");
+    lower(source_with("valid", 4_194_304, false)).expect("a fitting count guard lowers");
+    let response = verifier::verify(verification_with("valid", 4_194_304, false))
+        .expect("independent verifier response");
+    let report = decode(&response.outputs[0].artifact.bytes).expect("canonical report");
+    assert_eq!(field(&report, "outcome"), &text("accepted"));
+    assert!(lower(source_with("valid", 2_500_000, false)).is_err());
+    assert_rejected(verification_with("valid", 2_500_000, false));
 }

@@ -95,6 +95,14 @@
 
 ### Changed
 
+- Authored effect programs now carry Edict's proven-range facts at
+  preparation. The intent's input constraints dominate the body, an unsigned
+  `let` proven below its width carries that ceiling to later nodes, and an
+  addition bound also uses a dominating fact comparing its term with a
+  constant. A runtime `slice` or `subtract` in an effect program verifies when
+  those facts prove its range, so Jim's `isUtf8(slice(text, 0, at))` can run
+  inside the edit. A `require` still proves nothing after it, matching Edict.
+
 - An authored effect package no longer carries a single `obstruction_coordinate`.
   Its embedded exports declare every obstruction the program can return, and
   admission checks each arm against them. The effect-package shape exists only

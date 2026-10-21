@@ -1708,3 +1708,7 @@ mod completion;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/derivation.rs"]
 mod derivation;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/proven_ranges.rs"]
+mod proven_ranges;

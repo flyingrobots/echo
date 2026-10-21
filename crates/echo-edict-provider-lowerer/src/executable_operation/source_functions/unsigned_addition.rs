@@ -3,13 +3,25 @@
 //! Lowerer-owned recursive upper bounds over checked, dominating predicates.
 use super::{get, list, literal, string, Check, Value};
 
+/// Whether an intent body calls an operation only this judgment checks: an
+/// addition's no-overflow proof, a subtraction's or slice's range proof, or a
+/// count's full-byte scan charge. A Core without a function table still needs
+/// the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut pending = vec![get(core, "intents")?];
     while let Some(value) = pending.pop() {
         match value {
             Value::Map(fields) => {
+                // Each of these needs an intent-level proof, even without a
+                // source-function table.
                 if get(value, "kind").and_then(string) == Ok("call")
-                    && get(value, "callee").and_then(string) == Ok("core.integer.add")
+                    && matches!(
+                        get(value, "callee").and_then(string),
+                        Ok("core.integer.add"
+                            | "core.integer.subtract"
+                            | "core.bytes.slice"
+                            | "core.bytes.count")
+                    )
                 {
                     return Ok(true);
                 }
@@ -22,14 +34,27 @@ pub(super) fn present(core: &Value) -> Check<bool> {
     Ok(false)
 }
 
-pub(super) fn prove(args: &[Value], max: u64, facts: &[&Value], work: &mut usize) -> Check<()> {
-    let [left, right] = args else { return Err(()) };
+/// Facts a proof reads: dominating predicates, carried binding caps, and the
+/// resolved byte maximum of every counted operand coordinate.
+pub(super) struct Facts<'f, 'v> {
+    pub predicates: &'f [&'v Value],
+    pub locals: &'f [(&'v Value, u64)],
+    pub counts: &'f [(String, u64)],
+}
+
+/// Proves an addition total and returns its refined cap, exactly the value
+/// [`ceiling`] gives the same expression, so a binding need not recompute it.
+pub(super) fn prove(expr: &Value, max: u64, facts: &Facts<'_, '_>, work: &mut usize) -> Check<u64> {
+    let [left, right] = list(get(expr, "args")?)? else {
+        return Err(());
+    };
     let left = bound(left, max, facts, work, 0)?;
     let right = bound(right, max, facts, work, 0)?;
-    left.checked_add(right)
+    let sum = left
+        .checked_add(right)
         .filter(|sum| *sum <= max)
         .ok_or(())?;
-    Ok(())
+    refined(expr, sum, facts, work, 0)
 }
 fn debit(work: &mut usize, amount: usize) -> Check<()> {
     *work = work.checked_sub(amount).ok_or(())?;
@@ -42,12 +67,56 @@ fn same(a: &Value, b: &Value, work: &mut usize) -> Check<bool> {
     }
     Ok(a == b)
 }
-fn bound(expr: &Value, max: u64, facts: &[&Value], work: &mut usize, depth: usize) -> Check<u64> {
+/// The proven cap of one expression, for a binding's carried bound.
+pub(super) fn ceiling(
+    expr: &Value,
+    max: u64,
+    facts: &Facts<'_, '_>,
+    work: &mut usize,
+) -> Check<u64> {
+    bound(expr, max, facts, work, 0)
+}
+/// Coordinates of every count a bound can reach through additions; the caller
+/// resolves each through its own type table.
+pub(super) fn counted_coordinates<'v>(
+    expr: &'v Value,
+    found: &mut Vec<&'v str>,
+    depth: usize,
+) -> Check<()> {
+    if depth > 64 {
+        return Err(());
+    }
+    if string(get(expr, "kind")?)? != "call" {
+        return Ok(());
+    }
+    match string(get(expr, "callee")?)? {
+        "core.integer.add" => {
+            for operand in list(get(expr, "args")?)? {
+                counted_coordinates(operand, found, depth + 1)?;
+            }
+        }
+        "core.bytes.count" => {
+            let [coordinate] = list(get(expr, "typeArgs")?)? else {
+                return Err(());
+            };
+            found.push(string(coordinate)?);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+fn bound(
+    expr: &Value,
+    max: u64,
+    facts: &Facts<'_, '_>,
+    work: &mut usize,
+    depth: usize,
+) -> Check<u64> {
     debit(work, 1)?;
     if depth > 64 {
         return Err(());
     }
-    let mut upper = if string(get(expr, "kind")?)? == "call"
+    let upper = if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.integer.add"
     {
         let [left, right] = list(get(expr, "args")?)? else {
@@ -56,10 +125,44 @@ fn bound(expr: &Value, max: u64, facts: &[&Value], work: &mut usize, depth: usiz
         bound(left, max, facts, work, depth + 1)?
             .checked_add(bound(right, max, facts, work, depth + 1)?)
             .ok_or(())?
+    } else if string(get(expr, "kind")?)? == "call"
+        && string(get(expr, "callee")?)? == "core.bytes.count"
+    {
+        // A count never exceeds its operand's structural byte maximum, named or
+        // literal, as the caller resolved it.
+        let [coordinate] = list(get(expr, "typeArgs")?)? else {
+            return Err(());
+        };
+        let coordinate = string(coordinate)?;
+        facts
+            .counts
+            .iter()
+            .find(|(name, _)| name == coordinate)
+            .map(|(_, bytes)| (*bytes).min(max))
+            .ok_or(())?
+    } else if string(get(expr, "kind")?)? == "local" {
+        let reference = get(expr, "ref")?;
+        let mut upper = max;
+        for (local, cap) in facts.locals {
+            if same(local, reference, work)? {
+                upper = upper.min(*cap);
+            }
+        }
+        upper
     } else {
         literal(expr).unwrap_or(max)
     };
-    for predicate in facts {
+    refined(expr, upper, facts, work, depth)
+}
+/// Narrows a structural cap by every dominating predicate about `expr`.
+fn refined(
+    expr: &Value,
+    mut upper: u64,
+    facts: &Facts<'_, '_>,
+    work: &mut usize,
+    depth: usize,
+) -> Check<u64> {
+    for predicate in facts.predicates {
         refine(predicate, expr, &mut upper, work, depth + 1)?;
     }
     Ok(upper)

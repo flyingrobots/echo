@@ -317,6 +317,9 @@ impl<'a> Scope<'a> {
         let args = super::array(value, "args")?;
         let types = super::array(value, "typeArgs")?;
         let name = text(value, "callee")?;
+        // A count's needle is a one-byte constant, checked structurally.
+        let args = crate::executable_operation::source_functions::checked_arguments(name, args)
+            .map_err(|()| invalid())?;
         let actual = args
             .iter()
             .map(|value| self.expression(value, depth + 1))
@@ -361,16 +364,34 @@ impl<'a> Scope<'a> {
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
             // source_functions::validate already established the independent
-            // no-overflow proof before this read relation is constructed.
+            // no-overflow and order proofs before this read relation is constructed.
             ("core.integer.add", [left, right], [expected @ ReadType::Unsigned(_)])
                 if left == expected && right == expected =>
             {
                 Ok(expected.clone())
             }
+            ("core.integer.subtract", [left, right], [expected @ ReadType::Unsigned(_)])
+                if expected.accepts(left) && expected.accepts(right) =>
+            {
+                Ok(expected.clone())
+            }
+            // The same validation established start <= end <= len(bytes).
+            (
+                "core.bytes.slice",
+                [actual, ReadType::Unsigned(a), ReadType::Unsigned(b)],
+                [expected @ ReadType::Bytes(_, max)],
+            ) if *a == u64::MAX && *b == u64::MAX && expected.accepts(actual) => {
+                Ok(ReadType::Bytes(0, *max))
+            }
             ("core.bytes.isUtf8", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected == actual =>
             {
                 Ok(ReadType::Bool)
+            }
+            ("core.bytes.count", [actual], [expected @ ReadType::Bytes(_, _)])
+                if expected == actual =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
             }
             ("core.bytes.length", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected.accepts(actual) =>

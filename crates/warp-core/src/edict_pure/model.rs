@@ -28,6 +28,12 @@ pub(crate) enum Expr {
         max: u64,
         value: Box<Expr>,
     },
+    ByteCount {
+        min: u64,
+        max: u64,
+        value: Box<Expr>,
+        needle: u8,
+    },
     ByteSlice {
         min: u64,
         max: u64,

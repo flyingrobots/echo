@@ -290,6 +290,16 @@ Boolean substitutes. Predicates support Boolean equality, not ordering.
 The native pure interpreter's implementation does not by itself establish
 provider component support or a public compiler/provider/runtime witness.
 
+The generic `core.bytes.count<OperandType>(bytes, needle)` operation counts the
+occurrences of one byte in a bounded raw-byte value and returns U64. The needle
+must be a Core byte constant of exactly one byte; the parser, the lowerer and
+the verifier each check that shape structurally, and refuse empty, multi-byte,
+integer and non-constant needles. It counts raw bytes, including NUL, 0xFF and
+invalid UTF-8, without decoding or normalization. It charges one work unit per
+actual operand byte for the scan, plus ordinary operand evaluation, bound
+validation and result storage. The result never exceeds the operand's byte
+maximum, which the addition proofs use.
+
 Negation uses the closed `not` predicate shape with exactly one `value` child.
 The interpreter validates the entire child before execution, evaluates it once,
 and inverts its Boolean result. A negation wrapper costs one predicate step;

@@ -968,14 +968,46 @@ present as an effect in the declared namespace. The previous evidence shape
 without profile/catalog artifacts refuses; there is no alternate decoder.
 
 Concrete catalog declarations must have exact fields and agree with the exported
-effect's single input coordinate and result coordinate, execution class,
-write class and supported guard posture. Free type parameters and positional
-argument lists requiring unpacking refuse until implemented. Catalog named-fault
-entries are indexed by the adapter's mapped target tags; their complete tag set,
-payload coordinates and authority classes must agree with exported failures.
-This is concrete declared agreement, not general structural or polymorphic
-signature unification. Cost/footprint template names are present and nonempty,
-but their calculus is not validated by this check.
+effect's execution class, write class and supported guard posture. Free type
+parameters and positional argument lists requiring unpacking refuse until
+implemented. Catalog named-fault entries are indexed by the adapter's mapped
+target tags; their complete tag set and authority classes must agree with
+exported failures. Cost/footprint template names are present and nonempty, but
+their calculus is not validated by this check.
+
+For an application intrinsic, the catalog's single argument type, return type
+and fault payload types must equal the exported effect's input, output and
+failure payload coordinates by name. This is concrete declared agreement, not
+general structural or polymorphic signature unification.
+
+The six shared runtime intrinsics below are the one exception. Echo's provider
+catalog is shared by every application, so it cannot name any application's
+types. For these exact intrinsic identities, and no others, the catalog names
+Echo-owned ABI coordinates, and the effect the adapter explicitly binds to the
+intrinsic must declare types whose representations conform to that ABI. The
+application's types keep their nominal identity: conformance establishes a
+lawful representation crossing at this one boundary, not that equal
+representations are equal types anywhere else. A matching shape never selects
+an intrinsic; the adapter's explicit binding and its ambiguity checks still
+apply.
+
+| Intrinsic                                          | Catalog argument / return                     | Input representation                                                      | Successful result                                         |
+| -------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `echo.dpo@1.node-atom-read`                        | `echo.dpo@1.node-atom-read.input` / `.result` | exactly `warpId`, `nodeId`, `typeId`                                      | bytes, minimum zero, positive maximum at most the ceiling |
+| `echo.dpo@1.ensure-node`, `echo.dpo@1.create-node` | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `nodeId`, `nodeType`, `atomType`, `atomBytes`           | the empty record                                          |
+| `echo.dpo@1.replace-atom`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` | the empty record                                          |
+| `echo.dpo@1.ensure-edge`                           | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `fromId`, `toId`, `edgeType`                  | the empty record                                          |
+| `echo.dpo@1.replace-edge`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `expectedToId`, `toId`                        | the empty record                                          |
+
+Every field other than `atomBytes` has a representation of exactly 32 bytes; a
+maximum-bounded or differently sized field does not conform. `atomBytes` and
+the read result are bytes with minimum zero and a positive declared maximum no
+greater than the 16 MiB runtime ceiling, so an application may declare a
+smaller maximum. Field membership is exact: a missing, renamed, duplicated or
+extra field does not conform. The mutation intrinsics declare no failures. The
+read intrinsic's four failures carry `echo.dpo@1.node-atom-read.input` in the
+catalog, and each exported failure must carry the effect's own declared input
+type, so the fault payload stays nominally tied to that application's input.
 
 Declarations cannot redefine the existing node/atom recording primitive's ABI.
 The runtime currently recognizes `echo.dpo@1.node-atom-read` here. Its input

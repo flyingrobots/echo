@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Runtime-owned recording/emitter ABIs; declarations cannot redefine them.
+//!
+//! The provider's pinned catalog names each shared intrinsic's input and result
+//! by Echo-owned ABI coordinate (`<intrinsic>.input`, `<intrinsic>.result`).
+//! An application keeps its own nominal types; the effect its adapter
+//! explicitly binds to one of these intrinsics must declare representations
+//! that conform to that intrinsic's ABI. Conformance applies only to the exact
+//! intrinsic identities below and never selects an intrinsic by shape.
 use crate::edict_pure::{
     model::{RuntimeType, MAX_PROGRAM_NODES},
     syntax::Parser,
@@ -9,6 +16,46 @@ use crate::edict_pure::{
 };
 use echo_edict_canonical::CanonicalValueV1 as Value;
 
+/// The Echo-owned ABI coordinates of one shared runtime intrinsic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct AbiContract {
+    /// Coordinate the catalog must give as the single argument type.
+    pub(super) input: &'static str,
+    /// Coordinate the catalog must give as the return type.
+    pub(super) result: &'static str,
+}
+
+/// The ABI contract of an exact runtime intrinsic identity, if it is one.
+pub(super) fn contract(intrinsic: &str) -> Option<AbiContract> {
+    Some(match intrinsic {
+        "echo.dpo@1.node-atom-read" => AbiContract {
+            input: "echo.dpo@1.node-atom-read.input",
+            result: "echo.dpo@1.node-atom-read.result",
+        },
+        "echo.dpo@1.ensure-node" => AbiContract {
+            input: "echo.dpo@1.ensure-node.input",
+            result: "echo.dpo@1.ensure-node.result",
+        },
+        "echo.dpo@1.create-node" => AbiContract {
+            input: "echo.dpo@1.create-node.input",
+            result: "echo.dpo@1.create-node.result",
+        },
+        "echo.dpo@1.replace-atom" => AbiContract {
+            input: "echo.dpo@1.replace-atom.input",
+            result: "echo.dpo@1.replace-atom.result",
+        },
+        "echo.dpo@1.ensure-edge" => AbiContract {
+            input: "echo.dpo@1.ensure-edge.input",
+            result: "echo.dpo@1.ensure-edge.result",
+        },
+        "echo.dpo@1.replace-edge" => AbiContract {
+            input: "echo.dpo@1.replace-edge.input",
+            result: "echo.dpo@1.replace-edge.result",
+        },
+        _ => return None,
+    })
+}
+
 pub(super) fn validate(
     name: &str,
     module: &Value,
@@ -16,9 +63,9 @@ pub(super) fn validate(
     intrinsic: &Value,
 ) -> Result<(), Error> {
     let mutation = super::mutations::MutationKind::from_intrinsic(name);
-    if name != "echo.dpo@1.node-atom-read" && mutation.is_none() {
+    let Some(abi) = contract(name) else {
         return Err(Error::UnsupportedProgram);
-    }
+    };
 
     let mut parser = Parser {
         types: field(module, "types")?,
@@ -64,9 +111,12 @@ pub(super) fn validate(
         ("echo.atom-type-mismatch/v1", "integrityFault"),
         ("echo.atom-byte-bound-exceeded/v1", "integrityFault"),
     ] {
+        // The catalog says each read failure carries the call's ABI input; the
+        // contract checker binds the exported failure to this effect's own
+        // input type, keeping that nominal relationship.
         let failure = field(failures, name)?;
         require_text(failure, "authorityClass", authority)?;
-        require_text(failure, "payloadType", input_name)?;
+        require_text(failure, "payloadType", abi.input)?;
     }
     Ok(())
 }

@@ -1700,6 +1700,10 @@ mod execution;
 mod mutations;
 
 #[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/abi_conformance.rs"]
+mod abi_conformance;
+
+#[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/completion.rs"]
 mod completion;
 

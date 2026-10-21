@@ -275,9 +275,15 @@ pub fn lowering_fixture_inputs(
                     let V::Text(source) = source else {
                         panic!("failure")
                     };
+                    // The catalog's failure carries the read ABI's input; the
+                    // exported failure keeps the application's own type.
+                    let exported = get(get(effect, "effectFailures"), source);
                     (
                         tag.clone(),
-                        get(get(effect, "effectFailures"), source).clone(),
+                        map([
+                            ("authorityClass", get(exported, "authorityClass").clone()),
+                            ("payloadType", text("echo.dpo@1.node-atom-read.input")),
+                        ]),
                     )
                 })
                 .collect(),
@@ -292,9 +298,9 @@ pub fn lowering_fixture_inputs(
                         ("intrinsicClass", text("effect")),
                         (
                             "argumentTypes",
-                            V::Array(vec![get(effect, "inputType").clone()]),
+                            V::Array(vec![text("echo.dpo@1.node-atom-read.input")]),
                         ),
-                        ("returnType", get(effect, "outputType").clone()),
+                        ("returnType", text("echo.dpo@1.node-atom-read.result")),
                         ("typeParameters", V::Array(vec![])),
                         ("effectKind", text("read")),
                         ("writeClass", text("read")),

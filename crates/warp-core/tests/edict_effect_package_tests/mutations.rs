@@ -47,7 +47,34 @@ fn layout(name: &str) -> Vec<(&'static str, &'static str)> {
         _ => panic!("fixture kind"),
     }
 }
+/// One application's view of a runtime-ABI call: its own type names, the
+/// catalog coordinates the provider pins, and the declared representations.
+pub(super) struct Shape {
+    pub(super) input_name: &'static str,
+    pub(super) output_name: &'static str,
+    pub(super) catalog_argument: String,
+    pub(super) catalog_return: String,
+    pub(super) fields: Vec<(&'static str, &'static str)>,
+    pub(super) output: V,
+}
+impl Shape {
+    /// The conforming shape: the catalog names Echo's ABI coordinates and the
+    /// application declares its own type names over the ABI representation.
+    pub(super) fn conforming(name: &str) -> Self {
+        Self {
+            input_name: "MutationInput",
+            output_name: "MutationUnit",
+            catalog_argument: format!("echo.dpo@1.{name}.input"),
+            catalog_return: format!("echo.dpo@1.{name}.result"),
+            fields: layout(name),
+            output: map([("kind", text("Record")), ("fields", map([]))]),
+        }
+    }
+}
 pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
+    fixture_with(name, profile, &Shape::conforming(name))
+}
+pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<u8>) {
     let artifacts = repinned_lowering_artifacts();
     let decode = |key| {
         let V::Bytes(raw) = get(&artifacts, key) else {
@@ -60,8 +87,8 @@ pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
         panic!("effects")
     };
     let effect = &mut effects[0];
-    set(effect, "inputType", text("MutationInput"));
-    set(effect, "outputType", text("MutationUnit"));
+    set(effect, "inputType", text(shape.input_name));
+    set(effect, "outputType", text(shape.output_name));
     set(effect, "effectFailures", map([]));
     let mut adapter = decode("adapter_artifact");
     let implementation = value_field_mut(
@@ -85,9 +112,9 @@ pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
     set(
         &mut intrinsic,
         "argumentTypes",
-        V::Array(vec![text("MutationInput")]),
+        V::Array(vec![text(&shape.catalog_argument)]),
     );
-    set(&mut intrinsic, "returnType", text("MutationUnit"));
+    set(&mut intrinsic, "returnType", text(&shape.catalog_return));
     set(&mut intrinsic, "effectKind", text("write"));
     set(&mut intrinsic, "writeClass", text("write"));
     set(&mut intrinsic, "effectFailures", map([]));
@@ -98,7 +125,7 @@ pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
     );
     let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
     let (mut core, mut target, _) = compiler_fixture(&lowering);
-    let fields = layout(name);
+    let fields = shape.fields.clone();
     let input_type = map([
         ("kind", text("Record")),
         (
@@ -108,22 +135,22 @@ pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
     ]);
     add(
         value_field_mut(&mut core, "types"),
-        "MutationInput",
+        shape.input_name,
         input_type,
     );
     add(
         value_field_mut(&mut core, "types"),
-        "MutationUnit",
-        map([("kind", text("Record")), ("fields", map([]))]),
+        shape.output_name,
+        shape.output.clone(),
     );
     let arg = map([
         ("id", text("arg.0")),
-        ("type", text("MutationInput")),
+        ("type", text(shape.input_name)),
         ("alphaName", text("$arg0")),
     ]);
     let local = map([
         ("id", text("local.0")),
-        ("type", text("MutationUnit")),
+        ("type", text(shape.output_name)),
         ("alphaName", text("$local0")),
     ]);
     let input = map([("kind", text("local")), ("ref", arg.clone())]);
@@ -136,8 +163,8 @@ pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
         ("obstructionMap", map([])),
     ]);
     let intent = value_field_mut(value_field_mut(&mut core, "intents"), "replaceRange");
-    set(intent, "input", text("MutationInput"));
-    set(intent, "output", text("MutationUnit"));
+    set(intent, "input", text(shape.input_name));
+    set(intent, "output", text(shape.output_name));
     set(intent, "requiredOperationProfile", text(profile));
     if let V::Map(fields) = intent {
         fields.retain(|(k, _)| k != &text("basis"));

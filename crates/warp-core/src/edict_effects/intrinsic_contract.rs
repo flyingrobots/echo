@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Concrete declared signature/fault agreement across the pinned catalog and lawpack.
+//!
+//! For an application intrinsic the catalog and the exported effect name the
+//! same types. For a shared runtime intrinsic the catalog names Echo's ABI
+//! coordinates instead, and the application's own types are checked for
+//! representation conformance by `runtime_abi`.
 use crate::edict_pure::{
     values::{array, exact_fields, field, map, require_text, text, text_field},
     EvaluationError as Error,
@@ -8,10 +13,12 @@ use crate::edict_pure::{
 use echo_edict_canonical::CanonicalValueV1 as Value;
 
 pub(super) fn validate(
+    intrinsic_name: &str,
     intrinsic: &Value,
     effect: &Value,
     implementation: &Value,
 ) -> Result<(), Error> {
+    let abi = super::runtime_abi::contract(intrinsic_name);
     exact_fields(
         intrinsic,
         &[
@@ -34,9 +41,14 @@ pub(super) fn validate(
         return Err(Error::UnsupportedProgram);
     };
     let input = text(argument)?;
-    let expected_input = text_field(effect, "inputType")?;
     let output = text_field(intrinsic, "returnType")?;
-    let expected_output = text_field(effect, "outputType")?;
+    let (expected_input, expected_output) = match abi {
+        Some(abi) => (abi.input, abi.result),
+        None => (
+            text_field(effect, "inputType")?,
+            text_field(effect, "outputType")?,
+        ),
+    };
     if input != expected_input || output != expected_output {
         return Err(Error::InvalidArtifact);
     }
@@ -78,10 +90,22 @@ pub(super) fn validate(
         let expected = field(exported, text(source)?)?;
         exact_fields(actual, &["authorityClass", "payloadType"])?;
         exact_fields(expected, &["authorityClass", "payloadType"])?;
-        for name in ["authorityClass", "payloadType"] {
-            if text_field(actual, name)? != text_field(expected, name)? {
-                return Err(Error::InvalidArtifact);
-            }
+        if text_field(actual, "authorityClass")? != text_field(expected, "authorityClass")? {
+            return Err(Error::InvalidArtifact);
+        }
+        // A shared intrinsic's failure carries its ABI input; the exported
+        // failure must carry this effect's own declared input type.
+        let (catalog_payload, exported_payload) = match abi {
+            Some(abi) => (abi.input, text_field(effect, "inputType")?),
+            None => (
+                text_field(actual, "payloadType")?,
+                text_field(actual, "payloadType")?,
+            ),
+        };
+        if text_field(actual, "payloadType")? != catalog_payload
+            || text_field(expected, "payloadType")? != exported_payload
+        {
+            return Err(Error::InvalidArtifact);
         }
     }
     Ok(())

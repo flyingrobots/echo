@@ -180,7 +180,7 @@ reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
 489,413 bytes with SHA-256
-`3094faa6d7ba1641e5417e310a2061a0e1e981da571c5f035d28c1c11f41811a`; the
+`6880fe894c151bfe28257156e5f8b721428fb06af435889a72ff401e7273cea2`; the
 promoted verifier is 504,431 bytes with SHA-256
 `3451e95a7d084d4874c30833f90f5c21012e8341f35ed0f0888d4d268a768b11`.
 

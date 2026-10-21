@@ -170,7 +170,7 @@ fn count_parser_requires_one_structural_byte_needle_and_exact_signature() {
         (vec!["U64"], vec![operand.clone(), bytes(b"\n")]),
         (
             vec!["Bytes<max=32>", "Bytes<max=32>"],
-            vec![operand.clone(), bytes(b"\n")],
+            vec![operand, bytes(b"\n")],
         ),
     ] {
         let wire = call("core.bytes.count", &types, args.clone());

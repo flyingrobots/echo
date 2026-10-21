@@ -376,6 +376,24 @@ fn byte_bound(value: &str) -> Result<u64, Error> {
     Ok(bound)
 }
 
+/// The counted byte is a Core constant of exactly one byte. Its shape is
+/// checked structurally, never inferred from a type.
+pub(crate) fn count_needle(needle: &Value) -> Result<u8, Error> {
+    exact_fields(needle, &["kind", "value"])?;
+    if text_field(needle, "kind")? != "const" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let literal = field(needle, "value")?;
+    exact_fields(literal, &["kind", "value"])?;
+    if text_field(literal, "kind")? != "bytes" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let [byte] = bytes(field(literal, "value")?)? else {
+        return Err(Error::UnsupportedProgram);
+    };
+    Ok(*byte)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{constant, Error, Value};
@@ -399,22 +417,4 @@ mod tests {
             assert!(matches!(constant(&malformed), Err(Error::InvalidArtifact)));
         }
     }
-}
-
-/// The counted byte is a Core constant of exactly one byte. Its shape is
-/// checked structurally, never inferred from a type.
-pub(crate) fn count_needle(needle: &Value) -> Result<u8, Error> {
-    exact_fields(needle, &["kind", "value"])?;
-    if text_field(needle, "kind")? != "const" {
-        return Err(Error::UnsupportedProgram);
-    }
-    let literal = field(needle, "value")?;
-    exact_fields(literal, &["kind", "value"])?;
-    if text_field(literal, "kind")? != "bytes" {
-        return Err(Error::UnsupportedProgram);
-    }
-    let [byte] = bytes(field(literal, "value")?)? else {
-        return Err(Error::UnsupportedProgram);
-    };
-    Ok(*byte)
 }

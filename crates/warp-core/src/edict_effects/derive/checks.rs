@@ -292,13 +292,15 @@ pub(super) fn identities(
                 if schema.node_addressing(*ty) != Some(Addressing::Content) {
                     return Err(bad());
                 }
-                let edges = edges_for(node, effects)
+                let mut edges = edges_for(node, effects)
                     .iter()
                     .map(|e| content_address_v1::OutgoingEdge {
                         edge_type: e.ty,
                         to: e.to,
                     })
                     .collect::<Vec<_>>();
+                // Sorted here, the law hashes this vector without copying it.
+                edges.sort_unstable();
                 let id = content_address_v1::content_node_id(
                     node.warp_id,
                     *ty,

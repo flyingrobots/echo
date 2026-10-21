@@ -285,3 +285,28 @@ fn frozen_vectors_are_well_formed() {
         assert_eq!(hex(&unhex(frozen)), frozen);
     }
 }
+
+#[test]
+fn edge_input_order_never_changes_the_id_and_duplicates_refuse_in_any_order() {
+    // Ascending input is hashed in place; any other order is sorted first.
+    let a = edge(EDGE_A, TO_LOW);
+    let b = edge(EDGE_A, TO_HIGH);
+    let c = edge(EDGE_B, TO_LOW);
+    let expected = expected_node(
+        b"new",
+        &[(EDGE_A, TO_LOW), (EDGE_A, TO_HIGH), (EDGE_B, TO_LOW)],
+    )
+    .hash();
+    for order in [[a, b, c], [c, b, a], [b, a, c], [a, c, b]] {
+        assert_eq!(node_id(b"new", &order).expect("distinct edges"), expected);
+    }
+    for duplicated in [vec![a, a], vec![a, a, b], vec![a, b, a], vec![b, a, a]] {
+        assert_eq!(
+            node_id(b"new", &duplicated),
+            Err(ContentAddressError::DuplicateOutgoingEdge {
+                edge_type: TypeId(EDGE_A),
+                to: NodeId(TO_LOW),
+            })
+        );
+    }
+}

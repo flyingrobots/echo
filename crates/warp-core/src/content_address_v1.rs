@@ -107,14 +107,23 @@ pub fn content_node_id(
     atom_bytes: &[u8],
     outgoing: &[OutgoingEdge],
 ) -> Result<NodeId, ContentAddressError> {
-    let mut edges = outgoing.to_vec();
-    edges.sort_unstable();
-    if let Some(pair) = edges.windows(2).find(|pair| pair[0] == pair[1]) {
-        return Err(ContentAddressError::DuplicateOutgoingEdge {
-            edge_type: pair[0].edge_type,
-            to: pair[0].to,
-        });
-    }
+    // A strictly ascending input is already canonical and duplicate-free, so
+    // it is hashed in place; only an unordered input is copied and sorted.
+    let sorted;
+    let edges: &[OutgoingEdge] = if outgoing.windows(2).all(|pair| pair[0] < pair[1]) {
+        outgoing
+    } else {
+        let mut copy = outgoing.to_vec();
+        copy.sort_unstable();
+        if let Some(pair) = copy.windows(2).find(|pair| pair[0] == pair[1]) {
+            return Err(ContentAddressError::DuplicateOutgoingEdge {
+                edge_type: pair[0].edge_type,
+                to: pair[0].to,
+            });
+        }
+        sorted = copy;
+        &sorted
+    };
     let mut hash = blake3::Hasher::new();
     hash.update(NODE_ID_DOMAIN);
     hash.update(&warp.0);

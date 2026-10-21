@@ -36,6 +36,7 @@ CAMPAIGNS = [
 RUN = re.compile(r"^== (?P<label>\S+) @ (?P<rev>\S+) :: cargo (?P<cmd>.*)$")
 CHECK = re.compile(r"^== (?P<label>\S+) (?P<what>start|end) HEAD=(?P<rev>[0-9a-f]+) dirty=(?P<dirty>\d+)$")
 STEP = re.compile(r"^== (?P<step>[a-z-]+) rc=(?P<rc>-?\d+)$")
+RESULT = re.compile(r"(\d+) passed; (\d+) failed; \d+ ignored; \d+ measured")
 KEEP = ("|", "F5 tier=", "F6 scene=", "F5D ", "ALLOC ", "== suite passed=")
 
 
@@ -44,11 +45,14 @@ def picked(log: Path) -> list[str]:
         return ["(log missing)"]
     lines = log.read_text(errors="replace").splitlines()
     out = [l for l in lines if l.startswith(KEEP) and ("summary" in l or not l.startswith("F5 tier=")) and not l.startswith("F5D round")]
-    tests = [l for l in lines if l.startswith("test result:")]
-    if tests:
-        passed = sum(int(m.group(1)) for l in tests if (m := re.search(r"(\d+) passed", l)))
-        failed = sum(int(m.group(1)) for l in tests if (m := re.search(r"(\d+) failed", l)))
-        out.append(f"summed `test result:` lines: {passed} passed, {failed} failed")
+    # Parallel test output can interleave a `test result:` line with another
+    # test's line, even splitting it, so the counts (`N passed; N failed; N
+    # ignored; N measured`, which only result lines carry) are matched anywhere.
+    results = [m for l in lines for m in RESULT.finditer(l)]
+    if results:
+        passed = sum(int(m.group(1)) for m in results)
+        failed = sum(int(m.group(2)) for m in results)
+        out.append(f"summed test results ({len(results)}): {passed} passed, {failed} failed")
         out += sorted({l for l in lines if l.startswith("test ") and l.endswith("FAILED")})
     return out or ["(no result lines)"]
 

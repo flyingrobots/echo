@@ -29,7 +29,7 @@ Campaign output: `campaign1.txt`. Script: `checks.sh` per worktree, run by `camp
 Suite log `logs/base-suite.txt`:
 
 ```text
-summed `test result:` lines: 2054 passed, 1 failed
+summed test results (106): 2055 passed, 1 failed
 test special_files_are_rejected_before_a_read_attempt ... FAILED
 ```
 
@@ -51,7 +51,7 @@ test special_files_are_rejected_before_a_read_attempt ... FAILED
 Suite log `logs/inline-suite.txt`:
 
 ```text
-summed `test result:` lines: 2054 passed, 1 failed
+summed test results (106): 2055 passed, 1 failed
 test special_files_are_rejected_before_a_read_attempt ... FAILED
 ```
 
@@ -73,7 +73,7 @@ test special_files_are_rejected_before_a_read_attempt ... FAILED
 Suite log `logs/commitpath-suite.txt`:
 
 ```text
-summed `test result:` lines: 2056 passed, 1 failed
+summed test results (106): 2056 passed, 1 failed
 test special_files_are_rejected_before_a_read_attempt ... FAILED
 ```
 
@@ -106,7 +106,7 @@ Campaign output: `campaign2.txt`. Script: `campaign2.sh`. F6 at `f045e04d`, befo
 `cargo test --locked -p warp-core --features native_rule_bootstrap,trusted_runtime --test scene_fixture_tests`, exit code 0, log `logs/f6-test.txt`.
 
 ```text
-summed `test result:` lines: 10 passed, 0 failed
+summed test results (1): 10 passed, 0 failed
 ```
 
 `== rc=0`
@@ -460,7 +460,7 @@ Campaign output: `campaign4.txt`. Script: `campaign4.sh`. `checks2.sh` adds `scr
 Suite log `logs/c4-tip-suite.txt`:
 
 ```text
-summed `test result:` lines: 2056 passed, 1 failed
+summed test results (106): 2057 passed, 1 failed
 test special_files_are_rejected_before_a_read_attempt ... FAILED
 ```
 
@@ -477,7 +477,7 @@ ALLOC rewrites=10000 tick=1 allocations=138551 bytes=192937904 allocations_per_r
 ALLOC rewrites=10000 tick=2 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
 ALLOC rewrites=10000 tick=3 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
 ALLOC rewrites=10000 tick=4 allocations=136861 bytes=173537776 allocations_per_rewrite=13.69 bytes_per_rewrite=17353.8
-summed `test result:` lines: 1 passed, 0 failed
+summed test results (1): 1 passed, 0 failed
 ```
 
 `== rc=0`

@@ -45,15 +45,23 @@ the handoff, the SPDX check, the feature-gated test check, and
 
 Full `warp-core` suite with `native_rule_bootstrap`, `trusted_runtime`,
 `host_test`, `delta_validate`, `application_root_profile` and `det_fixed`
-(campaign 1): `main` and the inline worker each sum to 2,054 passed and 1
-failed; the commit path sums to 2,056 passed and 1 failed, and includes the
+(campaign 1): `main` and the inline worker each sum to 2,055 passed and 1
+failed; the commit path sums to 2,056 passed and 1 failed, `main` plus its
 new canonicalization test. The one failure is the same on all three and on
 the stack tip: `special_files_are_rejected_before_a_read_attempt`, which
 cannot bind a Unix socket because the scratch path is longer than
-`SUN_LEN`. It is the environment, not the change.
+`SUN_LEN`. A failure shared with the baseline is evidence against a
+regression, not a green suite; each candidate's branch reruns that test from
+a short path.
+
+An earlier version of this study reported 2,054 for `main` and the inline
+worker. In each of those logs, parallel test output split or interleaved one
+`test result:` line, and `ledger.py` counted only lines that began with it.
+It now matches the result counts anywhere in a line. The same fix raises the
+tip's (`c8d8fd25`) total from 2,056 to 2,057.
 
 The stack tip `b0cef149` passes the same checks (campaign 5), and its
-previous commit `c8d8fd25` passed the full suite with the same single
+previous commit `c8d8fd25` ran the full suite with the same single
 environmental failure (campaign 4).
 
 **hello-echo** (campaign 5): its whole CI sequence (syntax, producer lock,

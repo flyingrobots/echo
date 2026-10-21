@@ -11,9 +11,9 @@ use crate::edict_pure::{
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn validate(
-    module: &Value,
-    intent: &Value,
+pub(super) fn validate<'a>(
+    module: &'a Value,
+    intent: &'a Value,
     target: &Value,
     exports: &Value,
     signatures: &BTreeMap<&str, &Value>,
@@ -48,8 +48,14 @@ pub(super) fn validate(
         scope.expression(basis, None)?;
         scope.data_type(basis)?;
     }
-    for constraint in array(field(intent, "inputConstraints")?)? {
+    // As in Edict, each input constraint is checked without facts, and all of
+    // them then dominate the whole body.
+    let constraints = array(field(intent, "inputConstraints")?)?;
+    for constraint in constraints {
         scope.predicate(field(constraint, "predicate")?)?;
+    }
+    for constraint in constraints {
+        scope.facts.push(field(constraint, "predicate")?);
     }
     let mut lowered = BTreeMap::new();
     for (collection, kind) in [
@@ -86,6 +92,7 @@ pub(super) fn validate(
                     field(node, "value")?,
                     text_field(field(node, "binding")?, "type")?,
                 )?;
+                scope.carry_ceiling(field(node, "binding")?, field(node, "value")?)?;
                 scope.introduce(field(node, "binding")?)?;
             }
             "require" => {
@@ -202,6 +209,10 @@ struct Scope<'a> {
     remaining_references: usize,
     definitions: BTreeMap<String, functions::Definition<'a>>,
     helpers: BTreeMap<String, Helper>,
+    /// Input constraints, which dominate the whole body.
+    facts: Vec<&'a Value>,
+    /// Proven ceilings of earlier unsigned bindings.
+    caps: functions::Caps<'a>,
     expressions: Vec<Expr>,
     predicates: Vec<Predicate>,
 }
@@ -241,6 +252,8 @@ impl<'a> Scope<'a> {
             helpers,
             expressions: Vec::new(),
             predicates: Vec::new(),
+            facts: Vec::new(),
+            caps: functions::Caps::new(),
         })
     }
     fn claim(&mut self, reference: &Value) -> Result<&'a Value, Error> {
@@ -262,13 +275,10 @@ impl<'a> Scope<'a> {
         self.references(value, binder, 0)
     }
     fn data_type(&mut self, value: &Value) -> Result<RuntimeType, Error> {
-        // Effect programs carry no proof yet, so runtime slices and
-        // subtractions need literal operands.
-        let caps = functions::Caps::new();
         let actual = functions::infer(
             value,
             &self.available,
-            functions::Proof::new(&caps, &[]),
+            functions::Proof::new(&self.caps, &self.facts),
             &self.definitions,
             true,
             &mut self.parser,
@@ -276,6 +286,20 @@ impl<'a> Scope<'a> {
         )?;
         self.expressions.push(self.parser.expr(value, 0)?);
         Ok(actual)
+    }
+    /// An unsigned binding whose value is proven below its width carries that
+    /// ceiling to later nodes. Local identities are unique and immutable, so
+    /// the cap names exactly the bound value.
+    fn carry_ceiling(&mut self, binding: &'a Value, value: &Value) -> Result<(), Error> {
+        let RuntimeType::Unsigned(max) = self.parser.ty(text_field(binding, "type")?, 0)? else {
+            return Ok(());
+        };
+        let cap =
+            functions::unsigned_ceiling(value, max, &self.caps, &self.facts, &mut self.parser, 0)?;
+        if cap < max {
+            self.caps.insert(text_field(binding, "id")?, cap);
+        }
+        Ok(())
     }
     fn typed_expression(&mut self, value: &Value, expected: &str) -> Result<(), Error> {
         self.expression(value, None)?;
@@ -287,11 +311,10 @@ impl<'a> Scope<'a> {
         Ok(())
     }
     fn predicate(&mut self, value: &Value) -> Result<(), Error> {
-        let caps = functions::Caps::new();
         functions::check_predicate(
             value,
             &self.available,
-            functions::Proof::new(&caps, &[]),
+            functions::Proof::new(&self.caps, &self.facts),
             &self.definitions,
             true,
             &mut self.parser,

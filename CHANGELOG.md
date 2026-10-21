@@ -95,6 +95,13 @@
 
 ### Changed
 
+- Authored effect programs now carry Edict's proven-range facts at
+  preparation. The intent's input constraints dominate the body, an unsigned
+  `let` proven below its width carries that ceiling to later nodes, and an
+  addition bound also uses a dominating fact comparing its term with a
+  constant. A runtime `slice` or `subtract` in an effect program verifies when
+  those facts prove its range, so Jim's `isUtf8(slice(text, 0, at))` can run
+  inside the edit. A `require` still proves nothing after it, matching Edict.
 - `ContentAddressV1` now lives in one module, `warp_core::content_address_v1`,
   with content node ids, content and slot edge ids, and attachment digests.
   Effect admission and read evidence use it, replacing the inline hashing in

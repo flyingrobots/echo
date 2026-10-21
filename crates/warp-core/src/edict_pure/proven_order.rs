@@ -38,6 +38,74 @@ pub(crate) fn proven(
     Ok(false)
 }
 
+/// The smallest constant upper bound a dominating fact gives `term`, as in
+/// Edict: `term <= c`, `term == c` or `c >= term` give `c`, and the strict forms
+/// give `c - 1` (saturating). Conjunctions contribute every conjunct.
+pub(crate) fn upper_limit(
+    term: &Value,
+    facts: &[&Value],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<Option<u64>, Error> {
+    if facts.is_empty() {
+        return Ok(None);
+    }
+    parser.enter(depth)?;
+    let term = key(term, parser)?;
+    let mut limit = None;
+    for fact in facts {
+        limit_from(fact, &term, &mut limit, parser, depth + 1)?;
+    }
+    Ok(limit)
+}
+
+fn limit_from(
+    fact: &Value,
+    term: &[u8],
+    limit: &mut Option<u64>,
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<(), Error> {
+    parser.enter(depth)?;
+    match text_field(fact, "kind")? {
+        "all" => {
+            for item in array(field(fact, "values")?)? {
+                limit_from(item, term, limit, parser, depth + 1)?;
+            }
+        }
+        "compare" => {
+            let op = text_field(fact, "op")?;
+            let left = field(fact, "left")?;
+            let right = field(fact, "right")?;
+            let strict = matches!(op, "<" | ">");
+            let mut bound = |value: u64| {
+                let value = if strict {
+                    value.saturating_sub(1)
+                } else {
+                    value
+                };
+                *limit = Some(limit.map_or(value, |current| current.min(value)));
+            };
+            if matches!(op, "<=" | "<" | "==") {
+                if let Some(value) = constant(right) {
+                    if key(left, parser)? == term {
+                        bound(value);
+                    }
+                }
+            }
+            if matches!(op, ">=" | ">" | "==") {
+                if let Some(value) = constant(left) {
+                    if key(right, parser)? == term {
+                        bound(value);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// The Core term `core.bytes.length<coordinate>(bytes)`, for slice end proofs.
 pub(crate) fn length_of(coordinate: &Value, bytes: &Value) -> Value {
     Value::Map(vec![

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Closed source/imported helper authority, lexical scopes, and runtime apertures.
-use super::proven_order::{length_of, proven};
+use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
         Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
@@ -167,7 +167,7 @@ pub(crate) fn decode(
                 return Err(Error::InvalidArtifact);
             }
             if let RuntimeType::Unsigned(max) = ty {
-                let cap = unsigned_ceiling(value, max, &caps, parser, 0)?;
+                let cap = unsigned_ceiling(value, max, &caps, &[], parser, 0)?;
                 if cap < max {
                     caps.insert(id, cap);
                 }
@@ -514,10 +514,22 @@ pub(crate) fn infer<'v>(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left =
-                        unsigned_ceiling(&arguments[0], *max, proof.caps, parser, depth + 1)?;
-                    let right =
-                        unsigned_ceiling(&arguments[1], *max, proof.caps, parser, depth + 1)?;
+                    let left = unsigned_ceiling(
+                        &arguments[0],
+                        *max,
+                        proof.caps,
+                        proof.facts,
+                        parser,
+                        depth + 1,
+                    )?;
+                    let right = unsigned_ceiling(
+                        &arguments[1],
+                        *max,
+                        proof.caps,
+                        proof.facts,
+                        parser,
+                        depth + 1,
+                    )?;
                     if left.checked_add(right).is_none_or(|sum| sum > *max) {
                         return Err(Error::UnsupportedProgram);
                     }
@@ -561,13 +573,29 @@ pub(crate) fn infer<'v>(
     }
 }
 
-// Fresh helper frames receive no caller constraints. Constants and already
-// checked nested additions can narrow a bound; every other term has its full
-// declared width. The parser's combined work/depth ceiling covers this walk.
-fn unsigned_ceiling(
+// Constants, counts, carried binding caps and already checked nested additions
+// can narrow a bound, and so can a dominating fact comparing the term with a
+// constant; every other term has its full declared width. Fresh helper frames
+// receive no caller facts. The parser's combined work/depth ceiling covers
+// this walk.
+pub(crate) fn unsigned_ceiling(
     value: &Value,
     max: u64,
     caps: &Caps<'_>,
+    facts: &[&Value],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<u64, Error> {
+    let structural = structural_ceiling(value, max, caps, facts, parser, depth)?;
+    Ok(upper_limit(value, facts, parser, depth + 1)?
+        .map_or(structural, |limit| structural.min(limit)))
+}
+
+fn structural_ceiling(
+    value: &Value,
+    max: u64,
+    caps: &Caps<'_>,
+    facts: &[&Value],
     parser: &mut Parser<'_>,
     depth: usize,
 ) -> Result<u64, Error> {
@@ -593,8 +621,15 @@ fn unsigned_ceiling(
         let [left, right] = array(field(value, "args")?)? else {
             return Err(Error::InvalidArtifact);
         };
-        return unsigned_ceiling(left, max, caps, parser, depth + 1)?
-            .checked_add(unsigned_ceiling(right, max, caps, parser, depth + 1)?)
+        return unsigned_ceiling(left, max, caps, facts, parser, depth + 1)?
+            .checked_add(unsigned_ceiling(
+                right,
+                max,
+                caps,
+                facts,
+                parser,
+                depth + 1,
+            )?)
             .ok_or(Error::UnsupportedProgram);
     }
     Ok(max)

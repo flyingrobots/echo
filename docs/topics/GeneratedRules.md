@@ -218,9 +218,20 @@ out-of-range `at` and takes the authored path, while a program without the guard
 is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
-literal and nested-sum bounds. Other terms retain their full unsigned width,
-so zero identity is total and an unbounded parameter plus one refuses. Caller
-constraints do not cross into a helper frame.
+literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
+fact that compares the term with a constant (`term <= c` or `term == c`). Other
+terms retain their full unsigned width, so zero identity is total and an
+unbounded parameter plus one refuses. Caller constraints do not cross into a
+helper frame.
+
+Authored effect programs are judged the same way at preparation. The intent's
+input constraints dominate its whole body, so `at <= len(text)` as an input
+constraint proves `slice(text, 0, at)` in any later node. An unsigned `let`
+proven below its width carries that ceiling to later nodes, from counts,
+literals, sums or a constraint such as `at <= 10`. Earlier conjuncts of one
+`all` prove the later ones. A `require` proves nothing after it, as in Edict:
+its guard ends evaluation on failure but is not a dominating fact. A guard on
+another operand or offset proves nothing.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and a strict SourceFunctions publication containing an authored arithmetic helper.

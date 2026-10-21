@@ -3,7 +3,7 @@
   "providerAbi": "edict:target-provider@1.0.0",
   "provider": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:c5be5fff15933304f122e4793b3623d9fcc8339a4397de39ec6818490fceb229"
+    "digest": "sha256:bddac28dd1747d789594b06d9c285255e6707639cae1979014995499a26a2ce4"
   },
   "artifacts": [
     {
@@ -87,13 +87,13 @@
       "artifactKind": "lowerer",
       "resource": {
         "coordinate": "echo.dpo.lowerer/component@1",
-        "digest": "sha256:451f524579a8f610f04ee9bf70eb23a8b9c0d35e9a05ad2597ffe6d0f0444f9c"
+        "digest": "sha256:3655416bc8e5730805bddb13f19d1230b3bcda723f217bf14bdc8d471f5a2c1a"
       },
       "source": {
         "kind": "component",
         "component": {
           "coordinate": "echo.dpo.lowerer/component@1",
-          "digest": "sha256:451f524579a8f610f04ee9bf70eb23a8b9c0d35e9a05ad2597ffe6d0f0444f9c"
+          "digest": "sha256:3655416bc8e5730805bddb13f19d1230b3bcda723f217bf14bdc8d471f5a2c1a"
         }
       }
     },
@@ -178,13 +178,13 @@
       "artifactKind": "verifier",
       "resource": {
         "coordinate": "echo.dpo.verifier/component@1",
-        "digest": "sha256:d8941de630db70ad94a1b331ab3c4c2bca897bf98b13771708825236aeba1332"
+        "digest": "sha256:1655ba8b7374fde3c6d9b99464ef8b26f764dd8739b756f6e03a6404b391ddcf"
       },
       "source": {
         "kind": "component",
         "component": {
           "coordinate": "echo.dpo.verifier/component@1",
-          "digest": "sha256:d8941de630db70ad94a1b331ab3c4c2bca897bf98b13771708825236aeba1332"
+          "digest": "sha256:1655ba8b7374fde3c6d9b99464ef8b26f764dd8739b756f6e03a6404b391ddcf"
         }
       }
     }

@@ -869,11 +869,22 @@ The generated provider configuration schema recognizes the current
 `edict-effect-program/v1` kind under `echo.operation-lowering-configuration/v1`.
 Its declaration requires `identityLaw: 1`, encoded `graphSchema` and
 `footprintLaw` byte payloads, explicit input/result/allocation limits, and an
-explicit steps/read-bytes/write-bytes budget ceiling. Input and result limits
+explicit steps/read-bytes/write-bytes budget ceiling, and a nonempty
+`authorityProfile` label. Input and result limits
 are at most 65,536 bytes, allocation at most 16 MiB, and the encoded law/schema
 payloads must be nonempty and at most 16 MiB. Zero resource declarations are
 explicit values; steps must be positive. Unknown or missing fields refuse.
 Edict lawpack authoring can carry those byte payloads through `$edictBytes`.
+
+The configuration is the only source of an effect package's requested
+authority. The package's `authority_profile_identity` is the same label digest
+fixed operations use: BLAKE3 over `echo:operation-profile:v1\0`, the label's
+length as a little-endian `u64`, and the label bytes. It hashes a label, not a
+permission manifest, so it is a request: a label does not make a package
+read-only or confine its writes. What the package may do follows from the runtime
+owner's independently selected admission policy, which pins the exact package,
+operation, authority profile and budget, and from the admitted program, grants,
+footprint law and runtime checks.
 
 This schema crossing validates the configuration's shape and bounds. It does
 not validate the embedded law/schema semantics, produce an effect package, or

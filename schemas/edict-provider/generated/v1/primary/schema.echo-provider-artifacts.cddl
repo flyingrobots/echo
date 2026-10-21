@@ -1329,6 +1329,8 @@ echo-authored-effect-lowering-configuration = {
     readBytes: uint,
     writeBytes: uint,
   },
+  ; The requested authority class; the runtime owner's policy grants authority.
+  authorityProfile: echo-nonempty-tstr,
 }
 
 echo-attachment-create-if-absent-lowering-configuration = {

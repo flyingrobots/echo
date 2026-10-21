@@ -59,6 +59,7 @@ fn configuration() -> V {
                 ("writeBytes", V::Integer(4096)),
             ]),
         ),
+        ("authorityProfile", text("app.effect-writer@1")),
     ])
 }
 fn set(value: &mut V, name: &str, replacement: V) {
@@ -177,6 +178,14 @@ fn authored_effect_configuration_is_selected_with_explicit_resource_and_law_fiel
         text("echo.operation-lowering-configuration/v2"),
     );
     assert!(accepts(&config).is_err());
+    for profile in [text(""), V::Integer(1), V::Bytes(vec![1; 32])] {
+        let mut config = configuration();
+        set(&mut config, "authorityProfile", profile);
+        assert!(
+            accepts(&config).is_err(),
+            "the requested authority profile is nonempty text"
+        );
+    }
 }
 
 fn publication_control() -> Vec<u8> {

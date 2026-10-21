@@ -64,7 +64,6 @@ fn emit(
         source_artifact: source,
         source_domain: "edict.source/v1",
         obstruction_coordinate: "app.Refusal",
-        authority_profile_identity: [8; 32],
         configuration,
     })
 }
@@ -90,7 +89,10 @@ fn proposal_round_trips_the_current_runtime_decoder_without_rewriting_compiler_b
         panic!("closure")
     };
     assert!(!closure.iter().any(|(k, _)| k == &text("lawpack_identity")));
-    assert_eq!(get(&value, "authority_profile_identity"), &id(8));
+    assert_eq!(
+        get(&value, "authority_profile_identity"),
+        &V::Bytes(label_digest("app.effect-writer@1"))
+    );
 }
 
 #[test]
@@ -225,7 +227,6 @@ fn undeclared_obstruction_and_source_domain_refuse() {
         source_artifact: &source,
         source_domain: "edict.source/v1",
         obstruction_coordinate: "app.Refusal",
-        authority_profile_identity: [8; 32],
         configuration: &config,
     };
     assert_eq!(
@@ -241,5 +242,61 @@ fn undeclared_obstruction_and_source_domain_refuse() {
             ..input
         }),
         Err(E::InvalidArtifact)
+    );
+}
+
+/// The `echo:operation-profile:v1` label digest, written out independently of
+/// the lowerer: BLAKE3 over the domain, the label length as a little-endian
+/// u64, and the label bytes.
+fn label_digest(label: &str) -> Vec<u8> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:operation-profile:v1\0");
+    hasher.update(&(label.len() as u64).to_le_bytes());
+    hasher.update(label.as_bytes());
+    hasher.finalize().as_bytes().to_vec()
+}
+
+#[test]
+fn authority_profile_identity_is_derived_from_the_configuration() {
+    let (bundle, source, config) = material();
+    let package = decode(&emit(&bundle, &source, &config).expect("proposal")).expect("package");
+    let declared = get(&decode(&config).expect("config"), "authorityProfile").clone();
+    let V::Text(label) = declared else {
+        panic!("the fixture declares a text authority profile")
+    };
+    assert_eq!(
+        get(&package, "authority_profile_identity"),
+        &V::Bytes(label_digest(&label))
+    );
+
+    let mut other = decode(&config).expect("config");
+    set(&mut other, "authorityProfile", text("app.other-writer@1"));
+    let changed =
+        decode(&emit(&bundle, &source, &encoded(&other)).expect("proposal")).expect("package");
+    assert_eq!(
+        get(&changed, "authority_profile_identity"),
+        &V::Bytes(label_digest("app.other-writer@1"))
+    );
+}
+
+#[test]
+fn authority_profile_is_required_text() {
+    use echo_edict_provider_lowerer::effect_publication::EffectPublicationError as E;
+    let (bundle, source, config) = material();
+    for replacement in [text(""), V::Integer(1), V::Bytes(vec![1; 32])] {
+        let mut changed = decode(&config).expect("config");
+        set(&mut changed, "authorityProfile", replacement);
+        assert_eq!(
+            emit(&bundle, &source, &encoded(&changed)),
+            Err(E::InvalidConfiguration)
+        );
+    }
+    let V::Map(mut fields) = decode(&config).expect("config") else {
+        panic!("map")
+    };
+    fields.retain(|(key, _)| key != &text("authorityProfile"));
+    assert_eq!(
+        emit(&bundle, &source, &encoded(&V::Map(fields))),
+        Err(E::InvalidConfiguration)
     );
 }

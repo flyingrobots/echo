@@ -15,8 +15,6 @@ pub struct EffectPublicationInput<'a> {
     pub source_domain: &'a str,
     /// Explicit obstruction coordinate declared by the exports artifact.
     pub obstruction_coordinate: &'a str,
-    /// Proposed policy identity; this value does not grant authority.
-    pub authority_profile_identity: [u8; 32],
     /// Current canonical authored-effect configuration.
     pub configuration: &'a [u8],
 }
@@ -148,6 +146,7 @@ pub fn encode_effect_publication(
             "maxResultBytes",
             "maxAllocatedBytes",
             "budgetCeiling",
+            "authorityProfile",
         ],
         C,
     )?;
@@ -161,6 +160,16 @@ pub fn encode_effect_publication(
     if number(field(&config, "identityLaw", C)?)? != 1 {
         return Err(C);
     }
+    // The requested authority class comes only from the configuration, through
+    // the same label digest fixed operations use. It is a request: the runtime
+    // owner's admission policy decides what the package may do.
+    let V::Text(authority_label) = field(&config, "authorityProfile", C)? else {
+        return Err(C);
+    };
+    if authority_label.is_empty() {
+        return Err(C);
+    }
+    let authority = profile(authority_label);
     let graph = policy_bytes(&config, "graphSchema")?;
     let law = policy_bytes(&config, "footprintLaw")?;
     let catalog = policy_bytes(&config, "intrinsicCatalog")?;
@@ -233,10 +242,7 @@ pub fn encode_effect_publication(
         ("schema", text("echo.operation-package/v1")),
         ("operation_coordinate", text(&operation)),
         ("obstruction_coordinate", text(input.obstruction_coordinate)),
-        (
-            "authority_profile_identity",
-            V::Bytes(input.authority_profile_identity.to_vec()),
-        ),
+        ("authority_profile_identity", authority),
         (
             "semantic_closure",
             map([

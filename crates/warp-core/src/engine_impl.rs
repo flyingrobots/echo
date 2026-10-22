@@ -541,7 +541,7 @@ pub struct Engine {
 struct ReserveOutcome {
     receipt: TickReceipt,
     reserved: Vec<PendingRewrite>,
-    /// Unsorted, with repeats: the patch sorts and dedups them once.
+    /// Sorted, each slot once: read back from the scheduler's conflict sets.
     in_slots: Vec<SlotId>,
     out_slots: Vec<SlotId>,
 }
@@ -2293,8 +2293,6 @@ impl Engine {
     ) -> Result<ReserveOutcome, EngineError> {
         // Reserve phase: enforce independence against active frontier.
         let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
-        let mut in_slots: Vec<SlotId> = Vec::new();
-        let mut out_slots: Vec<SlotId> = Vec::new();
         let mut blocked_by: Vec<Vec<u32>> = Vec::with_capacity(drained.len());
         let mut reserved: Vec<PendingRewrite> = Vec::new();
         let mut reserved_entry_indices: Vec<u32> = Vec::new();
@@ -2340,17 +2338,14 @@ impl Engine {
                 },
             });
             if accepted {
-                extend_slots_from_footprint(
-                    &mut in_slots,
-                    &mut out_slots,
-                    &rewrite.scope.warp_id,
-                    &rewrite.footprint,
-                );
                 reserved.push(rewrite);
                 reserved_entry_indices.push(entry_idx_u32);
             }
             blocked_by.push(blockers);
         }
+        // The scheduler's conflict sets already hold the union of the
+        // reserved footprints, once each; the tick's slots are read from them.
+        let (in_slots, out_slots) = self.scheduler.take_reserved_slots(tx);
 
         Ok(ReserveOutcome {
             receipt: TickReceipt::new(tx, receipt_entries, blocked_by),
@@ -3427,84 +3422,6 @@ pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
     hasher.update(scope.warp_id.as_bytes());
     hasher.update(scope.local_id.as_bytes());
     hasher.finalize().into()
-}
-
-/// Extends the slot sets with resources from a warp-scoped footprint.
-///
-/// Footprint sets are now warp-scoped: they contain full `NodeKey`, `EdgeKey`,
-/// and `WarpScopedPortKey` values directly. The `_warp_id` parameter is kept
-/// for call-site compatibility but is no longer used (the `warp_id` is embedded
-/// in the footprint keys).
-fn extend_slots_from_footprint(
-    in_slots: &mut Vec<SlotId>,
-    out_slots: &mut Vec<SlotId>,
-    _warp_id: &WarpId, // Kept for API compat; warp_id is now in the footprint keys
-    fp: &crate::footprint::Footprint,
-) {
-    // Nodes (warp-scoped NodeKey)
-    for key in fp.n_read.iter() {
-        push_slot(in_slots, SlotId::Node(*key));
-    }
-    for key in fp.n_write.iter() {
-        push_slot(in_slots, SlotId::Node(*key));
-        push_slot(out_slots, SlotId::Node(*key));
-    }
-
-    // Edges (warp-scoped EdgeKey)
-    for key in fp.e_read.iter() {
-        push_slot(in_slots, SlotId::Edge(*key));
-    }
-    for key in fp.e_write.iter() {
-        push_slot(in_slots, SlotId::Edge(*key));
-        push_slot(out_slots, SlotId::Edge(*key));
-    }
-    for key in fp.r_read.iter() {
-        push_slot(in_slots, SlotId::OutgoingEdges(*key));
-    }
-    for key in fp.r_write.iter() {
-        push_slot(in_slots, SlotId::OutgoingEdges(*key));
-        push_slot(out_slots, SlotId::OutgoingEdges(*key));
-    }
-
-    // Attachments (already warp-scoped via AttachmentKey)
-    for key in fp.a_read.iter() {
-        push_slot(in_slots, SlotId::Attachment(*key));
-    }
-    for key in fp.a_write.iter() {
-        push_slot(in_slots, SlotId::Attachment(*key));
-        push_slot(out_slots, SlotId::Attachment(*key));
-    }
-
-    // Ports (warp-scoped: (WarpId, PortKey))
-    for port_key in fp.b_in.keys() {
-        push_slot(in_slots, SlotId::Port(*port_key));
-    }
-    for port_key in fp.b_out.keys() {
-        push_slot(in_slots, SlotId::Port(*port_key));
-        push_slot(out_slots, SlotId::Port(*port_key));
-    }
-}
-
-/// Below this many slots, a full vector simply grows.
-const SLOT_COMPACTION_MIN: usize = 256;
-
-/// Adds `slot` to a tick's unsorted slot list.
-///
-/// The list keeps repeats, because the patch sorts and dedups it once. When
-/// the list is full, it first drops its repeats; if that frees less than
-/// half of it, it doubles. So it holds at most about four times the tick's
-/// distinct slots however much the footprints overlap, and each compaction
-/// is paid for by at least half a list of pushes. The stable sort keeps the
-/// already sorted prefix cheap to sort again.
-fn push_slot(slots: &mut Vec<SlotId>, slot: SlotId) {
-    if slots.len() == slots.capacity() && slots.len() >= SLOT_COMPACTION_MIN {
-        slots.sort();
-        slots.dedup();
-        if slots.len() > slots.capacity() / 2 {
-            slots.reserve(slots.len());
-        }
-    }
-    slots.push(slot);
 }
 
 fn runtime_ingress_kind_node_id(intent_kind: &IntentKind) -> NodeId {

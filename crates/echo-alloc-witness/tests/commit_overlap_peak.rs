@@ -3,12 +3,13 @@
 //! Peak temporary memory of one commit whose rewrites claim heavily
 //! overlapping footprints.
 //!
-//! Reservation collects the tick's `in_slots` and `out_slots` as plain
-//! vectors that keep repeats until the patch sorts and dedups them, and the
-//! patch digest gathers its whole input before hashing it. Both add
-//! temporary memory. Here every rewrite reads the same `SHARED` nodes and
-//! their attachments, so the repeats are as dense as footprints allow (reads
-//! may overlap; writes may not).
+//! Reservation reads the tick's `in_slots` and `out_slots` back from the
+//! scheduler's conflict sets, and the patch digest gathers its whole input
+//! before hashing it. Both add temporary memory. Here every rewrite reads
+//! the same `SHARED` nodes and their attachments, so the footprints overlap
+//! as densely as they are allowed to (reads may overlap; writes may not).
+//! A slot collection that kept one entry per footprint claim would grow with
+//! that overlap; this test bounds the peak.
 //!
 //! The allocator tracks live bytes (allocated minus freed) during the
 //! commit and records their peak above the level when the commit began.
@@ -100,9 +101,9 @@ const REWRITES: usize = 4_096;
 ///
 /// The overlapping tick claims 131 read slots per rewrite instead of three,
 /// so the receipt and scheduler legitimately need more room: the
-/// `BTreeSet`-based collection peaked at about 3.8 times the control. Slot
-/// lists that keep every repeat and hand their full capacity to the patch
-/// peaked at about 11 times. Compacting the lists keeps it near 4.
+/// former second `BTreeSet` collection peaked at about 3.8 times the
+/// control. Slot lists that kept every repeat and handed their full capacity
+/// to the patch peaked at about 11 times.
 const BUDGET_FACTOR: isize = 6;
 
 fn shared(i: usize) -> NodeId {

@@ -17,6 +17,7 @@ use std::sync::Arc;
 use crate::footprint::{Footprint, OutgoingEdgeRange, WarpScopedPortKey};
 use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeKey};
 use crate::telemetry::TelemetrySink;
+use crate::tick_patch::SlotId;
 use crate::tick_delta::OpOrigin;
 use crate::tx::TxId;
 
@@ -50,6 +51,9 @@ pub(crate) struct ActiveFootprints {
     attachments_read: GenSet<crate::attachment::AttachmentKey>,
     /// Boundary ports touched - warp-scoped (both `b_in` and `b_out`, since any intersection conflicts)
     ports: GenSet<WarpScopedPortKey>,
+    /// Boundary ports written (`b_out`), kept apart from `ports` only so
+    /// that the tick's written slots can be read back from these sets.
+    ports_written: GenSet<WarpScopedPortKey>,
 }
 
 impl ActiveFootprints {
@@ -64,6 +68,81 @@ impl ActiveFootprints {
             attachments_written: GenSet::new(),
             attachments_read: GenSet::new(),
             ports: GenSet::new(),
+            ports_written: GenSet::new(),
+        }
+    }
+
+    /// The tick's slots: everything read or written (`in_slots`) and
+    /// everything written (`out_slots`), each sorted and free of repeats.
+    ///
+    /// These sets already hold exactly the union of the reserved footprints,
+    /// once each, so this replaces collecting the same keys a second time.
+    /// [`SlotId`] orders by kind (node, edge, attachment, port, outgoing
+    /// edges) and then by key, and each set iterates its keys in order, so
+    /// visiting the kinds in that order produces sorted lists directly.
+    fn slots(&self) -> (Vec<SlotId>, Vec<SlotId>) {
+        let mut in_slots = Vec::new();
+        union_into(
+            &mut in_slots,
+            &self.nodes_read,
+            &self.nodes_written,
+            SlotId::Node,
+        );
+        union_into(
+            &mut in_slots,
+            &self.edges_read,
+            &self.edges_written,
+            SlotId::Edge,
+        );
+        union_into(
+            &mut in_slots,
+            &self.attachments_read,
+            &self.attachments_written,
+            SlotId::Attachment,
+        );
+        in_slots.extend(self.ports.keys().map(SlotId::Port));
+        union_into(
+            &mut in_slots,
+            &self.ranges_read,
+            &self.ranges_written,
+            SlotId::OutgoingEdges,
+        );
+
+        let mut out_slots = Vec::new();
+        out_slots.extend(self.nodes_written.keys().map(SlotId::Node));
+        out_slots.extend(self.edges_written.keys().map(SlotId::Edge));
+        out_slots.extend(self.attachments_written.keys().map(SlotId::Attachment));
+        out_slots.extend(self.ports_written.keys().map(SlotId::Port));
+        out_slots.extend(self.ranges_written.keys().map(SlotId::OutgoingEdges));
+        (in_slots, out_slots)
+    }
+}
+
+/// Appends the sorted union of two sorted key sets, each key once.
+fn union_into<K: Ord + Copy>(
+    out: &mut Vec<SlotId>,
+    read: &GenSet<K>,
+    written: &GenSet<K>,
+    slot: fn(K) -> SlotId,
+) {
+    let mut read = read.keys().peekable();
+    let mut written = written.keys().peekable();
+    loop {
+        let next = match (read.peek(), written.peek()) {
+            (Some(r), Some(w)) => match r.cmp(w) {
+                Ordering::Less => read.next(),
+                Ordering::Greater => written.next(),
+                Ordering::Equal => {
+                    written.next();
+                    read.next()
+                }
+            },
+            (Some(_), None) => read.next(),
+            (None, Some(_)) => written.next(),
+            (None, None) => break,
+        };
+        if let Some(key) = next {
+            out.push(slot(key));
         }
     }
 }
@@ -280,7 +359,21 @@ impl RadixScheduler {
         }
         for port_key in pr.footprint.b_out.keys() {
             active.ports.mark(*port_key);
+            active.ports_written.mark(*port_key);
         }
+    }
+
+    /// Ends the reservation phase for `tx` and returns its slots (see
+    /// [`ActiveFootprints::slots`]).
+    ///
+    /// The conflict sets are dropped here rather than at [`Self::finalize_tx`],
+    /// so they hold only this phase's reservations: if the commit then fails
+    /// and the transaction commits again, its slots and its conflict checks
+    /// start clean instead of including the failed attempt.
+    pub(crate) fn take_reserved_slots(&mut self, tx: TxId) -> (Vec<SlotId>, Vec<SlotId>) {
+        self.active
+            .remove(&tx)
+            .map_or_else(|| (Vec::new(), Vec::new()), |active| active.slots())
     }
 
     /// Finalizes accounting for `tx`: clears internal state.
@@ -540,6 +633,14 @@ impl<K: Ord + Copy> GenSet<K> {
     pub fn mark(&mut self, key: K) {
         self.seen.insert(key, self.gen);
     }
+
+    /// Keys marked in the current generation, in ascending order.
+    pub fn keys(&self) -> impl Iterator<Item = K> + '_ {
+        self.seen
+            .iter()
+            .filter(|(_, &g)| g == self.gen)
+            .map(|(&key, _)| key)
+    }
 }
 
 // ============================================================================
@@ -638,6 +739,13 @@ impl DeterministicScheduler {
         }
 
         accepted
+    }
+
+    /// Ends the reservation phase for `tx` and returns its slots.
+    pub(crate) fn take_reserved_slots(&mut self, tx: TxId) -> (Vec<SlotId>, Vec<SlotId>) {
+        match &mut self.inner {
+            SchedulerImpl::Radix(s) => s.take_reserved_slots(tx),
+        }
     }
 
     pub(crate) fn finalize_tx(&mut self, tx: TxId) {

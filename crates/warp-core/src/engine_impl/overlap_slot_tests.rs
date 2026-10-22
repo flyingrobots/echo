@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::expect_used)] // Test assertions may abort the witness.
-//! Reservation collects a tick's slots as vectors with repeats. This witness
-//! commits rewrites whose footprints overlap, both across rewrites (shared
-//! reads) and within one footprint (a slot that is read and written), and
-//! checks that the committed patch carries exactly the sorted, repeat-free
-//! union that the former `BTreeSet` collection produced.
+#![allow(clippy::expect_used, clippy::panic)] // Test assertions may abort the witness; one rule panics on purpose.
+//! Reservation reads a tick's slots back from the scheduler's conflict sets.
+//! This witness commits rewrites whose footprints overlap, both across
+//! rewrites (shared reads) and within one footprint (a slot that is read and
+//! written), and checks that the committed patch carries exactly the sorted,
+//! repeat-free union that the former per-footprint `BTreeSet` collection
+//! produced.
 use std::collections::BTreeSet;
 
 use super::*;
@@ -157,4 +158,104 @@ fn overlapping_footprints_commit_the_same_sorted_slot_sets() {
     assert!(patch.in_slots().windows(2).all(|w| w[0] < w[1]));
     assert!(patch.out_slots().windows(2).all(|w| w[0] < w[1]));
     assert_eq!(patch.ops().len(), own.len());
+}
+
+const FAILING_RULE: &str = "test/overlap-fails";
+const RETRY_RULE: &str = "test/overlap-retry";
+
+fn retry_target() -> NodeId {
+    make_node_id("test/overlap-retry-target")
+}
+
+fn failed_only() -> NodeId {
+    make_node_id("test/overlap-failed-only")
+}
+
+fn writes(view: GraphView<'_>, nodes: &[NodeId]) -> Footprint {
+    let mut footprint = Footprint::default();
+    for node in nodes {
+        let key = NodeKey {
+            warp_id: view.warp_id(),
+            local_id: *node,
+        };
+        footprint.n_read.insert(key);
+        footprint.n_write.insert(key);
+        footprint.a_read.insert(AttachmentKey::node_alpha(key));
+        footprint.a_write.insert(AttachmentKey::node_alpha(key));
+    }
+    footprint
+}
+
+fn failing_rule() -> RewriteRule {
+    RewriteRule {
+        id: [8; 32],
+        name: FAILING_RULE,
+        left: PatternGraph { nodes: vec![] },
+        matcher: |_, _| true,
+        executor: RuleExecutor::legacy(|_, _, _| panic!("rule fails on purpose")),
+        compute_footprint: |view, _| writes(view, &[retry_target(), failed_only()]),
+        factor_mask: 0,
+        conflict_policy: ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
+fn retry_rule() -> RewriteRule {
+    RewriteRule {
+        id: [9; 32],
+        name: RETRY_RULE,
+        left: PatternGraph { nodes: vec![] },
+        matcher: |_, _| true,
+        executor: RuleExecutor::legacy(executor),
+        compute_footprint: |view, _| writes(view, &[retry_target()]),
+        factor_mask: 0,
+        conflict_policy: ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
+/// A commit whose rule panics leaves its transaction open. Committing that
+/// transaction again must judge and record only the new attempt: the failed
+/// attempt's reservations are neither conflicts nor slots of the new tick.
+#[test]
+fn a_failed_commit_leaves_no_reservations_behind() {
+    let mut store = GraphStore::default();
+    let ty = make_type_id("test/overlap-node");
+    for node in [retry_target(), failed_only()] {
+        store.insert_node(node, NodeRecord { ty });
+    }
+    let mut engine = Engine::new(store, retry_target());
+    engine.register_rule(failing_rule()).expect("rule registers");
+    engine.register_rule(retry_rule()).expect("rule registers");
+    let tx = engine.begin();
+    assert!(matches!(
+        engine.apply(tx, FAILING_RULE, &retry_target()),
+        Ok(ApplyResult::Applied)
+    ));
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        engine.commit_with_receipt(tx)
+    }));
+    assert!(failed.is_err(), "the failing rule must panic out of commit");
+
+    assert!(matches!(
+        engine.apply(tx, RETRY_RULE, &retry_target()),
+        Ok(ApplyResult::Applied)
+    ));
+    let (_, receipt, patch) = engine
+        .commit_with_receipt(tx)
+        .expect("the retry is judged on its own reservations");
+    assert!(receipt
+        .entries()
+        .iter()
+        .all(|entry| entry.disposition == TickReceiptDisposition::Applied));
+    let key = NodeKey {
+        warp_id: engine.current_root.warp_id,
+        local_id: retry_target(),
+    };
+    let expected = [
+        SlotId::Node(key),
+        SlotId::Attachment(AttachmentKey::node_alpha(key)),
+    ];
+    assert_eq!(patch.in_slots(), expected.as_slice());
+    assert_eq!(patch.out_slots(), expected.as_slice());
 }

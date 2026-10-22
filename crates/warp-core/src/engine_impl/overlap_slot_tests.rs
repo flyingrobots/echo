@@ -225,7 +225,9 @@ fn a_failed_commit_leaves_no_reservations_behind() {
         store.insert_node(node, NodeRecord { ty });
     }
     let mut engine = Engine::new(store, retry_target());
-    engine.register_rule(failing_rule()).expect("rule registers");
+    engine
+        .register_rule(failing_rule())
+        .expect("rule registers");
     engine.register_rule(retry_rule()).expect("rule registers");
     let tx = engine.begin();
     assert!(matches!(

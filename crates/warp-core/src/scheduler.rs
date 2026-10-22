@@ -17,8 +17,8 @@ use std::sync::Arc;
 use crate::footprint::{Footprint, OutgoingEdgeRange, WarpScopedPortKey};
 use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeKey};
 use crate::telemetry::TelemetrySink;
-use crate::tick_patch::SlotId;
 use crate::tick_delta::OpOrigin;
+use crate::tick_patch::SlotId;
 use crate::tx::TxId;
 
 #[cfg(test)]

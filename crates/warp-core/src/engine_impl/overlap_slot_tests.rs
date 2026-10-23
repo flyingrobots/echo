@@ -214,11 +214,12 @@ fn retry_rule() -> RewriteRule {
     }
 }
 
-/// A commit whose rule panics leaves its transaction open. Committing that
-/// transaction again must judge and record only the new attempt: the failed
-/// attempt's reservations are neither conflicts nor slots of the new tick.
+/// A commit whose rule panics closes its transaction. Applying to it or
+/// committing it again is refused with `UnknownTx`, and a new transaction is
+/// judged only on its own reservations: the failed attempt leaves neither
+/// conflicts nor slots behind.
 #[test]
-fn a_failed_commit_leaves_no_reservations_behind() {
+fn a_failed_commit_closes_its_transaction() {
     let mut store = GraphStore::default();
     let ty = make_type_id("test/overlap-node");
     for node in [retry_target(), failed_only()] {
@@ -229,23 +230,33 @@ fn a_failed_commit_leaves_no_reservations_behind() {
         .register_rule(failing_rule())
         .expect("rule registers");
     engine.register_rule(retry_rule()).expect("rule registers");
-    let tx = engine.begin();
+    let failed_tx = engine.begin();
     assert!(matches!(
-        engine.apply(tx, FAILING_RULE, &retry_target()),
+        engine.apply(failed_tx, FAILING_RULE, &retry_target()),
         Ok(ApplyResult::Applied)
     ));
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        engine.commit_with_receipt(tx)
+        engine.commit_with_receipt(failed_tx)
     }));
     assert!(failed.is_err(), "the failing rule must panic out of commit");
 
+    assert!(matches!(
+        engine.apply(failed_tx, RETRY_RULE, &retry_target()),
+        Err(EngineError::UnknownTx)
+    ));
+    assert!(matches!(
+        engine.commit_with_receipt(failed_tx),
+        Err(EngineError::UnknownTx)
+    ));
+
+    let tx = engine.begin();
     assert!(matches!(
         engine.apply(tx, RETRY_RULE, &retry_target()),
         Ok(ApplyResult::Applied)
     ));
     let (_, receipt, patch) = engine
         .commit_with_receipt(tx)
-        .expect("the retry is judged on its own reservations");
+        .expect("a new transaction is judged on its own reservations");
     assert!(receipt
         .entries()
         .iter()

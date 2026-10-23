@@ -2056,13 +2056,14 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
-- Committing a transaction again after a commit whose rule panicked no
-  longer fails with `InternalCorruption("scheduler rejected rewrite but no
-  blockers were found")`. The scheduler kept the failed attempt's
-  reservations until the transaction finished, so they rejected any new
-  rewrite that overlapped them. Reservations now end with the commit's
-  reserve phase, and the tick's `in_slots` and `out_slots` are read from
-  them, so neither includes the failed attempt.
+- A commit that fails, by returning an error or because a rule panics, now
+  closes its transaction; applying to it or committing it again returns
+  `EngineError::UnknownTx`. Before, the transaction stayed open with the
+  failed attempt's reservations still held, so committing it again rejected
+  any rewrite that overlapped them and failed with
+  `InternalCorruption("scheduler rejected rewrite but no blockers were
+  found")`. Reusing a transaction after a failed commit is unsupported, so
+  it is now refused.
 
 - Completed shadow application-root benchmark rounds are invalid when their
   recorded incremental/rebuild or live/replay parity is missing or failed, including

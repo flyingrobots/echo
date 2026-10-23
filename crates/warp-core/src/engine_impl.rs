@@ -2062,15 +2062,24 @@ impl Engine {
     /// This method also produces a delta tick patch (Paper III): a replayable boundary artifact
     /// whose digest is committed into the v2 commit hash.
     ///
+    /// A commit that fails closes its transaction. Whether it returns an error
+    /// or a rule panics out of it, `tx` is no longer live afterwards: applying
+    /// to it or committing it again returns [`EngineError::UnknownTx`], and new
+    /// work needs a new transaction. Committing a transaction again after a
+    /// failed attempt is unsupported, so it is refused rather than judged
+    /// against what the failed attempt left behind.
+    ///
     /// # Errors
-    /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
+    /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live
+    ///   transaction, including one whose earlier commit failed.
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
     ///   corrupted (e.g., a reserved rewrite references a missing rule).
     ///
     /// # Panics
     ///
     /// Panics if delta validation is enabled and the `SnapshotAccumulator` produces
-    /// a different `state_root` than the legacy computation.
+    /// a different `state_root` than the legacy computation, and propagates a
+    /// panic raised by a rule. Either way the transaction is closed first.
     pub fn commit_with_receipt(
         &mut self,
         tx: TxId,
@@ -2078,6 +2087,32 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.commit_live_tx(tx)));
+        match outcome {
+            Ok(Ok(committed)) => Ok(committed),
+            Ok(Err(err)) => {
+                self.close_failed_tx(tx);
+                Err(err)
+            }
+            Err(panic) => {
+                self.close_failed_tx(tx);
+                std::panic::resume_unwind(panic)
+            }
+        }
+    }
+
+    /// Closes a transaction whose commit failed, releasing its reservations.
+    fn close_failed_tx(&mut self, tx: TxId) {
+        self.live_txs.remove(&tx.value());
+        self.scheduler.finalize_tx(tx);
+    }
+
+    /// The body of [`Self::commit_with_receipt`] for a transaction known to be live.
+    fn commit_live_tx(
+        &mut self,
+        tx: TxId,
+    ) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), EngineError> {
         self.last_execution_footprints = std::sync::Arc::default();
         self.last_aborted_execution_footprints = std::sync::Arc::default();
         let policy_id = self.policy_id;

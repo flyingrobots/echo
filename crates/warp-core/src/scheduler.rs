@@ -366,10 +366,8 @@ impl RadixScheduler {
     /// Ends the reservation phase for `tx` and returns its slots (see
     /// [`ActiveFootprints::slots`]).
     ///
-    /// The conflict sets are dropped here rather than at [`Self::finalize_tx`],
-    /// so they hold only this phase's reservations: if the commit then fails
-    /// and the transaction commits again, its slots and its conflict checks
-    /// start clean instead of including the failed attempt.
+    /// Nothing reads the conflict sets after the reservation phase, so they
+    /// are taken here rather than kept until [`Self::finalize_tx`].
     pub(crate) fn take_reserved_slots(&mut self, tx: TxId) -> (Vec<SlotId>, Vec<SlotId>) {
         self.active
             .remove(&tx)

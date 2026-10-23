@@ -2329,6 +2329,15 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- A commit that fails, by returning an error or because a rule panics, now
+  closes its transaction; applying to it or committing it again returns
+  `EngineError::UnknownTx`. Before, the transaction stayed open with the
+  failed attempt's reservations still held, so committing it again rejected
+  any rewrite that overlapped them and failed with
+  `InternalCorruption("scheduler rejected rewrite but no blockers were
+  found")`. Reusing a transaction after a failed commit is unsupported, so
+  it is now refused.
+
 - Completed shadow application-root benchmark rounds are invalid when their
   recorded incremental/rebuild or live/replay parity is missing or failed, including
   builds without `delta_validate`.

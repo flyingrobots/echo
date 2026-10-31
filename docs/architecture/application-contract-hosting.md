@@ -605,6 +605,19 @@ implicit access to a nominal read payload's representation. The public missing-
 and non-strict-bound controls stop at compiler refusal; the corresponding
 provider defenses are exercised separately by the provider unit tests.
 
+The optional `--variant-provider-before` control selects the preceding matching
+publication. It requires that publication to accept an unchanged pure helper and
+refuse a variant-returning helper. The candidate must accept empty and
+payload-bearing helper results in both pure and bounded-read operations, with
+repeat-identical package/report bytes. The runtime consumer requires the exact
+`core.variant/v1` inventory and the authored variant declaration to remain in
+the embedded compiler Core. It checks the twelve original pure cases, repeated
+execution, one-under resource ceilings and package substitution. Empty
+constructors must incur more work/storage than the unchanged control, and
+payload constructors more than empty constructors; immutable reads retain their
+result and state checks. These helper-local values do not establish variant
+result encoding, matching, recursive types or the authored rope cutover.
+
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain
 an old matching source-function publication as a control. It must accept a U8
 identity helper and refuse a U8 literal helper; the selected candidate must

@@ -102,9 +102,9 @@ class PublicationTests(unittest.TestCase):
 
     def test_optional_variants_do_not_accumulate_disposable_vendor_copies(self):
         # Scale the 64 MiB ceiling and 4.5 MiB vendor copy down by 1024.
-        # Twenty non-read variants cover all three optional control groups.
+        # Twenty-four non-read variants cover all four optional control groups.
         with patch.object(publication, "MAX_WORK_BYTES", 64 * 1024):
-            self.repeat(True, variants=20, vendor_bytes=4608)
+            self.repeat(True, variants=24, vendor_bytes=4608)
 
     def test_changed_vendor_copy_refuses_before_disposal(self):
         with self.assertRaisesRegex(RuntimeError, "changed its vendor copy"):
@@ -125,7 +125,7 @@ class PublicationTests(unittest.TestCase):
                          "read/edict.lawpack.json", "read/source.edict"]:
                 file(name)
             providers = {}
-            for name in ["old", "candidate", "literal", "lookup", "unsigned"]:
+            for name in ["old", "candidate", "literal", "lookup", "unsigned", "variant"]:
                 file(name + "/component.wasm")
                 providers[name] = root / name
             args = SimpleNamespace(
@@ -136,8 +136,9 @@ class PublicationTests(unittest.TestCase):
                 provider=providers["candidate"], byte_literal_provider_before=providers["literal"],
                 byte_lookup_provider_before=providers["lookup"],
                 unsigned_byte_provider_before=providers["unsigned"],
+                variant_provider_before=providers["variant"],
             )
-            for name in ["literal", "lookup", "unsigned"]:
+            for name in ["literal", "lookup", "unsigned", "variant"]:
                 original = publication.selected_inputs(args)
                 component = providers[name] / "component.wasm"
                 component.write_bytes(component.read_bytes() + b"changed")

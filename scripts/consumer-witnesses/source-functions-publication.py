@@ -12,8 +12,9 @@ The compiler binary hash identifies the executed binary; source-to-binary build
 provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
-Eight baseline variants, plus six unsigned-byte and four byte-literal controls
-when selected, retain at most 64 MiB / 2048 filesystem entries here,
+Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
+byte-lookup (seven) and closed-variant (six) controls retain at most
+64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
 free-space floors, covering this work root, compiler caches and container layer.
@@ -141,6 +142,8 @@ def selected_inputs(args):
         result["byteLookupProviderBefore"] = inventory(args.byte_lookup_provider_before)
     if getattr(args, "unsigned_byte_provider_before", None) is not None:
         result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
+    if getattr(args, "variant_provider_before", None) is not None:
+        result["variantProviderBefore"] = inventory(args.variant_provider_before)
     return result
 
 
@@ -199,6 +202,24 @@ def source_variants(args):
                               '  let marker: U8 = lookupByte(input.probe,0u64);\n  let retained = retainBytes(actual);')
     read_lookup_constant = replace_once(read_lookup,
         '  let marker: U8 = lookupByte(input.probe,0u64);', '  let marker: U8 = 255u8;')
+    tagged = {}
+    for case, expression in [("empty", "WitnessChoice::Empty"),
+                             ("payload", "WitnessChoice::Data(value)")]:
+        for profile, value_type, original, intent, anchor, binding in [
+            ("pure", "Bytes<max=8>", pure, "assembleRange",
+             "let bytes = assembleFragments(input.firstFragment, input.secondFragment);",
+             "let marker: WitnessChoice = witnessChoice(input.firstFragment);"),
+            ("read", "text.FactBytes", read, "replaceRange",
+             "  let retained = retainBytes(actual);",
+             "  let marker: WitnessChoice = witnessChoice(actual);"),
+        ]:
+            declarations = (f"type WitnessChoice = variant {{ Empty, Data({value_type}) }};\n"
+                            f"fn witnessChoice(value: {value_type}) -> WitnessChoice {{ "
+                            f"return {expression}; }}\n\n")
+            authored = replace_once(original, f"intent {intent}(",
+                                    declarations + f"intent {intent}(")
+            tagged[f"variant-{profile}-{case}"] = replace_once(
+                authored, anchor, binding + "\n" + anchor)
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
             "changed-body": changed, "read": read, "u8-identity": identity,
             "u8-literal": u8_literal, "u8-invalid-bound": invalid,
@@ -208,7 +229,7 @@ def source_variants(args):
             "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
             "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
             "read-byte-lookup": read_lookup,
-            "read-byte-lookup-constant": read_lookup_constant}
+            "read-byte-lookup-constant": read_lookup_constant, **tagged}
 
 
 def child_limits():
@@ -464,7 +485,7 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
     elif refusal == "original-budget":
         provenance["refusalBoundary"] = require_budget_refusal(result)
-    elif refusal in {"u8-provider", "byte-lookup-provider"}:
+    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider"}:
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
@@ -570,6 +591,7 @@ def main():
     parser.add_argument("--unsigned-byte-provider-before", type=Path)
     parser.add_argument("--byte-literal-provider-before", type=Path)
     parser.add_argument("--byte-lookup-provider-before", type=Path)
+    parser.add_argument("--variant-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -654,6 +676,15 @@ def main():
                 ("read-byte-lookup-constant", variants["read-byte-lookup-constant"], args.provider,
                  {"read": True, "read_steps": READ_HELPER_STEPS}),
             ])
+        if args.variant_provider_before is not None:
+            specs.append(("pure-before-variants", variants["pure"], args.variant_provider_before, {}))
+            specs.append(("variant-pure-before", variants["variant-pure-payload"],
+                          args.variant_provider_before, {"refusal": "variant-provider"}))
+            for case in ["empty", "payload"]:
+                specs.append((f"variant-pure-{case}", variants[f"variant-pure-{case}"],
+                              args.provider, {}))
+                specs.append((f"variant-read-{case}", variants[f"variant-read-{case}"],
+                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS}))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

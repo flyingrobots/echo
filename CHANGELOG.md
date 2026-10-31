@@ -7,6 +7,10 @@
 
 ### Added
 
+- Optional public compiler/runtime controls for empty and payload-bearing variant
+  helpers require retained capability metadata, exact repeated artifacts and
+  explicit work/storage charges in pure and bounded-read operations.
+
 - Independent native provider judgments and runtime preparation check bounded
   closed variant types and constructors with exact union/payload identity and
   payload traversal. Runtime values retain their type, case and optional payload

@@ -592,6 +592,113 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
     println!("PUBLIC_READ_RUNTIME_OK {name}: 1 read, 5 bytes, 5 resource refusals, steps={} allocated={}", result.steps, result.allocated_bytes);
     Ok((result.steps, result.allocated_bytes))
 }
+fn variant_package(
+    root: &Path,
+    name: &str,
+    evidence: &serde_json::Value,
+) -> Result<(Vec<u8>, [u8; 32])> {
+    let (package, report) = emitted(&root.join(name), evidence)?;
+    let (package, pin) = checked_pair(package, report)?;
+    let value = decode(&package)?;
+    let program = decode(bytes(field(&value, "program")?)?)?;
+    let core = decode(bytes(field(&program, "core_artifact")?)?)?;
+    ensure!(
+        field(&core, "requiredCoreCapabilities")?
+            == &Value::Array(vec![Value::Text("core.variant/v1".into())]),
+        "public compiler variant capability was lost or changed"
+    );
+    ensure!(
+        text(field(
+            field(field(&core, "types")?, "WitnessChoice")?,
+            "kind"
+        )?)? == "Variant",
+        "public compiler variant declaration missing"
+    );
+    Ok((package, pin))
+}
+
+fn closed_variants(
+    root: &Path,
+    evidence: &serde_json::Value,
+    read_usage: (u64, u64),
+) -> Result<()> {
+    let input = encode(&record([
+        ("firstFragment", Value::Bytes(b"first".to_vec())),
+        ("secondFragment", Value::Bytes(b"last".to_vec())),
+    ]))?;
+    let (baseline, report) = emitted(&root.join("pure"), evidence)?;
+    let (baseline, pin) = checked_pair(baseline, report)?;
+    let baseline = edict_pure::evaluate(&baseline, pin, &input, limits())
+        .map_err(|e| anyhow!("variant control refused: {e:?}"))?;
+    let mut previous = (baseline.steps, baseline.allocated_bytes);
+    let mut previous_read = read_usage;
+    for case in ["empty", "payload"] {
+        let name = format!("variant-pure-{case}");
+        pure(root, &name, false, evidence)?;
+        let (package, pin) = variant_package(root, &name, evidence)?;
+        let result = edict_pure::evaluate(&package, pin, &input, limits())
+            .map_err(|e| anyhow!("variant runtime refused: {e:?}"))?;
+        ensure!(
+            result.output == baseline.output,
+            "constructor changed the authored byte result"
+        );
+        ensure!(
+            result.steps > previous.0 && result.allocated_bytes > previous.1,
+            "constructor or payload work was not charged"
+        );
+        ensure!(
+            Ok(result.clone()) == edict_pure::evaluate(&package, pin, &input, limits()),
+            "variant output/accounting changed on repeat"
+        );
+        for (limit, expected) in [
+            (
+                EvaluationLimits {
+                    max_steps: result.steps - 1,
+                    ..limits()
+                },
+                EvaluationError::StepBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_allocated_bytes: result.allocated_bytes - 1,
+                    ..limits()
+                },
+                EvaluationError::AllocationBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_output_bytes: result.output.len() as u64 - 1,
+                    ..limits()
+                },
+                EvaluationError::OutputBudgetExceeded,
+            ),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limit) == Err(expected),
+                "variant one-under resource ceiling did not refuse"
+            );
+        }
+        let mut wrong = pin;
+        wrong[0] ^= 1;
+        ensure!(
+            edict_pure::evaluate(&package, wrong, &input, limits())
+                == Err(EvaluationError::PackageIdentityMismatch),
+            "variant package substitution did not refuse"
+        );
+        previous = (result.steps, result.allocated_bytes);
+        let read_name = format!("variant-read-{case}");
+        variant_package(root, &read_name, evidence)?;
+        let current = atom_read(root, evidence, &read_name)?;
+        ensure!(
+            current.0 > previous_read.0 && current.1 > previous_read.1,
+            "read constructor or payload work was not charged"
+        );
+        previous_read = current;
+        println!("PUBLIC_VARIANT_RUNTIME_OK {case}: capability retained, 12 pure cases, repeat, 3 one-under budgets, identity refusal, bounded read");
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     ensure!(
         Path::new("/.dockerenv").is_file(),
@@ -618,6 +725,9 @@ fn main() -> Result<()> {
     pure(root, "renamed-pure", false, &evidence)?;
     pure(root, "changed-body", true, &evidence)?;
     let read_usage = atom_read(root, &evidence, "read")?;
+    if evidence["results"].get("variant-pure-payload").is_some() {
+        closed_variants(root, &evidence, read_usage)?;
+    }
     if evidence["results"].get("u8-literal").is_some() {
         unsigned_bytes(root, &evidence)?;
         let u8_usage = atom_read(root, &evidence, "read-u8-constant")?;

@@ -268,3 +268,28 @@ fn read_matches_refuse_capture_of_a_live_local() -> Check<()> {
     assert_eq!(s.live, live);
     Ok(())
 }
+
+#[test]
+fn read_matches_keep_outer_locals_visible_inside_each_arm() {
+    let core = core();
+    let outer = m([
+        ("id", t("outer")),
+        ("alphaName", t("outer")),
+        ("type", t("U8")),
+    ]);
+    // Check both the binderless Empty arm and the scoped Data arm.
+    for index in [0, 1] {
+        let mut s = scope(&core);
+        s.declared.insert("outer".into(), outer.clone());
+        s.live.insert("outer".into());
+        let mut value = matched();
+        let Value::Array(arms) = field_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        *field_mut(&mut arms[index], "body") = m([("kind", t("local")), ("ref", outer.clone())]);
+        assert!(
+            matches!(s.expression(&value, 0), Ok(Schema::Word(255))),
+            "arm {index}"
+        );
+    }
+}

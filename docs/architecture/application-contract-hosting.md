@@ -512,8 +512,12 @@ Missing or non-strict bounds must remain compiler refusals with no artifacts.
 The runtime consumer checks raw byte values, authored out-of-range fallback,
 repeat-identical accounting, invalid inputs, package identity and resource limits.
 Its read variant evaluates a lookup on an additional raw-byte input probe while
-retaining the original immutable read result and explicit read-limit refusals;
-this does not prove implicit access to a nominal read payload's representation.
+retaining the original immutable read result and explicit read-limit refusals.
+A constant-marker control retains the same probe input and must incur fewer
+steps and allocated bytes than the lookup variant. These checks do not prove
+implicit access to a nominal read payload's representation. The public missing-
+and non-strict-bound controls stop at compiler refusal; the corresponding
+provider defenses are exercised separately by the provider unit tests.
 
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain
 an old matching source-function publication as a control. It must accept a U8

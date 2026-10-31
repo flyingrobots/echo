@@ -17,7 +17,8 @@
   scoped to lookup evaluation; same-width unsigned comparisons and closed
   disjunctions execute with deterministic accounting. Function-free lookups
   enter the same totality judgment. Out-of-range access refuses before indexing.
-  Checked provider promotion and application cutover remain separate gates.
+  Checked provider components and digest-locked packages are refreshed.
+  Application cutover remains a separate gate.
 
 ### Fixed
 

@@ -242,6 +242,7 @@ impl<'a> Scope<'a> {
             return Err(invalid());
         }
         match text(value, "kind")? {
+            "match" => self.variant_match(value, depth),
             "local" => {
                 require_exact_fields(value, &["kind", "ref"], SUBJECT)?;
                 let local = field(value, "ref")?;
@@ -634,3 +635,5 @@ mod tests {
 mod variant_tests;
 
 mod variants;
+
+mod matches;

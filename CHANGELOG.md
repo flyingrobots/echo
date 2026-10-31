@@ -15,7 +15,9 @@
 - Independent native lowerer and verifier source-function judgments check
   exhaustive matches and lexical payload types, inspect unused arms for invalid
   calls, and bound dispatch and frame-copy costs. Direct intent matches cannot
-  skip budget validation when the Core function table is absent.
+  skip budget validation when the Core function table is absent. Bounded-read
+  relation and audit checks also admit direct matches while keeping payload
+  bindings local to their arms.
 
 - Independent native provider judgments and runtime preparation check bounded
   closed variant types and constructors with exact union/payload identity and

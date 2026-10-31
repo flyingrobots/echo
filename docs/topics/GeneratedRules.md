@@ -185,7 +185,9 @@ source-function judgments independently check match coverage, payload identity,
 all-arm call authority, and maximum path costs, including lexical frame copies.
 Direct intent matches trigger that judgment even without a function table.
 Checked component publication and the public execution witness remain required;
-bounded-read relation support for direct match expressions is still separate.
+bounded-read relation and audit now also check direct matches independently.
+Their arm scopes preserve outer declarations on success and refusal, and their
+proof-work counters carry across arms rather than resetting for each binder.
 
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the

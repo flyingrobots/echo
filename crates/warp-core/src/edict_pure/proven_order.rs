@@ -108,3 +108,74 @@ fn constant(value: &Value) -> Option<u64> {
     }
     number(field(literal, "value").ok()?).ok()
 }
+
+/// Strict proof for a byte lookup, including signed branch/lazy-path facts.
+pub(crate) fn strict_index(
+    coordinate: &Value,
+    args: &[Value],
+    minimum: u64,
+    facts: &[&Value],
+    path: &[(&Value, bool)],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<bool, Error> {
+    let [bytes, index] = args else {
+        return Err(Error::InvalidArtifact);
+    };
+    if constant(index).is_some_and(|i| i < minimum) {
+        return Ok(true);
+    }
+    let length = length_of(coordinate, bytes);
+    let a = key(index, parser)?;
+    let b = key(&length, parser)?;
+    for p in facts {
+        if strict_fact(p, true, &a, &b, parser, depth)? {
+            return Ok(true);
+        }
+    }
+    for (p, truth) in path {
+        if strict_fact(p, *truth, &a, &b, parser, depth)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+fn strict_fact(
+    p: &Value,
+    truth: bool,
+    index: &[u8],
+    length: &[u8],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<bool, Error> {
+    parser.enter(depth)?;
+    match text_field(p, "kind")? {
+        "not" => strict_fact(field(p, "value")?, !truth, index, length, parser, depth + 1),
+        "all" if truth => {
+            for p in array(field(p, "values")?)? {
+                if strict_fact(p, true, index, length, parser, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        "any" if !truth => {
+            for p in array(field(p, "values")?)? {
+                if strict_fact(p, false, index, length, parser, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        "compare" => {
+            let a = key(field(p, "left")?, parser)?;
+            let b = key(field(p, "right")?, parser)?;
+            Ok(match (text_field(p, "op")?, truth) {
+                ("<", true) | (">=", false) => a == index && b == length,
+                (">", true) | ("<=", false) => b == index && a == length,
+                _ => false,
+            })
+        }
+        _ => Ok(false),
+    }
+}

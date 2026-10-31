@@ -157,6 +157,20 @@ impl Parser<'_> {
                 value: Box::new(self.expr(value, depth + 1)?),
             });
         }
+        if callee == "core.bytes.at" {
+            let ([value, index], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteAt {
+                min,
+                max,
+                value: Box::new(self.expr(value, depth + 1)?),
+                index: Box::new(self.expr(index, depth + 1)?),
+            });
+        }
         if callee == "core.bytes.length" {
             let ([value], [coordinate]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);
@@ -250,7 +264,7 @@ impl Parser<'_> {
                 self.predicate(field(value, "value")?, depth + 1)?,
             )));
         }
-        if text_field(value, "kind")? == "all" {
+        if matches!(text_field(value, "kind")?, "all" | "any") {
             exact_fields(value, &["kind", "values"])?;
             let values = array(field(value, "values")?)?;
             if values.is_empty() {
@@ -259,12 +273,15 @@ impl Parser<'_> {
             if values.len() > self.remaining {
                 return Err(Error::UnsupportedProgram);
             }
-            return Ok(Predicate::All(
-                values
-                    .iter()
-                    .map(|value| self.predicate(value, depth + 1))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ));
+            let parsed = values
+                .iter()
+                .map(|value| self.predicate(value, depth + 1))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(if text_field(value, "kind")? == "all" {
+                Predicate::All(parsed)
+            } else {
+                Predicate::Any(parsed)
+            });
         }
         exact_fields(value, &["kind", "op", "left", "right"])?;
         if text_field(value, "kind")? != "compare" {
@@ -273,6 +290,10 @@ impl Parser<'_> {
         let op = match text_field(value, "op")? {
             "==" => Comparison::Equal,
             "<=" => Comparison::LessOrEqual,
+            "<" => Comparison::Less,
+            ">" => Comparison::Greater,
+            ">=" => Comparison::GreaterOrEqual,
+            "!=" => Comparison::NotEqual,
             _ => return Err(Error::UnsupportedProgram),
         };
         Ok(Predicate::Compare {

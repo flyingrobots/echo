@@ -2,6 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+mod byte_at;
+#[cfg(test)]
+mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
 mod order;
@@ -116,6 +119,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         edges.insert(callee);
                     } else if ![
                         "core.bytes.count",
+                        "core.bytes.at",
                         "core.bytes.isUtf8",
                         "core.bytes.length",
                         "core.bytes.concat",
@@ -154,6 +158,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             definitions: &definitions,
             summaries: &summaries,
             proven: Vec::new(),
+            path: Vec::new(),
             bound: Vec::new(),
             proven_sum: None,
         }
@@ -180,6 +185,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         definitions: &definitions,
         summaries: &summaries,
         proven: Vec::new(),
+        path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
     };
@@ -292,6 +298,7 @@ struct Checker<'a, 'b> {
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
     proven: Vec<&'a Value>,
+    path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
     /// The refined cap of the addition `expression` last proved, keyed by the
@@ -480,8 +487,13 @@ impl<'a> Checker<'a, '_> {
                 exact(value, &["kind", "predicate", "then", "else"])?;
                 let (predicate, predicate_height) =
                     self.predicate(get(value, "predicate")?, frame, depth + 1)?;
+                let boundary = self.path.len();
+                self.path.push((get(value, "predicate")?, true));
                 let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                self.path.truncate(boundary);
+                self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, frame, depth + 1)?;
+                self.path.truncate(boundary);
                 height = predicate_height.max(yes.height).max(no.height) + 1;
                 charge.append(predicate)?;
                 charge.append(Charge::choice(yes.charge, no.charge))?;
@@ -552,6 +564,21 @@ impl<'a> Checker<'a, '_> {
                             };
                             order::proven(left, right, &self.proven, self.types)?
                         }
+                        "core.bytes.at" => {
+                            let ([coordinate], [Schema::Blob { low, .. }]) =
+                                (types, declared.as_slice())
+                            else {
+                                return Err(());
+                            };
+                            byte_at::valid(
+                                coordinate,
+                                arguments,
+                                *low,
+                                &self.proven,
+                                &self.path,
+                                self.types,
+                            )?
+                        }
                         "core.bytes.slice" => {
                             let [coordinate] = types else {
                                 return Err(());
@@ -591,7 +618,7 @@ impl<'a> Checker<'a, '_> {
     ) -> Check<(Charge, usize)> {
         self.types.step(depth)?;
         match string(get(predicate, "kind")?)? {
-            "all" => {
+            "all" | "any" => {
                 exact(predicate, &["kind", "values"])?;
                 let values = sequence(get(predicate, "values")?)?;
                 if values.is_empty() {
@@ -603,13 +630,19 @@ impl<'a> Checker<'a, '_> {
                 };
                 let mut height = 0;
                 let inherited = self.proven.len();
+                let boundary = self.path.len();
+                let conjunction = string(get(predicate, "kind")?)? == "all";
                 for child in values {
                     let (charge, child_height) = self.predicate(child, frame, depth + 1)?;
                     total.append(charge)?;
                     height = height.max(child_height);
-                    self.proven.push(child);
+                    if conjunction {
+                        self.proven.push(child);
+                    }
+                    self.path.push((child, conjunction));
                 }
                 self.proven.truncate(inherited);
+                self.path.truncate(boundary);
                 return Ok((total, height + 1));
             }
             "not" => {
@@ -647,7 +680,9 @@ impl<'a> Checker<'a, '_> {
             ("==", Schema::Blob { high: a, .. }, Schema::Blob { high: b, .. }) => {
                 u128::from((*a).max(*b))
             }
-            ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => 0,
+            ("==" | "!=" | "<" | "<=" | ">" | ">=", Schema::Word(a), Schema::Word(b)) if a == b => {
+                0
+            }
             _ => return Err(()),
         };
         charge.append(Charge {
@@ -662,6 +697,7 @@ impl<'a> Checker<'a, '_> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
@@ -818,6 +854,17 @@ fn intrinsic(
                 },
             ))
         }
+        ("core.bytes.at", [actual, Schema::Word(index_max)], [expected @ Schema::Blob { .. }])
+            if *index_max == u64::MAX && expected.encloses(actual) && order_proven =>
+        {
+            Ok((
+                Schema::Word(u64::from(u8::MAX)),
+                Charge {
+                    ticks: 3,
+                    storage: 64,
+                },
+            ))
+        }
         ("core.bytes.length", [actual], [expected @ Schema::Blob { .. }])
             if expected.encloses(actual) =>
         {
@@ -964,7 +1011,7 @@ fn predicate_expressions<'a>(
                 expressions.push((get(predicate, "right")?, depth + 1));
             }
             "not" => pending.push((get(predicate, "value")?, depth + 1)),
-            "all" => {
+            "all" | "any" => {
                 for child in sequence(get(predicate, "values")?)? {
                     pending.push((child, depth + 1));
                 }

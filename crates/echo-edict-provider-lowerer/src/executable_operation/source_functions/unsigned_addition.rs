@@ -20,6 +20,7 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                         Ok("core.integer.add"
                             | "core.integer.subtract"
                             | "core.bytes.slice"
+                            | "core.bytes.at"
                             | "core.bytes.count")
                     )
                 {

@@ -156,6 +156,7 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    path: &[],
                 },
                 &definitions,
                 definition.source_owned,
@@ -189,6 +190,7 @@ pub(crate) fn decode(
             Proof {
                 caps: &caps,
                 facts: &[],
+                path: &[],
             },
             &definitions,
             definition.source_owned,
@@ -234,6 +236,7 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    path: &[],
                 },
                 &definitions,
                 true,
@@ -297,11 +300,16 @@ type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
     facts: &'c [&'v Value],
+    path: &'c [(&'v Value, bool)],
 }
 impl<'c, 'v> Proof<'c, 'v> {
     /// What a caller has proven: binding caps it owns and dominating facts.
     pub(crate) const fn new(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
-        Self { caps, facts }
+        Self {
+            caps,
+            facts,
+            path: &[],
+        }
     }
 }
 /// Proven upper bounds of earlier unsigned bindings in the same helper body.
@@ -408,19 +416,29 @@ pub(crate) fn infer<'v>(
                 parser,
                 depth + 1,
             )?;
+            let mut path = proof.path.to_vec();
+            path.push((field(value, "predicate")?, true));
             let left = infer(
                 field(value, "then")?,
                 scope,
-                proof,
+                Proof {
+                    path: &path,
+                    ..proof
+                },
                 definitions,
                 source,
                 parser,
                 depth + 1,
             )?;
+            path.pop();
+            path.push((field(value, "predicate")?, false));
             let right = infer(
                 field(value, "else")?,
                 scope,
-                proof,
+                Proof {
+                    path: &path,
+                    ..proof
+                },
                 definitions,
                 source,
                 parser,
@@ -500,6 +518,24 @@ pub(crate) fn infer<'v>(
                     if expected == actual =>
                 {
                     Ok(RuntimeType::Bool)
+                }
+                (
+                    "core.bytes.at",
+                    [actual, RuntimeType::Unsigned(index_max)],
+                    [expected @ RuntimeType::Bytes { min, .. }],
+                ) if *index_max == u64::MAX && accepts(expected, actual) => {
+                    if !super::proven_order::strict_index(
+                        &types[0],
+                        arguments,
+                        *min,
+                        proof.facts,
+                        proof.path,
+                        parser,
+                        depth + 1,
+                    )? {
+                        return Err(Error::UnsupportedProgram);
+                    }
+                    Ok(RuntimeType::Unsigned(u64::from(u8::MAX)))
                 }
                 ("core.bytes.length", [actual], [expected @ RuntimeType::Bytes { .. }])
                     if accepts(expected, actual) =>
@@ -626,6 +662,30 @@ pub(crate) fn check_predicate<'v>(
 ) -> Result<(), Error> {
     parser.enter(depth)?;
     match text_field(value, "kind")? {
+        "any" => {
+            exact_fields(value, &["kind", "values"])?;
+            let values = array(field(value, "values")?)?;
+            if values.is_empty() {
+                return Err(Error::InvalidArtifact);
+            }
+            let mut path = proof.path.to_vec();
+            for value in values {
+                check_predicate(
+                    value,
+                    scope,
+                    Proof {
+                        path: &path,
+                        ..proof
+                    },
+                    definitions,
+                    source,
+                    parser,
+                    depth + 1,
+                )?;
+                path.push((value, false));
+            }
+            return Ok(());
+        }
         "all" => {
             exact_fields(value, &["kind", "values"])?;
             let values = array(field(value, "values")?)?;
@@ -641,6 +701,7 @@ pub(crate) fn check_predicate<'v>(
                     Proof {
                         caps: proof.caps,
                         facts: &prefix,
+                        path: proof.path,
                     },
                     definitions,
                     source,
@@ -702,11 +763,11 @@ pub(crate) fn check_predicate<'v>(
     match (text_field(value, "op")?, left, right) {
         ("==", RuntimeType::Bool, RuntimeType::Bool)
         | ("==", RuntimeType::Bytes { .. }, RuntimeType::Bytes { .. }) => Ok(()),
-        ("==" | "<=", RuntimeType::Unsigned(left), RuntimeType::Unsigned(right))
-            if left == right =>
-        {
-            Ok(())
-        }
+        (
+            "==" | "!=" | "<" | "<=" | ">" | ">=",
+            RuntimeType::Unsigned(left),
+            RuntimeType::Unsigned(right),
+        ) if left == right => Ok(()),
         _ => Err(Error::UnsupportedProgram),
     }
 }
@@ -824,6 +885,11 @@ impl Heights<'_> {
             Expr::ByteUtf8 { value, .. }
             | Expr::ByteLength { value, .. }
             | Expr::ByteCount { value, .. } => self.expr(value, depth + 1)? + 1,
+            Expr::ByteAt { value, index, .. } => {
+                self.expr(value, depth + 1)?
+                    .max(self.expr(index, depth + 1)?)
+                    + 1
+            }
             Expr::ByteSlice {
                 value, start, end, ..
             } => {
@@ -854,7 +920,7 @@ impl Heights<'_> {
                     + 1
             }
             Predicate::Not(value) => self.predicate(value, depth + 1)? + 1,
-            Predicate::All(values) => {
+            Predicate::All(values) | Predicate::Any(values) => {
                 let mut maximum = 0;
                 for value in values {
                     maximum = maximum.max(self.predicate(value, depth + 1)?);
@@ -937,6 +1003,7 @@ mod predicate_validation_tests {
             Proof {
                 caps: &BTreeMap::new(),
                 facts: &[],
+                path: &[],
             },
             &BTreeMap::new(),
             true,
@@ -1009,6 +1076,7 @@ mod predicate_validation_tests {
                 Proof {
                     caps: &BTreeMap::new(),
                     facts: &[],
+                    path: &[],
                 },
                 &BTreeMap::new(),
                 true,
@@ -1068,6 +1136,7 @@ mod predicate_validation_tests {
                     Proof {
                         caps: &BTreeMap::new(),
                         facts: &[],
+                        path: &[],
                     },
                     &BTreeMap::new(),
                     true,

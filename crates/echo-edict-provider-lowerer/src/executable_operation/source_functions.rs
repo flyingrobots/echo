@@ -2,6 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+mod byte_at;
+#[cfg(test)]
+mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
 mod order;
@@ -71,6 +74,7 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
     /// The refined cap of the addition `expression` last proved, keyed by the
@@ -170,6 +174,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
     };
@@ -343,9 +348,11 @@ impl<'a> Judgment<'a> {
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_path = std::mem::take(&mut self.path);
         let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.path = caller_path;
         self.bound = caller_bounds;
         self.active.remove(name);
         result
@@ -527,8 +534,13 @@ impl<'a> Judgment<'a> {
                 exact(value, &["kind", "predicate", "then", "else"])?;
                 let predicate =
                     self.predicate(get(value, "predicate")?, scope, source, prefix + 1)?;
+                let checkpoint = self.path.len();
+                self.path.push((get(value, "predicate")?, true));
                 let yes = self.expression(get(value, "then")?, scope, source, prefix + 1)?;
+                self.path.truncate(checkpoint);
+                self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, scope, source, prefix + 1)?;
+                self.path.truncate(checkpoint);
                 cost = cost.plus(predicate.0)?.plus(yes.cost.maximum(no.cost))?;
                 depth = predicate.1.max(yes.depth).max(no.depth) + 1;
                 union(yes.ty, no.ty)?
@@ -593,6 +605,27 @@ impl<'a> Judgment<'a> {
                                 bytes: 128,
                             })?;
                             Ty::Word(u64::MAX)
+                        }
+                        (
+                            "core.bytes.at",
+                            [actual, Ty::Word(index_max)],
+                            [expected @ Ty::Bytes(min, _)],
+                        ) if includes(expected, actual) && *index_max == u64::MAX => {
+                            if !byte_at::valid(
+                                &types[0],
+                                arguments,
+                                *min,
+                                &self.proven,
+                                &self.path,
+                                &mut self.work,
+                            )? {
+                                return Err(());
+                            }
+                            cost = cost.plus(Cost {
+                                steps: 3,
+                                bytes: 64,
+                            })?;
+                            Ty::Word(u64::from(u8::MAX))
                         }
                         ("core.bytes.length", [actual], [expected @ Ty::Bytes(_, _)])
                             if includes(expected, actual) =>
@@ -715,7 +748,7 @@ impl<'a> Judgment<'a> {
                     self.predicate(get(value, "value")?, scope, source, prefix + 1)?;
                 return Ok((cost.plus(Cost { steps: 1, bytes: 0 })?, height + 1));
             }
-            "all" => {
+            "all" | "any" => {
                 exact(value, &["kind", "values"])?;
                 let values = list(get(value, "values")?)?;
                 if values.is_empty() {
@@ -724,13 +757,19 @@ impl<'a> Judgment<'a> {
                 let mut cost = Cost { steps: 1, bytes: 0 };
                 let mut height = 0;
                 let inherited = self.proven.len();
+                let path_start = self.path.len();
+                let conjunction = string(get(value, "kind")?)? == "all";
                 for value in values {
                     let (child, depth) = self.predicate(value, scope, source, prefix + 1)?;
                     cost = cost.plus(child)?;
                     height = height.max(depth);
-                    self.proven.push(value);
+                    if conjunction {
+                        self.proven.push(value);
+                    }
+                    self.path.push((value, conjunction));
                 }
                 self.proven.truncate(inherited);
+                self.path.truncate(path_start);
                 return Ok((cost, height + 1));
             }
             _ => {}
@@ -752,7 +791,7 @@ impl<'a> Judgment<'a> {
         ) {
             ("==", Ty::Bool, Ty::Bool) => 0,
             ("==", Ty::Bytes(_, a), Ty::Bytes(_, b)) => (*a).max(*b),
-            ("==" | "<=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
+            ("==" | "!=" | "<" | "<=" | ">" | ">=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
             _ => return Err(()),
         };
         Ok((
@@ -765,6 +804,7 @@ impl<'a> Judgment<'a> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;

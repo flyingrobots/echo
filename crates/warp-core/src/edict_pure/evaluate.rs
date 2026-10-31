@@ -350,6 +350,31 @@ pub(crate) fn expression(
                 .fold(0_u64, |count, byte| count + u64::from(byte == needle));
             meter.copy(&Value::Integer(i128::from(count)))
         }
+        Expr::ByteAt {
+            min,
+            max,
+            value,
+            index,
+        } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            let index = expression(index, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            validate(&index, &RuntimeType::Unsigned(u64::MAX), meter, depth + 1)?;
+            let (Value::Bytes(bytes), Value::Integer(index)) = (value, index) else {
+                return Err(Error::InvalidArtifact);
+            };
+            let index = usize::try_from(index).map_err(|_| Error::InvalidArtifact)?;
+            let byte = *bytes.get(index).ok_or(Error::InvalidArtifact)?;
+            meter.copy(&Value::Integer(i128::from(byte)))
+        }
         Expr::ByteLength { min, max, value } => {
             let value = expression(value, locals, helpers, meter, depth + 1)?;
             validate(
@@ -459,6 +484,14 @@ pub(crate) fn predicate(
         Predicate::Not(value) => {
             return self::predicate(value, locals, helpers, meter, depth + 1).map(|value| !value);
         }
+        Predicate::Any(values) => {
+            for value in values {
+                if self::predicate(value, locals, helpers, meter, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
         Predicate::All(values) => {
             for value in values {
                 if !self::predicate(value, locals, helpers, meter, depth + 1)? {
@@ -474,6 +507,12 @@ pub(crate) fn predicate(
         (Comparison::Equal, Value::Bool(left), Value::Bool(right)) => Ok(left == right),
         (Comparison::Equal, Value::Integer(left), Value::Integer(right)) => Ok(left == right),
         (Comparison::LessOrEqual, Value::Integer(left), Value::Integer(right)) => Ok(left <= right),
+        (Comparison::Less, Value::Integer(left), Value::Integer(right)) => Ok(left < right),
+        (Comparison::Greater, Value::Integer(left), Value::Integer(right)) => Ok(left > right),
+        (Comparison::GreaterOrEqual, Value::Integer(left), Value::Integer(right)) => {
+            Ok(left >= right)
+        }
+        (Comparison::NotEqual, Value::Integer(left), Value::Integer(right)) => Ok(left != right),
         (Comparison::Equal, Value::Bytes(left), Value::Bytes(right)) => {
             // Charge the full operand aperture before comparing, including unequal
             // lengths. Cost cannot depend on a library's short-circuit behavior.

@@ -307,6 +307,22 @@ child errors and budget refusals propagate unchanged. Negation participates in
 the same syntax-node and combined expression/helper depth limits as conjunction.
 It adds no proof assumptions or byte-normalization behavior.
 
+The generic `core.bytes.at<OperandType>(bytes, index)` operation returns one raw
+byte as U8. Its index is exactly U64 and must be strictly below the exact
+operand's length. A constant below a guaranteed minimum length is sufficient;
+a byte maximum, equality to length or a bound on a different operand is not.
+Both providers independently prove this domain, including when the optional
+source-function table is absent. Helper frames do not borrow caller facts.
+Conditional arms and lazy Boolean operands carry only their dominating truths:
+a later conjunction operand sees earlier operands true, while a later
+disjunction operand sees them false. These lookup facts do not escape their arm.
+The shared pure/read interpreter checks actual byte bounds before indexing,
+preserves NUL and non-UTF-8 octets, and charges operand evaluation, two value
+validations and one scalar result copy. The lookup expression itself is one
+work unit; its result occupies one 64-byte value cell. Package-size and decode
+limits bound validation work before execution. Native support does not promote
+checked component carriers or prove an application operation.
+
 The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
 raw bytes in the half-open range `[start, end)`. It validates the operand's byte
 bounds and both offsets as U64, then refuses reversed or out-of-bounds ranges
@@ -416,9 +432,11 @@ nominal tag; materialization, validation and encoding bounds remain based on
 the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
 receive provider refusal. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and
-closed nonempty conjunction/negation trees. Their static cost includes the
+closed nonempty conjunction/disjunction/negation trees and same-width unsigned
+comparisons. Their static cost includes the
 full declared scan aperture; conjunction cost bounds every child even though
-execution may stop early. The verifier dependency census traverses nested
+execution may stop early. Disjunction also bounds all children while executing
+only until one is true. The verifier dependency census traverses nested
 predicates before checking helper call order and cycles.
 For modules containing source functions, partial subtraction and slicing need
 literal evidence sufficient for totality: ordered unsigned operands, or ordered

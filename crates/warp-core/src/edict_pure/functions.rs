@@ -295,7 +295,8 @@ fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
 
 type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
-/// dominating order facts (earlier conjuncts of enclosing `all`s).
+/// dominating order facts (earlier conjuncts of enclosing `all`s), plus
+/// signed branch/lazy-prefix truths used only by the strict lookup judgment.
 #[derive(Clone, Copy)]
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,

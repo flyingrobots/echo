@@ -305,13 +305,16 @@ The interpreter validates the entire child before execution, evaluates it once,
 and inverts its Boolean result. A negation wrapper costs one predicate step;
 child errors and budget refusals propagate unchanged. Negation participates in
 the same syntax-node and combined expression/helper depth limits as conjunction.
-Negation does not normalize bytes. Selected path truths can use negation to
+Negation does not normalize bytes. Dominating truths can use negation to
 prove a byte lookup domain, as described below.
 
 The generic `core.bytes.at<OperandType>(bytes, index)` operation returns one raw
 byte as U8. Its index is exactly U64 and must be strictly below the exact
 operand's length. A constant below a guaranteed minimum length is sufficient;
 a byte maximum, equality to length or a bound on a different operand is not.
+Accepted guards include `index < length` and `length > index`, or the false
+arms of `index >= length` and `length <= index`. Negation reverses the truth
+required of its child. Non-strict upper bounds do not prove lookup safety.
 Both providers independently prove this domain, including when the optional
 source-function table is absent. Helper frames do not borrow caller facts.
 Conditional arms and lazy Boolean operands carry only their dominating truths:
@@ -439,11 +442,12 @@ full declared scan aperture; conjunction cost bounds every child even though
 execution may stop early. Disjunction also bounds all children while executing
 only until one is true. The verifier dependency census traverses nested
 predicates before checking helper call order and cycles.
-For modules containing source functions, partial subtraction and slicing need
-literal evidence sufficient for totality: ordered unsigned operands, or ordered
-U64 slice offsets within the operand's guaranteed minimum length. Caller
-`where` constraints are not inherited into helper frames. Function-free legacy
-fixtures retain their existing admission and runtime behavior.
+Partial subtraction, slicing and lookup require evidence sufficient for their
+respective domains, as described above; bounded addition requires a proven
+result ceiling. Caller `where` constraints are not inherited into helper frames.
+Function-free modules also enter the totality judgment when they contain
+addition, subtraction, slicing, lookup or byte counting. Absence of a helper
+table does not exempt these operations from their domain checks.
 
 Source-function admission derives conservative bounds for the whole operation:
 input validation and materialization, every argument and call occurrence,

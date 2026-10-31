@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Echo-owned order proofs for partial byte slicing and unsigned subtraction.
+//! Echo-owned order proofs for slicing/subtraction and strict byte lookup.
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
 //! constants, or a dominating fact: an earlier conjunct of an enclosing
 //! `all`, or a pure intent's input constraint. Conditional predicates,
-//! negations and later conjuncts prove nothing. This follows Edict's
-//! proven-range semantics without trusting any annotation in the artifact.
+//! negations and later conjuncts prove nothing for this order judgment.
+//! The separate strict lookup judgment below also uses signed conditional and
+//! lazy-prefix truths. Neither judgment trusts annotations in the artifact.
 use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1 as Value};
 
 use super::syntax::Parser;

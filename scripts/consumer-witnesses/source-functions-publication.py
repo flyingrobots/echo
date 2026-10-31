@@ -234,6 +234,11 @@ def source_variants(args):
             original_value = "input.firstFragment" if profile == "pure" else "actual"
             # A Data arm returning fallback would fail the retained byte cases.
             fallback = original_value if case == "empty" else 'b""'
+            if profile == "read" and case == "payload":
+                # The read relation admits helper results, not direct byte literals.
+                consumed = replace_once(consumed, f"intent {intent}(",
+                    f'fn emptyFallback() -> {value_type} {{ return b""; }}\n\nintent {intent}(')
+                fallback = "emptyFallback()"
             selected = f"selectChoice(marker, {fallback})"
             replacement = (f"let bytes = assembleFragments({selected}, input.secondFragment);"
                            if profile == "pure" else f"  let retained = retainBytes({selected});")

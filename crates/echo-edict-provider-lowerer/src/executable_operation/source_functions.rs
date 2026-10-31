@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+#[cfg(test)]
+mod byte_literals_tests;
 mod order;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -445,6 +447,21 @@ impl<'a> Judgment<'a> {
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bytes" {
+                    exact(literal, &["kind", "value"])?;
+                    let Value::Bytes(bytes) = get(literal, "value")? else {
+                        return Err(());
+                    };
+                    let length = u64::try_from(bytes.len()).map_err(|_| ())?;
+                    return Ok(Fact {
+                        ty: Ty::Bytes(length, length),
+                        cost: cost.plus(Cost {
+                            steps: 1,
+                            bytes: length.checked_add(64).ok_or(())?,
+                        })?,
+                        depth: 0,
+                    });
+                }
                 if string(get(literal, "kind")?)? == "bool" {
                     exact(literal, &["kind", "value"])?;
                     if !matches!(get(literal, "value")?, Value::Bool(_)) {

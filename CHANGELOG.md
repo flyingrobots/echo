@@ -5,18 +5,38 @@
 
 ## Unreleased
 
+### Added
+
+- The guarded source-function candidate publisher accepts an explicit bounded
+  lowerer/verifier component pair before checked-distribution promotion. Public
+  compiler and runtime witnesses include optional old/new-provider raw-byte
+  helper controls, exact repeated artifacts and resource/identity refusals.
+
 ### Fixed
 
 - Independent provider judgments and private pure/read runtime parsing accept
   U8 literals in the exact 0 through 255 domain, preserving existing scalar
   metering and rejecting malformed or cross-width helper values. Provider
   subtraction is restricted to U32/U64, matching the runtime's supported widths.
-- The public source-function witness accepts the current compiler's exact
-  source-diagnostic/CLI-summary envelope without accepting unrelated errors or
-  artifacts on refusal. Optional U8 controls compare matching old/new providers,
+- Optional public source-function U8 controls compare matching old/new providers,
   exact repeated artifacts and actual pure/read runtime behavior. Read controls
   now test resource refusals explicitly.
 
+- The public source-function witness recognizes Amblicit's specific source
+  budget diagnostic followed by its CLI summary, while retaining rejection of
+  unrelated diagnostics and executable artifacts on a refused build.
+- Native lowerer, independent verifier and runtime helper judgments now accept
+  raw byte constants, including empty and non-UTF-8 values, with exact length
+  typing and materialization charges. Malformed payloads, extra fields and
+  narrower declared result bounds still refuse. Checked lowerer and verifier
+  carriers are refreshed from two independently reproduced designated builds;
+  generated package assets retain their existing publication selection. The
+  runtime retains its existing value-cell-plus-payload materialization meter.
+
+- The generator selects the synchronous Wesley kernel without its unused async
+  resilience dependencies, removing the affected Tokio/Ninelives chain from
+  the workspace lockfile. The Markdown tooling dependency is updated to
+  pulldown-cmark 0.13.5. No advisory exceptions are added.
 
 ### Removed
 

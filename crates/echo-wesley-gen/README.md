@@ -17,7 +17,9 @@ The preferred input is GraphQL SDL lowered directly through the published
 `wesley-core` crate. The older `echo-ir/v1` JSON stdin path is retained for
 fixtures and compatibility while consumers move off the historical JavaScript
 generator. Direct SDL lowering records the exact pinned `wesley-core` version
-in the provenance bound into each generated Rust artifact hash.
+in the provenance bound into each generated Rust artifact hash. The exact
+`0.3.0-alpha.2` dependency disables default features: this synchronous compiler
+consumer does not need Wesley's optional async resilience stack.
 
 Echo's external Edict provider uses a separate strict source contract:
 [`schemas/edict-provider/echo-provider-semantics-v1.json`](../../schemas/edict-provider/echo-provider-semantics-v1.json).
@@ -262,8 +264,8 @@ cargo +1.96.0 run --locked -p echo-wesley-gen \
   --example source_functions_publication_witness -- /owned-data/source-functions-provider
 ```
 
-Run this only inside the same guarded worker, after refreshing the checked
-component carriers, with a new destination in its guarded data root. It selects
+Run this only inside the same guarded worker, with a new destination in its
+guarded data root. By default it uses the checked component carriers. It selects
 `ProviderContractPublicationV1::SourceFunctions` and admits the complete package
 before writing it. The default checked generators retain the pure-binding
 publication. Supplying `--source-modules` after the new destination explicitly
@@ -278,10 +280,27 @@ That variant adds only the `source-closure.echo-operation` input alternative
 and its `edict.source-closure/v1` owning schema binding. It requires the
 source-module contract publication; a legacy pack lacks the required root and
 fails generation. Package admission accepts the exact legacy 31-binding set or
-the exact extended 32-binding set. This candidate route uses the supplied
-checked component carriers; structural package admission alone does not prove
-that those bytes execute a module build. Neither route grants runtime authority merely by generating a
-schema-valid package.
+the exact extended 32-binding set.
+
+To exercise rebuilt components before checked-distribution promotion, supply
+both explicit candidate paths:
+
+```bash
+cargo +1.96.0 run --locked -p echo-wesley-gen \
+  --example source_functions_publication_witness -- /owned-data/candidate-provider \
+  --source-modules \
+  --lowerer-component /owned-data/lowerer.component.wasm \
+  --verifier-component /owned-data/verifier.component.wasm
+```
+
+Each candidate must be a regular file of at most 16 MiB. The options require
+each other; package assembly and digest admission precede destination creation.
+The package manifest binds the supplied bytes. This does not establish their
+source-to-binary provenance or promote checked carriers. Retain designated-build
+receipts separately, and invoke the real public compiler and runtime witnesses
+against the selected package. Structural package admission alone does not prove
+that those bytes execute a module build. Neither route grants runtime authority
+merely by generating a schema-valid package.
 
 ## Usage
 

@@ -291,6 +291,82 @@ fn unsigned_bytes(root: &Path, evidence: &serde_json::Value) -> Result<()> {
     }
     Ok(())
 }
+
+fn byte_literals(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    let (package_bytes, report_bytes) = emitted(&root.join("byte-literals"), evidence)?;
+    let (package, pin) = checked_pair(package_bytes, report_bytes)?;
+    let cases: [(&[u8], &[u8], &[u8]); 3] = [
+        (b"", b"unused", b""),
+        (b"a", b"", &[0, 255, 10, 13]),
+        (&[255], b"x", &[0, 255, 10, 13]),
+    ];
+    for (first, second, expected) in cases {
+        let input = encode(&record([
+            ("firstFragment", Value::Bytes(first.to_vec())),
+            ("secondFragment", Value::Bytes(second.to_vec())),
+        ]))?;
+        let outcome = edict_pure::evaluate(&package, pin, &input, limits())
+            .map_err(|error| anyhow!("byte literal runtime refused: {error:?}"))?;
+        ensure!(
+            decode(&outcome.output)? == record([("bytes", Value::Bytes(expected.to_vec()))]),
+            "wrong authored byte literal result"
+        );
+        ensure!(
+            Ok(outcome) == edict_pure::evaluate(&package, pin, &input, limits()),
+            "byte literal output or accounting changed on repeat"
+        );
+    }
+    let input = encode(&record([
+        ("firstFragment", Value::Bytes(b"a".to_vec())),
+        ("secondFragment", Value::Bytes(vec![])),
+    ]))?;
+    for (limits, expected) in [
+        (
+            EvaluationLimits {
+                max_steps: 1,
+                ..limits()
+            },
+            EvaluationError::StepBudgetExceeded,
+        ),
+        (
+            EvaluationLimits {
+                max_allocated_bytes: 1,
+                ..limits()
+            },
+            EvaluationError::AllocationBudgetExceeded,
+        ),
+        (
+            EvaluationLimits {
+                max_output_bytes: 1,
+                ..limits()
+            },
+            EvaluationError::OutputBudgetExceeded,
+        ),
+    ] {
+        ensure!(
+            edict_pure::evaluate(&package, pin, &input, limits) == Err(expected),
+            "byte literal host resource limit did not refuse"
+        );
+    }
+    let invalid = encode(&record([
+        ("firstFragment", Value::Bytes(vec![1; 9])),
+        ("secondFragment", Value::Bytes(vec![])),
+    ]))?;
+    ensure!(
+        edict_pure::evaluate(&package, pin, &invalid, limits())
+            == Err(EvaluationError::InvalidInput),
+        "byte literal input bound did not refuse"
+    );
+    let mut wrong_pin = pin;
+    wrong_pin[0] ^= 1;
+    ensure!(
+        edict_pure::evaluate(&package, wrong_pin, &input, limits())
+            == Err(EvaluationError::PackageIdentityMismatch),
+        "byte literal package substitution did not refuse"
+    );
+    println!("PUBLIC_BYTE_LITERAL_RUNTIME_OK 3 literal cases, 3 resource refusals, input and identity refusals");
+    Ok(())
+}
 fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u64, u64)> {
     let (package_bytes, report_bytes) = emitted(&root.join(name), evidence)?;
     let (package, pin) = checked_pair(package_bytes, report_bytes)?;
@@ -458,6 +534,9 @@ fn main() -> Result<()> {
             u8_usage.0 > read_usage.0 && u8_usage.1 > read_usage.1,
             "the additional U8 binding incurred no runtime work/storage"
         );
+    }
+    if evidence["results"].get("byte-literals").is_some() {
+        byte_literals(root, &evidence)?;
     }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");
     Ok(())

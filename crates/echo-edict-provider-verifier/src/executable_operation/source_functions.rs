@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+#[cfg(test)]
+mod byte_literals_tests;
 mod order;
 mod types;
 #[cfg(test)]
@@ -383,6 +385,25 @@ impl<'a> Checker<'a, '_> {
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bytes" {
+                    exact(literal, &["kind", "value"])?;
+                    let Value::Bytes(octets) = get(literal, "value")? else {
+                        return Err(());
+                    };
+                    let size = u64::try_from(octets.len()).map_err(|_| ())?;
+                    charge.append(Charge {
+                        ticks: 1,
+                        storage: u128::from(size) + 64,
+                    })?;
+                    return Ok(Expression {
+                        schema: Schema::Blob {
+                            low: size,
+                            high: size,
+                        },
+                        charge,
+                        height: 0,
+                    });
+                }
                 if string(get(literal, "kind")?)? == "bool" {
                     exact(literal, &["kind", "value"])?;
                     if !matches!(get(literal, "value")?, Value::Bool(_)) {

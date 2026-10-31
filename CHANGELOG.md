@@ -12,6 +12,13 @@
   compiler and runtime witnesses include optional old/new-provider raw-byte
   helper controls, exact repeated artifacts and resource/identity refusals.
 
+- Generic `core.bytes.at` with an exact U64 index and U8 result under
+  independently proven strict bounds. Conditional and lazy Boolean guards stay
+  scoped to lookup evaluation; same-width unsigned comparisons and closed
+  disjunctions execute with deterministic accounting. Function-free lookups
+  enter the same totality judgment. Out-of-range access refuses before indexing.
+  Checked provider promotion and application cutover remain separate gates.
+
 ### Fixed
 
 - Public source-function witnesses verify and recycle disposable pure vendor

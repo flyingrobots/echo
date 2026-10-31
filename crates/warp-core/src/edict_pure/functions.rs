@@ -328,6 +328,27 @@ pub(crate) fn infer<'v>(
 ) -> Result<RuntimeType, Error> {
     parser.enter(depth)?;
     match text_field(value, "kind")? {
+        "variant" => {
+            let (ty, tag, payload) = super::variants::constructor(parser, value)?;
+            let RuntimeType::Variant { cases, .. } = &ty else {
+                return Err(Error::InvalidArtifact);
+            };
+            if let (Some(expected), Some(payload)) = (&cases[tag], payload) {
+                let actual = infer(
+                    payload,
+                    scope,
+                    proof,
+                    definitions,
+                    source,
+                    parser,
+                    depth + 1,
+                )?;
+                if !accepts(expected, &actual) {
+                    return Err(Error::InvalidArtifact);
+                }
+            }
+            Ok(ty)
+        }
         "local" => {
             exact_fields(value, &["kind", "ref"])?;
             let reference = field(value, "ref")?;
@@ -850,6 +871,10 @@ impl Heights<'_> {
         self.enter(depth)?;
         let height = match expression {
             Expr::Constant(_) | Expr::Local(_) => 0,
+            Expr::Variant { payload, .. } => match payload {
+                Some(payload) => self.expr(payload, depth + 1)? + 1,
+                None => 1,
+            },
             Expr::Field(base, _) => self.expr(base, depth + 1)? + 1,
             Expr::Record(fields) => {
                 let mut maximum = 0;
@@ -938,6 +963,14 @@ impl Heights<'_> {
 fn type_height(ty: &RuntimeType) -> usize {
     match ty {
         RuntimeType::Nominal(_, representation) => type_height(representation),
+        RuntimeType::Variant { cases, .. } => {
+            1 + cases
+                .values()
+                .filter_map(Option::as_ref)
+                .map(type_height)
+                .max()
+                .unwrap_or(0)
+        }
         RuntimeType::Record(fields) => fields
             .iter()
             .map(|(_, ty)| type_height(ty) + 1)

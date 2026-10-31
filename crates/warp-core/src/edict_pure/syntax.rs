@@ -73,6 +73,7 @@ impl Parser<'_> {
                 }
                 Ok(RuntimeType::Bytes { min, max })
             }
+            "Variant" => self.variant_type(definition, name, depth),
             "Record" => {
                 let mut fields = Vec::new();
                 for (key, value) in map(field(definition, "fields")?)? {
@@ -87,6 +88,7 @@ impl Parser<'_> {
     pub fn expr(&mut self, value: &Value, depth: usize) -> Result<Expr, Error> {
         self.enter(depth)?;
         match text_field(value, "kind")? {
+            "variant" => self.variant_expression(value, depth),
             "local" => {
                 exact_fields(value, &["kind", "ref"])?;
                 Ok(Expr::Local(

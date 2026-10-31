@@ -13,6 +13,11 @@ pub(crate) const MAX_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Expr {
     Constant(Value),
+    Variant {
+        identity: String,
+        case: String,
+        payload: Option<Box<Expr>>,
+    },
     Local(String),
     Field(Box<Expr>, String),
     Record(Vec<(String, Expr)>),
@@ -93,9 +98,16 @@ pub(crate) enum Comparison {
 pub(crate) enum RuntimeType {
     Bool,
     Unsigned(u64),
-    Bytes { min: u64, max: u64 },
+    Bytes {
+        min: u64,
+        max: u64,
+    },
     Record(Vec<(String, RuntimeType)>),
     Nominal(String, Box<RuntimeType>),
+    Variant {
+        identity: String,
+        cases: BTreeMap<String, Option<RuntimeType>>,
+    },
 }
 
 impl RuntimeType {

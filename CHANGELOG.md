@@ -7,10 +7,11 @@
 
 ### Added
 
-- Independent native provider judgments check bounded closed variant types and
-  constructors with exact union/payload identity, payload traversal and
-  conservative budgets. Runtime execution and checked component promotion
-  remain separate gates.
+- Independent native provider judgments and runtime preparation check bounded
+  closed variant types and constructors with exact union/payload identity and
+  payload traversal. Runtime values retain their type, case and optional payload
+  with deterministic storage/copy charges and resource refusals. Checked provider
+  components are not promoted by these native changes.
 
 - The guarded source-function candidate publisher accepts an explicit bounded
   lowerer/verifier component pair before checked-distribution promotion. Public

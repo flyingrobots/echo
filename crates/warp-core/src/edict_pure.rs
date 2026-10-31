@@ -17,6 +17,9 @@ pub(crate) mod model;
 pub(crate) mod proven_order;
 pub(crate) mod syntax;
 pub(crate) mod values;
+#[cfg(test)]
+mod variant_tests;
+mod variants;
 
 use echo_edict_canonical::decode_canonical_cbor_v1;
 

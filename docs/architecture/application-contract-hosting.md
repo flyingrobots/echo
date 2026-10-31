@@ -434,8 +434,8 @@ pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
 the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list and effectful helper forms
-receive provider refusal. Native closed-variant checks are described below;
-runtime variant preparation and execution remain unsupported. Native lowerer and independent verifier judgments
+receive provider refusal. Native closed-variant checks and runtime realization
+are described below. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and
 closed nonempty conjunction/disjunction/negation trees and same-width unsigned
 comparisons. Their static cost includes the
@@ -475,7 +475,7 @@ These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
 
-#### Native closed-variant judgments
+#### Closed variants in native judgments and the runtime
 
 The native lowerer and independent verifier additionally judge acyclic named
 Core variant types and constructor expressions in source-function bodies,
@@ -515,14 +515,43 @@ takes their maximum. Copy, validation and encoding scratch participate in
 whole-operation budgets with checked arithmetic. These are conservative
 logical storage bounds, not measured allocator usage or runtime wire acceptance.
 
+The runtime separately resolves the closed type graph and checks constructors,
+payload types, scope, helper dependencies and combined depth before execution.
+Malformed, empty, duplicate, recursive, oversized or storage-overflowing variant
+graphs refuse under the existing decode apertures. Variant expressions retain
+their exact type identity and case, and evaluate a present payload once in the
+current frame. Passing a value to a helper moves it into the fresh parameter
+frame; a later parameter read incurs the ordinary value-copy charges.
+
+A realized variant is a canonical map with `type` and `case` text values and
+an optional `payload` value. `type` is the resolved original union coordinate;
+the selected case determines payload presence and type. Absent payload is
+omitted, never replaced by null or a numeric tag. Exact fields, identity, case
+and payload are validated at typed boundaries. This representation does not
+make variants records in the static type system or grant field-projection
+access to their metadata.
+
+Construction charges the expression step, two text-value steps and five
+metadata cells plus eight key bytes and both text lengths. A present payload
+adds one key cell and seven key bytes before its expression executes. All
+metadata storage is charged before materialization. Copying uses the existing
+recursive value charges; validation charges the variant, both metadata values
+and a present typed payload. Budgets remain cumulative and architecture
+independent. Neither the representation nor these logical units imply measured
+allocator sizes or a compiler result-encoding capability.
+
 The mirrored input corpus in each provider's `source_functions/variant_tests.rs`
 checks construction, named/imported/nominal identities, malformed metadata,
 hidden payload dependencies and captures, partial calls, recursive/deep/wide
 graphs, arithmetic overflow and underfunded whole-operation bounds. Production
 judgments share no implementation. These native checks do not update checked
 component carriers or establish a compiler-emitted verified variant package.
-Runtime preparation/evaluation, matching, recursive variants, independent
-component reproduction and promotion remain separate gates.
+The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
+value validation, constructor and copy charges, nested/called payloads, fresh
+frames, imported/nominal identities, graph apertures and step/allocation/output
+limits. Those synthetic runtime fixtures establish no compiler provenance.
+Public compiler-package/runtime evidence, matching, recursive variants,
+independent component reproduction and promotion remain separate gates.
 
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).

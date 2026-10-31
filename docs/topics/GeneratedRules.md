@@ -172,27 +172,37 @@ independently selected trusted-host pin and bounded input, work, storage and
 output limits. This is ordinary computation, not package admission, graph
 mutation, an Action, a Tick, a receipt or recovery evidence.
 
-The native interpreter can prepare exhaustive closed-variant `match` expressions
-in source helpers. It checks every case exactly once, requires payload binders to
-have the declared payload type, and confines each binder to its own arm. Evaluation
-runs the scrutinee once and only the selected body. Dispatch charges each inspected
-arm; a payload-binding arm copies the outer lexical frame through the ordinary
-meter and moves the selected payload into it. The synthetic witnesses in
-`edict_pure::variant_tests` cover arm selection, malformed coverage, binder scope,
-and exact work/storage refusal. This runtime capability alone does not establish
-public compiler-package execution of matches. Native lowerer and verifier
-source-function judgments independently check match coverage, payload identity,
-all-arm call authority, and maximum path costs, including lexical frame copies.
-Matches in intent bindings or results trigger those provider judgments even
-without a function table. Unlike source-helper preparation, the runtime parser
-for intent expressions does not repeat typed coverage or binder-scope inference.
-It rejects duplicate case tags and empty arm lists. Evaluation validates each
-binding and the result against its declared type, and refuses if the selected
-case has no arm. Provider verification remains required for the static rules.
-Checked component publication and the public execution witness remain required;
-bounded-read relation and audit now also check direct matches independently.
-Their arm scopes preserve outer declarations on success and refusal, and their
-proof-work counters carry across arms rather than resetting for each binder.
+The native interpreter prepares exhaustive closed-variant `match` expressions
+in source helpers. It checks every case exactly once, requires payload binders
+to have the declared payload type, and confines each binder to its own arm.
+Evaluation runs the scrutinee once and only the selected body. Dispatch charges
+each inspected arm; a payload-binding arm copies the outer lexical frame through
+the ordinary meter and moves the selected payload into it. Synthetic witnesses
+in `edict_pure::variant_tests` cover arm selection, malformed coverage, binder
+scope, populated-frame costs and exact work/storage refusal.
+
+Native lowerer and verifier source-function judgments independently check
+coverage, payload identity, all-arm call authority and maximum path costs,
+including lexical frame copies. A direct match is one in the checked expression
+itself, rather than only in a called helper. Direct matches in intent bindings
+or results trigger these judgments even without a function table. Unlike
+source-helper preparation, the runtime parser for intent expressions does not
+repeat typed coverage or binder-scope inference. It rejects duplicate case tags
+and empty arm lists. Evaluation validates each binding and the result against
+its declared type, and refuses if the selected case has no arm. Provider
+verification remains required for the static rules.
+
+The bounded-read relation and audit independently check direct matches. Both
+preserve outer declarations on success and refusal, and carry proof-work
+counters across arms rather than resetting them for each binder. A variant
+helper result or local can supply the scrutinee; direct constructor expressions
+remain outside the bounded-read relation profile. See the
+[closed-variant architecture](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+for binder identity, payload omission and accounting rules.
+
+These native checks alone do not establish public compiler-package execution
+of matches. Checked component publication and the public execution witness
+remain required.
 
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the

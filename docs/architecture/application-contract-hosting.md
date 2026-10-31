@@ -499,12 +499,25 @@ selection of the verified package digest. The parser boundary witnesses in
 `edict_pure/variant_tests.rs` are synthetic and establish no public compiler
 package provenance.
 
+An arm may omit its binder and discard the payload. A binder cannot reuse an
+already available local's ID. It may reuse a pending or currently being defined
+local's ID, but each reference in the arm must match the binder's complete
+declaration. This temporary scope does not expose the pending outer value.
+Dispatch charges one step for every inspected arm, so arm order affects cost.
+A selected payload-binding arm copies the entire available frame, including
+locals its body does not reference; the payload itself moves into that frame.
+Both providers include these copies in the worst-arm bound. Matching requires
+a variant type; a nominal wrapper does not grant variant-match semantics.
+
 The separate bounded-read relation judgments retain the full union identity and
 bounded alternative graph for variant-valued helper results and local bindings.
 They charge every case during type expansion, including payloadless cases, and
 refuse empty, malformed or recursive graphs. Variant values do not acquire record
 field access to their metadata. Constructor expressions in source-function
-bodies remain subject to the independent source-function judgments above.
+bodies remain subject to the independent source-function judgments above. Direct
+constructor expressions remain unsupported in the read relation itself; a helper
+result or local can supply a match scrutinee. Both read judgments preserve outer
+declarations and cumulative proof work across temporary arm scopes.
 
 The generic pure and bounded-read provider entry points independently admit
 only the known `core.variant/v1` required capability, once. Every variant
@@ -582,10 +595,10 @@ independent. Neither the representation nor these logical units imply measured
 allocator sizes or a compiler result-encoding capability.
 
 The mirrored input corpus in each provider's `source_functions/variant_tests.rs`
-checks construction, named/imported/nominal identities, malformed metadata,
-hidden payload dependencies and captures, partial calls, recursive/deep/wide
-graphs, arithmetic overflow and underfunded whole-operation bounds. Production
-judgments share no implementation. Native checks alone establish neither
+checks construction, exhaustive matches, named/imported/nominal identities,
+malformed metadata, hidden payload dependencies and captures, partial calls,
+recursive/deep/wide graphs, arithmetic overflow and underfunded whole-operation
+bounds. Production judgments share no implementation. Native checks alone establish neither
 component reproduction nor compiler-emitted package provenance.
 The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
 value validation, constructor and copy charges, nested/called payloads, fresh

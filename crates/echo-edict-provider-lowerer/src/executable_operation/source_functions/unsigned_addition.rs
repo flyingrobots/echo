@@ -4,10 +4,9 @@
 use super::{get, list, literal, string, Check, Value};
 
 /// Whether an intent body calls an operation only this judgment checks: an
-/// addition's no-overflow proof, a subtraction's or slice's range proof, or a
-/// count's full-byte scan charge, or exhaustive variant dispatch.
-/// A Core without a function table still needs
-/// the judgment for any of them.
+/// addition's no-overflow proof, a subtraction's or slice's range proof,
+/// a count's full-byte scan charge, or exhaustive variant dispatch.
+/// A Core without a function table still needs the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut pending = vec![get(core, "intents")?];
     while let Some(value) = pending.pop() {

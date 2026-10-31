@@ -958,6 +958,8 @@ CDDL validates the closed envelope, 1–64 module entries and typed SHA-256
 digests. Source import authentication, root membership, reachability and
 aggregate byte/depth budgets remain Edict semantic obligations; structural
 admission does not prove them. See the [publication boundary](../../schemas/edict-provider/contracts/source-modules-v1/README.md).
+The explicit `BoundedStateFold` selection admits the exact [fold publication](../../schemas/edict-provider/contracts/bounded-state-fold-v1/README.md) from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`. It widens Core and Target expression schemas while retaining the source-closure inventory. Existing components still refuse `core.fold/v1`; this selection alone establishes no fold execution or budget guarantee.
+
 The native lowerer and independent verifier accept exactly one source artifact
 in their existing invocation closure: the legacy `edict-source` byte string
 under `edict.source/v1`, or an `edict-source-closure` envelope under

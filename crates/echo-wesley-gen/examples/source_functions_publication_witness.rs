@@ -26,6 +26,9 @@ struct Arguments {
     /// Select the source-module publication and semantic variant.
     #[arg(long)]
     source_modules: bool,
+    /// Select the fold-capable schema; component execution support is separate.
+    #[arg(long, conflicts_with = "source_modules")]
+    bounded_state_fold: bool,
     /// Explicit candidate lowerer; requires an explicit verifier too.
     #[arg(long, requires = "verifier_component")]
     lowerer_component: Option<PathBuf>,
@@ -74,8 +77,15 @@ fn main() -> Result<()> {
         bail!("expected a new output directory");
     }
     let (publication, schema, manifest, source): (_, &[u8], &[u8], &[u8]) = if arguments
-        .source_modules
+        .bounded_state_fold
     {
+        (
+            ProviderContractPublicationV1::BoundedStateFold,
+            include_bytes!("../assets/v1/edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl"),
+            include_bytes!("../assets/v1/edict-provider/contracts/bounded-state-fold-v1/manifest.json"),
+            include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-source-modules-v1.json"),
+        )
+    } else if arguments.source_modules {
         (
             ProviderContractPublicationV1::SourceModules,
             include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl"),

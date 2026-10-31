@@ -54,6 +54,8 @@ pub enum ProviderContractPublicationV1 {
     SourceFunctions,
     /// Authenticated source-closure schema from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
     SourceModules,
+    /// Bounded state fold schema from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`.
+    BoundedStateFold,
 }
 
 impl ProviderContractPublicationV1 {
@@ -68,6 +70,9 @@ impl ProviderContractPublicationV1 {
             }
             Self::SourceModules => {
                 "8f8db4052e1bb85c4f728a0a453c4eb20904bcf2ce81530ffdbfce9351e209bc"
+            }
+            Self::BoundedStateFold => {
+                "2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284"
             }
         }
     }
@@ -84,6 +89,9 @@ impl ProviderContractPublicationV1 {
             Self::SourceModules => {
                 "29927f6db5e0fe1e5e7475bef3fb2c6e7f0f84ea56304fd97bd1299f1c2bb4be"
             }
+            Self::BoundedStateFold => {
+                "48c08670e27bd722dc779488e5839f01252ff4ecc90c670043a509365bab6361"
+            }
         }
     }
 
@@ -93,6 +101,7 @@ impl ProviderContractPublicationV1 {
             Self::OrderedInstructions => 75_359,
             Self::SourceFunctions => 75_989,
             Self::SourceModules => 77_916,
+            Self::BoundedStateFold => 84340,
         }
     }
 }
@@ -100,7 +109,7 @@ impl ProviderContractPublicationV1 {
 impl ProviderContractPublicationV1 {
     fn contracts(self) -> Vec<(&'static str, &'static str)> {
         let mut bindings = EXPECTED_CONTRACTS.to_vec();
-        if self == Self::SourceModules {
+        if matches!(self, Self::SourceModules | Self::BoundedStateFold) {
             bindings.push(("source-closure", "source-closure"));
             bindings.sort_unstable();
         }
@@ -109,7 +118,7 @@ impl ProviderContractPublicationV1 {
 
     fn domains(self) -> Vec<(&'static str, &'static str)> {
         let mut bindings = EXPECTED_DOMAINS.to_vec();
-        if self == Self::SourceModules {
+        if matches!(self, Self::SourceModules | Self::BoundedStateFold) {
             bindings.push(("edict.source-closure/v1", "source-closure"));
             bindings.sort_unstable();
         }

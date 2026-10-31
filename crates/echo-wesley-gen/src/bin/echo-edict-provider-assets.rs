@@ -49,7 +49,15 @@ impl AssetSpec {
     }
 }
 
-const ASSETS: [AssetSpec; 46] = [
+const ASSETS: [AssetSpec; 48] = [
+    AssetSpec::new(
+        "edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl",
+        "schemas/edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl",
+    ),
+    AssetSpec::new(
+        "edict-provider/contracts/bounded-state-fold-v1/manifest.json",
+        "schemas/edict-provider/contracts/bounded-state-fold-v1/manifest.json",
+    ),
     AssetSpec::new(
         "edict-provider/contracts/ordered/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/ordered/edict-provider-contracts.cddl",

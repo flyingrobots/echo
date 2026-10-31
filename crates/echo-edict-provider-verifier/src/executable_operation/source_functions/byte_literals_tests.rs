@@ -63,10 +63,9 @@ fn byte_literals_refuse_wrong_payload_extra_fields_and_narrow_results() {
         (bytes(Value::Bytes(vec![1, 2])), "Bytes<max=1>"),
     ] {
         let (core, exports) = fixture(literal, result);
-        let refusal = validate(&core, &exports, false).expect_err("invalid byte literal");
-        assert_eq!(
-            refusal.kind,
-            crate::ProviderRefusalKind::UnsupportedSemantics
-        );
+        assert!(matches!(
+            validate(&core, &exports, false),
+            Err(refusal) if refusal.kind == crate::ProviderRefusalKind::UnsupportedSemantics
+        ));
     }
 }

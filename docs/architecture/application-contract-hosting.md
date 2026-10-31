@@ -386,7 +386,14 @@ executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
+bounded bytes, records and nominal types, with Boolean, U32/U64 and raw byte
+literals. The native lowerer and independent verifier require byte constants to
+carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets
+remain bytes. The inferred byte type has equal minimum and maximum bounds at the
+actual length, so a narrower result type still refuses. Materialization charges
+one value cell plus its payload length. This native judgment does not refresh
+the checked component distribution; consumers must select matching schemas and
+rebuilt provider components. Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal

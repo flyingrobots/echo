@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Native lowerer and independent verifier source-function judgments now accept
+  raw byte constants, including empty and non-UTF-8 values, with exact length
+  typing and materialization charges. Malformed payloads, extra fields and
+  narrower declared result bounds still refuse. Checked component publication
+  and the public compiler/runtime witness are separate validation gates.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used

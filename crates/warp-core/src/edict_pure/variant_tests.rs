@@ -628,3 +628,72 @@ fn match_dispatch_obeys_exact_meter_limits() -> Result<(), Error> {
     );
     Ok(())
 }
+
+mod frame_fixture {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/edict-match-frame.rs"
+    ));
+}
+
+#[test]
+fn match_populated_frame_accounting() -> Result<(), Error> {
+    for binder in [false, true] {
+        for selected in 0..2 {
+            let f = frame_fixture::fixture(binder, selected);
+            let mut parser = Parser {
+                types: field(&f.core, "types")?,
+                coordinate: "choices.example@1",
+                remaining: MAX_PROGRAM_NODES,
+            };
+            let expr = parser.expr(&f.expression, 0)?;
+            let locals: BTreeMap<_, _> = ["word", "bytes", "record", "choice"]
+                .into_iter()
+                .zip(f.values.iter().cloned())
+                .collect();
+            let mut meter = Meter::new(limits());
+            assert_eq!(
+                expression(&expr, &locals, &BTreeMap::new(), &mut meter, 0)?,
+                Value::Integer(9)
+            );
+            let measured = meter.usage();
+            assert_eq!(measured, frame_fixture::runtime_cost(binder, selected));
+            // The ordinary Local operation is an independent copy oracle:
+            // subtract only its expression-entry step, then sum all locals.
+            let mut copy = (0, 0);
+            for id in locals.keys() {
+                let mut m = Meter::new(limits());
+                expression(
+                    &Expr::Local((*id).into()),
+                    &locals,
+                    &BTreeMap::new(),
+                    &mut m,
+                    0,
+                )?;
+                let (steps, bytes) = m.usage();
+                copy.0 += steps - 1;
+                copy.1 += bytes;
+            }
+            assert_eq!(copy, frame_fixture::FRAME_COPY);
+            for (steps, bytes, error) in [
+                (measured.0 - 1, measured.1, Some(Error::StepBudgetExceeded)),
+                (
+                    measured.0,
+                    measured.1 - 1,
+                    Some(Error::AllocationBudgetExceeded),
+                ),
+                (measured.0, measured.1, None),
+            ] {
+                let mut budget = limits();
+                budget.max_steps = steps;
+                budget.max_allocated_bytes = bytes;
+                let result =
+                    expression(&expr, &locals, &BTreeMap::new(), &mut Meter::new(budget), 0);
+                assert_eq!(result, error.map_or(Ok(Value::Integer(9)), Err));
+            }
+            f.report("runtime", binder, selected, measured)
+                .map_err(|_| Error::InvalidArtifact)?;
+        }
+    }
+    Ok(())
+}

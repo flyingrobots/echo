@@ -591,6 +591,19 @@ The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
 value validation, constructor and copy charges, nested/called payloads, fresh
 frames, imported/nominal identities, graph apertures and step/allocation/output
 limits. Those synthetic runtime fixtures establish no compiler provenance.
+The `match_populated_frame_accounting` tests in all three crates share only the
+inputs in `testdata/edict-match-frame.rs`; each implementation owns its judgment.
+The frame contains an integer, exact-length bytes, a record and a variant.
+Independent cell arithmetic pins its copy at 12 work units and 819 storage bytes.
+Both arm orders and binder omission are checked, including exact runtime limits
+and one-unit shortfalls. Provider worst-arm costs bound each concrete execution.
+Optional `ECHO_MATCH_FRAME_REPORT` files bind measured costs to the canonical
+fixture digest for comparison by a guarded runner. This is expression-level
+accounting evidence. Companion tests locate each provider's whole-intent work
+and storage boundary, accept the exact limits and refuse one-unit shortfalls;
+adding payload binders raises those limits by the same frame-copy cost. These
+synthetic cost judgments establish neither public package admission nor compiler
+provenance.
 The public read payload witness explicitly authors a 32 MiB allocation lawpack
 budget and records that change with the source and manifest hashes. Its paired
 16 MiB allocation control must refuse at compiler type checking with allocation

@@ -510,3 +510,180 @@ fn matches_validate_unselected_arms_and_reject_outer_binder_capture() {
     );
     refused(&core, &exports);
 }
+
+mod frame_fixture {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/edict-match-frame.rs"
+    ));
+}
+#[test]
+fn match_populated_frame_accounting() -> super::Check<()> {
+    for binder in [false, true] {
+        for selected in 0..2 {
+            let f = frame_fixture::fixture(binder, selected);
+            let mut types = super::Types::new(&f.core);
+            let mut frame = super::Frame::new(&f.declarations, &mut types)?;
+            for declaration in &f.declarations {
+                let ty = types.local(declaration)?;
+                frame.define(declaration, ty)?;
+            }
+            let definitions = super::BTreeMap::new();
+            let summaries = super::BTreeMap::new();
+            let mut checker = super::Checker {
+                types: &mut types,
+                definitions: &definitions,
+                summaries: &summaries,
+                proven: vec![],
+                path: vec![],
+                bound: vec![],
+                proven_sum: None,
+            };
+            let fact = checker.expression(&f.expression, &frame, 0)?;
+            let measured = (
+                u64::try_from(fact.charge.ticks).map_err(|_| ())?,
+                u64::try_from(fact.charge.storage).map_err(|_| ())?,
+            );
+            // Static cost bounds both arms; dispatch may inspect two cases.
+            assert_eq!(measured, frame_fixture::runtime_cost(binder, 1));
+            let concrete = frame_fixture::runtime_cost(binder, selected);
+            assert!(measured.0 >= concrete.0 && measured.1 >= concrete.1);
+            f.report("verifier", binder, selected, measured)
+                .map_err(|_| ())?;
+        }
+    }
+    Ok(())
+}
+
+fn frame_intent(binder: bool) -> (Value, Value) {
+    let f = frame_fixture::fixture(binder, 1);
+    let mut core = f.core;
+    let input = map([
+        ("id", text("arg.0")),
+        ("alphaName", text("input")),
+        ("type", text("Frame")),
+    ]);
+    put(
+        get_mut(&mut core, "types"),
+        "Frame",
+        map([
+            ("kind", text("Record")),
+            (
+                "fields",
+                map([
+                    ("word", text("U8")),
+                    ("bytes", text("Bytes<exact=4>")),
+                    ("record", text("Flags")),
+                    ("choice", text("Choice")),
+                ]),
+            ),
+        ]),
+    );
+    let mut helper = function(f.expression, "U8");
+    put(&mut helper, "params", array(f.declarations));
+    put(&mut core, "functions", map([("make", helper)]));
+    let mut result = call("choices.example@1.make");
+    put(
+        &mut result,
+        "args",
+        array(
+            ["word", "bytes", "record", "choice"]
+                .into_iter()
+                .map(|name| {
+                    map([
+                        ("kind", text("field")),
+                        (
+                            "base",
+                            map([("kind", text("local")), ("ref", input.clone())]),
+                        ),
+                        ("field", text(name)),
+                    ])
+                })
+                .collect(),
+        ),
+    );
+    put(
+        &mut core,
+        "intents",
+        map([(
+            "run",
+            map([
+                ("input", text("Frame")),
+                ("output", text("U8")),
+                ("inputConstraints", array(vec![])),
+                (
+                    "coreEvaluationBudget",
+                    map([
+                        ("maxSteps", Value::Integer(32768)),
+                        ("maxAllocatedBytes", Value::Integer(32768)),
+                        ("maxOutputBytes", Value::Integer(4096)),
+                    ]),
+                ),
+                (
+                    "body",
+                    map([
+                        ("locals", array(vec![input])),
+                        ("nodes", array(vec![])),
+                        ("result", result),
+                    ]),
+                ),
+            ]),
+        )]),
+    );
+    (
+        core,
+        map([("effects", array(vec![])), ("pureFunctions", array(vec![]))]),
+    )
+}
+fn frame_budget(core: &mut Value, axis: &str, n: u64) {
+    put(
+        get_mut(
+            get_mut(get_mut(core, "intents"), "run"),
+            "coreEvaluationBudget",
+        ),
+        axis,
+        Value::Integer(n.into()),
+    );
+}
+#[test]
+fn match_populated_frame_accounting_whole_intent_budgets() {
+    let mut minimums = Vec::new();
+    for binder in [false, true] {
+        let (core, exports) = frame_intent(binder);
+        assert!(validate(&core, &exports, false).is_ok());
+        let mut minimum = [0; 2];
+        for (index, axis) in ["maxSteps", "maxAllocatedBytes"].into_iter().enumerate() {
+            // A bounded binary search observes the admission boundary without
+            // consulting either implementation's private cost summary.
+            let mut candidate = core.clone();
+            let (mut low, mut high) = (0, 32768);
+            while low < high {
+                let middle = low + (high - low) / 2;
+                frame_budget(&mut candidate, axis, middle);
+                if validate(&candidate, &exports, false).is_ok() {
+                    high = middle;
+                } else {
+                    low = middle + 1;
+                }
+            }
+            assert!(low > 0);
+            frame_budget(&mut candidate, axis, low);
+            assert!(validate(&candidate, &exports, false).is_ok());
+            frame_budget(&mut candidate, axis, low - 1);
+            assert!(validate(&candidate, &exports, false).is_err());
+            minimum[index] = low;
+        }
+        let mut exact = core.clone();
+        frame_budget(&mut exact, "maxSteps", minimum[0]);
+        frame_budget(&mut exact, "maxAllocatedBytes", minimum[1]);
+        assert!(validate(&exact, &exports, false).is_ok());
+        minimums.push(minimum);
+    }
+    assert_eq!(
+        (
+            minimums[1][0] - minimums[0][0],
+            minimums[1][1] - minimums[0][1]
+        ),
+        frame_fixture::FRAME_COPY
+    );
+}

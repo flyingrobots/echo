@@ -475,7 +475,7 @@ These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
 
-#### Closed variants in native judgments and the runtime
+#### Closed variants in provider judgments and the runtime
 
 The native lowerer and independent verifier additionally judge acyclic named
 Core variant types and constructor expressions in source-function bodies,
@@ -551,8 +551,8 @@ The mirrored input corpus in each provider's `source_functions/variant_tests.rs`
 checks construction, named/imported/nominal identities, malformed metadata,
 hidden payload dependencies and captures, partial calls, recursive/deep/wide
 graphs, arithmetic overflow and underfunded whole-operation bounds. Production
-judgments share no implementation. These native checks do not update checked
-component carriers or establish a compiler-emitted verified variant package.
+judgments share no implementation. Native checks alone establish neither
+component reproduction nor compiler-emitted package provenance.
 The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
 value validation, constructor and copy charges, nested/called payloads, fresh
 frames, imported/nominal identities, graph apertures and step/allocation/output
@@ -563,8 +563,16 @@ budget and records that change with the source and manifest hashes. Its paired
 resource ceilings remain independently checked. These are authored operation
 budgets, separate from the witness runner's storage limits.
 
-Public compiler-package/runtime evidence, matching, recursive variants,
-independent component reproduction and promotion remain separate gates.
+The public source-function publication/runtime witness separately compiles empty
+and payload-bearing helpers in pure and bounded-read operations. It retains
+`core.variant/v1`, exact repeated package/report bytes, old-provider refusals,
+and the original-allocation refusal. Runtime consumption checks unchanged byte
+results, increasing constructor/payload charges, repeated outcomes, resource
+ceilings and package identity. The checked component pair is independently
+reproduced and promoted; its source-module publication matches the candidate
+used by the public witness byte for byte. This evidence covers helper-local
+construction, not variant result encoding, matching, recursive variants or an
+application's persistent-rope cutover.
 
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).

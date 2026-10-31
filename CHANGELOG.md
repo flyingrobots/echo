@@ -14,8 +14,8 @@
 - Independent native provider judgments and runtime preparation check bounded
   closed variant types and constructors with exact union/payload identity and
   payload traversal. Runtime values retain their type, case and optional payload
-  with deterministic storage/copy charges and resource refusals. Checked provider
-  components are not promoted by these native changes.
+  with deterministic storage/copy charges and resource refusals. Independently
+  reproduced provider components and their checked packages are refreshed.
 
 - The guarded source-function candidate publisher accepts an explicit bounded
   lowerer/verifier component pair before checked-distribution promotion. Public

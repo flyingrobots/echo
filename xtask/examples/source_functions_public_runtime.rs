@@ -497,7 +497,7 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
         ),
         ("expected", Value::Bytes(b"alpha".to_vec())),
     ];
-    if name == "read-byte-lookup" {
+    if name.starts_with("read-byte-lookup") {
         input_fields.push(("probe", Value::Bytes(vec![0, 128, 255])));
     }
     let input = encode(&record(input_fields))?;
@@ -635,6 +635,11 @@ fn main() -> Result<()> {
         ensure!(
             lookup_usage.0 > read_usage.0 && lookup_usage.1 > read_usage.1,
             "read lookup incurred no extra work/storage"
+        );
+        let constant_usage = atom_read(root, &evidence, "read-byte-lookup-constant")?;
+        ensure!(
+            lookup_usage.0 > constant_usage.0 && lookup_usage.1 > constant_usage.1,
+            "read lookup not charged beyond its same-input constant-marker control"
         );
     }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");

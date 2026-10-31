@@ -197,6 +197,8 @@ def source_variants(args):
     read_lookup = replace_once(read_lookup, 'intent replaceRange(', lookup_helper + 'intent replaceRange(')
     read_lookup = replace_once(read_lookup, '  let retained = retainBytes(actual);',
                               '  let marker: U8 = lookupByte(input.probe,0u64);\n  let retained = retainBytes(actual);')
+    read_lookup_constant = replace_once(read_lookup,
+        '  let marker: U8 = lookupByte(input.probe,0u64);', '  let marker: U8 = 255u8;')
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
             "changed-body": changed, "read": read, "u8-identity": identity,
             "u8-literal": u8_literal, "u8-invalid-bound": invalid,
@@ -205,7 +207,8 @@ def source_variants(args):
             "byte-lookup": lookup, "byte-lookup-lazy-or": lazy,
             "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
             "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
-            "read-byte-lookup": read_lookup}
+            "read-byte-lookup": read_lookup,
+            "read-byte-lookup-constant": read_lookup_constant}
 
 
 def child_limits():
@@ -465,7 +468,7 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
-            raise RuntimeError(f"Original provider did not refuse U8 literal semantics: {result}")
+            raise RuntimeError(f"Original provider did not refuse {refusal} semantics: {result}")
         provenance["refusalBoundary"] = "ProviderLowererRefused"
     elif refusal == "byte-lookup-bound":
         diagnostic = source_refusal_diagnostic(result)
@@ -647,6 +650,8 @@ def main():
                 ("byte-lookup-unproved", variants["byte-lookup-unproved"], args.provider,
                  {"refusal": "byte-lookup-bound"}),
                 ("read-byte-lookup", variants["read-byte-lookup"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+                ("read-byte-lookup-constant", variants["read-byte-lookup-constant"], args.provider,
                  {"read": True, "read_steps": READ_HELPER_STEPS}),
             ])
         for name, source, provider, options in specs:

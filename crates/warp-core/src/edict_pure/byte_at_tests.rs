@@ -79,6 +79,9 @@ fn byte_lookup_preserves_octets_and_exact_resource_limits() -> Result<(), Error>
     ] {
         let (value, (steps, allocated)) = run(bytes, index, limits(1024, 4096))?;
         assert_eq!(value, Value::Integer(want));
+        // Three expression nodes + three value copies + two validations.
+        // Storage is the three value cells plus the raw operand bytes.
+        assert_eq!((steps, allocated), (8, 3 * 64 + bytes.len() as u64));
         assert_eq!(
             run(bytes, index, limits(steps, allocated))?,
             (value, (steps, allocated))

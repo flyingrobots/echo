@@ -18,6 +18,8 @@
   U8 literals in the exact 0 through 255 domain, preserving existing scalar
   metering and rejecting malformed or cross-width helper values. Provider
   subtraction is restricted to U32/U64, matching the runtime's supported widths.
+- Checked provider components and digest-bound publication assets carry the U8
+  judgments after independent designated builds and structural promotion.
 - Optional public source-function U8 controls compare matching old/new providers,
   exact repeated artifacts and actual pure/read runtime behavior. Read controls
   now test resource refusals explicitly.

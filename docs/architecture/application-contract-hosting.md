@@ -390,8 +390,10 @@ bounded bytes, records and nominal types, with Boolean, U8/U32/U64 and raw byte
 literals. The U8 domain is exactly 0 through 255; malformed values, overflow,
 negative values and cross-width helper returns refuse. U8 constants retain
 ordinary scalar work/storage charges. Arithmetic remains U32/U64: both
-providers refuse U8 subtraction, matching runtime parsing. The native U8
-changes do not yet promote checked component carriers.
+providers refuse U8 subtraction, matching runtime parsing. The checked lowerer
+and verifier components include these U8 judgments; their independent build
+and promotion boundary is documented in the
+[component owner](../../schemas/edict-provider/components/v1/README.md).
 
 The native lowerer, independent verifier and runtime helper admission
 require byte constants to carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets

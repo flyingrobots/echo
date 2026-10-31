@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 500,191 bytes with SHA-256
-`648c7c73ce7649dbb7e3128686900057f3a0d9fff5448213a2887e1e0304bb03`.
+The checked component is 510,074 bytes with SHA-256
+`a109ab4560a2ae0c5e3676523fbe4f1bc35b40fc316a5ca63616e17b3747d610`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 514,281 bytes
+`wit-component` version recorded above. Its checked component is 527,015 bytes
 with SHA-256
-`7a3c916894ffc85c1ee46d6e4ebdcf6466491959fc0ab8431c47e461b09da3cb`.
+`43ba7a76f71caab211a97b5e07a742905d0f047f2ca11a302d031d641dedf7aa`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -107,3 +107,9 @@ refuses its checked repository path, so a refresh must cross the promotion
 boundary. Neither command infers how the two files were produced. G4's two
 separately provisioned designated container jobs and exact source checkouts—or
 equivalent explicit operator evidence—establish independent build provenance.
+
+After regenerating the checked package and packaged assets, refresh their exact
+identity goldens in `provider_package.rs` and `provider_package_corpus.rs` and
+the component identities in both provider READMEs. Run
+`cargo test --locked -p echo-wesley-gen` in the guarded Docker worker; generator
+`--check` commands alone do not exercise package corroboration and corpus pins.

@@ -305,7 +305,8 @@ The interpreter validates the entire child before execution, evaluates it once,
 and inverts its Boolean result. A negation wrapper costs one predicate step;
 child errors and budget refusals propagate unchanged. Negation participates in
 the same syntax-node and combined expression/helper depth limits as conjunction.
-It adds no proof assumptions or byte-normalization behavior.
+Negation does not normalize bytes. Selected path truths can use negation to
+prove a byte lookup domain, as described below.
 
 The generic `core.bytes.at<OperandType>(bytes, index)` operation returns one raw
 byte as U8. Its index is exactly U64 and must be strictly below the exact
@@ -774,9 +775,9 @@ The native lowerer source additionally recognizes the opt-in
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
 pure packages as effectful programs. Its expression subset includes typed
 source/imported helper calls, Boolean and U8/U32/U64 constants, lazy conditionals,
-byte length, UTF-8 validation and concatenation, locals, record construction/selection,
-byte/Boolean equality, unsigned equality or ordering guards, and closed
-conjunction/negation trees. The source-function totality and resource
+raw byte literals, byte lookup, length, UTF-8 validation and concatenation,
+locals, record construction/selection, byte/Boolean equality, unsigned equality
+or ordering guards, and closed conjunction/disjunction/negation trees. The source-function totality and resource
 rules above also apply to this route. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,

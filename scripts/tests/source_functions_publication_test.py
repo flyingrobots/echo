@@ -17,6 +17,36 @@ SPEC.loader.exec_module(publication)
 
 
 class PublicationTests(unittest.TestCase):
+    def budget_refusal(self):
+        return {"exitCode": 2, "artifacts": {}, "diagnostics": [
+            {"kind": "InvalidBound", "stage": "typeCheck",
+             "message": "pure-helper cost steps=1048738, allocatedBytes=12587976, "
+                        "outputBytes=1048585 exceeds operation budget"},
+            {"kind": "ApplicationCompilationFailed", "stage": "cli",
+             "message": "Edict application did not compile to Core"},
+        ]}
+
+    def test_current_compiler_budget_refusal_retains_specific_diagnostic(self):
+        self.assertEqual(publication.require_budget_refusal(self.budget_refusal()), "InvalidBound")
+
+    def test_budget_refusal_does_not_accept_unrelated_second_diagnostic(self):
+        result = self.budget_refusal()
+        result["diagnostics"][1]["message"] = "unrelated failure"
+        with self.assertRaises(RuntimeError):
+            publication.require_budget_refusal(result)
+
+    def test_budget_refusal_does_not_accept_summary_without_cause(self):
+        result = self.budget_refusal()
+        result["diagnostics"].pop(0)
+        with self.assertRaises(RuntimeError):
+            publication.require_budget_refusal(result)
+
+    def test_budget_refusal_cannot_keep_executable_artifacts(self):
+        result = self.budget_refusal()
+        result["artifacts"] = {"executable-operation-package.cbor": "forbidden"}
+        with self.assertRaises(RuntimeError):
+            publication.require_budget_refusal(result)
+
     def repeat(self, emit_repeated):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

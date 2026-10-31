@@ -386,7 +386,16 @@ executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
+bounded bytes, records and nominal types, with Boolean, U32/U64 and raw byte
+literals. The native lowerer, independent verifier and runtime helper admission
+require byte constants to carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets
+remain bytes. The inferred byte type has equal minimum and maximum bounds at the
+actual length, so a narrower result type still refuses. Materialization charges
+one value cell plus its payload length through the existing runtime meter. The
+checked lowerer and verifier components include this rule; source-function and
+source-module consumers still select their matching schema publication.
+
+Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
@@ -464,6 +473,18 @@ component and package identities are recorded in its provenance. These are priva
 computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+
+The paired compiler witness accepts `--byte-literal-provider-before` to compare
+an older matching source-function publication with an explicitly rebuilt
+candidate. A pure helper control must pass on the older matching publication;
+the raw-byte helper must reach its provider judgment and refuse there. The
+candidate must emit a separately accepted package/report pair with identical
+bytes on repeat, while a narrower authored helper return bound must refuse at
+compiler type checking. The runtime consumer checks empty and non-UTF-8 literal
+results from those unchanged emitted bytes, deterministic accounting, and host
+step/allocation/output, input-bound and package-identity refusals. Explicit
+candidate selection does not promote the checked provider distribution or
+replace its independent build and review gates.
 
 The paired nominal-ID and variable-payload equality witnesses in
 [`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)

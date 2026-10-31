@@ -5,7 +5,25 @@
 
 ## Unreleased
 
+### Added
+
+- The guarded source-function candidate publisher accepts an explicit bounded
+  lowerer/verifier component pair before checked-distribution promotion. Public
+  compiler and runtime witnesses include optional old/new-provider raw-byte
+  helper controls, exact repeated artifacts and resource/identity refusals.
+
 ### Fixed
+
+- The public source-function witness recognizes Amblicit's specific source
+  budget diagnostic followed by its CLI summary, while retaining rejection of
+  unrelated diagnostics and executable artifacts on a refused build.
+- Native lowerer, independent verifier and runtime helper judgments now accept
+  raw byte constants, including empty and non-UTF-8 values, with exact length
+  typing and materialization charges. Malformed payloads, extra fields and
+  narrower declared result bounds still refuse. Checked lowerer and verifier
+  carriers are refreshed from two independently reproduced designated builds;
+  generated package assets retain their existing publication selection. The
+  runtime retains its existing value-cell-plus-payload materialization meter.
 
 - The generator selects the synchronous Wesley kernel without its unused async
   resilience dependencies, removing the affected Tokio/Ninelives chain from

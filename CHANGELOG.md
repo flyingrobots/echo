@@ -28,6 +28,9 @@
 
 ### Fixed
 
+- Bounded-read relation judgments preserve closed variant helper-result and local
+  identities, with bounded case/payload expansion in each independent provider.
+
 - Generic pure and bounded-read native providers independently enforce required
   capabilities, admitting `core.variant/v1` and requiring it for every variant
   declaration while refusing unknown, duplicate, missing or malformed metadata.

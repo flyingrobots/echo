@@ -487,6 +487,13 @@ helper call. Module-relative and fully qualified references resolve to the
 same local union; imported type-table identities remain original coordinates.
 The existing same-prefix imported-key limitation described above still applies.
 
+The separate bounded-read relation judgments retain the full union identity and
+bounded alternative graph for variant-valued helper results and local bindings.
+They charge every case during type expansion, including payloadless cases, and
+refuse empty, malformed or recursive graphs. Variant values do not acquire record
+field access to their metadata. Constructor expressions in source-function
+bodies remain subject to the independent source-function judgments above.
+
 The generic pure and bounded-read provider entry points independently admit
 only the known `core.variant/v1` required capability, once. Every variant
 declaration requires it, including unused declarations; the known capability

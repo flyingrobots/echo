@@ -498,7 +498,8 @@ The generic pure and bounded-read provider entry points independently admit
 only the known `core.variant/v1` required capability, once. Every variant
 declaration requires it, including unused declarations; the known capability
 is also permitted without a variant declaration. Unknown, duplicate, malformed
-or missing capability metadata refuses. The bounded-read lowerer retains its
+or missing capability metadata refuses. Pure Core must include the capability
+inventory and type table, even when empty. The bounded-read lowerer retains its
 exact-field schema refusal for an absent inventory. The bounded-read verifier
 returns a rejected report for a well-bound candidate that fails this audit;
 the pure verifier returns a provider refusal. Legacy fixed DPO admission is
@@ -510,8 +511,12 @@ payload type reference; empty alternatives, duplicate cases, unknown fields,
 recursive or missing payload types and overflow refuse. Every alternative
 consumes proof work, including payloadless cases. A type clone retains all
 alternatives, so its proof-work charge counts the complete type graph rather
-than only the maximum runtime payload. The existing 65,536-work and 64-depth
-apertures remain in force.
+than only the maximum runtime payload. Each nominal wrapper also consumes one
+proof-work unit in addition to its representation; this tightens admission for
+existing nominal-typed flows near the limit. The limits remain 65,536 proof-work
+units and 64 levels. Proof work bounds admission traversals and type copies;
+execution steps and allocated bytes are separate, cumulative runtime budgets.
+The runtime parser separately bounds syntax/type expansion to 65,536 nodes.
 
 Static value bounds reserve a container with `type` and `case` text metadata
 and an optional payload. They include six 64-byte metadata cells, 15 key bytes,
@@ -520,7 +525,8 @@ payload has a conservative cell reservation. The lowerer bounds metadata and
 payload maxima separately; the verifier derives each alternative's bounds and
 takes their maximum. Copy, validation and encoding scratch participate in
 whole-operation budgets with checked arithmetic. These are conservative
-logical storage bounds, not measured allocator usage or runtime wire acceptance.
+logical storage bounds; complete operation admission also checks the target
+relation and result projection.
 
 The runtime separately resolves the closed type graph and checks constructors,
 payload types, scope, helper dependencies and combined depth before execution.
@@ -538,11 +544,27 @@ and payload are validated at typed boundaries. This representation does not
 make variants records in the static type system or grant field-projection
 access to their metadata.
 
-Construction charges the expression step, two text-value steps and five
-metadata cells plus eight key bytes and both text lengths. A present payload
-adds one key cell and seven key bytes before its expression executes. All
-metadata storage is charged before materialization. Copying uses the existing
-recursive value charges; validation charges the variant, both metadata values
+Native type judgments and the evaluator can represent variant-typed pure input
+and result values with this map. Synthetic fixtures exercise typed validation
+and result encoding. The public compiler witnesses here return bytes; they do
+not establish a compiler-emitted variant result path. Complete operation
+admission still requires its target relation and result projection. Required
+capability inventories are enforced by the provider entry points; the evaluator
+does not repeat that verification. Its caller must select the expected package
+digest through the verified admission path.
+
+Construction charges the expression and two text-value steps. Its metadata
+reservation is charged before materialization:
+
+| Constructor | Metadata cells (64 bytes each) | Key bytes | Execution steps |
+| --- | ---: | ---: | ---: |
+| Payloadless | 5 | 8 | 3 |
+| Payload-bearing | 6 | 15 | 3 plus payload expression |
+
+Both rows also charge the identity and case text lengths; the payload expression
+has its own storage charges. The static type bound reserves the payload-bearing
+metadata and a maximum payload with a 64-byte floor even for absent payloads.
+Copying uses the existing recursive value charges; validation charges the variant, both metadata values
 and a present typed payload. Budgets remain cumulative and architecture
 independent. Neither the representation nor these logical units imply measured
 allocator sizes or a compiler result-encoding capability.
@@ -559,8 +581,9 @@ frames, imported/nominal identities, graph apertures and step/allocation/output
 limits. Those synthetic runtime fixtures establish no compiler provenance.
 The public read payload witness explicitly authors a 32 MiB allocation lawpack
 budget and records that change with the source and manifest hashes. Its paired
-16 MiB allocation control must refuse at compiler type checking; runtime
-resource ceilings remain independently checked. These are authored operation
+16 MiB allocation control must refuse at compiler type checking with allocation
+as the only exceeded cost dimension; runtime resource ceilings remain
+independently checked. These are authored operation
 budgets, separate from the witness runner's storage limits.
 
 The public source-function publication/runtime witness separately compiles empty
@@ -571,8 +594,12 @@ results, increasing constructor/payload charges, repeated outcomes, resource
 ceilings and package identity. The checked component pair is independently
 reproduced and promoted; its source-module publication matches the candidate
 used by the public witness byte for byte. This evidence covers helper-local
-construction, not variant result encoding, matching, recursive variants or an
-application's persistent-rope cutover.
+construction; public compiler variant result encoding, matching, recursive
+variants and the application's persistent-rope cutover remain outside this proof.
+The optional `--variant-provider-before` control is described with the other
+controls below.
+
+#### Pure and read witness fixtures
 
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).
@@ -629,7 +656,7 @@ the embedded compiler Core. It checks the twelve original pure cases, repeated
 execution, one-under resource ceilings and package substitution. Empty
 constructors must incur more work/storage than the unchanged control, and
 payload constructors more than empty constructors; immutable reads retain their
-result and state checks. These helper-local values do not establish variant
+result and state checks. These helper-local values do not establish public compiler variant
 result encoding, matching, recursive types or the authored rope cutover.
 
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain

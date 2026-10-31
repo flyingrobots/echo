@@ -562,7 +562,7 @@ fn match_parser_leaves_typed_coverage_to_provider_judgments() -> Result<(), Erro
 
 #[test]
 fn match_rejects_missing_duplicate_unknown_and_ill_scoped_arms() -> Result<(), Error> {
-    for mutation in 0..7 {
+    for mutation in 0..8 {
         let mut result = matched("Empty", None);
         let Value::Array(arms) = get_mut(&mut result, "arms") else {
             unreachable!()
@@ -579,6 +579,7 @@ fn match_rejects_missing_duplicate_unknown_and_ill_scoped_arms() -> Result<(), E
             }
             3 => {
                 *get_mut(get_mut(&mut arms[1], "binder"), "type") = text("Bool");
+                *get_mut(&mut arms[1], "body") = integer("U8", 0);
             }
             4 => {
                 let binder = field(&arms[1], "binder")?.clone();
@@ -592,6 +593,10 @@ fn match_rejects_missing_duplicate_unknown_and_ill_scoped_arms() -> Result<(), E
             }
             6 => {
                 *get_mut(get_mut(&mut arms[1], "binder"), "alphaName") = text("");
+                *get_mut(&mut arms[1], "body") = integer("U8", 0);
+            }
+            7 => {
+                *get_mut(get_mut(&mut arms[1], "binder"), "alphaName") = text("renamed");
             }
             _ => unreachable!(),
         }
@@ -734,4 +739,32 @@ fn match_payload_may_reuse_pending_id_but_not_its_declaration() -> Result<(), Er
         }
     }
     Ok(())
+}
+
+#[test]
+fn match_binder_bytes_require_declared_payload_equality() {
+    for (width, accepted) in [(8, true), (4, false), (16, false)] {
+        let payload = map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([
+                    ("kind", text("bytes")),
+                    ("value", Value::Bytes(vec![1, 2, 3])),
+                ]),
+            ),
+        ]);
+        let mut value = matched("Data", Some(payload));
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        *get_mut(get_mut(&mut arms[1], "binder"), "type") = text(&format!("Bytes<max={width}>"));
+        // The concrete three-byte payload fits every binder. Only equality
+        // with the declared max=8 payload type distinguishes these cases.
+        // A constant U8 body excludes local-ref and return-type mismatches.
+        *get_mut(&mut arms[1], "body") = integer("U8", 0);
+        let mut source = core(value, "U8");
+        *get_mut(get_mut(&mut source, "types"), "Choice") = union("Bytes<max=8>");
+        assert_eq!(checked(&source).is_ok(), accepted, "binder max={width}");
+    }
 }

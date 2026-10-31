@@ -406,7 +406,7 @@ fn matches_accept_exhaustive_payload_binding() {
 
 #[test]
 fn matches_refuse_bad_coverage_payload_identity_and_scope() {
-    for mutation in 0..7 {
+    for mutation in 0..8 {
         let mut result = matched();
         let Value::Array(arms) = get_mut(&mut result, "arms") else {
             unreachable!()
@@ -423,6 +423,7 @@ fn matches_refuse_bad_coverage_payload_identity_and_scope() {
             }
             3 => {
                 put(get_mut(&mut arms[1], "binder"), "type", text("Bool"));
+                put(&mut arms[1], "body", integer("U8", 0));
             }
             4 => {
                 let binder = get_mut(&mut arms[1], "binder").clone();
@@ -434,6 +435,14 @@ fn matches_refuse_bad_coverage_payload_identity_and_scope() {
             }
             6 => {
                 put(get_mut(&mut arms[1], "binder"), "alphaName", text(""));
+                put(&mut arms[1], "body", integer("U8", 0));
+            }
+            7 => {
+                put(
+                    get_mut(&mut arms[1], "binder"),
+                    "alphaName",
+                    text("renamed"),
+                );
             }
             _ => unreachable!(),
         }
@@ -717,5 +726,44 @@ fn match_payload_may_reuse_pending_id_but_not_its_declaration() {
             ]),
         );
         assert_eq!(validate(&core, &exports, false).is_ok(), !wrong_declaration);
+    }
+}
+
+#[test]
+fn match_binder_bytes_require_declared_payload_equality() {
+    for (width, accepted) in [(8, true), (4, false), (16, false)] {
+        let mut value = matched();
+        put(
+            get_mut(&mut value, "scrutinee"),
+            "payload",
+            map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([
+                        ("kind", text("bytes")),
+                        ("value", Value::Bytes(vec![1, 2, 3])),
+                    ]),
+                ),
+            ]),
+        );
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        put(
+            get_mut(&mut arms[1], "binder"),
+            "type",
+            text(&format!("Bytes<max={width}>")),
+        );
+        // Keep the concrete payload and result valid under all binder widths;
+        // refusal must depend on the declared max=8 payload contract.
+        put(&mut arms[1], "body", integer("U8", 0));
+        let (mut core, exports) = fixture(value, "U8");
+        put(get_mut(&mut core, "types"), "Choice", union("Bytes<max=8>"));
+        assert_eq!(
+            validate(&core, &exports, false).is_ok(),
+            accepted,
+            "binder max={width}"
+        );
     }
 }

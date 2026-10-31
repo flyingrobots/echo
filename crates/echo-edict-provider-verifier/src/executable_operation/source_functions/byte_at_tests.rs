@@ -234,3 +234,55 @@ fn byte_lookup_mirrored_equal_terms_keep_both_strict_orientations() {
         assert!(validate(&core, &exports, false).is_ok(), "{op}");
     }
 }
+
+fn member_mut<'a>(value: &'a mut Value, name: &str) -> &'a mut Value {
+    let Value::Map(fields) = value else {
+        panic!("expected fixture map")
+    };
+    &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &text(name))
+        .expect("fixture key")
+        .1
+}
+
+#[test]
+fn byte_lookup_helper_cannot_borrow_a_guarded_callers_path() {
+    for guarded_helper in [false, true] {
+        let (mut core, exports) = fixture("<", false, false, false);
+        let functions = member_mut(&mut core, "functions");
+        let mut caller = member_mut(functions, "lookup").clone();
+        let bytes = reference(&local("arg.0", "Bytes<max=8>"));
+        let index = reference(&local("arg.1", "U64"));
+        let other = reference(&local("arg.2", "Bytes<max=8>"));
+        let lookup = call(
+            "core.bytes.at",
+            "Bytes<max=8>",
+            vec![bytes.clone(), index.clone()],
+        );
+        let invoke = map([
+            ("kind", text("call")),
+            ("callee", text("generic.lookup@1.lookup")),
+            ("typeArgs", array(vec![])),
+            ("args", array(vec![bytes, index, other])),
+        ]);
+        replace_term(&mut caller, &lookup, &invoke);
+        if !guarded_helper {
+            *member_mut(
+                member_mut(member_mut(functions, "lookup"), "body"),
+                "result",
+            ) = lookup;
+        }
+        let Value::Map(entries) = functions else {
+            panic!("fixture map")
+        };
+        // The caller sorts before the helper. Deliberately reuse frame-local
+        // parameter IDs so leaking its proof would falsely authorize the callee.
+        entries.push((text("aaCaller"), caller));
+        assert_eq!(
+            validate(&core, &exports, false).is_ok(),
+            guarded_helper,
+            "guarded_helper={guarded_helper}"
+        );
+    }
+}

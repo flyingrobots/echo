@@ -51,11 +51,13 @@ checks when refreshing the provider components.
 
 The [candidate generator](../../../../crates/echo-wesley-gen/examples/source_functions_publication_witness.rs)
 selects this pair, generates provider artifacts with the normal owned library,
-assembles the exact checked lowerer/verifier component bytes, and digest-admits
+assembles the selected lowerer/verifier component bytes, and digest-admits
 the complete package before writing a new destination directory. It does not
 replace the existing checked pure-binding corpus or choose a Jedit producer pin.
-Run it only after the component and asset refresh described in the
-[generator operating instructions](../../../../crates/echo-wesley-gen/README.md#refreshing-source-bound-provider-publication).
+By default it uses checked carriers. The
+[generator operating instructions](../../../../crates/echo-wesley-gen/README.md#refreshing-source-bound-provider-publication)
+also describe selecting an explicit rebuilt component pair before promotion;
+retain its build evidence separately.
 
 Inside the admitted guarded Docker worker, using its accounted Cargo target:
 

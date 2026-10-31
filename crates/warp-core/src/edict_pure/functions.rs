@@ -7,7 +7,7 @@ use super::{
         Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
     },
     syntax::Parser,
-    values::{array, exact_fields, field, map, number, require_text, text, text_field},
+    values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
 };
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -330,6 +330,15 @@ pub(crate) fn infer<'v>(
         "const" => {
             exact_fields(value, &["kind", "value"])?;
             let literal = field(value, "value")?;
+            if text_field(literal, "kind")? == "bytes" {
+                exact_fields(literal, &["kind", "value"])?;
+                let length = u64::try_from(bytes(field(literal, "value")?)?.len())
+                    .map_err(|_| Error::InvalidArtifact)?;
+                return Ok(RuntimeType::Bytes {
+                    min: length,
+                    max: length,
+                });
+            }
             if text_field(literal, "kind")? == "bool" {
                 exact_fields(literal, &["kind", "value"])?;
                 if !matches!(field(literal, "value")?, Value::Bool(_)) {
@@ -870,6 +879,9 @@ fn type_height(ty: &RuntimeType) -> usize {
         _ => 0,
     }
 }
+
+#[cfg(test)]
+mod byte_literals_tests;
 
 #[cfg(test)]
 mod predicate_validation_tests {

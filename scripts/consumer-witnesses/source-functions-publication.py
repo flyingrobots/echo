@@ -12,7 +12,8 @@ The compiler binary hash identifies the executed binary; source-to-binary build
 provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
-Eight sequential variants retain at most 64 MiB / 2048 filesystem entries here,
+Eight sequential variants (twelve with the byte-literal controls) retain at most
+64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
 free-space floors, covering this work root, compiler caches and container layer.
@@ -53,6 +54,11 @@ PURE_HELPERS = """fn assembleFragments(left: Bytes<max=8>, right: Bytes<max=8>) 
 fn joinFragments(left: Bytes<max=8>, right: Bytes<max=8>) -> Bytes<max=16> {
   let bytes = left + right;
   return bytes;
+}
+
+"""
+BYTE_LITERAL_HELPER = r"""fn literalBytes(empty: Bool) -> Bytes<max=4> {
+  return if empty then b"" else b"\x00\xff\n\r";
 }
 
 """
@@ -115,7 +121,7 @@ def verify_compiler(args):
 
 
 def selected_inputs(args):
-    return {
+    result = {
         "compilerBinarySha256": sha256(args.compiler),
         "compilerManifestSha256": sha256(args.compiler_manifest),
         "pureApplicationSha256": sha256(args.pure_application_source / "edict.application.json"),
@@ -128,6 +134,9 @@ def selected_inputs(args):
         "oldProvider": inventory(args.old_provider),
         "provider": inventory(args.provider),
     }
+    if getattr(args, "byte_literal_provider_before", None) is not None:
+        result["byteLiteralProviderBefore"] = inventory(args.byte_literal_provider_before)
+    return result
 
 
 def replace_once(source, old, new):
@@ -154,8 +163,14 @@ def source_variants(args):
     read = replace_once(read, "intent replaceRange(", READ_HELPER + "intent replaceRange(")
     read = replace_once(read, "  return actual;",
                         "  let retained = retainBytes(actual);\n  return retained;")
+    literal = replace_once(baseline, "intent assembleRange(", BYTE_LITERAL_HELPER + "intent assembleRange(")
+    literal = replace_once(literal,
+                           "let bytes = input.firstFragment + input.secondFragment;",
+                           "let bytes = literalBytes(len(input.firstFragment) == 0u64);")
+    narrow = replace_once(literal, "-> Bytes<max=4>", "-> Bytes<max=1>")
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
-            "changed-body": changed, "read": read}
+            "changed-body": changed, "read": read, "byte-literals": literal,
+            "byte-literals-invalid-bound": narrow}
 
 
 def child_limits():
@@ -268,19 +283,33 @@ def require_old_refusal(result):
         raise RuntimeError(f"Old provider did not explicitly refuse source Core: {result}")
 
 
-def require_budget_refusal(result):
+def source_refusal_diagnostic(result):
     diagnostics = result["diagnostics"]
+    # Current Amblicit preserves the source diagnostic before a CLI summary.
+    # Accept only that exact envelope, never an arbitrary extra diagnostic.
+    if len(diagnostics) == 2 and all(
+            diagnostics[-1].get(name) == value for name, value in {
+                "kind": "ApplicationCompilationFailed", "stage": "cli",
+                "message": "Edict application did not compile to Core"}.items()):
+        diagnostics = diagnostics[:1]
     if result["exitCode"] != 2 or result["artifacts"] or len(diagnostics) != 1:
-        raise RuntimeError(f"Original budget did not produce one explicit refusal: {result}")
-    diagnostic = diagnostics[0]
+        raise RuntimeError(f"Expected one source refusal with no executable artifacts: {result}")
+    return diagnostics[0]
+
+
+def require_budget_refusal(result):
+    diagnostic = source_refusal_diagnostic(result)
     message = diagnostic.get("message", "")
     boundaries = {
         "ApplicationCompilationFailed": ("InvalidBound", "pure-helper cost",
                                          "exceeds operation budget"),
+        "InvalidBound": ("pure-helper cost", "exceeds operation budget"),
         "ProviderLowererRefused": ("UnsupportedSemantics", "core.source-functions"),
     }
     required = boundaries.get(diagnostic.get("kind"))
-    if required is None or any(detail not in message for detail in required):
+    if (required is None or any(detail not in message for detail in required)
+            or (diagnostic.get("kind") == "InvalidBound"
+                and diagnostic.get("stage") != "typeCheck")):
         raise RuntimeError(f"Unexpected original-budget refusal: {result}")
     return diagnostic["kind"]
 
@@ -397,6 +426,17 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
     elif refusal == "original-budget":
         provenance["refusalBoundary"] = require_budget_refusal(result)
+    elif refusal == "byte-literal-provider":
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.source-functions" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Byte literal did not stop at the original provider judgment: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "byte-literal-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "TypeMismatch" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Narrow byte result did not produce a compiler type refusal: {result}")
+        provenance["refusalBoundary"] = "TypeMismatch"
     else:
         require_success(result)
         shutil.rmtree(root / "application-output")
@@ -467,6 +507,7 @@ def main():
     for name in ("compiler-revision", "old-provider-manifest-sha256", "provider-manifest-sha256",
                  "input-manifest-sha256"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--byte-literal-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -515,6 +556,15 @@ def main():
             ("read", variants["read"], args.provider,
              {"read": True, "read_steps": READ_HELPER_STEPS}),
         ]
+        if args.byte_literal_provider_before is not None:
+            specs.extend([
+                ("pure-before-byte-literals", variants["pure"], args.byte_literal_provider_before, {}),
+                ("byte-literals-before", variants["byte-literals"], args.byte_literal_provider_before,
+                 {"refusal": "byte-literal-provider"}),
+                ("byte-literals", variants["byte-literals"], args.provider, {}),
+                ("byte-literals-invalid-bound", variants["byte-literals-invalid-bound"], args.provider,
+                 {"refusal": "byte-literal-bound"}),
+            ])
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

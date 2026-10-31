@@ -467,7 +467,7 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
         relative_path(item["output"])
     if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS}:
         raise RuntimeError("Unexpected authored budget variant")
-    if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION}:
+    if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION, READ_MATCH_ALLOCATION}:
         raise RuntimeError("Unexpected authored allocation budget")
     changes = []
     for field, before, after in [("maxSteps", READ_OLD_STEPS, read_steps),
@@ -743,6 +743,9 @@ def main():
                           "read_steps": READ_HELPER_STEPS,
                           "read_allocation": READ_MATCH_ALLOCATION,
                           "refusal": "match-provider"}))
+            specs.append(("match-read-original-allocation", variants["match-read-payload"],
+                          args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                          "refusal": "original-allocation"}))
             for case in ["empty", "payload"]:
                 specs.append((f"match-pure-{case}", variants[f"match-pure-{case}"],
                               args.provider, {}))

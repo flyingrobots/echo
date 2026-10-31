@@ -180,8 +180,12 @@ arm; a payload-binding arm copies the outer lexical frame through the ordinary
 meter and moves the selected payload into it. The synthetic witnesses in
 `edict_pure::variant_tests` cover arm selection, malformed coverage, binder scope,
 and exact work/storage refusal. This runtime capability alone does not establish
-provider acceptance or public compiler-package execution of matches; the native
-provider match judgments and publication witness remain required.
+public compiler-package execution of matches. Native lowerer and verifier
+source-function judgments independently check match coverage, payload identity,
+all-arm call authority, and maximum path costs, including lexical frame copies.
+Direct intent matches trigger that judgment even without a function table.
+Checked component publication and the public execution witness remain required;
+bounded-read relation support for direct match expressions is still separate.
 
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the

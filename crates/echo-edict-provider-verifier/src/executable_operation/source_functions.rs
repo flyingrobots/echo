@@ -7,6 +7,7 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod matches;
 mod order;
 mod types;
 #[cfg(test)]
@@ -105,6 +106,13 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                 "variant" => {
                     if let Some(payload) = super::map_field(expression, "payload") {
                         expressions.push((payload, depth + 1));
+                    }
+                }
+                "match" => {
+                    expressions.push((get(expression, "scrutinee")?, depth + 1));
+                    for arm in sequence(get(expression, "arms")?)? {
+                        types.step(depth + 1)?;
+                        expressions.push((get(arm, "body")?, depth + 1));
                     }
                 }
                 "record" => {
@@ -397,6 +405,7 @@ impl<'a> Checker<'a, '_> {
         };
         let mut height = 0;
         let schema = match string(get(value, "kind")?)? {
+            "match" => return self.audit_match(value, frame, depth),
             "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {
                 exact(value, &["kind", "value"])?;

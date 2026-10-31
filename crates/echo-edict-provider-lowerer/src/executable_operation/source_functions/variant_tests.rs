@@ -371,3 +371,142 @@ fn variant_case_work_and_combined_expansion_depth_remain_bounded() {
     );
     refused(&core, &exports);
 }
+
+fn matched() -> Value {
+    let binder = map([
+        ("id", text("match.0")),
+        ("type", text("U8")),
+        ("alphaName", text("payload")),
+    ]);
+    map([
+        ("kind", text("match")),
+        (
+            "scrutinee",
+            construct("Choice", "Data", Some(integer("U8", 9))),
+        ),
+        (
+            "arms",
+            array(vec![
+                map([("case", text("Empty")), ("body", integer("U8", 0))]),
+                map([
+                    ("case", text("Data")),
+                    ("binder", binder.clone()),
+                    ("body", map([("kind", text("local")), ("ref", binder)])),
+                ]),
+            ]),
+        ),
+    ])
+}
+
+#[test]
+fn matches_accept_exhaustive_payload_binding() {
+    let (core, exports) = fixture(matched(), "U8");
+    assert!(validate(&core, &exports, false).is_ok());
+}
+
+#[test]
+fn matches_refuse_bad_coverage_payload_identity_and_scope() {
+    for mutation in 0..7 {
+        let mut result = matched();
+        let Value::Array(arms) = get_mut(&mut result, "arms") else {
+            unreachable!()
+        };
+        match mutation {
+            0 => {
+                arms.pop();
+            }
+            1 => {
+                put(&mut arms[1], "case", text("Empty"));
+            }
+            2 => {
+                put(&mut arms[1], "case", text("Unknown"));
+            }
+            3 => {
+                put(get_mut(&mut arms[1], "binder"), "type", text("Bool"));
+            }
+            4 => {
+                let binder = get_mut(&mut arms[1], "binder").clone();
+                put(&mut arms[0], "binder", binder);
+            }
+            5 => {
+                let body = get_mut(&mut arms[1], "body").clone();
+                put(&mut arms[0], "body", body);
+            }
+            6 => {
+                put(get_mut(&mut arms[1], "binder"), "alphaName", text(""));
+            }
+            _ => unreachable!(),
+        }
+        let (core, exports) = fixture(result, "U8");
+        refused(&core, &exports);
+    }
+}
+
+#[test]
+fn matches_require_intent_budget_even_without_a_function_table() {
+    for (budget, accepted) in [(4096, true), (1, false)] {
+        let (mut core, exports) = fixture(matched(), "U8");
+        let input = map([
+            ("id", text("arg.0")),
+            ("alphaName", text("input")),
+            ("type", text("U8")),
+        ]);
+        let intent = map([
+            ("input", text("U8")),
+            ("output", text("U8")),
+            ("inputConstraints", array(vec![])),
+            (
+                "coreEvaluationBudget",
+                map([
+                    ("maxSteps", Value::Integer(budget)),
+                    ("maxAllocatedBytes", Value::Integer(4096)),
+                    ("maxOutputBytes", Value::Integer(4096)),
+                ]),
+            ),
+            (
+                "body",
+                map([
+                    ("locals", array(vec![input])),
+                    ("nodes", array(vec![])),
+                    ("result", matched()),
+                ]),
+            ),
+        ]);
+        put(&mut core, "intents", map([("run", intent)]));
+        let Value::Map(fields) = &mut core else {
+            unreachable!()
+        };
+        fields.retain(|(key, _)| key != &text("functions"));
+        assert_eq!(
+            validate(&core, &exports, false).is_ok(),
+            accepted,
+            "budget {budget}"
+        );
+    }
+}
+
+#[test]
+fn matches_validate_unselected_arms_and_reject_outer_binder_capture() {
+    for callee in ["choices.example@1.make", "choices.example@1.missing"] {
+        let mut result = matched();
+        let Value::Array(arms) = get_mut(&mut result, "arms") else {
+            unreachable!()
+        };
+        // The constructor selects Data, but Empty still belongs to the static proof.
+        put(&mut arms[0], "body", call(callee));
+        let (core, exports) = fixture(result, "U8");
+        refused(&core, &exports);
+    }
+    let mut result = matched();
+    let Value::Array(arms) = get_mut(&mut result, "arms") else {
+        unreachable!()
+    };
+    let binder = get_mut(&mut arms[1], "binder").clone();
+    let (mut core, exports) = fixture(result, "U8");
+    put(
+        get_mut(get_mut(&mut core, "functions"), "make"),
+        "params",
+        array(vec![binder]),
+    );
+    refused(&core, &exports);
+}

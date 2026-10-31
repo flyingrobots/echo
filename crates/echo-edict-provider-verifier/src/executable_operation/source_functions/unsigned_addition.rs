@@ -5,7 +5,8 @@ use super::{get, sequence, string, unsigned, Check, Schema, Types, Value};
 
 /// Whether an intent body calls an operation only this judgment checks: an
 /// addition's no-overflow proof, a subtraction's or slice's range proof, or a
-/// count's full-byte scan charge. A Core without a function table still needs
+/// count's full-byte scan charge, or exhaustive variant dispatch.
+/// A Core without a function table still needs
 /// the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
     let mut layers = vec![get(core, "intents")?];
@@ -13,6 +14,9 @@ pub(super) fn present(core: &Value) -> Check<bool> {
         let mut next = Vec::new();
         for value in layers {
             if let Value::Map(entries) = value {
+                if get(value, "kind").and_then(string) == Ok("match") {
+                    return Ok(true);
+                }
                 // Each of these needs an intent-level proof, even without a
                 // source-function table.
                 if string(get(value, "kind").unwrap_or(&Value::Null)) == Ok("call")

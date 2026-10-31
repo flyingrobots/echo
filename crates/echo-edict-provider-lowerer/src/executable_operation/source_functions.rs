@@ -7,6 +7,7 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod matches;
 mod order;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -444,6 +445,7 @@ impl<'a> Judgment<'a> {
         let mut cost = Cost { steps: 1, bytes: 0 };
         let mut depth = 0;
         let ty = match string(get(value, "kind")?)? {
+            "match" => return self.variant_match(value, scope, source, prefix),
             "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {
                 exact(value, &["kind", "ref"])?;

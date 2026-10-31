@@ -102,13 +102,46 @@ class PublicationTests(unittest.TestCase):
 
     def test_optional_variants_do_not_accumulate_disposable_vendor_copies(self):
         # Scale the 64 MiB ceiling and 4.5 MiB vendor copy down by 1024.
-        # Fifteen non-read variants cover both optional control groups.
+        # Twenty non-read variants cover all three optional control groups.
         with patch.object(publication, "MAX_WORK_BYTES", 64 * 1024):
-            self.repeat(True, variants=15, vendor_bytes=4608)
+            self.repeat(True, variants=20, vendor_bytes=4608)
 
     def test_changed_vendor_copy_refuses_before_disposal(self):
         with self.assertRaisesRegex(RuntimeError, "changed its vendor copy"):
             self.repeat(True, mutate_vendor=True)
+
+    def test_each_optional_provider_tree_changes_the_input_selection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def file(name, data=b"fixture"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                return path
+            pure = root / "pure"
+            read = root / "read"
+            for name in ["pure/edict.application.json", "pure/source.edict", "pure/cases.json",
+                         "pure/vendor/resource", "read/edict.application.json",
+                         "read/edict.lawpack.json", "read/source.edict"]:
+                file(name)
+            providers = {}
+            for name in ["old", "candidate", "literal", "lookup", "unsigned"]:
+                file(name + "/component.wasm")
+                providers[name] = root / name
+            args = SimpleNamespace(
+                compiler=file("compiler"), compiler_manifest=file("compiler-manifest.json"),
+                pure_application_source=pure, pure_source=pure / "source.edict",
+                pure_cases=pure / "cases.json", read_application_source=read,
+                read_source=read / "source.edict", old_provider=providers["old"],
+                provider=providers["candidate"], byte_literal_provider_before=providers["literal"],
+                byte_lookup_provider_before=providers["lookup"],
+                unsigned_byte_provider_before=providers["unsigned"],
+            )
+            for name in ["literal", "lookup", "unsigned"]:
+                original = publication.selected_inputs(args)
+                component = providers[name] / "component.wasm"
+                component.write_bytes(component.read_bytes() + b"changed")
+                self.assertNotEqual(original, publication.selected_inputs(args), name)
 
     def test_final_usage_includes_final_evidence_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

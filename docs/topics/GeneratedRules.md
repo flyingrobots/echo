@@ -172,6 +172,48 @@ independently selected trusted-host pin and bounded input, work, storage and
 output limits. This is ordinary computation, not package admission, graph
 mutation, an Action, a Tick, a receipt or recovery evidence.
 
+The native interpreter prepares exhaustive closed-variant `match` expressions
+in source helpers. It checks every case exactly once, requires payload binders
+to have the declared payload type, and confines each binder to its own arm.
+Evaluation runs the scrutinee once and only the selected body. Dispatch charges
+each inspected arm; a payload-binding arm copies the outer lexical frame through
+the ordinary meter and moves the selected payload into it. Synthetic witnesses
+in `edict_pure::variant_tests` cover arm selection, malformed coverage, binder
+scope, populated-frame costs and exact work/storage refusal.
+
+Native lowerer and verifier source-function judgments independently check
+coverage, payload identity, all-arm call authority and maximum path costs,
+including lexical frame copies. A direct match is one in the checked expression
+itself, rather than only in a called helper. Direct matches in intent bindings
+or results trigger these judgments even without a function table. Unlike
+source-helper preparation, the runtime parser for intent expressions does not
+repeat typed coverage or binder-scope inference. It rejects duplicate case tags
+and empty arm lists. Evaluation validates each binding and the result against
+its declared type, and refuses if the selected case has no arm. Provider
+verification remains required for the static rules.
+
+The bounded-read relation and audit independently check direct matches. Both
+preserve outer declarations on success and refusal, and carry proof-work
+counters across arms rather than resetting them for each binder. A variant
+helper result or local can supply the scrutinee; direct constructor expressions
+and raw-byte constants remain outside the bounded-read relation profile. Author
+those values in source helpers when using this profile. See the
+[closed-variant architecture](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+for binder identity, payload omission and accounting rules.
+
+The public source-function publication witness accepts `--match-provider-before`
+to check pure constructor acceptance and pure/read match refusal with the
+constructor-capable provider, then compile empty and payload matches with the
+current provider. The previous-provider read refusal has no paired read
+acceptance control and does not isolate match as the sole cause of refusal. The runtime
+example consumes the exact emitted packages and reports: each pure alternative
+passes twelve byte-output cases, and bounded reads retain their output and
+resource-refusal checks. Repeated compiler builds retain identical package and
+report bytes. The source-modules publication regenerated from checked components matches the
+candidate used by these witnesses. It is distinct from the committed default
+package selection; see the [publication comparison](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+for the generation command and manifest boundary.
+
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the
 result through the ordinary resource meter. Overflow and invalid operands

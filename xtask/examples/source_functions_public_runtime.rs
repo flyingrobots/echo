@@ -614,6 +614,13 @@ fn variant_package(
         )?)? == "Variant",
         "public compiler variant declaration missing"
     );
+    if name.starts_with("match-") {
+        let selector = field(field(&core, "functions")?, "selectChoice")?;
+        ensure!(
+            text(field(field(field(selector, "body")?, "result")?, "kind")?)? == "match",
+            "public compiler match body missing"
+        );
+    }
     Ok((package, pin))
 }
 
@@ -621,6 +628,7 @@ fn closed_variants(
     root: &Path,
     evidence: &serde_json::Value,
     read_usage: (u64, u64),
+    prefix: &str,
 ) -> Result<()> {
     let input = encode(&record([
         ("firstFragment", Value::Bytes(b"first".to_vec())),
@@ -633,7 +641,7 @@ fn closed_variants(
     let mut previous = (baseline.steps, baseline.allocated_bytes);
     let mut previous_read = read_usage;
     for case in ["empty", "payload"] {
-        let name = format!("variant-pure-{case}");
+        let name = format!("{prefix}-pure-{case}");
         pure(root, &name, false, evidence)?;
         let (package, pin) = variant_package(root, &name, evidence)?;
         let result = edict_pure::evaluate(&package, pin, &input, limits())
@@ -686,7 +694,7 @@ fn closed_variants(
             "variant package substitution did not refuse"
         );
         previous = (result.steps, result.allocated_bytes);
-        let read_name = format!("variant-read-{case}");
+        let read_name = format!("{prefix}-read-{case}");
         variant_package(root, &read_name, evidence)?;
         let current = atom_read(root, evidence, &read_name)?;
         ensure!(
@@ -694,7 +702,7 @@ fn closed_variants(
             "read constructor or payload work was not charged"
         );
         previous_read = current;
-        println!("PUBLIC_VARIANT_RUNTIME_OK {case}: capability retained, 12 pure cases, repeat, 3 one-under budgets, identity refusal, bounded read");
+        println!("PUBLIC_VARIANT_RUNTIME_OK {prefix}-{case}: capability retained, 12 pure cases, repeat, 3 one-under budgets, identity refusal, bounded read");
     }
     Ok(())
 }
@@ -726,7 +734,10 @@ fn main() -> Result<()> {
     pure(root, "changed-body", true, &evidence)?;
     let read_usage = atom_read(root, &evidence, "read")?;
     if evidence["results"].get("variant-pure-payload").is_some() {
-        closed_variants(root, &evidence, read_usage)?;
+        closed_variants(root, &evidence, read_usage, "variant")?;
+    }
+    if evidence["results"].get("match-pure-payload").is_some() {
+        closed_variants(root, &evidence, read_usage, "match")?;
     }
     if evidence["results"].get("u8-literal").is_some() {
         unsigned_bytes(root, &evidence)?;

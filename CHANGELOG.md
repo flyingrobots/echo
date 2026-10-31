@@ -7,6 +7,23 @@
 
 ### Added
 
+- Native source-helper preparation and execution accept exhaustive closed-variant
+  matches with lexical payload bindings, selected-arm evaluation, and metered
+  dispatch and frame copies. The checked provider component pair, reproduced by
+  two matching CI builds, includes these judgments. Public compiler witnesses consume
+  empty and payload matches through pure and bounded-read operations.
+
+- The runtime expression parser rejects duplicate case tags and empty match-arm
+  lists, including in intent bindings and results. Intent-level typed coverage
+  and binder scope remain obligations of the independent provider judgments.
+
+- Independent native lowerer and verifier source-function judgments check
+  exhaustive matches and lexical payload types, inspect unused arms for invalid
+  calls, and bound dispatch and frame-copy costs. Direct intent matches cannot
+  skip budget validation when the Core function table is absent. Bounded-read
+  relation and audit checks also admit direct matches while keeping payload
+  bindings local to their arms.
+
 - Independent native provider judgments and runtime preparation check bounded
   closed variant types and constructors with exact union/payload identity and
   payload traversal. Runtime values retain their type, case and optional payload

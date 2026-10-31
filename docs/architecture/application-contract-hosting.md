@@ -487,12 +487,40 @@ helper call. Module-relative and fully qualified references resolve to the
 same local union; imported type-table identities remain original coordinates.
 The existing same-prefix imported-key limitation described above still applies.
 
+Native provider judgments also check exhaustive matches, including coverage,
+payload binder types, arm-local scope and calls in unselected arms. Runtime
+source-helper preparation repeats those type and scope checks. Intent-level
+bindings and results instead use the expression parser: it rejects duplicate
+case tags and empty arm lists, but relies on the provider judgments for typed
+coverage and binder scope. Evaluation checks each resulting binding and the
+intent result against its declared type; selecting a missing arm refuses.
+These runtime checks do not replace provider verification or the caller's
+selection of the verified package digest. The parser boundary witnesses in
+`edict_pure/variant_tests.rs` are synthetic and establish no public compiler
+package provenance.
+
+An arm may omit its binder and discard the payload. A binder cannot reuse an
+already available local's ID. It may reuse a pending or currently being defined
+local's ID, but each reference in the arm must match the binder's complete
+declaration. This temporary scope does not expose the pending outer value.
+Dispatch charges one step for every inspected arm, so arm order affects cost.
+A selected payload-binding arm copies the entire available frame, including
+locals its body does not reference; the payload itself moves into that frame.
+Both providers include these copies in the worst-arm bound. Matching requires
+a variant type; a nominal wrapper does not grant variant-match semantics.
+
 The separate bounded-read relation judgments retain the full union identity and
 bounded alternative graph for variant-valued helper results and local bindings.
 They charge every case during type expansion, including payloadless cases, and
 refuse empty, malformed or recursive graphs. Variant values do not acquire record
 field access to their metadata. Constructor expressions in source-function
-bodies remain subject to the independent source-function judgments above.
+bodies remain subject to the independent source-function judgments above. Direct
+constructor expressions remain unsupported in the read relation itself; a helper
+result or local can supply a match scrutinee. Direct raw-byte constants are also
+outside that relation's expression profile. A source helper may return such a
+constant, including an empty fallback passed to a match helper; its body is
+checked by the independent source-function judgments. Both read judgments
+preserve outer declarations and cumulative proof work across temporary arm scopes.
 
 The generic pure and bounded-read provider entry points independently admit
 only the known `core.variant/v1` required capability, once. Every variant
@@ -570,34 +598,55 @@ independent. Neither the representation nor these logical units imply measured
 allocator sizes or a compiler result-encoding capability.
 
 The mirrored input corpus in each provider's `source_functions/variant_tests.rs`
-checks construction, named/imported/nominal identities, malformed metadata,
-hidden payload dependencies and captures, partial calls, recursive/deep/wide
-graphs, arithmetic overflow and underfunded whole-operation bounds. Production
-judgments share no implementation. Native checks alone establish neither
+checks construction, exhaustive matches, named/imported/nominal identities,
+malformed metadata, hidden payload dependencies and captures, partial calls,
+recursive/deep/wide graphs, arithmetic overflow and underfunded whole-operation
+bounds. Production judgments share no implementation. Native checks alone establish neither
 component reproduction nor compiler-emitted package provenance.
 The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
 value validation, constructor and copy charges, nested/called payloads, fresh
 frames, imported/nominal identities, graph apertures and step/allocation/output
 limits. Those synthetic runtime fixtures establish no compiler provenance.
-The public read payload witness explicitly authors a 32 MiB allocation lawpack
-budget and records that change with the source and manifest hashes. Its paired
-16 MiB allocation control must refuse at compiler type checking with allocation
+The `match_populated_frame_accounting` tests in all three crates share only the
+inputs in `testdata/edict-match-frame.rs`; each implementation owns its judgment.
+The frame contains an integer, exact-length bytes, a record and a variant.
+Independent cell arithmetic pins its copy at 12 work units and 819 storage bytes.
+Both arm orders and binder omission are checked, including exact runtime limits
+and one-unit shortfalls. Provider worst-arm costs bound each concrete execution of this fixture.
+Optional `ECHO_MATCH_FRAME_REPORT` files bind measured costs to the canonical
+fixture digest for comparison by a guarded runner. This is expression-level
+accounting evidence. Companion tests locate each provider's whole-intent work
+and storage boundary, accept the exact limits and refuse one-unit shortfalls;
+adding payload binders raises those limits by the same frame-copy cost. These
+synthetic cost judgments establish neither public package admission nor compiler
+provenance.
+The public read constructor witness explicitly authors a 32 MiB allocation
+lawpack budget; the matched-read witnesses use a bounded 64 MiB allocation
+budget. Each records the change with source and manifest hashes. Paired
+16 MiB allocation controls must refuse at compiler type checking with allocation
 as the only exceeded cost dimension; runtime resource ceilings remain
 independently checked. These are authored operation
 budgets, separate from the witness runner's storage limits.
 
 The public source-function publication/runtime witness separately compiles empty
-and payload-bearing helpers in pure and bounded-read operations. It retains
+and payload-bearing helpers, including consumed matches, in pure and bounded-read
+operations. It retains
 `core.variant/v1`, exact repeated package/report bytes, old-provider refusals,
 and the original-allocation refusal. Runtime consumption checks unchanged byte
 results, increasing constructor/payload charges, repeated outcomes, resource
-ceilings and package identity. The checked component pair is independently
-reproduced and promoted; its source-module publication matches the candidate
-used by the public witness byte for byte. This evidence covers helper-local
-construction; public compiler variant result encoding, matching, recursive
-variants and the application's persistent-rope cutover remain outside this proof.
-The optional `--variant-provider-before` control is described with the other
-controls below.
+ceilings and package identity. The checked component pair is reproduced by two
+matching CI builds and promoted. Regenerating with
+`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output> --source-modules`
+uses those checked components without a candidate override. All 25 generated
+files match the source-modules candidate consumed by the public witness byte for
+byte. This generated publication is a different selection from the committed
+default `package/v1` publication: their manifests differ, while both embed the
+same lowerer and verifier component bytes. The PR review receipts retain the CI
+run, source commit and comparison inventory. This evidence covers helper-local
+construction and exhaustive matching. Public compiler variant result encoding,
+recursive variants and the application's persistent-rope cutover remain outside
+this proof. The optional `--variant-provider-before` and `--match-provider-before`
+controls are described below.
 
 #### Pure and read witness fixtures
 
@@ -630,7 +679,7 @@ full 1 MiB inputs, an over-bound input and insufficient scan work. Publication,
 component and package identities are recorded in its provenance. These are private
 computation witnesses and confer no mutation or causal-history authority.
 
-The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by a caller-supplied SHA-256. The guarded launcher computes that digest after compilation; it binds consumption to the retained evidence, not to an independently approved digest fixed before the run. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
 The optional `--byte-lookup-provider-before` control selects the previous
 matching U8 publication. That publication must refuse the guarded lookup,
@@ -656,8 +705,21 @@ the embedded compiler Core. It checks the twelve original pure cases, repeated
 execution, one-under resource ceilings and package substitution. Empty
 constructors must incur more work/storage than the unchanged control, and
 payload constructors more than empty constructors; immutable reads retain their
-result and state checks. These helper-local values do not establish public compiler variant
-result encoding, matching, recursive types or the authored rope cutover.
+result and state checks. These constructor controls do not establish public
+compiler variant result encoding, recursive types or the authored rope cutover.
+
+The optional `--match-provider-before` control selects a constructor-capable
+publication and requires it to refuse consumed matches in pure and bounded-read
+operations. Current-provider controls compile both alternatives and repeat the
+same package/report bytes. The payload arm returns its bound bytes with an empty
+fallback, so substituting the fallback changes the retained byte-output cases.
+The read-payload witness authors its empty fallback in a source helper. The runtime consumer
+also requires the authored `match` body in embedded Core, exercises all twelve
+pure cases for each alternative, checks one-under step, allocation and output
+refusals, and consumes bounded-read packages with unchanged read and state
+assertions. Exact-limit acceptance is covered separately by the native frame
+tests above.
+The original-allocation read control must fail specifically on allocation.
 
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain
 an old matching source-function publication as a control. It must accept a U8

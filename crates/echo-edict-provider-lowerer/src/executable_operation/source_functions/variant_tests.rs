@@ -371,3 +371,399 @@ fn variant_case_work_and_combined_expansion_depth_remain_bounded() {
     );
     refused(&core, &exports);
 }
+
+fn matched() -> Value {
+    let binder = map([
+        ("id", text("match.0")),
+        ("type", text("U8")),
+        ("alphaName", text("payload")),
+    ]);
+    map([
+        ("kind", text("match")),
+        (
+            "scrutinee",
+            construct("Choice", "Data", Some(integer("U8", 9))),
+        ),
+        (
+            "arms",
+            array(vec![
+                map([("case", text("Empty")), ("body", integer("U8", 0))]),
+                map([
+                    ("case", text("Data")),
+                    ("binder", binder.clone()),
+                    ("body", map([("kind", text("local")), ("ref", binder)])),
+                ]),
+            ]),
+        ),
+    ])
+}
+
+#[test]
+fn matches_accept_exhaustive_payload_binding() {
+    let (core, exports) = fixture(matched(), "U8");
+    assert!(validate(&core, &exports, false).is_ok());
+}
+
+#[test]
+fn matches_refuse_bad_coverage_payload_identity_and_scope() {
+    for mutation in 0..8 {
+        let mut result = matched();
+        let Value::Array(arms) = get_mut(&mut result, "arms") else {
+            unreachable!()
+        };
+        match mutation {
+            0 => {
+                arms.pop();
+            }
+            1 => {
+                put(&mut arms[1], "case", text("Empty"));
+            }
+            2 => {
+                put(&mut arms[1], "case", text("Unknown"));
+            }
+            3 => {
+                put(get_mut(&mut arms[1], "binder"), "type", text("Bool"));
+                put(&mut arms[1], "body", integer("U8", 0));
+            }
+            4 => {
+                let binder = get_mut(&mut arms[1], "binder").clone();
+                put(&mut arms[0], "binder", binder);
+            }
+            5 => {
+                let body = get_mut(&mut arms[1], "body").clone();
+                put(&mut arms[0], "body", body);
+            }
+            6 => {
+                put(get_mut(&mut arms[1], "binder"), "alphaName", text(""));
+                put(&mut arms[1], "body", integer("U8", 0));
+            }
+            7 => {
+                put(
+                    get_mut(&mut arms[1], "binder"),
+                    "alphaName",
+                    text("renamed"),
+                );
+            }
+            _ => unreachable!(),
+        }
+        let (core, exports) = fixture(result, "U8");
+        refused(&core, &exports);
+    }
+}
+
+#[test]
+fn matches_require_intent_budget_even_without_a_function_table() {
+    for (budget, accepted) in [(4096, true), (1, false)] {
+        let (mut core, exports) = fixture(matched(), "U8");
+        let input = map([
+            ("id", text("arg.0")),
+            ("alphaName", text("input")),
+            ("type", text("U8")),
+        ]);
+        let intent = map([
+            ("input", text("U8")),
+            ("output", text("U8")),
+            ("inputConstraints", array(vec![])),
+            (
+                "coreEvaluationBudget",
+                map([
+                    ("maxSteps", Value::Integer(budget)),
+                    ("maxAllocatedBytes", Value::Integer(4096)),
+                    ("maxOutputBytes", Value::Integer(4096)),
+                ]),
+            ),
+            (
+                "body",
+                map([
+                    ("locals", array(vec![input])),
+                    ("nodes", array(vec![])),
+                    ("result", matched()),
+                ]),
+            ),
+        ]);
+        put(&mut core, "intents", map([("run", intent)]));
+        let Value::Map(fields) = &mut core else {
+            unreachable!()
+        };
+        fields.retain(|(key, _)| key != &text("functions"));
+        assert_eq!(
+            validate(&core, &exports, false).is_ok(),
+            accepted,
+            "budget {budget}"
+        );
+    }
+}
+
+#[test]
+fn matches_validate_unselected_arms_and_reject_outer_binder_capture() {
+    for callee in ["choices.example@1.make", "choices.example@1.missing"] {
+        let mut result = matched();
+        let Value::Array(arms) = get_mut(&mut result, "arms") else {
+            unreachable!()
+        };
+        // The constructor selects Data, but Empty still belongs to the static proof.
+        put(&mut arms[0], "body", call(callee));
+        let (core, exports) = fixture(result, "U8");
+        refused(&core, &exports);
+    }
+    let mut result = matched();
+    let Value::Array(arms) = get_mut(&mut result, "arms") else {
+        unreachable!()
+    };
+    let binder = get_mut(&mut arms[1], "binder").clone();
+    let (mut core, exports) = fixture(result, "U8");
+    put(
+        get_mut(get_mut(&mut core, "functions"), "make"),
+        "params",
+        array(vec![binder]),
+    );
+    refused(&core, &exports);
+}
+
+mod frame_fixture {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/edict-match-frame.rs"
+    ));
+}
+#[test]
+fn match_populated_frame_accounting() -> super::Check<()> {
+    for binder in [false, true] {
+        for selected in 0..2 {
+            let f = frame_fixture::fixture(binder, selected);
+            let mut proof = super::Judgment {
+                core: &f.core,
+                functions: super::BTreeMap::new(),
+                completed: super::BTreeMap::new(),
+                active: super::BTreeSet::new(),
+                work: super::WORK,
+                proven: vec![],
+                path: vec![],
+                bound: vec![],
+                proven_sum: None,
+            };
+            let mut scope = super::Scope::new();
+            for declaration in &f.declarations {
+                proof.declaration(declaration, &mut scope)?;
+            }
+            let fact = proof.expression(&f.expression, &scope, true, 0)?;
+            let measured = (fact.cost.steps, fact.cost.bytes);
+            // Static cost bounds both arms; dispatch may inspect two cases.
+            assert_eq!(measured, frame_fixture::runtime_cost(binder, 1));
+            let concrete = frame_fixture::runtime_cost(binder, selected);
+            assert!(measured.0 >= concrete.0 && measured.1 >= concrete.1);
+            f.report("lowerer", binder, selected, measured)
+                .map_err(|_| ())?;
+        }
+    }
+    Ok(())
+}
+
+fn frame_intent(binder: bool) -> (Value, Value) {
+    let f = frame_fixture::fixture(binder, 1);
+    let mut core = f.core;
+    let input = map([
+        ("id", text("arg.0")),
+        ("alphaName", text("input")),
+        ("type", text("Frame")),
+    ]);
+    put(
+        get_mut(&mut core, "types"),
+        "Frame",
+        map([
+            ("kind", text("Record")),
+            (
+                "fields",
+                map([
+                    ("word", text("U8")),
+                    ("bytes", text("Bytes<exact=4>")),
+                    ("record", text("Flags")),
+                    ("choice", text("Choice")),
+                ]),
+            ),
+        ]),
+    );
+    let mut helper = function(f.expression, "U8");
+    put(&mut helper, "params", array(f.declarations));
+    put(&mut core, "functions", map([("make", helper)]));
+    let mut result = call("choices.example@1.make");
+    put(
+        &mut result,
+        "args",
+        array(
+            ["word", "bytes", "record", "choice"]
+                .into_iter()
+                .map(|name| {
+                    map([
+                        ("kind", text("field")),
+                        (
+                            "base",
+                            map([("kind", text("local")), ("ref", input.clone())]),
+                        ),
+                        ("field", text(name)),
+                    ])
+                })
+                .collect(),
+        ),
+    );
+    put(
+        &mut core,
+        "intents",
+        map([(
+            "run",
+            map([
+                ("input", text("Frame")),
+                ("output", text("U8")),
+                ("inputConstraints", array(vec![])),
+                (
+                    "coreEvaluationBudget",
+                    map([
+                        ("maxSteps", Value::Integer(32768)),
+                        ("maxAllocatedBytes", Value::Integer(32768)),
+                        ("maxOutputBytes", Value::Integer(4096)),
+                    ]),
+                ),
+                (
+                    "body",
+                    map([
+                        ("locals", array(vec![input])),
+                        ("nodes", array(vec![])),
+                        ("result", result),
+                    ]),
+                ),
+            ]),
+        )]),
+    );
+    (
+        core,
+        map([("effects", array(vec![])), ("pureFunctions", array(vec![]))]),
+    )
+}
+fn frame_budget(core: &mut Value, axis: &str, n: u64) {
+    put(
+        get_mut(
+            get_mut(get_mut(core, "intents"), "run"),
+            "coreEvaluationBudget",
+        ),
+        axis,
+        Value::Integer(n.into()),
+    );
+}
+#[test]
+fn match_populated_frame_accounting_whole_intent_budgets() {
+    let mut minimums = Vec::new();
+    for binder in [false, true] {
+        let (core, exports) = frame_intent(binder);
+        assert!(validate(&core, &exports, false).is_ok());
+        let mut minimum = [0; 2];
+        for (index, axis) in ["maxSteps", "maxAllocatedBytes"].into_iter().enumerate() {
+            // A bounded binary search observes the admission boundary without
+            // consulting either implementation's private cost summary.
+            let mut candidate = core.clone();
+            let (mut low, mut high) = (0, 32768);
+            while low < high {
+                let middle = low + (high - low) / 2;
+                frame_budget(&mut candidate, axis, middle);
+                if validate(&candidate, &exports, false).is_ok() {
+                    high = middle;
+                } else {
+                    low = middle + 1;
+                }
+            }
+            assert!(low > 0);
+            frame_budget(&mut candidate, axis, low);
+            assert!(validate(&candidate, &exports, false).is_ok());
+            frame_budget(&mut candidate, axis, low - 1);
+            assert!(validate(&candidate, &exports, false).is_err());
+            minimum[index] = low;
+        }
+        let mut exact = core.clone();
+        frame_budget(&mut exact, "maxSteps", minimum[0]);
+        frame_budget(&mut exact, "maxAllocatedBytes", minimum[1]);
+        assert!(validate(&exact, &exports, false).is_ok());
+        minimums.push(minimum);
+    }
+    assert_eq!(
+        (
+            minimums[1][0] - minimums[0][0],
+            minimums[1][1] - minimums[0][1]
+        ),
+        frame_fixture::FRAME_COPY
+    );
+}
+
+#[test]
+fn match_payload_may_reuse_pending_id_but_not_its_declaration() {
+    for wrong_declaration in [false, true] {
+        let mut value = matched();
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        let mut pending = get_mut(&mut arms[1], "binder").clone();
+        put(&mut pending, "alphaName", text("pending_result"));
+        if wrong_declaration {
+            put(
+                &mut arms[1],
+                "body",
+                map([("kind", text("local")), ("ref", pending.clone())]),
+            );
+        }
+        let (mut core, exports) = fixture(integer("U8", 0), "U8");
+        put(
+            get_mut(get_mut(&mut core, "functions"), "make"),
+            "body",
+            map([
+                ("locals", array(vec![pending.clone()])),
+                (
+                    "bindings",
+                    array(vec![map([
+                        ("kind", text("let")),
+                        ("binding", pending.clone()),
+                        ("value", value),
+                    ])]),
+                ),
+                ("result", map([("kind", text("local")), ("ref", pending)])),
+            ]),
+        );
+        assert_eq!(validate(&core, &exports, false).is_ok(), !wrong_declaration);
+    }
+}
+
+#[test]
+fn match_binder_bytes_require_declared_payload_equality() {
+    for (width, accepted) in [(8, true), (4, false), (16, false)] {
+        let mut value = matched();
+        put(
+            get_mut(&mut value, "scrutinee"),
+            "payload",
+            map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([
+                        ("kind", text("bytes")),
+                        ("value", Value::Bytes(vec![1, 2, 3])),
+                    ]),
+                ),
+            ]),
+        );
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        put(
+            get_mut(&mut arms[1], "binder"),
+            "type",
+            text(&format!("Bytes<max={width}>")),
+        );
+        // Keep the concrete payload and result valid under all binder widths;
+        // refusal must depend on the declared max=8 payload contract.
+        put(&mut arms[1], "body", integer("U8", 0));
+        let (mut core, exports) = fixture(value, "U8");
+        put(get_mut(&mut core, "types"), "Choice", union("Bytes<max=8>"));
+        assert_eq!(
+            validate(&core, &exports, false).is_ok(),
+            accepted,
+            "binder max={width}"
+        );
+    }
+}

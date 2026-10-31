@@ -18,6 +18,7 @@ pub(crate) enum Expr {
         case: String,
         payload: Option<Box<Expr>>,
     },
+    Match(Box<Expr>, Vec<MatchArm>),
     Local(String),
     Field(Box<Expr>, String),
     Record(Vec<(String, Expr)>),
@@ -70,6 +71,13 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MatchArm {
+    pub case: String,
+    pub binder: Option<String>,
+    pub body: Expr,
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -231,6 +231,7 @@ impl<'a> Symbols<'a> {
     pub(super) fn expression(&mut self, value: &Value, depth: usize) -> Check<Schema> {
         self.charge(depth)?;
         match text(value, "kind")? {
+            "match" => self.match_schema(value, depth),
             "local" => {
                 exact(value, &["kind", "ref"])?;
                 let local = get(value, "ref")?;
@@ -554,3 +555,5 @@ mod tests {
 mod variant_tests;
 
 mod variants;
+
+mod matches;

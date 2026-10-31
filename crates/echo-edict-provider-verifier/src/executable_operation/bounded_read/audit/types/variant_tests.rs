@@ -105,3 +105,191 @@ fn resolve(s: &mut Symbols<'_>, name: &str) -> Check<Schema> {
 fn set_work(s: &mut Symbols<'_>, n: usize) {
     s.work = n;
 }
+
+fn matched() -> Value {
+    let binder = m([
+        ("id", t("payload.0")),
+        ("alphaName", t("payload")),
+        ("type", t("U8")),
+    ]);
+    m([
+        ("kind", t("match")),
+        (
+            "scrutinee",
+            m([
+                ("kind", t("call")),
+                ("callee", t("example@1.make")),
+                ("args", Value::Array(vec![])),
+                ("typeArgs", Value::Array(vec![])),
+            ]),
+        ),
+        (
+            "arms",
+            Value::Array(vec![
+                m([
+                    ("case", t("Empty")),
+                    (
+                        "body",
+                        m([
+                            ("kind", t("const")),
+                            (
+                                "value",
+                                m([
+                                    ("kind", t("int")),
+                                    ("width", t("U8")),
+                                    ("value", Value::Integer(0)),
+                                ]),
+                            ),
+                        ]),
+                    ),
+                ]),
+                m([
+                    ("case", t("Data")),
+                    ("binder", binder.clone()),
+                    ("body", m([("kind", t("local")), ("ref", binder)])),
+                ]),
+            ]),
+        ),
+    ])
+}
+#[test]
+fn read_matches_bind_payloads_and_join_exhaustive_arms() {
+    let core = core();
+    let mut s = scope(&core);
+    assert!(matches!(s.expression(&matched(), 0), Ok(Schema::Word(255))));
+}
+
+fn field_mut<'a>(value: &'a mut Value, key: &str) -> &'a mut Value {
+    let Value::Map(fields) = value else {
+        unreachable!()
+    };
+    let Some((_, value)) = fields.iter_mut().find(|(name, _)| name == &t(key)) else {
+        unreachable!()
+    };
+    value
+}
+#[test]
+fn read_matches_reject_bad_arms_without_leaking_binders() {
+    let core = core();
+    for mutation in 0..6 {
+        let mut s = scope(&core);
+        let mut value = matched();
+        let Value::Array(arms) = field_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        match mutation {
+            0 => {
+                arms.pop();
+            }
+            1 => {
+                *field_mut(&mut arms[1], "case") = t("Empty");
+            }
+            2 => {
+                *field_mut(&mut arms[1], "case") = t("Unknown");
+            }
+            3 => {
+                *field_mut(field_mut(&mut arms[1], "binder"), "type") = t("Bool");
+            }
+            4 => {
+                let body = field_mut(&mut arms[1], "body").clone();
+                *field_mut(&mut arms[0], "body") = body;
+            }
+            5 => {
+                *field_mut(field_mut(field_mut(&mut arms[1], "body"), "ref"), "id") = t("missing");
+            }
+            _ => unreachable!(),
+        }
+        assert!(s.expression(&value, 0).is_err(), "mutation {mutation}");
+        assert!(s.live.is_empty());
+    }
+    let mut s = scope(&core);
+    assert!(s.expression(&matched(), 0).is_ok());
+    assert!(s.live.is_empty());
+}
+
+#[test]
+fn read_matches_restore_pending_declarations_on_success_and_refusal() {
+    let core = core();
+    for invalid_body in [false, true] {
+        let mut s = scope(&core);
+        // Reusing a pending id is legal; its distinct declaration must survive
+        // the temporary U8 binder, even if checking that arm's body refuses.
+        s.declared.insert(
+            "payload.0".into(),
+            m([
+                ("id", t("payload.0")),
+                ("alphaName", t("pending")),
+                ("type", t("Bool")),
+            ]),
+        );
+        s.declared.insert(
+            "outer".into(),
+            m([
+                ("id", t("outer")),
+                ("alphaName", t("outer")),
+                ("type", t("U8")),
+            ]),
+        );
+        s.live.insert("outer".into());
+        s.claimed.insert("outer".into());
+        let declared = s.declared.clone();
+        let live = s.live.clone();
+        let claimed = s.claimed.clone();
+        let mut value = matched();
+        if invalid_body {
+            let Value::Array(arms) = field_mut(&mut value, "arms") else {
+                unreachable!()
+            };
+            *field_mut(field_mut(field_mut(&mut arms[1], "body"), "ref"), "id") = t("missing");
+        }
+        assert_eq!(s.expression(&value, 0).is_ok(), !invalid_body);
+        assert_eq!(s.declared, declared);
+        assert_eq!(s.live, live);
+        assert_eq!(s.claimed, claimed);
+        assert!(!s.live.contains("payload.0"));
+    }
+}
+
+#[test]
+fn read_matches_refuse_capture_of_a_live_local() -> Check<()> {
+    let core = core();
+    let value = matched();
+    let Value::Array(arms) = get(&value, "arms")? else {
+        unreachable!()
+    };
+    let binder = get(&arms[1], "binder")?.clone();
+    let mut s = scope(&core);
+    s.declared.insert("payload.0".into(), binder);
+    s.live.insert("payload.0".into());
+    let declared = s.declared.clone();
+    let live = s.live.clone();
+    assert!(s.expression(&value, 0).is_err());
+    assert_eq!(s.declared, declared);
+    assert_eq!(s.live, live);
+    Ok(())
+}
+
+#[test]
+fn read_matches_keep_outer_locals_visible_inside_each_arm() {
+    let core = core();
+    let outer = m([
+        ("id", t("outer")),
+        ("alphaName", t("outer")),
+        ("type", t("U8")),
+    ]);
+    // Check both the binderless Empty arm and the scoped Data arm.
+    for index in [0, 1] {
+        let mut s = scope(&core);
+        s.declared.insert("outer".into(), outer.clone());
+        s.live.insert("outer".into());
+        let mut value = matched();
+        let Value::Array(arms) = field_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        *field_mut(&mut arms[index], "body") = m([("kind", t("local")), ("ref", outer.clone())]);
+        assert!(
+            matches!(s.expression(&value, 0), Ok(Schema::Word(255))),
+            "arm {index}"
+        );
+    }
+}

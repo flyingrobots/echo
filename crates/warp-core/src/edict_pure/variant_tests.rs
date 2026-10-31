@@ -458,3 +458,313 @@ fn variant_type_graphs_refuse_empty_recursive_overflowing_deep_and_wide_shapes()
     assert!(matches!(checked(&source), Err(Error::UnsupportedProgram)));
     Ok(())
 }
+
+fn matched(case: &str, payload: Option<Value>) -> Value {
+    let binder = map([
+        ("id", text("match.0.payload")),
+        ("type", text("U8")),
+        ("alphaName", text("payload")),
+    ]);
+    map([
+        ("kind", text("match")),
+        ("scrutinee", constructor("Choice", case, payload)),
+        (
+            "arms",
+            array(vec![
+                map([("case", text("Empty")), ("body", integer("U8", 0))]),
+                map([
+                    ("case", text("Data")),
+                    ("binder", binder.clone()),
+                    ("body", map([("kind", text("local")), ("ref", binder)])),
+                ]),
+            ]),
+        ),
+    ])
+}
+
+#[test]
+fn exhaustive_match_selects_payload_and_empty_arms() -> Result<(), Error> {
+    for (case, payload, expected) in [("Empty", None, 0), ("Data", Some(integer("U8", 37)), 37)] {
+        let helpers = checked(&core(matched(case, payload), "U8"))?;
+        assert_eq!(
+            invoke(&helpers, &mut Meter::new(limits()))?,
+            Value::Integer(expected)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_parser_rejects_duplicate_and_empty_arm_lists() -> Result<(), Error> {
+    let source = core(integer("U8", 0), "U8");
+    for duplicate in [true, false] {
+        let mut value = matched("Empty", None);
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        if duplicate {
+            // Keep two syntactically valid, binder-free bodies. The case tag
+            // alone is duplicated; helper inference is deliberately bypassed.
+            arms[1] = arms[0].clone();
+        } else {
+            arms.clear();
+        }
+        let mut parser = Parser {
+            types: field(&source, "types")?,
+            coordinate: "choices.example@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        assert!(
+            matches!(parser.expr(&value, 0), Err(Error::InvalidArtifact)),
+            "duplicate={duplicate}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_parser_leaves_typed_coverage_to_provider_judgments() -> Result<(), Error> {
+    let source = core(integer("U8", 0), "U8");
+    let mut value = matched("Data", Some(integer("U8", 37)));
+    for complete in [true, false] {
+        if !complete {
+            let Value::Array(arms) = get_mut(&mut value, "arms") else {
+                unreachable!()
+            };
+            arms.pop();
+        }
+        // This is the expression parser used for intent bindings/results in
+        // decode.rs, not source-helper inference. It has no local type scope.
+        let mut parser = Parser {
+            types: field(&source, "types")?,
+            coordinate: "choices.example@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        let expr = parser.expr(&value, 0)?;
+        let result = expression(
+            &expr,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut Meter::new(limits()),
+            0,
+        );
+        assert_eq!(
+            result,
+            if complete {
+                Ok(Value::Integer(37))
+            } else {
+                Err(Error::InvalidArtifact)
+            }
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_rejects_missing_duplicate_unknown_and_ill_scoped_arms() -> Result<(), Error> {
+    for mutation in 0..8 {
+        let mut result = matched("Empty", None);
+        let Value::Array(arms) = get_mut(&mut result, "arms") else {
+            unreachable!()
+        };
+        match mutation {
+            0 => {
+                arms.pop();
+            }
+            1 => {
+                *get_mut(&mut arms[1], "case") = text("Empty");
+            }
+            2 => {
+                *get_mut(&mut arms[1], "case") = text("Unknown");
+            }
+            3 => {
+                *get_mut(get_mut(&mut arms[1], "binder"), "type") = text("Bool");
+                *get_mut(&mut arms[1], "body") = integer("U8", 0);
+            }
+            4 => {
+                let binder = field(&arms[1], "binder")?.clone();
+                let Value::Map(fields) = &mut arms[0] else {
+                    unreachable!()
+                };
+                fields.push((text("binder"), binder));
+            }
+            5 => {
+                *get_mut(&mut arms[0], "body") = field(&arms[1], "body")?.clone();
+            }
+            6 => {
+                *get_mut(get_mut(&mut arms[1], "binder"), "alphaName") = text("");
+                *get_mut(&mut arms[1], "body") = integer("U8", 0);
+            }
+            7 => {
+                *get_mut(get_mut(&mut arms[1], "binder"), "alphaName") = text("renamed");
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            matches!(checked(&core(result, "U8")), Err(Error::InvalidArtifact)),
+            "mutation {mutation}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_dispatch_obeys_exact_meter_limits() -> Result<(), Error> {
+    let source = core(matched("Data", Some(integer("U8", 37))), "U8");
+    let helpers = checked(&source)?;
+    let mut meter = Meter::new(limits());
+    invoke(&helpers, &mut meter)?;
+    let (steps, bytes) = meter.usage();
+    for (step_limit, byte_limit, expected) in [
+        (steps - 1, bytes, Error::StepBudgetExceeded),
+        (steps, bytes - 1, Error::AllocationBudgetExceeded),
+    ] {
+        let mut budget = limits();
+        budget.max_steps = step_limit;
+        budget.max_allocated_bytes = byte_limit;
+        assert_eq!(invoke(&helpers, &mut Meter::new(budget)), Err(expected));
+    }
+    let mut exact = limits();
+    exact.max_steps = steps;
+    exact.max_allocated_bytes = bytes;
+    assert_eq!(
+        invoke(&helpers, &mut Meter::new(exact))?,
+        Value::Integer(37)
+    );
+    Ok(())
+}
+
+mod frame_fixture {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/edict-match-frame.rs"
+    ));
+}
+
+#[test]
+fn match_populated_frame_accounting() -> Result<(), Error> {
+    for binder in [false, true] {
+        for selected in 0..2 {
+            let f = frame_fixture::fixture(binder, selected);
+            let mut parser = Parser {
+                types: field(&f.core, "types")?,
+                coordinate: "choices.example@1",
+                remaining: MAX_PROGRAM_NODES,
+            };
+            let expr = parser.expr(&f.expression, 0)?;
+            let locals: BTreeMap<_, _> = ["word", "bytes", "record", "choice"]
+                .into_iter()
+                .zip(f.values.iter().cloned())
+                .collect();
+            let mut meter = Meter::new(limits());
+            assert_eq!(
+                expression(&expr, &locals, &BTreeMap::new(), &mut meter, 0)?,
+                Value::Integer(9)
+            );
+            let measured = meter.usage();
+            assert_eq!(measured, frame_fixture::runtime_cost(binder, selected));
+            // The ordinary Local operation is an independent copy oracle:
+            // subtract only its expression-entry step, then sum all locals.
+            let mut copy = (0, 0);
+            for id in locals.keys() {
+                let mut m = Meter::new(limits());
+                expression(
+                    &Expr::Local((*id).into()),
+                    &locals,
+                    &BTreeMap::new(),
+                    &mut m,
+                    0,
+                )?;
+                let (steps, bytes) = m.usage();
+                copy.0 += steps - 1;
+                copy.1 += bytes;
+            }
+            assert_eq!(copy, frame_fixture::FRAME_COPY);
+            for (steps, bytes, error) in [
+                (measured.0 - 1, measured.1, Some(Error::StepBudgetExceeded)),
+                (
+                    measured.0,
+                    measured.1 - 1,
+                    Some(Error::AllocationBudgetExceeded),
+                ),
+                (measured.0, measured.1, None),
+            ] {
+                let mut budget = limits();
+                budget.max_steps = steps;
+                budget.max_allocated_bytes = bytes;
+                let result =
+                    expression(&expr, &locals, &BTreeMap::new(), &mut Meter::new(budget), 0);
+                assert_eq!(result, error.map_or(Ok(Value::Integer(9)), Err));
+            }
+            f.report("runtime", binder, selected, measured)
+                .map_err(|_| Error::InvalidArtifact)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn match_payload_may_reuse_pending_id_but_not_its_declaration() -> Result<(), Error> {
+    for wrong_declaration in [false, true] {
+        let mut value = matched("Data", Some(integer("U8", 37)));
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        let mut pending = field(&arms[1], "binder")?.clone();
+        *get_mut(&mut pending, "alphaName") = text("pending_result");
+        if wrong_declaration {
+            *get_mut(&mut arms[1], "body") =
+                map([("kind", text("local")), ("ref", pending.clone())]);
+        }
+        let mut source = core(integer("U8", 0), "U8");
+        *get_mut(get_mut(get_mut(&mut source, "functions"), "make"), "body") = map([
+            ("locals", array(vec![pending.clone()])),
+            (
+                "bindings",
+                array(vec![map([
+                    ("kind", text("let")),
+                    ("binding", pending.clone()),
+                    ("value", value),
+                ])]),
+            ),
+            ("result", map([("kind", text("local")), ("ref", pending)])),
+        ]);
+        if wrong_declaration {
+            assert!(matches!(checked(&source), Err(Error::InvalidArtifact)));
+        } else {
+            assert_eq!(
+                invoke(&checked(&source)?, &mut Meter::new(limits()))?,
+                Value::Integer(37)
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn match_binder_bytes_require_declared_payload_equality() {
+    for (width, accepted) in [(8, true), (4, false), (16, false)] {
+        let payload = map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([
+                    ("kind", text("bytes")),
+                    ("value", Value::Bytes(vec![1, 2, 3])),
+                ]),
+            ),
+        ]);
+        let mut value = matched("Data", Some(payload));
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        *get_mut(get_mut(&mut arms[1], "binder"), "type") = text(&format!("Bytes<max={width}>"));
+        // The concrete three-byte payload fits every binder. Only equality
+        // with the declared max=8 payload type distinguishes these cases.
+        // A constant U8 body excludes local-ref and return-type mismatches.
+        *get_mut(&mut arms[1], "body") = integer("U8", 0);
+        let mut source = core(value, "U8");
+        *get_mut(get_mut(&mut source, "types"), "Choice") = union("Bytes<max=8>");
+        assert_eq!(checked(&source).is_ok(), accepted, "binder max={width}");
+    }
+}

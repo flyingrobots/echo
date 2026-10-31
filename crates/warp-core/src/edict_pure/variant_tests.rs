@@ -697,3 +697,41 @@ fn match_populated_frame_accounting() -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[test]
+fn match_payload_may_reuse_pending_id_but_not_its_declaration() -> Result<(), Error> {
+    for wrong_declaration in [false, true] {
+        let mut value = matched("Data", Some(integer("U8", 37)));
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        let mut pending = field(&arms[1], "binder")?.clone();
+        *get_mut(&mut pending, "alphaName") = text("pending_result");
+        if wrong_declaration {
+            *get_mut(&mut arms[1], "body") =
+                map([("kind", text("local")), ("ref", pending.clone())]);
+        }
+        let mut source = core(integer("U8", 0), "U8");
+        *get_mut(get_mut(get_mut(&mut source, "functions"), "make"), "body") = map([
+            ("locals", array(vec![pending.clone()])),
+            (
+                "bindings",
+                array(vec![map([
+                    ("kind", text("let")),
+                    ("binding", pending.clone()),
+                    ("value", value),
+                ])]),
+            ),
+            ("result", map([("kind", text("local")), ("ref", pending)])),
+        ]);
+        if wrong_declaration {
+            assert!(matches!(checked(&source), Err(Error::InvalidArtifact)));
+        } else {
+            assert_eq!(
+                invoke(&checked(&source)?, &mut Meter::new(limits()))?,
+                Value::Integer(37)
+            );
+        }
+    }
+    Ok(())
+}

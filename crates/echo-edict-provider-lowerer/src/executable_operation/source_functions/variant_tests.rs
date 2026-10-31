@@ -682,3 +682,40 @@ fn match_populated_frame_accounting_whole_intent_budgets() {
         frame_fixture::FRAME_COPY
     );
 }
+
+#[test]
+fn match_payload_may_reuse_pending_id_but_not_its_declaration() {
+    for wrong_declaration in [false, true] {
+        let mut value = matched();
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        let mut pending = get_mut(&mut arms[1], "binder").clone();
+        put(&mut pending, "alphaName", text("pending_result"));
+        if wrong_declaration {
+            put(
+                &mut arms[1],
+                "body",
+                map([("kind", text("local")), ("ref", pending.clone())]),
+            );
+        }
+        let (mut core, exports) = fixture(integer("U8", 0), "U8");
+        put(
+            get_mut(get_mut(&mut core, "functions"), "make"),
+            "body",
+            map([
+                ("locals", array(vec![pending.clone()])),
+                (
+                    "bindings",
+                    array(vec![map([
+                        ("kind", text("let")),
+                        ("binding", pending.clone()),
+                        ("value", value),
+                    ])]),
+                ),
+                ("result", map([("kind", text("local")), ("ref", pending)])),
+            ]),
+        );
+        assert_eq!(validate(&core, &exports, false).is_ok(), !wrong_declaration);
+    }
+}

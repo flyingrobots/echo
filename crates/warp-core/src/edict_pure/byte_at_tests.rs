@@ -278,3 +278,40 @@ fn byte_lookup_helper_admission_and_lazy_execution_keep_proof_scopes() -> Result
     }
     Ok(())
 }
+
+fn replace_term(value: &mut Value, from: &Value, to: &Value) {
+    if value == from {
+        *value = to.clone();
+        return;
+    }
+    match value {
+        Value::Map(fields) => {
+            for (_, child) in fields {
+                replace_term(child, from, to);
+            }
+        }
+        Value::Array(children) => {
+            for child in children {
+                replace_term(child, from, to);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn byte_lookup_mirrored_equal_terms_keep_both_strict_orientations() {
+    // These strict guards are always false (or their non-strict complements
+    // always true). The unreachable lookup still has a valid dominating proof.
+    for (op, lookup_in_else) in [("<", false), (">", false), (">=", true), ("<=", true)] {
+        let (mut core, exports) = fixture(op, false, lookup_in_else, false);
+        let index = reference(&local("arg.1", "U64"));
+        let length = call(
+            "core.bytes.length",
+            "Bytes<max=8>",
+            vec![reference(&local("arg.0", "Bytes<max=8>"))],
+        );
+        replace_term(&mut core, &index, &length);
+        assert!(checked_helpers(&core, &exports).is_ok(), "{op}");
+    }
+}

@@ -59,13 +59,11 @@ fn establishes(
             let a = canonical(get(p, "left")?, types)?;
             let b = canonical(get(p, "right")?, types)?;
             let op = string(get(p, "op")?)?;
-            Ok(if a == index && b == length {
-                matches!((op, holds), ("<", true) | (">=", false))
-            } else if b == index && a == length {
-                matches!((op, holds), (">", true) | ("<=", false))
-            } else {
-                false
-            })
+            let forward =
+                a == index && b == length && matches!((op, holds), ("<", true) | (">=", false));
+            let mirrored =
+                b == index && a == length && matches!((op, holds), (">", true) | ("<=", false));
+            Ok(forward || mirrored)
         }
         "not" => establishes(get(p, "value")?, !holds, index, length, types, depth + 1),
         "all" if holds => {

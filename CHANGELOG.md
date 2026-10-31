@@ -14,6 +14,9 @@
 
 ### Fixed
 
+- Public source-function witnesses verify and recycle disposable pure vendor
+  copies between variants, so optional controls do not multiply retained inputs.
+
 - Independent provider judgments and private pure/read runtime parsing accept
   U8 literals in the exact 0 through 255 domain, preserving existing scalar
   metering and rejecting malformed or cross-width helper values. Provider

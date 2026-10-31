@@ -486,6 +486,12 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     if inventory(root / "provider") != inventory(provider):
         raise RuntimeError("Public compilation changed its provider copy")
     shutil.rmtree(root / "provider")
+    if not read:
+        # Selected vendor inputs remain outside the work root; retain their
+        # manifest hashes, not one disposable tree for every optional variant.
+        if inventory(root / "vendor") != inventory(args.pure_application_source / "vendor"):
+            raise RuntimeError("Public compilation changed its vendor copy")
+        shutil.rmtree(root / "vendor")
     check_work_bound(args.work_root)
     print(json.dumps({"variant": name, **provenance}, sort_keys=True), flush=True)
     return provenance

@@ -23,6 +23,12 @@ pub(crate) enum Expr {
         max: u64,
         value: Box<Expr>,
     },
+    ByteAt {
+        min: u64,
+        max: u64,
+        value: Box<Expr>,
+        index: Box<Expr>,
+    },
     ByteLength {
         min: u64,
         max: u64,
@@ -69,6 +75,7 @@ pub(crate) enum Predicate {
         right: Expr,
     },
     All(Vec<Predicate>),
+    Any(Vec<Predicate>),
     Not(Box<Predicate>),
 }
 
@@ -76,6 +83,10 @@ pub(crate) enum Predicate {
 pub(crate) enum Comparison {
     Equal,
     LessOrEqual,
+    Less,
+    Greater,
+    GreaterOrEqual,
+    NotEqual,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

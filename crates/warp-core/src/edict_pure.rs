@@ -121,3 +121,6 @@ mod byte_count_tests;
 mod byte_utf8_tests;
 #[cfg(test)]
 mod proven_range_tests;
+
+#[cfg(test)]
+mod byte_at_tests;

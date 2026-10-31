@@ -136,6 +136,9 @@ def selected_inputs(args):
     }
     if getattr(args, "byte_literal_provider_before", None) is not None:
         result["byteLiteralProviderBefore"] = inventory(args.byte_literal_provider_before)
+
+    if getattr(args, "byte_lookup_provider_before", None) is not None:
+        result["byteLookupProviderBefore"] = inventory(args.byte_lookup_provider_before)
     if getattr(args, "unsigned_byte_provider_before", None) is not None:
         result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
     return result
@@ -180,11 +183,32 @@ def source_variants(args):
                            "let bytes = input.firstFragment + input.secondFragment;",
                            "let bytes = literalBytes(len(input.firstFragment) == 0u64);")
     narrow = replace_once(literal, "-> Bytes<max=4>", "-> Bytes<max=1>")
+    lawpack_imports = [line for line in baseline.splitlines() if line.startswith('use lawpack ')]
+    if len(lawpack_imports) != 1:
+        raise RuntimeError("Expected the selected pure application's one pinned lawpack import")
+    lookup_header = f'package {PURE_COORDINATE};\n' + lawpack_imports[0] + '\n'
+    lookup_header += 'type Input = { bytes: Bytes<max=8>, index: U64, };\ntype Output = { value: U8, };\n'
+    lookup_helper = 'fn lookupByte(bytes: Bytes<max=8>, index: U64) -> U8 { return if index < len(bytes) then at(bytes,index) else 0u8; }\n'
+    lookup_intent = 'intent assembleRange(input: Input) returns Output profile text.replaceRange basis none budget <= text.replaceRangeBudget { let value = lookupByte(input.bytes,input.index); return { value }; }\n'
+    lookup = lookup_header + lookup_helper + lookup_intent
+    lazy = lookup.replace('index < len(bytes) then at(bytes,index) else 0u8',
+                          'index >= len(bytes) || at(bytes,index) < 128u8 then 0u8 else 255u8')
+    read_lookup = replace_once(read, 'type Input = {', 'type Input = { probe: Bytes<max=8>,')
+    read_lookup = replace_once(read_lookup, 'intent replaceRange(', lookup_helper + 'intent replaceRange(')
+    read_lookup = replace_once(read_lookup, '  let retained = retainBytes(actual);',
+                              '  let marker: U8 = lookupByte(input.probe,0u64);\n  let retained = retainBytes(actual);')
+    read_lookup_constant = replace_once(read_lookup,
+        '  let marker: U8 = lookupByte(input.probe,0u64);', '  let marker: U8 = 255u8;')
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
             "changed-body": changed, "read": read, "u8-identity": identity,
             "u8-literal": u8_literal, "u8-invalid-bound": invalid,
             "read-u8-constant": read_u8, "byte-literals": literal,
-            "byte-literals-invalid-bound": narrow}
+            "byte-literals-invalid-bound": narrow,
+            "byte-lookup": lookup, "byte-lookup-lazy-or": lazy,
+            "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
+            "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
+            "read-byte-lookup": read_lookup,
+            "read-byte-lookup-constant": read_lookup_constant}
 
 
 def child_limits():
@@ -440,12 +464,17 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
     elif refusal == "original-budget":
         provenance["refusalBoundary"] = require_budget_refusal(result)
-    elif refusal == "u8-provider":
+    elif refusal in {"u8-provider", "byte-lookup-provider"}:
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
-            raise RuntimeError(f"Original provider did not refuse U8 literal semantics: {result}")
+            raise RuntimeError(f"Original provider did not refuse {refusal} semantics: {result}")
         provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "byte-lookup-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "UnsupportedSourceShape" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Unsafe lookup did not refuse at type checking: {result}")
+        provenance["refusalBoundary"] = "UnsupportedSourceShape"
     elif refusal == "u8-bound":
         diagnostic = source_refusal_diagnostic(result)
         if diagnostic.get("kind") != "TypeMismatch" or diagnostic.get("stage") != "typeCheck":
@@ -540,6 +569,7 @@ def main():
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--unsigned-byte-provider-before", type=Path)
     parser.add_argument("--byte-literal-provider-before", type=Path)
+    parser.add_argument("--byte-lookup-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -608,6 +638,21 @@ def main():
                 ("byte-literals", variants["byte-literals"], args.provider, {}),
                 ("byte-literals-invalid-bound", variants["byte-literals-invalid-bound"], args.provider,
                  {"refusal": "byte-literal-bound"}),
+            ])
+        if args.byte_lookup_provider_before is not None:
+            specs.extend([
+                ("byte-lookup-before", variants["byte-lookup"], args.byte_lookup_provider_before,
+                 {"refusal": "byte-lookup-provider"}),
+                ("byte-lookup", variants["byte-lookup"], args.provider, {}),
+                ("byte-lookup-lazy-or", variants["byte-lookup-lazy-or"], args.provider, {}),
+                ("byte-lookup-nonstrict", variants["byte-lookup-nonstrict"], args.provider,
+                 {"refusal": "byte-lookup-bound"}),
+                ("byte-lookup-unproved", variants["byte-lookup-unproved"], args.provider,
+                 {"refusal": "byte-lookup-bound"}),
+                ("read-byte-lookup", variants["read-byte-lookup"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+                ("read-byte-lookup-constant", variants["read-byte-lookup-constant"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
             ])
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)

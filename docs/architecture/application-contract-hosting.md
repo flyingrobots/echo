@@ -305,7 +305,27 @@ The interpreter validates the entire child before execution, evaluates it once,
 and inverts its Boolean result. A negation wrapper costs one predicate step;
 child errors and budget refusals propagate unchanged. Negation participates in
 the same syntax-node and combined expression/helper depth limits as conjunction.
-It adds no proof assumptions or byte-normalization behavior.
+Negation does not normalize bytes. Dominating truths can use negation to
+prove a byte lookup domain, as described below.
+
+The generic `core.bytes.at<OperandType>(bytes, index)` operation returns one raw
+byte as U8. Its index is exactly U64 and must be strictly below the exact
+operand's length. A constant below a guaranteed minimum length is sufficient;
+a byte maximum, equality to length or a bound on a different operand is not.
+Accepted guards include `index < length` and `length > index`, or the false
+arms of `index >= length` and `length <= index`. Negation reverses the truth
+required of its child. Non-strict upper bounds do not prove lookup safety.
+Both providers independently prove this domain, including when the optional
+source-function table is absent. Helper frames do not borrow caller facts.
+Conditional arms and lazy Boolean operands carry only their dominating truths:
+a later conjunction operand sees earlier operands true, while a later
+disjunction operand sees them false. These lookup facts do not escape their arm.
+The shared pure/read interpreter checks actual byte bounds before indexing,
+preserves NUL and non-UTF-8 octets, and charges operand evaluation, two value
+validations and one scalar result copy. The lookup expression itself is one
+work unit; its result occupies one 64-byte value cell. Package-size and decode
+limits bound validation work before execution. Native support does not promote
+checked component carriers or prove an application operation.
 
 The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
 raw bytes in the half-open range `[start, end)`. It validates the operand's byte
@@ -416,15 +436,18 @@ nominal tag; materialization, validation and encoding bounds remain based on
 the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
 receive provider refusal. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and
-closed nonempty conjunction/negation trees. Their static cost includes the
+closed nonempty conjunction/disjunction/negation trees and same-width unsigned
+comparisons. Their static cost includes the
 full declared scan aperture; conjunction cost bounds every child even though
-execution may stop early. The verifier dependency census traverses nested
+execution may stop early. Disjunction also bounds all children while executing
+only until one is true. The verifier dependency census traverses nested
 predicates before checking helper call order and cycles.
-For modules containing source functions, partial subtraction and slicing need
-literal evidence sufficient for totality: ordered unsigned operands, or ordered
-U64 slice offsets within the operand's guaranteed minimum length. Caller
-`where` constraints are not inherited into helper frames. Function-free legacy
-fixtures retain their existing admission and runtime behavior.
+Partial subtraction, slicing and lookup require evidence sufficient for their
+respective domains, as described above; bounded addition requires a proven
+result ceiling. Caller `where` constraints are not inherited into helper frames.
+Function-free modules also enter the totality judgment when they contain
+addition, subtraction, slicing, lookup or byte counting. Absence of a helper
+table does not exempt these operations from their domain checks.
 
 Source-function admission derives conservative bounds for the whole operation:
 input validation and materialization, every argument and call occurrence,
@@ -481,6 +504,20 @@ component and package identities are recorded in its provenance. These are priva
 computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+
+The optional `--byte-lookup-provider-before` control selects the previous
+matching U8 publication. That publication must refuse the guarded lookup,
+while the candidate accepts the same source and a lazy-OR boundary predicate.
+Missing or non-strict bounds must remain compiler refusals with no artifacts.
+The runtime consumer checks raw byte values, authored out-of-range fallback,
+repeat-identical accounting, invalid inputs, package identity and resource limits.
+Its read variant evaluates a lookup on an additional raw-byte input probe while
+retaining the original immutable read result and explicit read-limit refusals.
+A constant-marker control retains the same probe input and must incur fewer
+steps and allocated bytes than the lookup variant. These checks do not prove
+implicit access to a nominal read payload's representation. The public missing-
+and non-strict-bound controls stop at compiler refusal; the corresponding
+provider defenses are exercised separately by the provider unit tests.
 
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain
 an old matching source-function publication as a control. It must accept a U8
@@ -744,12 +781,15 @@ selects the original publication.
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
-pure packages as effectful programs. Its expression subset includes typed
+pure packages as effectful programs. Read intent bodies admit typed
 source/imported helper calls, Boolean and U8/U32/U64 constants, lazy conditionals,
-byte length, UTF-8 validation and concatenation, locals, record construction/selection,
-byte/Boolean equality, unsigned equality or ordering guards, and closed
-conjunction/negation trees. The source-function totality and resource
-rules above also apply to this route. Reads select opaque atom bytes by
+byte length, slicing, counting, UTF-8 validation and concatenation, locals,
+record construction/selection, byte/Boolean equality, unsigned `==` and `<=`
+guards, and closed conjunction/negation trees. Raw byte literals, byte lookup,
+disjunction and the other unsigned comparison operators are available inside
+source helpers; direct use in read intent bodies is refused by the separate
+read relation and audit. The source-function totality and resource rules above
+also apply to these helpers. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,
 and result, with exact imported read signatures and scoped local identities.

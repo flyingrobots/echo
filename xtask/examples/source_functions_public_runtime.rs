@@ -367,6 +367,93 @@ fn byte_literals(root: &Path, evidence: &serde_json::Value) -> Result<()> {
     println!("PUBLIC_BYTE_LITERAL_RUNTIME_OK 3 literal cases, 3 resource refusals, input and identity refusals");
     Ok(())
 }
+fn byte_lookup(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    for (name, lazy) in [("byte-lookup", false), ("byte-lookup-lazy-or", true)] {
+        let (package, report) = emitted(&root.join(name), evidence)?;
+        let (package, pin) = checked_pair(package, report)?;
+        let input =
+            |bytes: Value, index: Value| encode(&record([("bytes", bytes), ("index", index)]));
+        for (bytes, index) in [
+            (&b""[..], 0_u64),
+            (&[0, 128, 255][..], 0),
+            (&[0, 128, 255][..], 1),
+            (&[0, 128, 255][..], 2),
+            (&[0, 128, 255][..], 3),
+            (&b"a"[..], u64::MAX),
+        ] {
+            let selected = usize::try_from(index).ok().and_then(|i| bytes.get(i));
+            let expected = if lazy {
+                if selected.is_none_or(|byte| *byte < 128) {
+                    0
+                } else {
+                    255
+                }
+            } else {
+                selected.map_or(0, |byte| i128::from(*byte))
+            };
+            let input = input(Value::Bytes(bytes.to_vec()), Value::Integer(index.into()))?;
+            let result = edict_pure::evaluate(&package, pin, &input, limits())
+                .map_err(|error| anyhow!("byte lookup refused: {error:?}"))?;
+            ensure!(
+                decode(&result.output)? == record([("value", Value::Integer(expected))]),
+                "wrong byte lookup"
+            );
+            ensure!(
+                Ok(result) == edict_pure::evaluate(&package, pin, &input, limits()),
+                "lookup repeat changed result/accounting"
+            );
+        }
+        for (bytes, index) in [
+            (Value::Bytes(vec![255]), Value::Integer(-1)),
+            (Value::Bytes(vec![255]), Value::Bool(true)),
+            (Value::Integer(255), Value::Integer(0)),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input(bytes, index)?, limits())
+                    == Err(EvaluationError::InvalidInput),
+                "invalid lookup input admitted"
+            );
+        }
+        let input = input(Value::Bytes(vec![255]), Value::Integer(0))?;
+        for (limits, expected) in [
+            (
+                EvaluationLimits {
+                    max_steps: 1,
+                    ..limits()
+                },
+                EvaluationError::StepBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_allocated_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::AllocationBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_output_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::OutputBudgetExceeded,
+            ),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits) == Err(expected),
+                "lookup resource limit admitted"
+            );
+        }
+        let mut wrong = pin;
+        wrong[0] ^= 1;
+        ensure!(
+            edict_pure::evaluate(&package, wrong, &input, limits())
+                == Err(EvaluationError::PackageIdentityMismatch),
+            "lookup substitution admitted"
+        );
+        println!("PUBLIC_BYTE_LOOKUP_RUNTIME_OK {name}: 6 cases, 3 input refusals, 3 resource refusals, 1 identity refusal");
+    }
+    Ok(())
+}
 fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u64, u64)> {
     let (package_bytes, report_bytes) = emitted(&root.join(name), evidence)?;
     let (package, pin) = checked_pair(package_bytes, report_bytes)?;
@@ -399,7 +486,7 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
     let aperture = [key];
     let view = ReadView::new(&frontier, basis, &aperture)
         .map_err(|error| anyhow!("view refused: {error:?}"))?;
-    let input = encode(&record([
+    let mut input_fields = vec![
         (
             "address",
             record([
@@ -409,7 +496,11 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
             ]),
         ),
         ("expected", Value::Bytes(b"alpha".to_vec())),
-    ]))?;
+    ];
+    if name.starts_with("read-byte-lookup") {
+        input_fields.push(("probe", Value::Bytes(vec![0, 128, 255])));
+    }
+    let input = encode(&record(input_fields))?;
     let result = warp_core::edict_read::evaluate(
         &package,
         pin,
@@ -537,6 +628,19 @@ fn main() -> Result<()> {
     }
     if evidence["results"].get("byte-literals").is_some() {
         byte_literals(root, &evidence)?;
+    }
+    if evidence["results"].get("byte-lookup").is_some() {
+        byte_lookup(root, &evidence)?;
+        let lookup_usage = atom_read(root, &evidence, "read-byte-lookup")?;
+        ensure!(
+            lookup_usage.0 > read_usage.0 && lookup_usage.1 > read_usage.1,
+            "read lookup incurred no extra work/storage"
+        );
+        let constant_usage = atom_read(root, &evidence, "read-byte-lookup-constant")?;
+        ensure!(
+            lookup_usage.0 > constant_usage.0 && lookup_usage.1 > constant_usage.1,
+            "read lookup not charged beyond its same-input constant-marker control"
+        );
     }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");
     Ok(())

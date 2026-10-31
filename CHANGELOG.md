@@ -25,6 +25,11 @@
   generated package assets retain their existing publication selection. The
   runtime retains its existing value-cell-plus-payload materialization meter.
 
+- The generator selects the synchronous Wesley kernel without its unused async
+  resilience dependencies, removing the affected Tokio/Ninelives chain from
+  the workspace lockfile. The Markdown tooling dependency is updated to
+  pulldown-cmark 0.13.5. No advisory exceptions are added.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used

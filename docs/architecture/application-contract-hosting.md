@@ -500,6 +500,16 @@ computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
+The optional `--byte-lookup-provider-before` control selects the previous
+matching U8 publication. That publication must refuse the guarded lookup,
+while the candidate accepts the same source and a lazy-OR boundary predicate.
+Missing or non-strict bounds must remain compiler refusals with no artifacts.
+The runtime consumer checks raw byte values, authored out-of-range fallback,
+repeat-identical accounting, invalid inputs, package identity and resource limits.
+Its read variant evaluates a lookup on an additional raw-byte input probe while
+retaining the original immutable read result and explicit read-limit refusals;
+this does not prove implicit access to a nominal read payload's representation.
+
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain
 an old matching source-function publication as a control. It must accept a U8
 identity helper and refuse a U8 literal helper; the selected candidate must

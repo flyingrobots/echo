@@ -206,3 +206,65 @@ fn read_matches_reject_bad_arms_without_leaking_binders() {
     assert!(s.expression(&matched(), 0).is_ok());
     assert!(s.live.is_empty());
 }
+
+#[test]
+fn read_matches_restore_pending_declarations_on_success_and_refusal() {
+    let core = core();
+    for invalid_body in [false, true] {
+        let mut s = scope(&core);
+        // Reusing a pending id is legal; its distinct declaration must survive
+        // the temporary U8 binder, even if checking that arm's body refuses.
+        s.declared.insert(
+            "payload.0".into(),
+            m([
+                ("id", t("payload.0")),
+                ("alphaName", t("pending")),
+                ("type", t("Bool")),
+            ]),
+        );
+        s.declared.insert(
+            "outer".into(),
+            m([
+                ("id", t("outer")),
+                ("alphaName", t("outer")),
+                ("type", t("U8")),
+            ]),
+        );
+        s.live.insert("outer".into());
+        s.claimed.insert("outer".into());
+        let declared = s.declared.clone();
+        let live = s.live.clone();
+        let claimed = s.claimed.clone();
+        let mut value = matched();
+        if invalid_body {
+            let Value::Array(arms) = field_mut(&mut value, "arms") else {
+                unreachable!()
+            };
+            *field_mut(field_mut(field_mut(&mut arms[1], "body"), "ref"), "id") = t("missing");
+        }
+        assert_eq!(s.expression(&value, 0).is_ok(), !invalid_body);
+        assert_eq!(s.declared, declared);
+        assert_eq!(s.live, live);
+        assert_eq!(s.claimed, claimed);
+        assert!(!s.live.contains("payload.0"));
+    }
+}
+
+#[test]
+fn read_matches_refuse_capture_of_a_live_local() -> Check<()> {
+    let core = core();
+    let value = matched();
+    let Value::Array(arms) = get(&value, "arms")? else {
+        unreachable!()
+    };
+    let binder = get(&arms[1], "binder")?.clone();
+    let mut s = scope(&core);
+    s.declared.insert("payload.0".into(), binder);
+    s.live.insert("payload.0".into());
+    let declared = s.declared.clone();
+    let live = s.live.clone();
+    assert!(s.expression(&value, 0).is_err());
+    assert_eq!(s.declared, declared);
+    assert_eq!(s.live, live);
+    Ok(())
+}

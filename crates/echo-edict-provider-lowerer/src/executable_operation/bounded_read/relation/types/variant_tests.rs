@@ -210,3 +210,72 @@ fn read_matches_reject_bad_arms_without_leaking_binders() {
     assert!(s.expression(&matched(), 0).is_ok());
     assert!(s.available.is_empty());
 }
+
+#[test]
+fn read_matches_carry_proof_work_and_preserve_available_locals() {
+    let core = core();
+    let outer = m([
+        ("id", t("outer")),
+        ("alphaName", t("outer")),
+        ("type", t("U8")),
+    ]);
+    let mut value = matched();
+    let Value::Array(arms) = field_mut(&mut value, "arms") else {
+        unreachable!()
+    };
+    // The binder's inner work must reach the outer counter before Empty runs.
+    arms.swap(0, 1);
+    // Choice expansion: four units. Data: arm + binder type + scope copy +
+    // local body type = four. Empty: arm + constant type = two. Total: ten.
+    for budget in [9, 10, 20] {
+        let mut s = scope(&core);
+        s.available.insert("outer", &outer);
+        let before = s.available.clone();
+        set_work(&s, budget);
+        assert_eq!(s.expression(&value, 0).is_ok(), budget >= 10);
+        assert_eq!(s.remaining_type_work.get(), budget.saturating_sub(10));
+        assert_eq!(s.available, before);
+        assert_eq!(
+            matches!(
+                s.expression(&m([("kind", t("local")), ("ref", outer.clone())]), 0),
+                Ok(ReadType::Unsigned(255))
+            ),
+            budget > 10
+        );
+    }
+
+    let mut s = scope(&core);
+    s.available.insert("outer", &outer);
+    let before = s.available.clone();
+    let Value::Array(arms) = field_mut(&mut value, "arms") else {
+        unreachable!()
+    };
+    // Refuse only after the binder body has spent a type unit: scalar field
+    // projection is invalid, but its local base must first resolve to U8.
+    let body = field_mut(&mut arms[0], "body").clone();
+    *field_mut(&mut arms[0], "body") = m([
+        ("kind", t("field")),
+        ("base", body),
+        ("field", t("missing")),
+    ]);
+    set_work(&s, 20);
+    assert!(s.expression(&value, 0).is_err());
+    assert_eq!(s.remaining_type_work.get(), 12);
+    assert_eq!(s.available, before);
+}
+
+#[test]
+fn read_matches_refuse_capture_of_an_available_local() -> Result<(), ProviderRefusalV1> {
+    let core = core();
+    let value = matched();
+    let Value::Array(arms) = field(&value, "arms")? else {
+        unreachable!()
+    };
+    let binder = field(&arms[1], "binder")?;
+    let mut s = scope(&core);
+    s.available.insert("payload.0", binder);
+    let before = s.available.clone();
+    assert!(s.expression(&value, 0).is_err());
+    assert_eq!(s.available, before);
+    Ok(())
+}

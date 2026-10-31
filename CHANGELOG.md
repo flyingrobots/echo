@@ -27,6 +27,10 @@
 
 ### Fixed
 
+- Generic pure and bounded-read native providers independently enforce required
+  capabilities, admitting `core.variant/v1` and requiring it for every variant
+  declaration while refusing unknown, duplicate, missing or malformed metadata.
+
 - Public source-function witnesses verify and recycle disposable pure vendor
   copies between variants, so optional controls do not multiply retained inputs.
 

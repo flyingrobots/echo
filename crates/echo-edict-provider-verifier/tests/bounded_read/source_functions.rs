@@ -691,3 +691,6 @@ fn bounded_read_accepts_independently_proven_unsigned_addition() {
         );
     }
 }
+
+#[path = "source_functions/capabilities.rs"]
+mod capabilities;

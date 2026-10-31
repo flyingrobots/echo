@@ -3,6 +3,7 @@
 //! Independent verification for generic bounded executable-operation packages.
 
 mod bounded_read;
+mod capabilities;
 mod source_functions;
 
 use std::collections::BTreeSet;
@@ -436,6 +437,7 @@ fn validate_pure_core<'a>(
     value: &'a CanonicalValueV1,
     core: &BoundArtifact,
 ) -> Result<(&'a str, &'a CanonicalValueV1, String), ProviderRefusalV1> {
+    capabilities::validate(value)?;
     let coordinate = required_nonempty_text(value, "coordinate", "core.echo-pure-operation")?;
     if text_field(value, "apiVersion") != Some(CORE_ABI) || coordinate != core.reference.coordinate
     {

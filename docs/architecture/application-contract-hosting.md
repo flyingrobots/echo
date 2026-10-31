@@ -487,6 +487,16 @@ helper call. Module-relative and fully qualified references resolve to the
 same local union; imported type-table identities remain original coordinates.
 The existing same-prefix imported-key limitation described above still applies.
 
+The generic pure and bounded-read provider entry points independently admit
+only the known `core.variant/v1` required capability, once. Every variant
+declaration requires it, including unused declarations; the known capability
+is also permitted without a variant declaration. Unknown, duplicate, malformed
+or missing capability metadata refuses. The bounded-read lowerer retains its
+exact-field schema refusal for an absent inventory. The bounded-read verifier
+returns a rejected report for a well-bound candidate that fails this audit;
+the pure verifier returns a provider refusal. Legacy fixed DPO admission is
+unchanged.
+
 Payload expressions remain in the ordinary lexical, dependency, cycle, depth
 and partial-intrinsic totality checks. Case entries have exactly an optional
 payload type reference; empty alternatives, duplicate cases, unknown fields,

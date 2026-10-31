@@ -12,8 +12,9 @@ The compiler binary hash identifies the executed binary; source-to-binary build
 provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
-Eight baseline variants, plus six unsigned-byte and four byte-literal controls
-when selected, retain at most 64 MiB / 2048 filesystem entries here,
+Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
+byte-lookup (seven) and closed-variant (seven) controls retain at most
+64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
 free-space floors, covering this work root, compiler caches and container layer.
@@ -42,6 +43,9 @@ MAX_WORK_ENTRIES = 2048
 BUILD_TIMEOUT_SECONDS = 120
 READ_OLD_STEPS = 1_048_576
 READ_HELPER_STEPS = 4_194_304
+READ_OLD_ALLOCATION = 16_777_216
+READ_VARIANT_ALLOCATION = 33_554_432
+READ_OUTPUT_BYTES = 8_388_608
 READ_BUDGET = "jedit.text@1.replaceRangeBudget"
 OUTPUTS = {"executable-operation-package.cbor", "verification-report.cbor"}
 PURE_COORDINATE = "jedit.text.replace_range@1"
@@ -141,6 +145,8 @@ def selected_inputs(args):
         result["byteLookupProviderBefore"] = inventory(args.byte_lookup_provider_before)
     if getattr(args, "unsigned_byte_provider_before", None) is not None:
         result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
+    if getattr(args, "variant_provider_before", None) is not None:
+        result["variantProviderBefore"] = inventory(args.variant_provider_before)
     return result
 
 
@@ -199,6 +205,24 @@ def source_variants(args):
                               '  let marker: U8 = lookupByte(input.probe,0u64);\n  let retained = retainBytes(actual);')
     read_lookup_constant = replace_once(read_lookup,
         '  let marker: U8 = lookupByte(input.probe,0u64);', '  let marker: U8 = 255u8;')
+    tagged = {}
+    for case, expression in [("empty", "WitnessChoice::Empty"),
+                             ("payload", "WitnessChoice::Data(value)")]:
+        for profile, value_type, original, intent, anchor, binding in [
+            ("pure", "Bytes<max=8>", pure, "assembleRange",
+             "let bytes = assembleFragments(input.firstFragment, input.secondFragment);",
+             "let marker: WitnessChoice = witnessChoice(input.firstFragment);"),
+            ("read", "text.FactBytes", read, "replaceRange",
+             "  let retained = retainBytes(actual);",
+             "  let marker: WitnessChoice = witnessChoice(actual);"),
+        ]:
+            declarations = (f"type WitnessChoice = variant {{ Empty, Data({value_type}) }};\n"
+                            f"fn witnessChoice(value: {value_type}) -> WitnessChoice {{ "
+                            f"return {expression}; }}\n\n")
+            authored = replace_once(original, f"intent {intent}(",
+                                    declarations + f"intent {intent}(")
+            tagged[f"variant-{profile}-{case}"] = replace_once(
+                authored, anchor, binding + "\n" + anchor)
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
             "changed-body": changed, "read": read, "u8-identity": identity,
             "u8-literal": u8_literal, "u8-invalid-bound": invalid,
@@ -208,7 +232,7 @@ def source_variants(args):
             "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
             "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
             "read-byte-lookup": read_lookup,
-            "read-byte-lookup-constant": read_lookup_constant}
+            "read-byte-lookup-constant": read_lookup_constant, **tagged}
 
 
 def child_limits():
@@ -335,7 +359,7 @@ def source_refusal_diagnostic(result):
     return diagnostics[0]
 
 
-def require_budget_refusal(result):
+def require_budget_refusal(result, *, allocation_only=False):
     diagnostic = source_refusal_diagnostic(result)
     message = diagnostic.get("message", "")
     boundaries = {
@@ -349,6 +373,16 @@ def require_budget_refusal(result):
             or (diagnostic.get("kind") == "InvalidBound"
                 and diagnostic.get("stage") != "typeCheck")):
         raise RuntimeError(f"Unexpected original-budget refusal: {result}")
+    if allocation_only:
+        costs = re.fullmatch(
+            r"pure-helper cost steps=(\d+), allocatedBytes=(\d+), "
+            r"outputBytes=(\d+) exceeds operation budget", message)
+        if diagnostic.get("kind") != "InvalidBound" or costs is None:
+            raise RuntimeError(f"Expected an allocation-specific compiler cost refusal: {result}")
+        steps, allocated, output = map(int, costs.groups())
+        if not (steps <= READ_HELPER_STEPS and allocated > READ_OLD_ALLOCATION
+                and output <= READ_OUTPUT_BYTES):
+            raise RuntimeError(f"Expected allocation to be the only exceeded budget: {result}")
     return diagnostic["kind"]
 
 
@@ -359,7 +393,7 @@ def relative_path(text):
     return path
 
 
-def prepare_application(args, root, source, *, read=False, renamed=False, read_steps=None):
+def prepare_application(args, root, source, *, read=False, renamed=False, read_steps=None, read_allocation=READ_OLD_ALLOCATION):
     root.mkdir()
     original = args.read_application_source if read else args.pure_application_source
     original_application = regular_file(original / "edict.application.json")
@@ -400,8 +434,8 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
     if adapter["coordinate"] != "jedit.text.echo-adapter/v1":
         raise RuntimeError("Unexpected read adapter coordinate")
     budget = adapter["budgets"][READ_BUDGET]
-    if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": 16_777_216,
-                  "maxOutputBytes": 8_388_608}:
+    if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": READ_OLD_ALLOCATION,
+                  "maxOutputBytes": READ_OUTPUT_BYTES}:
         raise RuntimeError("Original read budget differs from the explicit seed")
     configs = [item for item in authored["localResources"] if item["name"] == "echo-config"]
     if (len(configs) != 1 or configs[0]["value"]["programKind"]
@@ -411,9 +445,17 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
         relative_path(item["output"])
     if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS}:
         raise RuntimeError("Unexpected authored budget variant")
-    budget["maxSteps"] = read_steps
+    if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION}:
+        raise RuntimeError("Unexpected authored allocation budget")
+    changes = []
+    for field, before, after in [("maxSteps", READ_OLD_STEPS, read_steps),
+                                 ("maxAllocatedBytes", READ_OLD_ALLOCATION, read_allocation)]:
+        budget[field] = after
+        if before != after:
+            changes.append({"path": f"/lawpack/targetAdapters/0/budgets/{READ_BUDGET}/{field}",
+                            "before": before, "after": after})
     definition = root / "edict.lawpack.json"
-    if read_steps == READ_OLD_STEPS:
+    if not changes:
         shutil.copyfile(original_lawpack, definition)
     else:
         definition.write_text(json.dumps(lawpack, indent=2) + "\n")
@@ -431,18 +473,16 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
             "outputs": inventory(root / output),
             "upstreamLawpackSha256": sha256(root / "upstream-lawpack.json"),
             "authoredLawpackSha256": sha256(definition),
-            "authoredChanges": [] if read_steps == READ_OLD_STEPS else [{
-                "path": f"/lawpack/targetAdapters/0/budgets/{READ_BUDGET}/maxSteps",
-                "before": READ_OLD_STEPS, "after": read_steps}],
+            "authoredChanges": changes,
             "authoredBeforeImportSha256": hashlib.sha256(source.encode()).hexdigest(),
             "authoredAfterImportSha256": sha256(root / "source.edict")}
 
 
 def run_variant(args, name, source, provider, *, refusal=None, read=False,
-                renamed=False, read_steps=None):
+                renamed=False, read_steps=None, read_allocation=READ_OLD_ALLOCATION):
     root = args.work_root / name
     lawpack = prepare_application(args, root, source, read=read, renamed=renamed,
-                                  read_steps=read_steps)
+                                  read_steps=read_steps, read_allocation=read_allocation)
     shutil.copytree(provider, root / "provider")
     authored_hash = sha256(root / "source.edict")
     result = compiler_build(args, root, "application", "first")
@@ -462,9 +502,10 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     if refusal == "old-publication":
         require_old_refusal(result)
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
-    elif refusal == "original-budget":
-        provenance["refusalBoundary"] = require_budget_refusal(result)
-    elif refusal in {"u8-provider", "byte-lookup-provider"}:
+    elif refusal in {"original-budget", "original-allocation"}:
+        provenance["refusalBoundary"] = require_budget_refusal(
+            result, allocation_only=refusal == "original-allocation")
+    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider"}:
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
@@ -570,6 +611,7 @@ def main():
     parser.add_argument("--unsigned-byte-provider-before", type=Path)
     parser.add_argument("--byte-literal-provider-before", type=Path)
     parser.add_argument("--byte-lookup-provider-before", type=Path)
+    parser.add_argument("--variant-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -654,6 +696,20 @@ def main():
                 ("read-byte-lookup-constant", variants["read-byte-lookup-constant"], args.provider,
                  {"read": True, "read_steps": READ_HELPER_STEPS}),
             ])
+        if args.variant_provider_before is not None:
+            specs.append(("pure-before-variants", variants["pure"], args.variant_provider_before, {}))
+            specs.append(("variant-pure-before", variants["variant-pure-payload"],
+                          args.variant_provider_before, {"refusal": "variant-provider"}))
+            specs.append(("variant-read-original-allocation", variants["variant-read-payload"],
+                          args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                          "refusal": "original-allocation"}))
+            for case in ["empty", "payload"]:
+                specs.append((f"variant-pure-{case}", variants[f"variant-pure-{case}"],
+                              args.provider, {}))
+                specs.append((f"variant-read-{case}", variants[f"variant-read-{case}"],
+                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                              "read_allocation": READ_VARIANT_ALLOCATION
+                                              if case == "payload" else READ_OLD_ALLOCATION}))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

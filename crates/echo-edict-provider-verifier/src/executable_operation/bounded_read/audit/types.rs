@@ -13,6 +13,10 @@ pub(super) enum Schema {
         upper: u64,
     },
     Word(u64),
+    Variant {
+        identity: String,
+        alternatives: BTreeMap<String, Option<Schema>>,
+    },
     Row(BTreeMap<String, Schema>),
     Nominal {
         identity: String,
@@ -180,6 +184,7 @@ impl<'a> Symbols<'a> {
                     storage: Box::new(self.schema(text(value, "representation")?, depth + 1)?),
                 })
             }
+            "Variant" => self.variant_schema(value, key, depth),
             "Record" => {
                 let mut fields = BTreeMap::new();
                 for (key, value) in members(get(value, "fields")?)? {
@@ -544,3 +549,8 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod variant_tests;
+
+mod variants;

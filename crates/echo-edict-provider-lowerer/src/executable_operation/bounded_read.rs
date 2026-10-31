@@ -79,6 +79,7 @@ pub(super) fn lower(
         core_fields.push("functions");
     }
     require_exact_fields(&core, &core_fields, SUBJECT)?;
+    super::capabilities::validate(&core)?;
     super::source_functions::validate(&core, &exports, true)?;
     require_exact_fields(
         &configuration,
@@ -92,7 +93,6 @@ pub(super) fn lower(
     }
     if text(&core, "apiVersion")? != CORE_ABI
         || text(&core, "coordinate")? != request.core.reference.coordinate
-        || !array(&core, "requiredCoreCapabilities")?.is_empty()
     {
         return Err(invalid());
     }

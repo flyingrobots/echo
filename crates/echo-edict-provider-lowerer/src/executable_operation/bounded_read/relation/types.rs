@@ -16,6 +16,7 @@ pub(super) enum ReadType {
     Unsigned(u64),
     Record(BTreeMap<String, ReadType>),
     Nominal(String, Box<ReadType>),
+    Variant(String, BTreeMap<String, Option<ReadType>>),
 }
 
 impl ReadType {
@@ -177,6 +178,7 @@ impl<'a> Scope<'a> {
                     Box::new(self.resolve(text(value, "representation")?, depth + 1)?),
                 ))
             }
+            "Variant" => self.variant_type(value, key, depth),
             "Record" => {
                 let fields = entries(field(value, "fields")?)?
                     .iter()
@@ -627,3 +629,8 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod variant_tests;
+
+mod variants;

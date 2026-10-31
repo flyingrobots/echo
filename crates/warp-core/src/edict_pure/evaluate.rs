@@ -226,6 +226,18 @@ pub(crate) fn expression(
     meter.step(depth)?;
     match expr {
         Expr::Constant(value) => meter.copy(value),
+        Expr::Variant {
+            identity,
+            case,
+            payload,
+        } => super::variants::evaluate_constructor(
+            (identity, case),
+            payload.as_deref(),
+            locals,
+            helpers,
+            meter,
+            depth,
+        ),
         Expr::Local(id) => meter.copy(locals.get(id.as_str()).ok_or(Error::InvalidArtifact)?),
         Expr::Field(base, name) => {
             let record = expression(base, locals, helpers, meter, depth + 1)?;
@@ -533,6 +545,9 @@ pub(crate) fn validate(
 ) -> Result<(), Error> {
     meter.step(depth)?;
     match (value, ty.representation()) {
+        (_, RuntimeType::Variant { identity, cases }) => {
+            super::variants::validate_value(value, identity, cases, meter, depth)
+        }
         (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))
             if *value >= 0 && *value <= i128::from(*max) =>

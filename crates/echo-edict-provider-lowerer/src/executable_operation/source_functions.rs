@@ -11,6 +11,9 @@ mod order;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
+#[cfg(test)]
+mod variant_tests;
+mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,6 +28,10 @@ enum Ty {
     Bytes(u64, u64),
     Record(BTreeMap<String, Ty>),
     Nominal(String, Box<Ty>),
+    Variant {
+        identity: String,
+        cases: BTreeMap<String, Option<Ty>>,
+    },
 }
 impl Ty {
     fn representation(&self) -> &Self {
@@ -317,6 +324,7 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(Ty::Record(fields))
             }
+            "Variant" => self.variant_type(definition, key, &prefix, depth),
             _ => Err(()),
         }
     }
@@ -341,7 +349,7 @@ impl<'a> Judgment<'a> {
             }
             self.work = self
                 .work
-                .checked_sub(usize::try_from(shape(&fact.ty)?.0.steps).map_err(|_| ())?)
+                .checked_sub(variants::type_nodes(&fact.ty)?)
                 .ok_or(())?;
             return Ok(fact.clone());
         }
@@ -436,6 +444,7 @@ impl<'a> Judgment<'a> {
         let mut cost = Cost { steps: 1, bytes: 0 };
         let mut depth = 0;
         let ty = match string(get(value, "kind")?)? {
+            "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {
                 exact(value, &["kind", "ref"])?;
                 let local = get(value, "ref")?;
@@ -444,10 +453,7 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
                 let copied = shape(ty)?.0;
-                self.work = self
-                    .work
-                    .checked_sub(usize::try_from(copied.steps).map_err(|_| ())?)
-                    .ok_or(())?;
+                self.work = self.work.checked_sub(variants::type_nodes(ty)?).ok_or(())?;
                 cost = cost.plus(copied)?;
                 ty.clone()
             }
@@ -920,6 +926,7 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
     match ty {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
+        Ty::Variant { identity, cases } => variants::shape(identity, cases),
         Ty::Bool => Ok((
             Cost {
                 steps: 1,

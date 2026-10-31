@@ -12,6 +12,9 @@ mod types;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
+#[cfg(test)]
+mod variant_tests;
+mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -99,6 +102,11 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             match string(get(expression, "kind")?)? {
                 "const" | "local" => {}
                 "field" => expressions.push((get(expression, "base")?, depth + 1)),
+                "variant" => {
+                    if let Some(payload) = super::map_field(expression, "payload") {
+                        expressions.push((payload, depth + 1));
+                    }
+                }
                 "record" => {
                     for (_, value) in members(get(expression, "fields")?)? {
                         expressions.push((value, depth + 1));
@@ -389,6 +397,7 @@ impl<'a> Checker<'a, '_> {
         };
         let mut height = 0;
         let schema = match string(get(value, "kind")?)? {
+            "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;

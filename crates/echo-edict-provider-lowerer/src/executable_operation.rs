@@ -3,6 +3,7 @@
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
 mod bounded_read;
+mod capabilities;
 mod effect_resources;
 mod source_functions;
 
@@ -368,6 +369,7 @@ fn validate_pure_core<'a>(
     value: &'a CanonicalValueV1,
     core: &BoundArtifact,
 ) -> Result<(&'a str, &'a CanonicalValueV1, String), ProviderRefusalV1> {
+    capabilities::validate(value)?;
     let coordinate = required_nonempty_text(value, "coordinate", "core.echo-pure-operation")?;
     if text_field(value, "apiVersion") != Some(CORE_ABI) || coordinate != core.reference.coordinate
     {

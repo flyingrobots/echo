@@ -48,6 +48,39 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             publication.require_budget_refusal(result)
 
+    def allocation_refusal(self, steps=1_048_774, allocated=16_783_424, output=1_048_585):
+        result = self.budget_refusal()
+        result["diagnostics"][0]["message"] = (
+            f"pure-helper cost steps={steps}, allocatedBytes={allocated}, "
+            f"outputBytes={output} exceeds operation budget")
+        return result
+
+    def test_allocation_refusal_retains_the_exact_cost_diagnostic(self):
+        self.assertEqual(publication.require_budget_refusal(
+            self.allocation_refusal(), allocation_only=True), "InvalidBound")
+
+    def test_allocation_refusal_requires_only_allocation_to_exceed_its_ceiling(self):
+        for steps, allocated, output in [(4_194_305, 16_783_424, 1),
+                                         (1, 16_783_424, 8_388_609),
+                                         (1, 16_777_216, 1)]:
+            with self.subTest(steps=steps, allocated=allocated, output=output):
+                with self.assertRaisesRegex(RuntimeError, "allocation"):
+                    publication.require_budget_refusal(
+                        self.allocation_refusal(steps, allocated, output), allocation_only=True)
+
+    def test_allocation_refusal_rejects_unparseable_costs(self):
+        result = self.allocation_refusal()
+        result["diagnostics"][0]["message"] = "pure-helper cost unknown exceeds operation budget"
+        with self.assertRaisesRegex(RuntimeError, "allocation"):
+            publication.require_budget_refusal(result, allocation_only=True)
+
+    def test_allocation_refusal_does_not_accept_a_generic_provider_refusal(self):
+        result = self.allocation_refusal()
+        result["diagnostics"][0].update(kind="ProviderLowererRefused",
+            message="UnsupportedSemantics core.source-functions")
+        with self.assertRaisesRegex(RuntimeError, "allocation"):
+            publication.require_budget_refusal(result, allocation_only=True)
+
     def repeat(self, emit_repeated, *, variants=1, vendor_bytes=0, mutate_vendor=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -102,9 +135,9 @@ class PublicationTests(unittest.TestCase):
 
     def test_optional_variants_do_not_accumulate_disposable_vendor_copies(self):
         # Scale the 64 MiB ceiling and 4.5 MiB vendor copy down by 1024.
-        # Twenty non-read variants cover all three optional control groups.
+        # Twenty-four non-read variants cover all four optional control groups.
         with patch.object(publication, "MAX_WORK_BYTES", 64 * 1024):
-            self.repeat(True, variants=20, vendor_bytes=4608)
+            self.repeat(True, variants=24, vendor_bytes=4608)
 
     def test_changed_vendor_copy_refuses_before_disposal(self):
         with self.assertRaisesRegex(RuntimeError, "changed its vendor copy"):
@@ -125,7 +158,7 @@ class PublicationTests(unittest.TestCase):
                          "read/edict.lawpack.json", "read/source.edict"]:
                 file(name)
             providers = {}
-            for name in ["old", "candidate", "literal", "lookup", "unsigned"]:
+            for name in ["old", "candidate", "literal", "lookup", "unsigned", "variant"]:
                 file(name + "/component.wasm")
                 providers[name] = root / name
             args = SimpleNamespace(
@@ -136,8 +169,9 @@ class PublicationTests(unittest.TestCase):
                 provider=providers["candidate"], byte_literal_provider_before=providers["literal"],
                 byte_lookup_provider_before=providers["lookup"],
                 unsigned_byte_provider_before=providers["unsigned"],
+                variant_provider_before=providers["variant"],
             )
-            for name in ["literal", "lookup", "unsigned"]:
+            for name in ["literal", "lookup", "unsigned", "variant"]:
                 original = publication.selected_inputs(args)
                 component = providers[name] / "component.wasm"
                 component.write_bytes(component.read_bytes() + b"changed")

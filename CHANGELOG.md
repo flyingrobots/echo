@@ -7,6 +7,21 @@
 
 ### Added
 
+- Independent native provider judgments and runtime preparation check bounded
+  closed variant types and constructors with exact union/payload identity and
+  payload traversal. Runtime values retain their type, case and optional payload
+  with deterministic storage/copy charges and resource refusals. Independently
+  reproduced provider components and their checked packages are refreshed.
+
+- Optional public compiler/runtime controls for empty and payload-bearing variant
+  helpers require retained capability metadata, exact repeated artifacts and
+  explicit work/storage charges in pure and bounded-read operations.
+
+- Generic pure and bounded-read native providers independently enforce required
+  capabilities, admitting `core.variant/v1` and requiring it for every variant
+  declaration while refusing unknown, duplicate, missing or malformed metadata.
+  Pure Core must include its capability inventory and type table.
+
 - The guarded source-function candidate publisher accepts an explicit bounded
   lowerer/verifier component pair before checked-distribution promotion. Public
   compiler and runtime witnesses include optional old/new-provider raw-byte
@@ -20,7 +35,20 @@
   Checked provider components and digest-locked packages are refreshed.
   Application cutover remains a separate gate.
 
+### Changed
+
+- Provider type-copy proof work counts each nominal wrapper as well as its
+  representation, tightening admission for nominal-typed flows near the proof
+  limit without adding runtime value tags or changing runtime storage charges.
+
 ### Fixed
+
+- Public read payload-variant witnesses record an explicit allocation budget
+  and require allocation to be the only exceeded dimension in the retained
+  original-allocation compiler refusal.
+
+- Bounded-read relation judgments preserve closed variant helper-result and local
+  identities, with bounded case/payload expansion in each independent provider.
 
 - Public source-function witnesses verify and recycle disposable pure vendor
   copies between variants, so optional controls do not multiply retained inputs.

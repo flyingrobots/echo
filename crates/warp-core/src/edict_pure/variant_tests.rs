@@ -458,3 +458,107 @@ fn variant_type_graphs_refuse_empty_recursive_overflowing_deep_and_wide_shapes()
     assert!(matches!(checked(&source), Err(Error::UnsupportedProgram)));
     Ok(())
 }
+
+fn matched(case: &str, payload: Option<Value>) -> Value {
+    let binder = map([
+        ("id", text("match.0.payload")),
+        ("type", text("U8")),
+        ("alphaName", text("payload")),
+    ]);
+    map([
+        ("kind", text("match")),
+        ("scrutinee", constructor("Choice", case, payload)),
+        (
+            "arms",
+            array(vec![
+                map([("case", text("Empty")), ("body", integer("U8", 0))]),
+                map([
+                    ("case", text("Data")),
+                    ("binder", binder.clone()),
+                    ("body", map([("kind", text("local")), ("ref", binder)])),
+                ]),
+            ]),
+        ),
+    ])
+}
+
+#[test]
+fn exhaustive_match_selects_payload_and_empty_arms() -> Result<(), Error> {
+    for (case, payload, expected) in [("Empty", None, 0), ("Data", Some(integer("U8", 37)), 37)] {
+        let helpers = checked(&core(matched(case, payload), "U8"))?;
+        assert_eq!(
+            invoke(&helpers, &mut Meter::new(limits()))?,
+            Value::Integer(expected)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_rejects_missing_duplicate_unknown_and_ill_scoped_arms() -> Result<(), Error> {
+    for mutation in 0..7 {
+        let mut result = matched("Empty", None);
+        let Value::Array(arms) = get_mut(&mut result, "arms") else {
+            unreachable!()
+        };
+        match mutation {
+            0 => {
+                arms.pop();
+            }
+            1 => {
+                *get_mut(&mut arms[1], "case") = text("Empty");
+            }
+            2 => {
+                *get_mut(&mut arms[1], "case") = text("Unknown");
+            }
+            3 => {
+                *get_mut(get_mut(&mut arms[1], "binder"), "type") = text("Bool");
+            }
+            4 => {
+                let binder = field(&arms[1], "binder")?.clone();
+                let Value::Map(fields) = &mut arms[0] else {
+                    unreachable!()
+                };
+                fields.push((text("binder"), binder));
+            }
+            5 => {
+                *get_mut(&mut arms[0], "body") = field(&arms[1], "body")?.clone();
+            }
+            6 => {
+                *get_mut(get_mut(&mut arms[1], "binder"), "alphaName") = text("");
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            matches!(checked(&core(result, "U8")), Err(Error::InvalidArtifact)),
+            "mutation {mutation}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_dispatch_obeys_exact_meter_limits() -> Result<(), Error> {
+    let source = core(matched("Data", Some(integer("U8", 37))), "U8");
+    let helpers = checked(&source)?;
+    let mut meter = Meter::new(limits());
+    invoke(&helpers, &mut meter)?;
+    let (steps, bytes) = meter.usage();
+    for (step_limit, byte_limit, expected) in [
+        (steps - 1, bytes, Error::StepBudgetExceeded),
+        (steps, bytes - 1, Error::AllocationBudgetExceeded),
+    ] {
+        let mut budget = limits();
+        budget.max_steps = step_limit;
+        budget.max_allocated_bytes = byte_limit;
+        assert_eq!(invoke(&helpers, &mut Meter::new(budget)), Err(expected));
+    }
+    let mut exact = limits();
+    exact.max_steps = steps;
+    exact.max_allocated_bytes = bytes;
+    assert_eq!(
+        invoke(&helpers, &mut Meter::new(exact))?,
+        Value::Integer(37)
+    );
+    Ok(())
+}

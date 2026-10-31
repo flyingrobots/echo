@@ -238,6 +238,9 @@ pub(crate) fn expression(
             meter,
             depth,
         ),
+        Expr::Match(scrutinee, arms) => {
+            super::matches::evaluate_match(scrutinee, arms, locals, helpers, meter, depth)
+        }
         Expr::Local(id) => meter.copy(locals.get(id.as_str()).ok_or(Error::InvalidArtifact)?),
         Expr::Field(base, name) => {
             let record = expression(base, locals, helpers, meter, depth + 1)?;

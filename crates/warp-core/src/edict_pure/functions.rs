@@ -280,7 +280,7 @@ pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
     }
 }
 
-fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
+pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
     match (left, right) {
         (RuntimeType::Bytes { min: a, max: b }, RuntimeType::Bytes { min: c, max: d }) => {
             Ok(RuntimeType::Bytes {
@@ -293,7 +293,7 @@ fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
     }
 }
 
-type Scope<'a> = BTreeMap<&'a str, &'a Value>;
+pub(super) type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
 /// dominating order facts (earlier conjuncts of enclosing `all`s), plus
 /// signed branch/lazy-prefix truths used only by the strict lookup judgment.
@@ -328,6 +328,9 @@ pub(crate) fn infer<'v>(
 ) -> Result<RuntimeType, Error> {
     parser.enter(depth)?;
     match text_field(value, "kind")? {
+        "match" => {
+            super::matches::infer_match(value, scope, proof, definitions, source, parser, depth)
+        }
         "variant" => {
             let (ty, tag, payload) = super::variants::constructor(parser, value)?;
             let RuntimeType::Variant { cases, .. } = &ty else {
@@ -875,6 +878,13 @@ impl Heights<'_> {
                 Some(payload) => self.expr(payload, depth + 1)? + 1,
                 None => 1,
             },
+            Expr::Match(scrutinee, arms) => {
+                let mut height = self.expr(scrutinee, depth + 1)?;
+                for arm in arms {
+                    height = height.max(self.expr(&arm.body, depth + 1)?);
+                }
+                height + 1
+            }
             Expr::Field(base, _) => self.expr(base, depth + 1)? + 1,
             Expr::Record(fields) => {
                 let mut maximum = 0;

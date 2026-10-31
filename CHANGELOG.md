@@ -7,6 +7,11 @@
 
 ### Added
 
+- Native source-helper preparation and execution support exhaustive closed-variant
+  matches with lexical payload bindings, selected-arm evaluation, and metered
+  dispatch and frame copies. This interpreter support does not yet enable the
+  provider/package route for matching.
+
 - Independent native provider judgments and runtime preparation check bounded
   closed variant types and constructors with exact union/payload identity and
   payload traversal. Runtime values retain their type, case and optional payload

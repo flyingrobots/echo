@@ -13,6 +13,7 @@
 mod decode;
 pub(crate) mod evaluate;
 pub(crate) mod functions;
+mod matches;
 pub(crate) mod model;
 pub(crate) mod proven_order;
 pub(crate) mod syntax;

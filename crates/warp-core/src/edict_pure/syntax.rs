@@ -88,6 +88,7 @@ impl Parser<'_> {
     pub fn expr(&mut self, value: &Value, depth: usize) -> Result<Expr, Error> {
         self.enter(depth)?;
         match text_field(value, "kind")? {
+            "match" => self.match_expression(value, depth),
             "variant" => self.variant_expression(value, depth),
             "local" => {
                 exact_fields(value, &["kind", "ref"])?;

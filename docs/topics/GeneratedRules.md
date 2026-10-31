@@ -172,6 +172,17 @@ independently selected trusted-host pin and bounded input, work, storage and
 output limits. This is ordinary computation, not package admission, graph
 mutation, an Action, a Tick, a receipt or recovery evidence.
 
+The native interpreter can prepare exhaustive closed-variant `match` expressions
+in source helpers. It checks every case exactly once, requires payload binders to
+have the declared payload type, and confines each binder to its own arm. Evaluation
+runs the scrutinee once and only the selected body. Dispatch charges each inspected
+arm; a payload-binding arm copies the outer lexical frame through the ordinary
+meter and moves the selected payload into it. The synthetic witnesses in
+`edict_pure::variant_tests` cover arm selection, malformed coverage, binder scope,
+and exact work/storage refusal. This runtime capability alone does not establish
+provider acceptance or public compiler-package execution of matches; the native
+provider match judgments and publication witness remain required.
+
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the
 result through the ordinary resource meter. Overflow and invalid operands

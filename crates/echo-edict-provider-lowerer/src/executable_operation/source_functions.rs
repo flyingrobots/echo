@@ -3,6 +3,8 @@
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
 mod order;
+#[cfg(test)]
+mod u8_literals_tests;
 mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -459,7 +461,8 @@ impl<'a> Judgment<'a> {
                 }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
-                if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
+                if string(get(literal, "kind")?)? != "int" || !["U8", "U32", "U64"].contains(&width)
+                {
                     return Err(());
                 }
                 let ty = self.ty(width, 0)?;
@@ -616,8 +619,10 @@ impl<'a> Judgment<'a> {
                             })?;
                             expected.clone()
                         }
-                        ("core.integer.subtract", [left, right], [expected @ Ty::Word(_)])
-                            if includes(expected, left) && includes(expected, right) =>
+                        ("core.integer.subtract", [left, right], [expected @ Ty::Word(max)])
+                            if includes(expected, left)
+                                && includes(expected, right)
+                                && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
                             if !order::proven(
                                 &arguments[0],

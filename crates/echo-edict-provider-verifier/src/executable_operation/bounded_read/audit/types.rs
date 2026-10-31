@@ -264,7 +264,7 @@ impl<'a> Symbols<'a> {
                 }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = text(literal, "width")?;
-                if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
+                if text(literal, "kind")? != "int" || !["U8", "U32", "U64"].contains(&width) {
                     return Err(());
                 }
                 let Schema::Word(max) = self.schema(width, 0)? else {
@@ -474,6 +474,48 @@ mod tests {
                 .collect(),
         )
     }
+    #[test]
+    fn source_u8_read_literals_preserve_the_byte_domain() {
+        let core = map([]);
+        let mut symbols = Symbols {
+            core: &core,
+            exports: &core,
+            declared: BTreeMap::new(),
+            live: BTreeSet::new(),
+            claimed: BTreeSet::new(),
+            work: 65_536,
+        };
+        for value in [0_i128, 128, 255] {
+            assert!(matches!(
+                symbols.expression(&u8_constant(Value::Integer(value)), 0),
+                Ok(Schema::Word(255))
+            ));
+        }
+        for value in [
+            Value::Integer(256),
+            Value::Integer(-1),
+            Value::Bytes(vec![255]),
+        ] {
+            assert!(matches!(
+                symbols.expression(&u8_constant(value), 0),
+                Err(())
+            ));
+        }
+    }
+    fn u8_constant(value: Value) -> Value {
+        map([
+            ("kind", Value::Text("const".into())),
+            (
+                "value",
+                map([
+                    ("kind", Value::Text("int".into())),
+                    ("width", Value::Text("U8".into())),
+                    ("value", value),
+                ]),
+            ),
+        ])
+    }
+
     #[test]
     fn distinct_nominals_without_source_functions_do_not_convert() -> Check<()> {
         let nominal = |contract: &str| {

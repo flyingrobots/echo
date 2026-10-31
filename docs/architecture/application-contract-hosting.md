@@ -386,7 +386,11 @@ executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
+bounded bytes, records and nominal types, with Boolean and U8/U32/U64 literals. The U8 domain is exactly 0 through 255;
+malformed values, overflow, negative values and cross-width helper returns
+refuse. U8 constants retain the ordinary scalar work/storage charges. Arithmetic
+remains U32/U64: both providers refuse U8 subtraction, matching runtime parsing.
+These native changes do not promote checked component carriers. Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
@@ -464,6 +468,18 @@ component and package identities are recorded in its provenance. These are priva
 computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+
+The public compiler witness accepts `--unsigned-byte-provider-before` to retain
+an old matching source-function publication as a control. It must accept a U8
+identity helper and refuse a U8 literal helper; the selected candidate must
+accept both and emit identical package/report bytes on repeat. A 256u8 literal
+must refuse at compiler type checking. An additional bounded-read case includes
+an ordinary U8 constant binding. The runtime consumer checks unsigned-byte
+results, deterministic accounting, input domains, resource limits and package
+identity. Its read controls explicitly exercise count, byte, step, allocation
+and output ceilings while preserving state; the U8 read binding must incur
+additional dynamic work/storage. These are private computation/read witnesses,
+not installation or causal-history evidence.
 
 The paired nominal-ID and variable-payload equality witnesses in
 [`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)
@@ -704,7 +720,7 @@ The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
 pure packages as effectful programs. Its expression subset includes typed
-source/imported helper calls, Boolean and U32/U64 constants, lazy conditionals,
+source/imported helper calls, Boolean and U8/U32/U64 constants, lazy conditionals,
 byte length, UTF-8 validation and concatenation, locals, record construction/selection,
 byte/Boolean equality, unsigned equality or ordering guards, and closed
 conjunction/negation trees. The source-function totality and resource

@@ -12,7 +12,7 @@ The compiler binary hash identifies the executed binary; source-to-binary build
 provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
-Eight sequential variants retain at most 64 MiB / 2048 filesystem entries here,
+Eight sequential variants (fourteen with unsigned-byte controls) retain at most 64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
 free-space floors, covering this work root, compiler caches and container layer.
@@ -115,7 +115,7 @@ def verify_compiler(args):
 
 
 def selected_inputs(args):
-    return {
+    result = {
         "compilerBinarySha256": sha256(args.compiler),
         "compilerManifestSha256": sha256(args.compiler_manifest),
         "pureApplicationSha256": sha256(args.pure_application_source / "edict.application.json"),
@@ -128,6 +128,10 @@ def selected_inputs(args):
         "oldProvider": inventory(args.old_provider),
         "provider": inventory(args.provider),
     }
+
+    if getattr(args, "unsigned_byte_provider_before", None) is not None:
+        result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
+    return result
 
 
 def replace_once(source, old, new):
@@ -154,8 +158,19 @@ def source_variants(args):
     read = replace_once(read, "intent replaceRange(", READ_HELPER + "intent replaceRange(")
     read = replace_once(read, "  return actual;",
                         "  let retained = retainBytes(actual);\n  return retained;")
+    u8 = baseline.replace("Bytes<max=8>", "U8").replace("Bytes<max=16>", "U8")
+    u8 = replace_once(u8, "let bytes = input.firstFragment + input.secondFragment;",
+                      "let bytes = byteValue(input.firstFragment);")
+    identity = replace_once(u8, "intent assembleRange(",
+                            "fn byteValue(value: U8) -> U8 { return value; }\n\nintent assembleRange(")
+    literal = replace_once(identity, "return value;",
+                           "return if value == 0u8 then 0u8 else 255u8;")
+    invalid = replace_once(literal, "else 255u8;", "else 256u8;")
+    read_u8 = replace_once(read, "  let retained = retainBytes(actual);",
+                           "  let marker: U8 = 255u8;\n  let retained = retainBytes(actual);")
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
-            "changed-body": changed, "read": read}
+            "changed-body": changed, "read": read, "u8-identity": identity,
+            "u8-literal": literal, "u8-invalid-bound": invalid, "read-u8-constant": read_u8}
 
 
 def child_limits():
@@ -268,19 +283,33 @@ def require_old_refusal(result):
         raise RuntimeError(f"Old provider did not explicitly refuse source Core: {result}")
 
 
-def require_budget_refusal(result):
+def source_refusal_diagnostic(result):
     diagnostics = result["diagnostics"]
+    # Current Amblicit preserves the source diagnostic before a CLI summary.
+    # Accept only that exact envelope, never an arbitrary extra diagnostic.
+    if len(diagnostics) == 2 and all(
+            diagnostics[-1].get(name) == value for name, value in {
+                "kind": "ApplicationCompilationFailed", "stage": "cli",
+                "message": "Edict application did not compile to Core"}.items()):
+        diagnostics = diagnostics[:1]
     if result["exitCode"] != 2 or result["artifacts"] or len(diagnostics) != 1:
-        raise RuntimeError(f"Original budget did not produce one explicit refusal: {result}")
-    diagnostic = diagnostics[0]
+        raise RuntimeError(f"Expected one source refusal with no executable artifacts: {result}")
+    return diagnostics[0]
+
+
+def require_budget_refusal(result):
+    diagnostic = source_refusal_diagnostic(result)
     message = diagnostic.get("message", "")
     boundaries = {
         "ApplicationCompilationFailed": ("InvalidBound", "pure-helper cost",
                                          "exceeds operation budget"),
+        "InvalidBound": ("pure-helper cost", "exceeds operation budget"),
         "ProviderLowererRefused": ("UnsupportedSemantics", "core.source-functions"),
     }
     required = boundaries.get(diagnostic.get("kind"))
-    if required is None or any(detail not in message for detail in required):
+    if (required is None or any(detail not in message for detail in required)
+            or (diagnostic.get("kind") == "InvalidBound"
+                and diagnostic.get("stage") != "typeCheck")):
         raise RuntimeError(f"Unexpected original-budget refusal: {result}")
     return diagnostic["kind"]
 
@@ -397,6 +426,17 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
     elif refusal == "original-budget":
         provenance["refusalBoundary"] = require_budget_refusal(result)
+    elif refusal == "u8-provider":
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.source-functions" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Original provider did not refuse U8 literal semantics: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "u8-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "TypeMismatch" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Overflowing U8 literal did not refuse at type checking: {result}")
+        provenance["refusalBoundary"] = "TypeMismatch"
     else:
         require_success(result)
         shutil.rmtree(root / "application-output")
@@ -467,6 +507,7 @@ def main():
     for name in ("compiler-revision", "old-provider-manifest-sha256", "provider-manifest-sha256",
                  "input-manifest-sha256"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--unsigned-byte-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -515,6 +556,18 @@ def main():
             ("read", variants["read"], args.provider,
              {"read": True, "read_steps": READ_HELPER_STEPS}),
         ]
+        if args.unsigned_byte_provider_before is not None:
+            specs.extend([
+                ("u8-identity-before", variants["u8-identity"], args.unsigned_byte_provider_before, {}),
+                ("u8-literal-before", variants["u8-literal"], args.unsigned_byte_provider_before,
+                 {"refusal": "u8-provider"}),
+                ("u8-identity", variants["u8-identity"], args.provider, {}),
+                ("u8-literal", variants["u8-literal"], args.provider, {}),
+                ("u8-invalid-bound", variants["u8-invalid-bound"], args.provider,
+                 {"refusal": "u8-bound"}),
+                ("read-u8-constant", variants["read-u8-constant"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+            ])
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

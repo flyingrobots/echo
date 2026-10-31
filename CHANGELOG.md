@@ -5,6 +5,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- Independent provider judgments and private pure/read runtime parsing accept
+  U8 literals in the exact 0 through 255 domain, preserving existing scalar
+  metering and rejecting malformed or cross-width helper values. Provider
+  subtraction is restricted to U32/U64, matching the runtime's supported widths.
+- The public source-function witness accepts the current compiler's exact
+  source-diagnostic/CLI-summary envelope without accepting unrelated errors or
+  artifacts on refusal. Optional U8 controls compare matching old/new providers,
+  exact repeated artifacts and actual pure/read runtime behavior. Read controls
+  now test resource refusals explicitly.
+
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used

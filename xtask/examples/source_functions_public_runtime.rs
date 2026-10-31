@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::Path;
 use warp_core::edict_pure::{self, EvaluationError, EvaluationLimits};
-use warp_core::edict_read::{ReadBasis, ReadView};
+use warp_core::edict_read::{ReadBasis, ReadError, ReadView};
 use warp_core::{
     make_node_id, make_type_id, AtomPayload, AttachmentValue, GraphStore, NodeKey, NodeRecord,
     WorldlineFrontier, WorldlineId, WorldlineState,
@@ -212,8 +212,87 @@ fn pure(root: &Path, name: &str, reversed: bool, evidence: &serde_json::Value) -
     println!("PUBLIC_PURE_RUNTIME_OK {name} {}", cases.len());
     Ok(cases.len())
 }
-fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
-    let (package_bytes, report_bytes) = emitted(&root.join("read"), evidence)?;
+fn unsigned_bytes(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    for (name, identity) in [("u8-identity", true), ("u8-literal", false)] {
+        let (package, report) = emitted(&root.join(name), evidence)?;
+        let (package, pin) = checked_pair(package, report)?;
+        for value in [0_i128, 128, 255] {
+            let input = encode(&record([
+                ("firstFragment", Value::Integer(value)),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            let outcome = edict_pure::evaluate(&package, pin, &input, limits())
+                .map_err(|error| anyhow!("unsigned-byte runtime refused: {error:?}"))?;
+            let expected = if identity || value == 0 { value } else { 255 };
+            ensure!(
+                decode(&outcome.output)? == record([("bytes", Value::Integer(expected))]),
+                "wrong unsigned-byte result"
+            );
+            ensure!(
+                Ok(outcome) == edict_pure::evaluate(&package, pin, &input, limits()),
+                "unsigned-byte result or accounting changed on repeat"
+            );
+        }
+        for value in [
+            Value::Integer(256),
+            Value::Integer(-1),
+            Value::Bytes(vec![255]),
+        ] {
+            let input = encode(&record([
+                ("firstFragment", value),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits())
+                    == Err(EvaluationError::InvalidInput),
+                "unsigned-byte input domain did not refuse"
+            );
+        }
+        let input = encode(&record([
+            ("firstFragment", Value::Integer(255)),
+            ("secondFragment", Value::Integer(0)),
+        ]))?;
+        for (limits, expected) in [
+            (
+                EvaluationLimits {
+                    max_steps: 1,
+                    ..limits()
+                },
+                EvaluationError::StepBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_allocated_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::AllocationBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_output_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::OutputBudgetExceeded,
+            ),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits) == Err(expected),
+                "unsigned-byte host resource limit did not refuse"
+            );
+        }
+        let mut wrong = pin;
+        wrong[0] ^= 1;
+        ensure!(
+            edict_pure::evaluate(&package, wrong, &input, limits())
+                == Err(EvaluationError::PackageIdentityMismatch),
+            "unsigned-byte package substitution did not refuse"
+        );
+        println!("PUBLIC_U8_RUNTIME_OK {name}: 3 literal cases, 3 input refusals, 3 resource refusals, 1 identity refusal");
+    }
+    Ok(())
+}
+fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u64, u64)> {
+    let (package_bytes, report_bytes) = emitted(&root.join(name), evidence)?;
     let (package, pin) = checked_pair(package_bytes, report_bytes)?;
     let mut store = GraphStore::default();
     let node = make_node_id("public-source-function-read");
@@ -278,8 +357,73 @@ fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
             && frontier.state().state_root() == before,
         "wrong read evidence or mutation"
     );
-    println!("PUBLIC_READ_RUNTIME_OK 1 5");
-    Ok(())
+    let read_limits = warp_core::edict_read::ReadLimits {
+        evaluation: limits(),
+        max_reads: 1,
+        max_read_bytes: 5,
+    };
+    ensure!(
+        Ok(result.clone())
+            == warp_core::edict_read::evaluate(&package, pin, &input, &view, read_limits),
+        "read output or accounting changed on repeat"
+    );
+    for (limits, expected) in [
+        (
+            warp_core::edict_read::ReadLimits {
+                max_reads: 0,
+                ..read_limits
+            },
+            ReadError::ReadCountExceeded,
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                max_read_bytes: 4,
+                ..read_limits
+            },
+            ReadError::ReadBytesExceeded,
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                evaluation: EvaluationLimits {
+                    max_steps: 1,
+                    ..limits()
+                },
+                ..read_limits
+            },
+            ReadError::Evaluation(EvaluationError::StepBudgetExceeded),
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                evaluation: EvaluationLimits {
+                    max_allocated_bytes: 1,
+                    ..limits()
+                },
+                ..read_limits
+            },
+            ReadError::Evaluation(EvaluationError::AllocationBudgetExceeded),
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                evaluation: EvaluationLimits {
+                    max_output_bytes: 1,
+                    ..limits()
+                },
+                ..read_limits
+            },
+            ReadError::Evaluation(EvaluationError::OutputBudgetExceeded),
+        ),
+    ] {
+        ensure!(
+            warp_core::edict_read::evaluate(&package, pin, &input, &view, limits) == Err(expected),
+            "explicit read limit did not refuse"
+        );
+        ensure!(
+            frontier.state().state_root() == before,
+            "refused read changed state"
+        );
+    }
+    println!("PUBLIC_READ_RUNTIME_OK {name}: 1 read, 5 bytes, 5 resource refusals, steps={} allocated={}", result.steps, result.allocated_bytes);
+    Ok((result.steps, result.allocated_bytes))
 }
 fn main() -> Result<()> {
     ensure!(
@@ -306,7 +450,15 @@ fn main() -> Result<()> {
     pure(root, "pure", false, &evidence)?;
     pure(root, "renamed-pure", false, &evidence)?;
     pure(root, "changed-body", true, &evidence)?;
-    atom_read(root, &evidence)?;
+    let read_usage = atom_read(root, &evidence, "read")?;
+    if evidence["results"].get("u8-literal").is_some() {
+        unsigned_bytes(root, &evidence)?;
+        let u8_usage = atom_read(root, &evidence, "read-u8-constant")?;
+        ensure!(
+            u8_usage.0 > read_usage.0 && u8_usage.1 > read_usage.1,
+            "the additional U8 binding incurred no runtime work/storage"
+        );
+    }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");
     Ok(())
 }

@@ -773,12 +773,15 @@ selects the original publication.
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
-pure packages as effectful programs. Its expression subset includes typed
+pure packages as effectful programs. Read intent bodies admit typed
 source/imported helper calls, Boolean and U8/U32/U64 constants, lazy conditionals,
-raw byte literals, byte lookup, length, UTF-8 validation and concatenation,
-locals, record construction/selection, byte/Boolean equality, unsigned equality
-or ordering guards, and closed conjunction/disjunction/negation trees. The source-function totality and resource
-rules above also apply to this route. Reads select opaque atom bytes by
+byte length, slicing, counting, UTF-8 validation and concatenation, locals,
+record construction/selection, byte/Boolean equality, unsigned `==` and `<=`
+guards, and closed conjunction/negation trees. Raw byte literals, byte lookup,
+disjunction and the other unsigned comparison operators are available inside
+source helpers; direct use in read intent bodies is refused by the separate
+read relation and audit. The source-function totality and resource rules above
+also apply to these helpers. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,
 and result, with exact imported read signatures and scoped local identities.

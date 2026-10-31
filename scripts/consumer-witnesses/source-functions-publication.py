@@ -45,6 +45,7 @@ READ_OLD_STEPS = 1_048_576
 READ_HELPER_STEPS = 4_194_304
 READ_OLD_ALLOCATION = 16_777_216
 READ_VARIANT_ALLOCATION = 33_554_432
+READ_OUTPUT_BYTES = 8_388_608
 READ_BUDGET = "jedit.text@1.replaceRangeBudget"
 OUTPUTS = {"executable-operation-package.cbor", "verification-report.cbor"}
 PURE_COORDINATE = "jedit.text.replace_range@1"
@@ -358,7 +359,7 @@ def source_refusal_diagnostic(result):
     return diagnostics[0]
 
 
-def require_budget_refusal(result):
+def require_budget_refusal(result, *, allocation_only=False):
     diagnostic = source_refusal_diagnostic(result)
     message = diagnostic.get("message", "")
     boundaries = {
@@ -372,6 +373,16 @@ def require_budget_refusal(result):
             or (diagnostic.get("kind") == "InvalidBound"
                 and diagnostic.get("stage") != "typeCheck")):
         raise RuntimeError(f"Unexpected original-budget refusal: {result}")
+    if allocation_only:
+        costs = re.fullmatch(
+            r"pure-helper cost steps=(\d+), allocatedBytes=(\d+), "
+            r"outputBytes=(\d+) exceeds operation budget", message)
+        if diagnostic.get("kind") != "InvalidBound" or costs is None:
+            raise RuntimeError(f"Expected an allocation-specific compiler cost refusal: {result}")
+        steps, allocated, output = map(int, costs.groups())
+        if not (steps <= READ_HELPER_STEPS and allocated > READ_OLD_ALLOCATION
+                and output <= READ_OUTPUT_BYTES):
+            raise RuntimeError(f"Expected allocation to be the only exceeded budget: {result}")
     return diagnostic["kind"]
 
 
@@ -424,7 +435,7 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
         raise RuntimeError("Unexpected read adapter coordinate")
     budget = adapter["budgets"][READ_BUDGET]
     if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": READ_OLD_ALLOCATION,
-                  "maxOutputBytes": 8_388_608}:
+                  "maxOutputBytes": READ_OUTPUT_BYTES}:
         raise RuntimeError("Original read budget differs from the explicit seed")
     configs = [item for item in authored["localResources"] if item["name"] == "echo-config"]
     if (len(configs) != 1 or configs[0]["value"]["programKind"]
@@ -491,8 +502,9 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     if refusal == "old-publication":
         require_old_refusal(result)
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
-    elif refusal == "original-budget":
-        provenance["refusalBoundary"] = require_budget_refusal(result)
+    elif refusal in {"original-budget", "original-allocation"}:
+        provenance["refusalBoundary"] = require_budget_refusal(
+            result, allocation_only=refusal == "original-allocation")
     elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider"}:
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
@@ -690,7 +702,7 @@ def main():
                           args.variant_provider_before, {"refusal": "variant-provider"}))
             specs.append(("variant-read-original-allocation", variants["variant-read-payload"],
                           args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
-                                          "refusal": "original-budget"}))
+                                          "refusal": "original-allocation"}))
             for case in ["empty", "payload"]:
                 specs.append((f"variant-pure-{case}", variants[f"variant-pure-{case}"],
                               args.provider, {}))

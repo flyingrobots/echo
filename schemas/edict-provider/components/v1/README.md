@@ -47,7 +47,7 @@ or ambient capability imports.
 
 In the designated immutable `linux/amd64` builder above, install Rust 1.96.0
 for the outer `xtask` driver while retaining the authenticated Rust 1.90.0 inner
-compiler and Cargo. Rebuild and check the artifact without rewriting it:
+compiler and Cargo.
 
 The outer driver resolves its source root with `git rev-parse --show-toplevel`.
 Use an isolated Git checkout and verify that this root is the intended source
@@ -55,6 +55,8 @@ directory and that `git rev-parse HEAD` names the selected commit before
 building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
+
+Rebuild and check the artifact without rewriting it:
 
 ```sh
 cargo +1.96.0 xtask provider-lowerer-component check \

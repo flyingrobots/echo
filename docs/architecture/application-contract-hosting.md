@@ -516,8 +516,11 @@ refuse empty, malformed or recursive graphs. Variant values do not acquire recor
 field access to their metadata. Constructor expressions in source-function
 bodies remain subject to the independent source-function judgments above. Direct
 constructor expressions remain unsupported in the read relation itself; a helper
-result or local can supply a match scrutinee. Both read judgments preserve outer
-declarations and cumulative proof work across temporary arm scopes.
+result or local can supply a match scrutinee. Direct raw-byte constants are also
+outside that relation's expression profile. A source helper may return such a
+constant, including an empty fallback passed to a match helper; its body is
+checked by the independent source-function judgments. Both read judgments
+preserve outer declarations and cumulative proof work across temporary arm scopes.
 
 The generic pure and bounded-read provider entry points independently admit
 only the known `core.variant/v1` required capability, once. Every variant

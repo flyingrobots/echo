@@ -196,7 +196,8 @@ The bounded-read relation and audit independently check direct matches. Both
 preserve outer declarations on success and refusal, and carry proof-work
 counters across arms rather than resetting them for each binder. A variant
 helper result or local can supply the scrutinee; direct constructor expressions
-remain outside the bounded-read relation profile. See the
+and raw-byte constants remain outside the bounded-read relation profile. Author
+those values in source helpers when using this profile. See the
 [closed-variant architecture](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
 for binder identity, payload omission and accounting rules.
 

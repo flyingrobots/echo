@@ -274,23 +274,30 @@ def stop_group(child):
 
 def check_work_bound(root):
     """Supplement the shared guard with a live bound on this witness's outputs."""
+    def scan_error(error):
+        # Compiler publication removes transaction directories atomically.
+        # Missing descendants are transient; an unreadable or missing root is not.
+        if not isinstance(error, FileNotFoundError) or error.filename == str(root):
+            raise error
+
     total, entries = 0, 0
-    for path in root.rglob("*"):
-        entries += 1
-        if entries > MAX_WORK_ENTRIES:
-            raise RuntimeError("Witness output count exceeded")
-        try:
-            metadata = path.lstat()
-        except FileNotFoundError:
-            # Atomic compiler publication can remove a temporary regular file.
-            continue
-        if stat.S_ISDIR(metadata.st_mode):
-            continue
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError(f"Witness output is not a regular file: {path}")
-        total += metadata.st_size
-        if total > MAX_WORK_BYTES:
-            raise RuntimeError("Witness outputs exceed the 64 MiB local ceiling")
+    for directory, directories, files in os.walk(root, onerror=scan_error, followlinks=False):
+        for name in directories + files:
+            path = Path(directory) / name
+            entries += 1
+            if entries > MAX_WORK_ENTRIES:
+                raise RuntimeError("Witness output count exceeded")
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(metadata.st_mode):
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise RuntimeError(f"Witness output is not a regular file: {path}")
+            total += metadata.st_size
+            if total > MAX_WORK_BYTES:
+                raise RuntimeError("Witness outputs exceed the 64 MiB local ceiling")
     return {"bytes": total, "entries": entries}
 
 

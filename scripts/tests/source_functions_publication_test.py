@@ -18,6 +18,40 @@ SPEC.loader.exec_module(publication)
 
 
 class PublicationTests(unittest.TestCase):
+    def test_output_bound_survives_removed_transaction_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            transaction = root / "transaction"
+            transaction.mkdir()
+            (transaction / "pending").write_bytes(b"pending")
+            (root / "retained").write_bytes(b"abc")
+            scandir = publication.os.scandir
+
+            def remove_transaction(path):
+                if str(path) == str(transaction) and transaction.exists():
+                    (transaction / "pending").unlink()
+                    transaction.rmdir()
+                return scandir(path)
+
+            with patch.object(publication.os, "scandir", side_effect=remove_transaction):
+                self.assertEqual(publication.check_work_bound(root)["bytes"], 3)
+
+    def test_output_bound_refuses_scan_permission_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(publication.os, "scandir", side_effect=PermissionError("denied")):
+                with self.assertRaises(PermissionError):
+                    publication.check_work_bound(Path(temporary))
+
+    def test_output_bound_rejects_a_missing_root_and_oversized_remaining_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(FileNotFoundError):
+                publication.check_work_bound(root / "absent")
+            (root / "retained").write_bytes(b"abc")
+            with patch.object(publication, "MAX_WORK_BYTES", 2):
+                with self.assertRaisesRegex(RuntimeError, "ceiling"):
+                    publication.check_work_bound(root)
+
     def budget_refusal(self):
         return {"exitCode": 2, "artifacts": {}, "diagnostics": [
             {"kind": "InvalidBound", "stage": "typeCheck",

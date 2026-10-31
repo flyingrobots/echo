@@ -14,6 +14,10 @@ pub(super) enum Schema {
         high: u64,
     },
     Fields(BTreeMap<String, Schema>),
+    Alternatives {
+        identity: String,
+        cases: BTreeMap<String, Option<Schema>>,
+    },
     Nominal {
         identity: String,
         representation: Box<Schema>,
@@ -88,6 +92,9 @@ impl Schema {
         match self {
             // Nominal types retain identity without adding physical value tags.
             Self::Nominal { representation, .. } => return representation.measure(),
+            Self::Alternatives { identity, cases } => {
+                return super::variants::measure(identity, cases)
+            }
             Self::Truth => size.encoded = 1,
             Self::Word(_) => {}
             Self::Blob { high, .. } => {
@@ -142,7 +149,7 @@ impl<'a> Types<'a> {
         Ok(())
     }
     pub(super) fn copy_type(&mut self, schema: &Schema) -> Check<Schema> {
-        let count = usize::try_from(schema.measure()?.copy.ticks).map_err(|_| ())?;
+        let count = super::variants::type_nodes(schema)?;
         self.remaining = self.remaining.checked_sub(count).ok_or(())?;
         Ok(schema.clone())
     }
@@ -224,6 +231,7 @@ impl<'a> Types<'a> {
                 }
                 Ok(Schema::Blob { low, high })
             }
+            "Variant" => self.alternatives(definition, resolved, &prefix, depth),
             "Record" => {
                 let mut fields = BTreeMap::new();
                 for (name, coordinate) in members(get(definition, "fields")?)? {

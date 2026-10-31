@@ -433,8 +433,9 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
-receive provider refusal. Native lowerer and independent verifier judgments
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list and effectful helper forms
+receive provider refusal. Native closed-variant checks are described below;
+runtime variant preparation and execution remain unsupported. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and
 closed nonempty conjunction/disjunction/negation trees and same-width unsigned
 comparisons. Their static cost includes the
@@ -473,6 +474,45 @@ combined depth, malformed authority, and a real stored atom passed to a helper.
 These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
+
+#### Native closed-variant judgments
+
+The native lowerer and independent verifier additionally judge acyclic named
+Core variant types and constructor expressions in source-function bodies,
+including unused helpers. A constructor retains the resolved union identity,
+exact case and optional payload. Case membership, payload presence, widths,
+byte bounds and nominal payload identity are checked independently. An equally
+shaped different union cannot replace the declared union, including through a
+helper call. Module-relative and fully qualified references resolve to the
+same local union; imported type-table identities remain original coordinates.
+The existing same-prefix imported-key limitation described above still applies.
+
+Payload expressions remain in the ordinary lexical, dependency, cycle, depth
+and partial-intrinsic totality checks. Case entries have exactly an optional
+payload type reference; empty alternatives, duplicate cases, unknown fields,
+recursive or missing payload types and overflow refuse. Every alternative
+consumes proof work, including payloadless cases. A type clone retains all
+alternatives, so its proof-work charge counts the complete type graph rather
+than only the maximum runtime payload. The existing 65,536-work and 64-depth
+apertures remain in force.
+
+Static value bounds reserve a container with `type` and `case` text metadata
+and an optional payload. They include six 64-byte metadata cells, 15 key bytes,
+the resolved type identity, case label and maximum bounded payload; the absent
+payload has a conservative cell reservation. The lowerer bounds metadata and
+payload maxima separately; the verifier derives each alternative's bounds and
+takes their maximum. Copy, validation and encoding scratch participate in
+whole-operation budgets with checked arithmetic. These are conservative
+logical storage bounds, not measured allocator usage or runtime wire acceptance.
+
+The mirrored input corpus in each provider's `source_functions/variant_tests.rs`
+checks construction, named/imported/nominal identities, malformed metadata,
+hidden payload dependencies and captures, partial calls, recursive/deep/wide
+graphs, arithmetic overflow and underfunded whole-operation bounds. Production
+judgments share no implementation. These native checks do not update checked
+component carriers or establish a compiler-emitted verified variant package.
+Runtime preparation/evaluation, matching, recursive variants, independent
+component reproduction and promotion remain separate gates.
 
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).

@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+#[cfg(test)]
+mod byte_literals_tests;
 mod order;
 mod unsigned_addition;
 use super::ProviderRefusalV1;

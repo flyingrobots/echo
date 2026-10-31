@@ -13,7 +13,7 @@ provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
 Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
-byte-lookup (seven) and closed-variant (seven) controls retain at most
+byte-lookup (seven), closed-variant (seven) and match controls retain at most
 64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
@@ -45,6 +45,7 @@ READ_OLD_STEPS = 1_048_576
 READ_HELPER_STEPS = 4_194_304
 READ_OLD_ALLOCATION = 16_777_216
 READ_VARIANT_ALLOCATION = 33_554_432
+READ_MATCH_ALLOCATION = 67_108_864
 READ_OUTPUT_BYTES = 8_388_608
 READ_BUDGET = "jedit.text@1.replaceRangeBudget"
 OUTPUTS = {"executable-operation-package.cbor", "verification-report.cbor"}
@@ -147,6 +148,8 @@ def selected_inputs(args):
         result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
     if getattr(args, "variant_provider_before", None) is not None:
         result["variantProviderBefore"] = inventory(args.variant_provider_before)
+    if getattr(args, "match_provider_before", None) is not None:
+        result["matchProviderBefore"] = inventory(args.match_provider_before)
     return result
 
 
@@ -223,6 +226,18 @@ def source_variants(args):
                                     declarations + f"intent {intent}(")
             tagged[f"variant-{profile}-{case}"] = replace_once(
                 authored, anchor, binding + "\n" + anchor)
+            selector = (f"fn selectChoice(value: WitnessChoice, fallback: {value_type}) "
+                        f"-> {value_type} {{ return match value {{ "
+                        "Empty => fallback, Data(payload) => payload, }; }\n\n")
+            consumed = replace_once(tagged[f"variant-{profile}-{case}"],
+                                    f"intent {intent}(", selector + f"intent {intent}(")
+            original_value = "input.firstFragment" if profile == "pure" else "actual"
+            # A Data arm returning fallback would fail the retained byte cases.
+            fallback = original_value if case == "empty" else 'b""'
+            selected = f"selectChoice(marker, {fallback})"
+            replacement = (f"let bytes = assembleFragments({selected}, input.secondFragment);"
+                           if profile == "pure" else f"  let retained = retainBytes({selected});")
+            tagged[f"match-{profile}-{case}"] = replace_once(consumed, anchor, replacement)
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
             "changed-body": changed, "read": read, "u8-identity": identity,
             "u8-literal": u8_literal, "u8-invalid-bound": invalid,
@@ -505,7 +520,7 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     elif refusal in {"original-budget", "original-allocation"}:
         provenance["refusalBoundary"] = require_budget_refusal(
             result, allocation_only=refusal == "original-allocation")
-    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider"}:
+    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider", "match-provider"}:
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
@@ -612,6 +627,7 @@ def main():
     parser.add_argument("--byte-literal-provider-before", type=Path)
     parser.add_argument("--byte-lookup-provider-before", type=Path)
     parser.add_argument("--variant-provider-before", type=Path)
+    parser.add_argument("--match-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -710,6 +726,22 @@ def main():
                               args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
                                               "read_allocation": READ_VARIANT_ALLOCATION
                                               if case == "payload" else READ_OLD_ALLOCATION}))
+        if args.match_provider_before is not None:
+            specs.append(("variant-pure-before-matches", variants["variant-pure-payload"],
+                          args.match_provider_before, {}))
+            specs.append(("match-pure-before", variants["match-pure-payload"],
+                          args.match_provider_before, {"refusal": "match-provider"}))
+            specs.append(("match-read-before", variants["match-read-payload"],
+                          args.match_provider_before, {"read": True,
+                          "read_steps": READ_HELPER_STEPS,
+                          "read_allocation": READ_MATCH_ALLOCATION,
+                          "refusal": "match-provider"}))
+            for case in ["empty", "payload"]:
+                specs.append((f"match-pure-{case}", variants[f"match-pure-{case}"],
+                              args.provider, {}))
+                specs.append((f"match-read-{case}", variants[f"match-read-{case}"],
+                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                              "read_allocation": READ_MATCH_ALLOCATION}))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

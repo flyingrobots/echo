@@ -620,25 +620,27 @@ and storage boundary, accept the exact limits and refuse one-unit shortfalls;
 adding payload binders raises those limits by the same frame-copy cost. These
 synthetic cost judgments establish neither public package admission nor compiler
 provenance.
-The public read payload witness explicitly authors a 32 MiB allocation lawpack
-budget and records that change with the source and manifest hashes. Its paired
-16 MiB allocation control must refuse at compiler type checking with allocation
+The public read constructor witness explicitly authors a 32 MiB allocation
+lawpack budget; the matched-read witnesses use a bounded 64 MiB allocation
+budget. Each records the change with source and manifest hashes. Paired
+16 MiB allocation controls must refuse at compiler type checking with allocation
 as the only exceeded cost dimension; runtime resource ceilings remain
 independently checked. These are authored operation
 budgets, separate from the witness runner's storage limits.
 
 The public source-function publication/runtime witness separately compiles empty
-and payload-bearing helpers in pure and bounded-read operations. It retains
+and payload-bearing helpers, including consumed matches, in pure and bounded-read
+operations. It retains
 `core.variant/v1`, exact repeated package/report bytes, old-provider refusals,
 and the original-allocation refusal. Runtime consumption checks unchanged byte
 results, increasing constructor/payload charges, repeated outcomes, resource
 ceilings and package identity. The checked component pair is independently
 reproduced and promoted; its source-module publication matches the candidate
 used by the public witness byte for byte. This evidence covers helper-local
-construction; public compiler variant result encoding, matching, recursive
-variants and the application's persistent-rope cutover remain outside this proof.
-The optional `--variant-provider-before` control is described with the other
-controls below.
+construction and exhaustive matching. Public compiler variant result encoding,
+recursive variants and the application's persistent-rope cutover remain outside
+this proof. The optional `--variant-provider-before` and `--match-provider-before`
+controls are described below.
 
 #### Pure and read witness fixtures
 
@@ -697,8 +699,19 @@ the embedded compiler Core. It checks the twelve original pure cases, repeated
 execution, one-under resource ceilings and package substitution. Empty
 constructors must incur more work/storage than the unchanged control, and
 payload constructors more than empty constructors; immutable reads retain their
-result and state checks. These helper-local values do not establish public compiler variant
-result encoding, matching, recursive types or the authored rope cutover.
+result and state checks. These constructor controls do not establish public
+compiler variant result encoding, recursive types or the authored rope cutover.
+
+The optional `--match-provider-before` control selects a constructor-capable
+publication and requires it to refuse consumed matches in pure and bounded-read
+operations. Current-provider controls compile both alternatives and repeat the
+same package/report bytes. The payload arm returns its bound bytes with an empty
+fallback, so substituting the fallback changes the retained byte-output cases.
+The read profile authors that fallback in a source helper. The runtime consumer
+also requires the authored `match` body in embedded Core, exercises all twelve
+pure cases for each alternative, checks exact and one-under resource limits,
+and consumes bounded-read packages with unchanged read and state assertions.
+The original-allocation read control must fail specifically on allocation.
 
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain
 an old matching source-function publication as a control. It must accept a U8

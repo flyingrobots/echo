@@ -201,9 +201,14 @@ those values in source helpers when using this profile. See the
 [closed-variant architecture](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
 for binder identity, payload omission and accounting rules.
 
-These native checks alone do not establish public compiler-package execution
-of matches. Checked component publication and the public execution witness
-remain required.
+The public source-function publication witness accepts `--match-provider-before`
+to check constructor acceptance and match refusal with the previous provider,
+then compile empty and payload matches with the current provider. The runtime
+example consumes the exact emitted packages and reports: each pure alternative
+passes twelve byte-output cases, and bounded reads retain their output and
+resource-refusal checks. Repeated compiler builds retain identical package and
+report bytes. The checked source-module publication matches the independently
+reproduced candidate used by these witnesses.
 
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the

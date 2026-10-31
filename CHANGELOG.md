@@ -9,8 +9,9 @@
 
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered
-  dispatch and frame copies. This interpreter support does not yet enable the
-  checked package route for matching.
+  dispatch and frame copies. Independently reproduced provider components and
+  checked packages include these judgments. Public compiler witnesses consume
+  empty and payload matches through pure and bounded-read operations.
 
 - The runtime expression parser rejects duplicate case tags and empty match-arm
   lists, including in intent bindings and results. Intent-level typed coverage

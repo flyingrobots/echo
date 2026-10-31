@@ -348,6 +348,7 @@ fn constant(literal: &Value) -> Result<Expr, Error> {
     }
     let number = number(field(literal, "value")?)?;
     match text_field(literal, "width")? {
+        "U8" if u8::try_from(number).is_ok() => {}
         "U32" if u32::try_from(number).is_ok() => {}
         "U64" => {}
         _ => return Err(Error::UnsupportedProgram),
@@ -410,6 +411,85 @@ pub(crate) fn count_needle(needle: &Value) -> Result<u8, Error> {
 #[cfg(test)]
 mod tests {
     use super::{constant, Error, Value};
+    use crate::edict_pure::{
+        evaluate::{expression, Meter},
+        EvaluationLimits,
+    };
+    use std::collections::BTreeMap;
+
+    fn integer(value: Value) -> Value {
+        Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("int".into())),
+            (Value::Text("width".into()), Value::Text("U8".into())),
+            (Value::Text("value".into()), value),
+        ])
+    }
+
+    #[test]
+    fn source_u8_literals_decode_and_materialize_with_existing_scalar_cost() -> Result<(), Error> {
+        let limits = EvaluationLimits {
+            max_package_bytes: 4096,
+            max_input_bytes: 4096,
+            max_steps: 2,
+            max_allocated_bytes: 64,
+            max_output_bytes: 1024,
+        };
+        for value in [0_i128, 128, 255] {
+            let expr = constant(&integer(Value::Integer(value)))?;
+            let mut meter = Meter::new(limits);
+            assert_eq!(
+                expression(&expr, &BTreeMap::new(), &BTreeMap::new(), &mut meter, 0),
+                Ok(Value::Integer(value))
+            );
+            assert_eq!(meter.usage(), (2, 64));
+            for (limits, expected) in [
+                (
+                    EvaluationLimits {
+                        max_steps: 1,
+                        ..limits
+                    },
+                    Error::StepBudgetExceeded,
+                ),
+                (
+                    EvaluationLimits {
+                        max_allocated_bytes: 63,
+                        ..limits
+                    },
+                    Error::AllocationBudgetExceeded,
+                ),
+            ] {
+                assert_eq!(
+                    expression(
+                        &expr,
+                        &BTreeMap::new(),
+                        &BTreeMap::new(),
+                        &mut Meter::new(limits),
+                        0
+                    ),
+                    Err(expected)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn source_u8_literals_reject_overflow_negative_and_wrong_payloads() {
+        for (value, expected) in [
+            (Value::Integer(256), Error::UnsupportedProgram),
+            (Value::Integer(-1), Error::InvalidArtifact),
+            (Value::Bool(true), Error::InvalidArtifact),
+            (Value::Bytes(vec![255]), Error::InvalidArtifact),
+        ] {
+            assert!(matches!(constant(&integer(value)), Err(actual) if actual == expected));
+        }
+        let mut extra = integer(Value::Integer(255));
+        let Value::Map(fields) = &mut extra else {
+            unreachable!()
+        };
+        fields.push((Value::Text("extra".into()), Value::Bool(true)));
+        assert!(matches!(constant(&extra), Err(Error::InvalidArtifact)));
+    }
 
     #[test]
     fn byte_constants_reject_text_payloads_and_extra_integer_fields() {

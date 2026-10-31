@@ -12,8 +12,8 @@ The compiler binary hash identifies the executed binary; source-to-binary build
 provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
-Eight sequential variants (twelve with the byte-literal controls) retain at most
-64 MiB / 2048 filesystem entries here,
+Eight baseline variants, plus six unsigned-byte and four byte-literal controls
+when selected, retain at most 64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
 free-space floors, covering this work root, compiler caches and container layer.
@@ -136,6 +136,8 @@ def selected_inputs(args):
     }
     if getattr(args, "byte_literal_provider_before", None) is not None:
         result["byteLiteralProviderBefore"] = inventory(args.byte_literal_provider_before)
+    if getattr(args, "unsigned_byte_provider_before", None) is not None:
+        result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
     return result
 
 
@@ -163,13 +165,25 @@ def source_variants(args):
     read = replace_once(read, "intent replaceRange(", READ_HELPER + "intent replaceRange(")
     read = replace_once(read, "  return actual;",
                         "  let retained = retainBytes(actual);\n  return retained;")
+    u8 = baseline.replace("Bytes<max=8>", "U8").replace("Bytes<max=16>", "U8")
+    u8 = replace_once(u8, "let bytes = input.firstFragment + input.secondFragment;",
+                      "let bytes = byteValue(input.firstFragment);")
+    identity = replace_once(u8, "intent assembleRange(",
+                            "fn byteValue(value: U8) -> U8 { return value; }\n\nintent assembleRange(")
+    u8_literal = replace_once(identity, "return value;",
+                           "return if value == 0u8 then 0u8 else 255u8;")
+    invalid = replace_once(u8_literal, "else 255u8;", "else 256u8;")
+    read_u8 = replace_once(read, "  let retained = retainBytes(actual);",
+                           "  let marker: U8 = 255u8;\n  let retained = retainBytes(actual);")
     literal = replace_once(baseline, "intent assembleRange(", BYTE_LITERAL_HELPER + "intent assembleRange(")
     literal = replace_once(literal,
                            "let bytes = input.firstFragment + input.secondFragment;",
                            "let bytes = literalBytes(len(input.firstFragment) == 0u64);")
     narrow = replace_once(literal, "-> Bytes<max=4>", "-> Bytes<max=1>")
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
-            "changed-body": changed, "read": read, "byte-literals": literal,
+            "changed-body": changed, "read": read, "u8-identity": identity,
+            "u8-literal": u8_literal, "u8-invalid-bound": invalid,
+            "read-u8-constant": read_u8, "byte-literals": literal,
             "byte-literals-invalid-bound": narrow}
 
 
@@ -426,6 +440,17 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
     elif refusal == "original-budget":
         provenance["refusalBoundary"] = require_budget_refusal(result)
+    elif refusal == "u8-provider":
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.source-functions" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Original provider did not refuse U8 literal semantics: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "u8-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "TypeMismatch" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Overflowing U8 literal did not refuse at type checking: {result}")
+        provenance["refusalBoundary"] = "TypeMismatch"
     elif refusal == "byte-literal-provider":
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
@@ -461,6 +486,12 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     if inventory(root / "provider") != inventory(provider):
         raise RuntimeError("Public compilation changed its provider copy")
     shutil.rmtree(root / "provider")
+    if not read:
+        # Selected vendor inputs remain outside the work root; retain their
+        # manifest hashes, not one disposable tree for every optional variant.
+        if inventory(root / "vendor") != inventory(args.pure_application_source / "vendor"):
+            raise RuntimeError("Public compilation changed its vendor copy")
+        shutil.rmtree(root / "vendor")
     check_work_bound(args.work_root)
     print(json.dumps({"variant": name, **provenance}, sort_keys=True), flush=True)
     return provenance
@@ -507,6 +538,7 @@ def main():
     for name in ("compiler-revision", "old-provider-manifest-sha256", "provider-manifest-sha256",
                  "input-manifest-sha256"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--unsigned-byte-provider-before", type=Path)
     parser.add_argument("--byte-literal-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
@@ -556,6 +588,18 @@ def main():
             ("read", variants["read"], args.provider,
              {"read": True, "read_steps": READ_HELPER_STEPS}),
         ]
+        if args.unsigned_byte_provider_before is not None:
+            specs.extend([
+                ("u8-identity-before", variants["u8-identity"], args.unsigned_byte_provider_before, {}),
+                ("u8-literal-before", variants["u8-literal"], args.unsigned_byte_provider_before,
+                 {"refusal": "u8-provider"}),
+                ("u8-identity", variants["u8-identity"], args.provider, {}),
+                ("u8-literal", variants["u8-literal"], args.provider, {}),
+                ("u8-invalid-bound", variants["u8-invalid-bound"], args.provider,
+                 {"refusal": "u8-bound"}),
+                ("read-u8-constant", variants["read-u8-constant"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+            ])
         if args.byte_literal_provider_before is not None:
             specs.extend([
                 ("pure-before-byte-literals", variants["pure"], args.byte_literal_provider_before, {}),

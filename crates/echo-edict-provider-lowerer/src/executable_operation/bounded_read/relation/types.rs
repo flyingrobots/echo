@@ -283,7 +283,7 @@ impl<'a> Scope<'a> {
                 }
                 require_exact_fields(literal, &["kind", "value", "width"], SUBJECT)?;
                 let width = text(literal, "width")?;
-                if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
+                if text(literal, "kind")? != "int" || !["U8", "U32", "U64"].contains(&width) {
                     return Err(invalid());
                 }
                 let ReadType::Unsigned(max) = self.ty(width)? else {
@@ -502,6 +502,59 @@ mod tests {
                 .map(|(key, value)| (Value::Text(key.to_owned()), value))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn source_u8_read_literals_preserve_the_byte_domain() {
+        let core = map([]);
+        let scope = Scope {
+            core: &core,
+            exports: &core,
+            inventory: BTreeMap::new(),
+            available: BTreeMap::new(),
+            used: BTreeSet::new(),
+            input: &core,
+            remaining_type_work: Cell::new(65_536),
+        };
+        for value in [0_i128, 128, 255] {
+            let expression = u8_constant(Value::Integer(value));
+            assert_eq!(
+                scope.expression(&expression, 0),
+                Ok(ReadType::Unsigned(255))
+            );
+        }
+        for (value, kind) in [
+            (
+                Value::Integer(256),
+                crate::ProviderRefusalKind::InvalidSemanticArtifact,
+            ),
+            (
+                Value::Integer(-1),
+                crate::ProviderRefusalKind::UnsupportedSemantics,
+            ),
+            (
+                Value::Bytes(vec![255]),
+                crate::ProviderRefusalKind::UnsupportedSemantics,
+            ),
+        ] {
+            assert!(
+                matches!(scope.expression(&u8_constant(value), 0), Err(ref error)
+                if error.kind == kind)
+            );
+        }
+    }
+    fn u8_constant(value: Value) -> Value {
+        map([
+            ("kind", Value::Text("const".into())),
+            (
+                "value",
+                map([
+                    ("kind", Value::Text("int".into())),
+                    ("width", Value::Text("U8".into())),
+                    ("value", value),
+                ]),
+            ),
+        ])
     }
 
     #[test]

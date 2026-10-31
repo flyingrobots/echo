@@ -386,8 +386,16 @@ executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean, U32/U64 and raw byte
-literals. The native lowerer, independent verifier and runtime helper admission
+bounded bytes, records and nominal types, with Boolean, U8/U32/U64 and raw byte
+literals. The U8 domain is exactly 0 through 255; malformed values, overflow,
+negative values and cross-width helper returns refuse. U8 constants retain
+ordinary scalar work/storage charges. Arithmetic remains U32/U64: both
+providers refuse U8 subtraction, matching runtime parsing. The checked lowerer
+and verifier components include these U8 judgments; their independent build
+and promotion boundary is documented in the
+[component owner](../../schemas/edict-provider/components/v1/README.md).
+
+The native lowerer, independent verifier and runtime helper admission
 require byte constants to carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets
 remain bytes. The inferred byte type has equal minimum and maximum bounds at the
 actual length, so a narrower result type still refuses. Materialization charges
@@ -473,6 +481,18 @@ component and package identities are recorded in its provenance. These are priva
 computation witnesses and confer no mutation or causal-history authority.
 
 The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+
+The public compiler witness accepts `--unsigned-byte-provider-before` to retain
+an old matching source-function publication as a control. It must accept a U8
+identity helper and refuse a U8 literal helper; the selected candidate must
+accept both and emit identical package/report bytes on repeat. A 256u8 literal
+must refuse at compiler type checking. An additional bounded-read case includes
+an ordinary U8 constant binding. The runtime consumer checks unsigned-byte
+results, deterministic accounting, input domains, resource limits and package
+identity. Its read controls explicitly exercise count, byte, step, allocation
+and output ceilings while preserving state; the U8 read binding must incur
+additional dynamic work/storage. These are private computation/read witnesses,
+not installation or causal-history evidence.
 
 The paired compiler witness accepts `--byte-literal-provider-before` to compare
 an older matching source-function publication with an explicitly rebuilt
@@ -725,7 +745,7 @@ The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
 pure packages as effectful programs. Its expression subset includes typed
-source/imported helper calls, Boolean and U32/U64 constants, lazy conditionals,
+source/imported helper calls, Boolean and U8/U32/U64 constants, lazy conditionals,
 byte length, UTF-8 validation and concatenation, locals, record construction/selection,
 byte/Boolean equality, unsigned equality or ordering guards, and closed
 conjunction/negation trees. The source-function totality and resource

@@ -6,6 +6,8 @@
 mod byte_literals_tests;
 mod order;
 mod types;
+#[cfg(test)]
+mod u8_literals_tests;
 mod unsigned_addition;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -419,7 +421,8 @@ impl<'a> Checker<'a, '_> {
                 }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
-                if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
+                if string(get(literal, "kind")?)? != "int" || !["U8", "U32", "U64"].contains(&width)
+                {
                     return Err(());
                 }
                 let Schema::Word(max) = self.types.resolve(width, 0)? else {
@@ -858,8 +861,10 @@ fn intrinsic(
                 },
             ))
         }
-        ("core.integer.subtract", [left, right], [expected @ Schema::Word(_)])
-            if expected.encloses(left) && expected.encloses(right) =>
+        ("core.integer.subtract", [left, right], [expected @ Schema::Word(max)])
+            if expected.encloses(left)
+                && expected.encloses(right)
+                && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
         {
             if !order_proven {
                 return Err(());

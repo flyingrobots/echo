@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 497,117 bytes with SHA-256
-`e72d4f4b5b5d4df8d4c53ec6abf6a53f5fba96966c0898fa6e56afaeebf2d284`.
+The checked component is 497,137 bytes with SHA-256
+`f0bd846fbe5b97ca613b2da2831bad438b3e9ff9ab69efc7b9b255cdeed6959e`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 510,507 bytes
+`wit-component` version recorded above. Its checked component is 510,549 bytes
 with SHA-256
-`8983670881084eee7ed9df409094487ba81e2d07b38272c8c905f4969dfcf83c`.
+`024f9019bdfae61b51a790822c5f9185537f56512b6d00d55f401ccf29330f60`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -47,7 +47,16 @@ or ambient capability imports.
 
 In the designated immutable `linux/amd64` builder above, install Rust 1.96.0
 for the outer `xtask` driver while retaining the authenticated Rust 1.90.0 inner
-compiler and Cargo. Rebuild and check the artifact without rewriting it:
+compiler and Cargo.
+
+The outer driver resolves its source root with `git rev-parse --show-toplevel`.
+Use an isolated Git checkout and verify that this root is the intended source
+directory and that `git rev-parse HEAD` names the selected commit before
+building. A nested source archive without its own Git metadata can resolve to
+an ancestor checkout and build different sources. Retain the root, commit and
+clean-tree checks with the component evidence.
+
+Rebuild and check the artifact without rewriting it:
 
 ```sh
 cargo +1.96.0 xtask provider-lowerer-component check \

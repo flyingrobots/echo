@@ -4,6 +4,7 @@
 import contextlib
 import importlib.util
 import io
+import shutil
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -47,7 +48,7 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             publication.require_budget_refusal(result)
 
-    def repeat(self, emit_repeated):
+    def repeat(self, emit_repeated, *, variants=1, vendor_bytes=0, mutate_vendor=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             provider = root / "selected-provider"
@@ -57,18 +58,25 @@ class PublicationTests(unittest.TestCase):
             compiler.write_bytes(b"selected compiler")
             manifest = root / "compiler-manifest"
             manifest.write_text("{}")
+            vendor = root / "vendor"
+            vendor.mkdir()
+            (vendor / "material").write_bytes(b"x" * vendor_bytes)
             work = root / "work"
             work.mkdir()
             args = SimpleNamespace(work_root=work, compiler_revision="selected",
-                compiler=compiler, compiler_manifest=manifest, input_manifest_sha256="selected")
+                compiler=compiler, compiler_manifest=manifest, input_manifest_sha256="selected",
+                pure_application_source=root)
 
             def prepare(args, destination, source, **options):
                 destination.mkdir()
+                shutil.copytree(vendor, destination / "vendor")
                 for name in ["source.edict", "upstream-source.edict", "edict.application.json", "upstream-application.json"]:
                     (destination / name).write_text(source)
                 return {}
 
             def build(args, destination, document, label):
+                if mutate_vendor:
+                    (destination / "vendor/material").write_bytes(b"changed")
                 output = destination / "application-output"
                 if label == "first" or emit_repeated:
                     output.mkdir(exist_ok=True)
@@ -78,7 +86,10 @@ class PublicationTests(unittest.TestCase):
                     "artifacts": publication.inventory(output) if output.exists() else {}}
 
             with patch.object(publication, "prepare_application", prepare), patch.object(publication, "compiler_build", build), contextlib.redirect_stdout(io.StringIO()):
-                return publication.run_variant(args, "repeat", "authored source", provider)
+                for index in range(variants):
+                    result = publication.run_variant(args, f"repeat-{index}", "authored source", provider)
+                self.assertEqual((vendor / "material").read_bytes(), b"x" * vendor_bytes)
+                return result
 
     def test_successful_repeat_without_outputs_cannot_reuse_first_build(self):
         with self.assertRaisesRegex(RuntimeError, "did not emit exactly one package/report pair"):
@@ -88,6 +99,16 @@ class PublicationTests(unittest.TestCase):
         result = self.repeat(True)
         self.assertEqual(result["firstBuild"]["artifacts"], result["repeatedBuild"]["artifacts"])
 
+
+    def test_optional_variants_do_not_accumulate_disposable_vendor_copies(self):
+        # Scale the 64 MiB ceiling and 4.5 MiB vendor copy down by 1024.
+        # Fifteen non-read variants cover both optional control groups.
+        with patch.object(publication, "MAX_WORK_BYTES", 64 * 1024):
+            self.repeat(True, variants=15, vendor_bytes=4608)
+
+    def test_changed_vendor_copy_refuses_before_disposal(self):
+        with self.assertRaisesRegex(RuntimeError, "changed its vendor copy"):
+            self.repeat(True, mutate_vendor=True)
 
     def test_final_usage_includes_final_evidence_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

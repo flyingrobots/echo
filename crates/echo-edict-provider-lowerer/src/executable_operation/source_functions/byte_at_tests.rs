@@ -235,23 +235,23 @@ fn byte_lookup_mirrored_equal_terms_keep_both_strict_orientations() {
     }
 }
 
-fn member_mut<'a>(value: &'a mut Value, name: &str) -> &'a mut Value {
+fn member_mut<'a>(value: &'a mut Value, name: &str) -> Result<&'a mut Value, String> {
     let Value::Map(fields) = value else {
-        panic!("expected fixture map")
+        return Err("expected fixture map".into());
     };
-    &mut fields
+    fields
         .iter_mut()
         .find(|(key, _)| key == &text(name))
-        .expect("fixture key")
-        .1
+        .map(|(_, value)| value)
+        .ok_or_else(|| format!("missing fixture key: {name}"))
 }
 
 #[test]
-fn byte_lookup_helper_cannot_borrow_a_guarded_callers_path() {
+fn byte_lookup_helper_cannot_borrow_a_guarded_callers_path() -> Result<(), String> {
     for guarded_helper in [false, true] {
         let (mut core, exports) = fixture("<", false, false, false);
-        let functions = member_mut(&mut core, "functions");
-        let mut caller = member_mut(functions, "lookup").clone();
+        let functions = member_mut(&mut core, "functions")?;
+        let mut caller = member_mut(functions, "lookup")?.clone();
         let bytes = reference(&local("arg.0", "Bytes<max=8>"));
         let index = reference(&local("arg.1", "U64"));
         let other = reference(&local("arg.2", "Bytes<max=8>"));
@@ -269,12 +269,12 @@ fn byte_lookup_helper_cannot_borrow_a_guarded_callers_path() {
         replace_term(&mut caller, &lookup, &invoke);
         if !guarded_helper {
             *member_mut(
-                member_mut(member_mut(functions, "lookup"), "body"),
+                member_mut(member_mut(functions, "lookup")?, "body")?,
                 "result",
-            ) = lookup;
+            )? = lookup;
         }
         let Value::Map(entries) = functions else {
-            panic!("fixture map")
+            return Err("fixture map".into());
         };
         // The caller sorts before the helper. Deliberately reuse frame-local
         // parameter IDs so leaking its proof would falsely authorize the callee.
@@ -285,4 +285,5 @@ fn byte_lookup_helper_cannot_borrow_a_guarded_callers_path() {
             "guarded_helper={guarded_helper}"
         );
     }
+    Ok(())
 }

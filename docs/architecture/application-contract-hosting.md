@@ -388,13 +388,14 @@ target-profile distinction, not permission to retain malformed basis authority.
 The native source-function target subset supports Boolean values, unsigned words,
 bounded bytes, records and nominal types, with Boolean, U32/U64 and raw byte
 literals. The native lowerer, independent verifier and runtime helper admission
-require byte constants to
-carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets
+require byte constants to carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets
 remain bytes. The inferred byte type has equal minimum and maximum bounds at the
 actual length, so a narrower result type still refuses. Materialization charges
-one value cell plus its payload length. These judgments do not refresh
-the checked component distribution; consumers must select matching schemas and
-rebuilt provider components. Provider compatibility
+one value cell plus its payload length through the existing runtime meter. The
+checked lowerer and verifier components include this rule; source-function and
+source-module consumers still select their matching schema publication.
+
+Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal

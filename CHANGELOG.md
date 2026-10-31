@@ -20,8 +20,10 @@
 - Native lowerer, independent verifier and runtime helper judgments now accept
   raw byte constants, including empty and non-UTF-8 values, with exact length
   typing and materialization charges. Malformed payloads, extra fields and
-  narrower declared result bounds still refuse. Checked component publication
-  and the public compiler/runtime witness are separate validation gates.
+  narrower declared result bounds still refuse. Checked lowerer and verifier
+  carriers are refreshed from two independently reproduced designated builds;
+  generated package assets retain their existing publication selection. The
+  runtime retains its existing value-cell-plus-payload materialization meter.
 
 ### Removed
 

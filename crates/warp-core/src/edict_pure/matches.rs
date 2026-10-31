@@ -17,16 +17,24 @@ impl Parser<'_> {
         exact_fields(value, &["kind", "scrutinee", "arms"])?;
         let scrutinee = self.expr(field(value, "scrutinee")?, depth + 1)?;
         let mut arms = Vec::new();
+        let mut seen = BTreeSet::new();
         for arm in array(field(value, "arms")?)? {
             self.enter(depth + 1)?;
+            let case = text_field(arm, "case")?;
+            if !seen.insert(case) {
+                return Err(Error::InvalidArtifact);
+            }
             let binder = arm_binder(arm)?;
             arms.push(MatchArm {
-                case: text_field(arm, "case")?.to_owned(),
+                case: case.to_owned(),
                 binder: binder
                     .map(|b| text_field(b, "id").map(str::to_owned))
                     .transpose()?,
                 body: self.expr(field(arm, "body")?, depth + 1)?,
             });
+        }
+        if arms.is_empty() {
+            return Err(Error::InvalidArtifact);
         }
         Ok(Expr::Match(Box::new(scrutinee), arms))
     }

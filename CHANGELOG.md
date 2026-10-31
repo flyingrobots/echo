@@ -12,6 +12,10 @@
   dispatch and frame copies. This interpreter support does not yet enable the
   checked package route for matching.
 
+- The runtime expression parser rejects duplicate case tags and empty match-arm
+  lists, including in intent bindings and results. Intent-level typed coverage
+  and binder scope remain obligations of the independent provider judgments.
+
 - Independent native lowerer and verifier source-function judgments check
   exhaustive matches and lexical payload types, inspect unused arms for invalid
   calls, and bound dispatch and frame-copy costs. Direct intent matches cannot

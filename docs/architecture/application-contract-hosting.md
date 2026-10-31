@@ -487,6 +487,18 @@ helper call. Module-relative and fully qualified references resolve to the
 same local union; imported type-table identities remain original coordinates.
 The existing same-prefix imported-key limitation described above still applies.
 
+Native provider judgments also check exhaustive matches, including coverage,
+payload binder types, arm-local scope and calls in unselected arms. Runtime
+source-helper preparation repeats those type and scope checks. Intent-level
+bindings and results instead use the expression parser: it rejects duplicate
+case tags and empty arm lists, but relies on the provider judgments for typed
+coverage and binder scope. Evaluation checks each resulting binding and the
+intent result against its declared type; selecting a missing arm refuses.
+These runtime checks do not replace provider verification or the caller's
+selection of the verified package digest. The parser boundary witnesses in
+`edict_pure/variant_tests.rs` are synthetic and establish no public compiler
+package provenance.
+
 The separate bounded-read relation judgments retain the full union identity and
 bounded alternative graph for variant-valued helper results and local bindings.
 They charge every case during type expansion, including payloadless cases, and

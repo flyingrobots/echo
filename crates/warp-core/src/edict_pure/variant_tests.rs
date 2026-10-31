@@ -495,6 +495,72 @@ fn exhaustive_match_selects_payload_and_empty_arms() -> Result<(), Error> {
 }
 
 #[test]
+fn match_parser_rejects_duplicate_and_empty_arm_lists() -> Result<(), Error> {
+    let source = core(integer("U8", 0), "U8");
+    for duplicate in [true, false] {
+        let mut value = matched("Empty", None);
+        let Value::Array(arms) = get_mut(&mut value, "arms") else {
+            unreachable!()
+        };
+        if duplicate {
+            // Keep two syntactically valid, binder-free bodies. The case tag
+            // alone is duplicated; helper inference is deliberately bypassed.
+            arms[1] = arms[0].clone();
+        } else {
+            arms.clear();
+        }
+        let mut parser = Parser {
+            types: field(&source, "types")?,
+            coordinate: "choices.example@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        assert!(
+            matches!(parser.expr(&value, 0), Err(Error::InvalidArtifact)),
+            "duplicate={duplicate}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn match_parser_leaves_typed_coverage_to_provider_judgments() -> Result<(), Error> {
+    let source = core(integer("U8", 0), "U8");
+    let mut value = matched("Data", Some(integer("U8", 37)));
+    for complete in [true, false] {
+        if !complete {
+            let Value::Array(arms) = get_mut(&mut value, "arms") else {
+                unreachable!()
+            };
+            arms.pop();
+        }
+        // This is the expression parser used for intent bindings/results in
+        // decode.rs, not source-helper inference. It has no local type scope.
+        let mut parser = Parser {
+            types: field(&source, "types")?,
+            coordinate: "choices.example@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        let expr = parser.expr(&value, 0)?;
+        let result = expression(
+            &expr,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut Meter::new(limits()),
+            0,
+        );
+        assert_eq!(
+            result,
+            if complete {
+                Ok(Value::Integer(37))
+            } else {
+                Err(Error::InvalidArtifact)
+            }
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn match_rejects_missing_duplicate_unknown_and_ill_scoped_arms() -> Result<(), Error> {
     for mutation in 0..7 {
         let mut result = matched("Empty", None);

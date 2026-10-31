@@ -183,7 +183,12 @@ and exact work/storage refusal. This runtime capability alone does not establish
 public compiler-package execution of matches. Native lowerer and verifier
 source-function judgments independently check match coverage, payload identity,
 all-arm call authority, and maximum path costs, including lexical frame copies.
-Direct intent matches trigger that judgment even without a function table.
+Matches in intent bindings or results trigger those provider judgments even
+without a function table. Unlike source-helper preparation, the runtime parser
+for intent expressions does not repeat typed coverage or binder-scope inference.
+It rejects duplicate case tags and empty arm lists. Evaluation validates each
+binding and the result against its declared type, and refuses if the selected
+case has no arm. Provider verification remains required for the static rules.
 Checked component publication and the public execution witness remain required;
 bounded-read relation and audit now also check direct matches independently.
 Their arm scopes preserve outer declarations on success and refusal, and their

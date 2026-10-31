@@ -557,6 +557,12 @@ The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
 value validation, constructor and copy charges, nested/called payloads, fresh
 frames, imported/nominal identities, graph apertures and step/allocation/output
 limits. Those synthetic runtime fixtures establish no compiler provenance.
+The public read payload witness explicitly authors a 32 MiB allocation lawpack
+budget and records that change with the source and manifest hashes. Its paired
+16 MiB allocation control must refuse at compiler type checking; runtime
+resource ceilings remain independently checked. These are authored operation
+budgets, separate from the witness runner's storage limits.
+
 Public compiler-package/runtime evidence, matching, recursive variants,
 independent component reproduction and promotion remain separate gates.
 

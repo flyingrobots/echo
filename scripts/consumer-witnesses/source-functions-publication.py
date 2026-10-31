@@ -13,7 +13,7 @@ provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
 Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
-byte-lookup (seven) and closed-variant (six) controls retain at most
+byte-lookup (seven) and closed-variant (seven) controls retain at most
 64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
@@ -43,6 +43,8 @@ MAX_WORK_ENTRIES = 2048
 BUILD_TIMEOUT_SECONDS = 120
 READ_OLD_STEPS = 1_048_576
 READ_HELPER_STEPS = 4_194_304
+READ_OLD_ALLOCATION = 16_777_216
+READ_VARIANT_ALLOCATION = 33_554_432
 READ_BUDGET = "jedit.text@1.replaceRangeBudget"
 OUTPUTS = {"executable-operation-package.cbor", "verification-report.cbor"}
 PURE_COORDINATE = "jedit.text.replace_range@1"
@@ -380,7 +382,7 @@ def relative_path(text):
     return path
 
 
-def prepare_application(args, root, source, *, read=False, renamed=False, read_steps=None):
+def prepare_application(args, root, source, *, read=False, renamed=False, read_steps=None, read_allocation=READ_OLD_ALLOCATION):
     root.mkdir()
     original = args.read_application_source if read else args.pure_application_source
     original_application = regular_file(original / "edict.application.json")
@@ -421,7 +423,7 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
     if adapter["coordinate"] != "jedit.text.echo-adapter/v1":
         raise RuntimeError("Unexpected read adapter coordinate")
     budget = adapter["budgets"][READ_BUDGET]
-    if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": 16_777_216,
+    if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": READ_OLD_ALLOCATION,
                   "maxOutputBytes": 8_388_608}:
         raise RuntimeError("Original read budget differs from the explicit seed")
     configs = [item for item in authored["localResources"] if item["name"] == "echo-config"]
@@ -432,9 +434,17 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
         relative_path(item["output"])
     if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS}:
         raise RuntimeError("Unexpected authored budget variant")
-    budget["maxSteps"] = read_steps
+    if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION}:
+        raise RuntimeError("Unexpected authored allocation budget")
+    changes = []
+    for field, before, after in [("maxSteps", READ_OLD_STEPS, read_steps),
+                                 ("maxAllocatedBytes", READ_OLD_ALLOCATION, read_allocation)]:
+        budget[field] = after
+        if before != after:
+            changes.append({"path": f"/lawpack/targetAdapters/0/budgets/{READ_BUDGET}/{field}",
+                            "before": before, "after": after})
     definition = root / "edict.lawpack.json"
-    if read_steps == READ_OLD_STEPS:
+    if not changes:
         shutil.copyfile(original_lawpack, definition)
     else:
         definition.write_text(json.dumps(lawpack, indent=2) + "\n")
@@ -452,18 +462,16 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
             "outputs": inventory(root / output),
             "upstreamLawpackSha256": sha256(root / "upstream-lawpack.json"),
             "authoredLawpackSha256": sha256(definition),
-            "authoredChanges": [] if read_steps == READ_OLD_STEPS else [{
-                "path": f"/lawpack/targetAdapters/0/budgets/{READ_BUDGET}/maxSteps",
-                "before": READ_OLD_STEPS, "after": read_steps}],
+            "authoredChanges": changes,
             "authoredBeforeImportSha256": hashlib.sha256(source.encode()).hexdigest(),
             "authoredAfterImportSha256": sha256(root / "source.edict")}
 
 
 def run_variant(args, name, source, provider, *, refusal=None, read=False,
-                renamed=False, read_steps=None):
+                renamed=False, read_steps=None, read_allocation=READ_OLD_ALLOCATION):
     root = args.work_root / name
     lawpack = prepare_application(args, root, source, read=read, renamed=renamed,
-                                  read_steps=read_steps)
+                                  read_steps=read_steps, read_allocation=read_allocation)
     shutil.copytree(provider, root / "provider")
     authored_hash = sha256(root / "source.edict")
     result = compiler_build(args, root, "application", "first")
@@ -680,11 +688,16 @@ def main():
             specs.append(("pure-before-variants", variants["pure"], args.variant_provider_before, {}))
             specs.append(("variant-pure-before", variants["variant-pure-payload"],
                           args.variant_provider_before, {"refusal": "variant-provider"}))
+            specs.append(("variant-read-original-allocation", variants["variant-read-payload"],
+                          args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                          "refusal": "original-budget"}))
             for case in ["empty", "payload"]:
                 specs.append((f"variant-pure-{case}", variants[f"variant-pure-{case}"],
                               args.provider, {}))
                 specs.append((f"variant-read-{case}", variants[f"variant-read-{case}"],
-                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS}))
+                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                              "read_allocation": READ_VARIANT_ALLOCATION
+                                              if case == "payload" else READ_OLD_ALLOCATION}))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

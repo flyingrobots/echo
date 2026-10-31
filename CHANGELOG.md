@@ -32,6 +32,9 @@
 
 ### Fixed
 
+- Public read payload-variant witnesses record an explicit allocation budget
+  and retain the original-allocation compiler refusal as a negative control.
+
 - Bounded-read relation judgments preserve closed variant helper-result and local
   identities, with bounded case/payload expansion in each independent provider.
 

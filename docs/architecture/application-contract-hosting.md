@@ -612,7 +612,7 @@ inputs in `testdata/edict-match-frame.rs`; each implementation owns its judgment
 The frame contains an integer, exact-length bytes, a record and a variant.
 Independent cell arithmetic pins its copy at 12 work units and 819 storage bytes.
 Both arm orders and binder omission are checked, including exact runtime limits
-and one-unit shortfalls. Provider worst-arm costs bound each concrete execution.
+and one-unit shortfalls. Provider worst-arm costs bound each concrete execution of this fixture.
 Optional `ECHO_MATCH_FRAME_REPORT` files bind measured costs to the canonical
 fixture digest for comparison by a guarded runner. This is expression-level
 accounting evidence. Companion tests locate each provider's whole-intent work
@@ -634,9 +634,15 @@ operations. It retains
 `core.variant/v1`, exact repeated package/report bytes, old-provider refusals,
 and the original-allocation refusal. Runtime consumption checks unchanged byte
 results, increasing constructor/payload charges, repeated outcomes, resource
-ceilings and package identity. The checked component pair is independently
-reproduced and promoted; its source-module publication matches the candidate
-used by the public witness byte for byte. This evidence covers helper-local
+ceilings and package identity. The checked component pair is reproduced by two
+matching CI builds and promoted. Regenerating with
+`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output> --source-modules`
+uses those checked components without a candidate override. All 25 generated
+files match the source-modules candidate consumed by the public witness byte for
+byte. This generated publication is a different selection from the committed
+default `package/v1` publication: their manifests differ, while both embed the
+same lowerer and verifier component bytes. The PR review receipts retain the CI
+run, source commit and comparison inventory. This evidence covers helper-local
 construction and exhaustive matching. Public compiler variant result encoding,
 recursive variants and the application's persistent-rope cutover remain outside
 this proof. The optional `--variant-provider-before` and `--match-provider-before`
@@ -673,7 +679,7 @@ full 1 MiB inputs, an over-bound input and insufficient scan work. Publication,
 component and package identities are recorded in its provenance. These are private
 computation witnesses and confer no mutation or causal-history authority.
 
-The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by a caller-supplied SHA-256. The guarded launcher computes that digest after compilation; it binds consumption to the retained evidence, not to an independently approved digest fixed before the run. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
 The optional `--byte-lookup-provider-before` control selects the previous
 matching U8 publication. That publication must refuse the guarded lookup,
@@ -707,10 +713,12 @@ publication and requires it to refuse consumed matches in pure and bounded-read
 operations. Current-provider controls compile both alternatives and repeat the
 same package/report bytes. The payload arm returns its bound bytes with an empty
 fallback, so substituting the fallback changes the retained byte-output cases.
-The read profile authors that fallback in a source helper. The runtime consumer
+The read-payload witness authors its empty fallback in a source helper. The runtime consumer
 also requires the authored `match` body in embedded Core, exercises all twelve
-pure cases for each alternative, checks exact and one-under resource limits,
-and consumes bounded-read packages with unchanged read and state assertions.
+pure cases for each alternative, checks one-under step, allocation and output
+refusals, and consumes bounded-read packages with unchanged read and state
+assertions. Exact-limit acceptance is covered separately by the native frame
+tests above.
 The original-allocation read control must fail specifically on allocation.
 
 The public compiler witness accepts `--unsigned-byte-provider-before` to retain

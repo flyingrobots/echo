@@ -202,13 +202,17 @@ those values in source helpers when using this profile. See the
 for binder identity, payload omission and accounting rules.
 
 The public source-function publication witness accepts `--match-provider-before`
-to check constructor acceptance and match refusal with the previous provider,
-then compile empty and payload matches with the current provider. The runtime
+to check pure constructor acceptance and pure/read match refusal with the
+constructor-capable provider, then compile empty and payload matches with the
+current provider. The previous-provider read refusal has no paired read
+acceptance control and does not isolate match as the sole cause of refusal. The runtime
 example consumes the exact emitted packages and reports: each pure alternative
 passes twelve byte-output cases, and bounded reads retain their output and
 resource-refusal checks. Repeated compiler builds retain identical package and
-report bytes. The checked source-module publication matches the independently
-reproduced candidate used by these witnesses.
+report bytes. The source-modules publication regenerated from checked components matches the
+candidate used by these witnesses. It is distinct from the committed default
+package selection; see the [publication comparison](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+for the generation command and manifest boundary.
 
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the

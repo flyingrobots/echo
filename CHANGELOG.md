@@ -9,8 +9,8 @@
 
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered
-  dispatch and frame copies. Independently reproduced provider components and
-  checked packages include these judgments. Public compiler witnesses consume
+  dispatch and frame copies. The checked provider component pair, reproduced by
+  two matching CI builds, includes these judgments. Public compiler witnesses consume
   empty and payload matches through pure and bounded-read operations.
 
 - The runtime expression parser rejects duplicate case tags and empty match-arm

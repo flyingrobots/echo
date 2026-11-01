@@ -717,6 +717,20 @@ implicit access to a nominal read payload's representation. The public missing-
 and non-strict-bound controls stop at compiler refusal; the corresponding
 provider defenses are exercised separately by the provider unit tests.
 
+The optional `--fold-provider-before` control selects the preceding publication.
+It must accept the unchanged pure helper and refuse folds at bounds zero and
+three. The candidate compiles a non-idempotent U8 step at bounds 0/1/2/3 and a
+byte-preserving step over an immutable read result at bounds 0/1/3. Both package
+and verifier-report bytes must repeat exactly. The runtime consumer checks four
+U8 inputs per bound, iteration parity, exact resource ceilings, one-under
+refusals, input and package identity, and unchanged read state. Its pure cost
+oracle adds independently counted per-iteration work to the observed zero-bound
+wrapper cost; it does not claim an independent absolute wrapper-cost oracle.
+These witnesses require a compiler that meters nullary effect obstruction
+annotations separately from pure helper calls. They establish bounded iteration
+through the public compiler and generic runtime, while authored rope mutation,
+Tick, WAL, receipts and recovery remain separate obligations.
+
 The optional `--variant-provider-before` control selects the preceding matching
 publication. It requires that publication to accept an unchanged pure helper and
 refuse a variant-returning helper. The candidate must accept empty and

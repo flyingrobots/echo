@@ -707,6 +707,122 @@ fn closed_variants(
     Ok(())
 }
 
+fn state_folds(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    // The zero-bound public package supplies only the fixed wrapper cost.
+    // Independently counted toggle work: 2 admission + 1 if + 1 compare +
+    // 3*2 expression/copy + 1 result = 11 steps, and 3*64 = 192 copied bytes.
+    // This checks deltas, not an independently derived absolute wrapper cost.
+    let mut baseline = [(0, 0); 4];
+    for bound in [0_u64, 1, 2, 3] {
+        let name = format!("fold-pure-{bound}");
+        let (package, report) = emitted(&root.join(&name), evidence)?;
+        let (package, pin) = checked_pair(package, report)?;
+        for (index, value) in [0_i128, 1, 128, 255].into_iter().enumerate() {
+            let input = encode(&record([
+                ("firstFragment", Value::Integer(value)),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            let result = edict_pure::evaluate(&package, pin, &input, limits())
+                .map_err(|error| anyhow!("fold runtime refused: {error:?}"))?;
+            let expected = if bound == 0 {
+                value
+            } else if value == 0 {
+                i128::from(bound % 2)
+            } else {
+                i128::from((bound - 1) % 2)
+            };
+            ensure!(
+                decode(&result.output)? == record([("bytes", Value::Integer(expected))]),
+                "wrong fold result at bound {bound}, input {value}"
+            );
+            if bound == 0 {
+                baseline[index] = (result.steps, result.allocated_bytes);
+            }
+            ensure!(
+                (result.steps, result.allocated_bytes)
+                    == (
+                        baseline[index].0 + 11 * bound,
+                        baseline[index].1 + 192 * bound
+                    ),
+                "fold iteration accounting mismatch"
+            );
+            let exact = EvaluationLimits {
+                max_steps: result.steps,
+                max_allocated_bytes: result.allocated_bytes,
+                max_output_bytes: result.output.len() as u64,
+                ..limits()
+            };
+            ensure!(
+                Ok(result.clone()) == edict_pure::evaluate(&package, pin, &input, exact),
+                "fold exact budget or repeat failed"
+            );
+            for (ceiling, expected_error) in [
+                (
+                    EvaluationLimits {
+                        max_steps: result.steps - 1,
+                        ..exact
+                    },
+                    EvaluationError::StepBudgetExceeded,
+                ),
+                (
+                    EvaluationLimits {
+                        max_allocated_bytes: result.allocated_bytes - 1,
+                        ..exact
+                    },
+                    EvaluationError::AllocationBudgetExceeded,
+                ),
+                (
+                    EvaluationLimits {
+                        max_output_bytes: result.output.len() as u64 - 1,
+                        ..exact
+                    },
+                    EvaluationError::OutputBudgetExceeded,
+                ),
+            ] {
+                ensure!(
+                    edict_pure::evaluate(&package, pin, &input, ceiling) == Err(expected_error),
+                    "fold one-under resource limit did not refuse"
+                );
+            }
+            let mut wrong = pin;
+            wrong[0] ^= 1;
+            ensure!(
+                edict_pure::evaluate(&package, wrong, &input, limits())
+                    == Err(EvaluationError::PackageIdentityMismatch),
+                "fold package identity substitution admitted"
+            );
+        }
+        for invalid in [
+            Value::Integer(-1),
+            Value::Integer(256),
+            Value::Bytes(vec![0]),
+        ] {
+            let input = encode(&record([
+                ("firstFragment", invalid),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits())
+                    == Err(EvaluationError::InvalidInput),
+                "fold input domain did not refuse"
+            );
+        }
+        println!("PUBLIC_FOLD_RUNTIME_OK {name}: 4 inputs, parity, exact budgets, iteration deltas, one-under limits, identity and input refusals");
+    }
+    let mut previous = None;
+    for bound in [0, 1, 3] {
+        let usage = atom_read(root, evidence, &format!("fold-read-{bound}"))?;
+        if let Some((steps, bytes)) = previous {
+            ensure!(
+                usage.0 > steps && usage.1 > bytes,
+                "read fold iterations were not charged"
+            );
+        }
+        previous = Some(usage);
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     ensure!(
         Path::new("/.dockerenv").is_file(),
@@ -762,6 +878,9 @@ fn main() -> Result<()> {
             lookup_usage.0 > constant_usage.0 && lookup_usage.1 > constant_usage.1,
             "read lookup not charged beyond its same-input constant-marker control"
         );
+    }
+    if evidence["results"].get("fold-pure-0").is_some() {
+        state_folds(root, &evidence)?;
     }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");
     Ok(())

@@ -50,6 +50,8 @@ fn edit_core(core: &mut Value, case: &str) {
     let Value::Map(fields) = core else {
         panic!("Core")
     };
+    // These are existing read-producer/closure authority controls, not a new
+    // list capability declaration. Lists do not add a Core capability tag.
     let omitted = match case {
         "missing capability" => Some("requiredCoreCapabilities"),
         "missing helper" => Some("functions"),

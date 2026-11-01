@@ -7,7 +7,7 @@
 
 ### Added
 
-- Native source-function lowerer, independent verifier and runtime support
+- The source-function lowerer, independent verifier and runtime support
   bounded list values with element/length checks and deterministic resource
   accounting. Ordered-read judgments accept lists and recursive record/branch
   joins without erasing nominal identities. Native witnesses cover transitive
@@ -17,8 +17,11 @@
   each expression visit against proof work. Helper-free capability discovery
   scans the whole Core with a 65,536-value cap and refuses on exhaustion.
   The checked component pair is reproduced by two independent CI builds and
-  promoted with refreshed package manifests and identity goldens. The public
-  compiler/runtime witness for lists remains pending.
+  promoted with refreshed package manifests and identity goldens. Public
+  compiler/runtime witnesses execute empty, nonempty, nested, record and
+  nominal-element lists through pure and ordered-read operations, including
+  repeated artifacts, exact/one-unit-short budgets, invalid input and identity
+  controls, and an old-provider refusal alongside unchanged scalar/fold controls.
 
 - Native Rust provider judgments and the generic runtime support first-order bounded
   state folds with a source-owned invariant helper, zero-bound closure checks,

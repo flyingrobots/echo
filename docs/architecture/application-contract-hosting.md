@@ -445,7 +445,7 @@ one value cell plus its payload length through the existing runtime meter. The
 checked lowerer and verifier components include this rule; source-function and
 source-module consumers use the same current schema publication.
 
-Native list judgments accept finite `List<Item,max=N>` references and named
+List judgments accept finite `List<Item,max=N>` references and named
 Core `List` definitions, plus empty, homogeneous and nested list literals.
 Empty literals have no inferred element and fit any declared element type;
 nonempty elements must admit a common type without erasing nominal identity.
@@ -467,8 +467,14 @@ Runtime construction charges the array cell and each evaluated element;
 validation checks every element and the actual length. List indexing, length
 and concatenation operations are not added by this support. The checked Wasm
 provider components include these list judgments, reproduced independently
-and promoted together with their digest-bound package copies. A public
-compiler-to-runtime list witness remains required before claiming execution.
+and promoted together with their digest-bound package copies. Public
+compiler-to-runtime witnesses execute empty, nonempty, nested, record and
+nominal-element lists through the exact emitted package/report pairs, including
+the ordered-read route. They check repeated artifacts, exact and one-unit-short
+resource limits, invalid inputs, package identity and nominal refusal. The
+[publication driver](../../scripts/consumer-witnesses/source-functions-publication.py)
+and [runtime witness](../../xtask/examples/source_functions_public_runtime.rs)
+retain the distinction between compilation, provider verification and execution.
 
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved

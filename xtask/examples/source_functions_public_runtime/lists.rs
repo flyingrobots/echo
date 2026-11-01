@@ -79,12 +79,20 @@ pub(super) fn run(root: &Path, evidence: &serde_json::Value, read_usage: (u64, u
                 "{name}: one-under limit did not refuse"
             );
         }
+        // Values above U64 cannot cross the canonical wire boundary at all.
+        let unencodable = record([(
+            "values",
+            Value::Array(vec![Value::Integer(i128::from(u64::MAX) + 1)]),
+        )]);
+        ensure!(
+            encode(&unencodable).is_err(),
+            "over-U64 integer was encoded"
+        );
         for invalid in [
             Value::Array(vec![Value::Integer(1); 4]),
             Value::Array(vec![Value::Bool(true), Value::Integer(2)]),
             Value::Array(vec![Value::Integer(1), Value::Bool(true)]),
             Value::Array(vec![Value::Integer(-1)]),
-            Value::Array(vec![Value::Integer(i128::from(u64::MAX) + 1)]),
             Value::Integer(1),
         ] {
             let invalid = encode(&record([("values", invalid)]))?;
@@ -101,7 +109,7 @@ pub(super) fn run(root: &Path, evidence: &serde_json::Value, read_usage: (u64, u
                 == Err(EvaluationError::PackageIdentityMismatch),
             "{name}: changed package identity admitted"
         );
-        println!("PUBLIC_LIST_RUNTIME_OK {name}: exact contents/order/duplicates, exact/repeated limits, 3 one-under budgets, 6 input refusals, identity refusal");
+        println!("PUBLIC_LIST_RUNTIME_OK {name}: exact contents/order/duplicates, exact/repeated limits, 3 one-under budgets, 5 input refusals, canonical integer refusal, identity refusal");
     }
     let mut empty_usage = None;
     for case in ["empty", "nonempty", "nested", "record", "nominal"] {

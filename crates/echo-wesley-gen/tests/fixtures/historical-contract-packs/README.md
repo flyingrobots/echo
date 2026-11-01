@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Historical contract rejection specimens
 
 These immutable upstream schema/manifest bytes are test evidence only. The production admission API rejects every pair. There is no historical decoder, generation selector, migration path or runtime compatibility promise. The sole current production pair lives in `schemas/edict-provider/contracts/v1/` and its package-local carrier.

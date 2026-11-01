@@ -68,6 +68,9 @@
 
 ### Fixed
 
+- Semantic-source admission requires all seven current auxiliary inputs and
+  rejects the historical inventory without the source-closure input and binding.
+
 - Bind generated DPO helpers to the current provider schema identity. The
   effectful conformance fixture and verifier use current canonical bounded-string
   identities and a Unit-erased obstruction binder; this grants no authenticated

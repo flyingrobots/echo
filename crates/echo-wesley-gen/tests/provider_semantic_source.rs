@@ -2072,3 +2072,33 @@ fn invocation_inputs_and_outputs_require_declared_schema_roles_and_domains() {
         ),
     );
 }
+
+#[test]
+fn current_semantic_source_refuses_the_historical_six_auxiliary_input_inventory() {
+    parse_provider_semantic_source_v1(SOURCE).expect("current seven-input control validates");
+    assert_failure_tuple(
+        |source| {
+            let inputs = source["invocationInputs"]
+                .as_array_mut()
+                .expect("input inventory");
+            let before = inputs.len();
+            inputs.retain(|input| input["role"] != "source-closure.echo-operation");
+            assert_eq!(
+                inputs.len() + 1,
+                before,
+                "remove exactly the source-closure input"
+            );
+            let bindings = source["schemaBindings"]
+                .as_array_mut()
+                .expect("binding inventory");
+            let before = bindings.len();
+            bindings.retain(|binding| binding["domain"] != "edict.source-closure/v1");
+            assert_eq!(bindings.len() + 1, before, "remove exactly its binding");
+        },
+        (
+            ProviderSemanticSourceErrorKind::InvocationInputClosureMismatch,
+            "invocationInputs",
+            "auxiliary",
+        ),
+    );
+}

@@ -694,3 +694,6 @@ fn bounded_read_accepts_independently_proven_unsigned_addition() {
 
 #[path = "source_functions/capabilities.rs"]
 mod capabilities;
+
+#[path = "source_functions/fold.rs"]
+mod fold;

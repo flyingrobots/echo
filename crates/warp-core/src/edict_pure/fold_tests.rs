@@ -98,7 +98,8 @@ use super::{
 };
 use std::collections::BTreeMap;
 #[test]
-fn source_fold_executes_exact_non_idempotent_iteration_count() {
+fn source_fold_executes_exact_non_idempotent_iteration_count() -> Result<(), super::EvaluationError>
+{
     for (bound, expected) in [
         (None, true),
         (Some(0), true),
@@ -108,13 +109,12 @@ fn source_fold_executes_exact_non_idempotent_iteration_count() {
     ] {
         let (core, exports) = fixture(bound);
         let mut parser = Parser {
-            types: field(&core, "types").expect("valid test fixture"),
+            types: field(&core, "types")?,
             coordinate: "iteration.example@1",
             remaining: MAX_PROGRAM_NODES,
         };
-        let helpers =
-            functions::decode(&core, &exports, &mut parser).expect("fold helper admission");
-        functions::check_roots(&helpers, [], []).expect("valid test fixture");
+        let helpers = functions::decode(&core, &exports, &mut parser)?;
+        functions::check_roots(&helpers, [], [])?;
         let mut meter = Meter::new(EvaluationLimits {
             max_package_bytes: 1048576,
             max_input_bytes: 1048576,
@@ -128,10 +128,10 @@ fn source_fold_executes_exact_non_idempotent_iteration_count() {
             &helpers,
             &mut meter,
             0,
-        )
-        .expect("valid test fixture");
+        )?;
         assert_eq!(actual, Value::Bool(expected), "bound {bound:?}");
     }
+    Ok(())
 }
 
 fn get_mut<'a>(value: &'a mut Value, key: &str) -> &'a mut Value {
@@ -232,10 +232,11 @@ fn source_fold_refuses_invalid_authority_scope_type_and_zero_count_cycles() {
     }
 }
 #[test]
-fn source_fold_meters_each_iteration_and_stops_at_the_exact_budget() {
+fn source_fold_meters_each_iteration_and_stops_at_the_exact_budget(
+) -> Result<(), super::EvaluationError> {
     for bound in [0, 1, 2, 3, 65] {
         let (core, exports) = fixture(Some(bound));
-        let helpers = checked(&core, &exports).expect("valid test fixture");
+        let helpers = checked(&core, &exports)?;
         // Six base steps: outer call, fold, initial expression/copy/check,
         // outer result check. Each toggle adds eleven: iteration+argument
         // check, if+comparison, three expression/copy pairs, result check.
@@ -251,8 +252,7 @@ fn source_fold_meters_each_iteration_and_stops_at_the_exact_budget() {
         let call = Expr::Call("iteration.example@1.make".into(), vec![]);
         let mut meter = Meter::new(limits);
         assert_eq!(
-            expression(&call, &BTreeMap::new(), &helpers, &mut meter, 0)
-                .expect("valid test fixture"),
+            expression(&call, &BTreeMap::new(), &helpers, &mut meter, 0)?,
             Value::Bool(bound % 2 == 0)
         );
         assert_eq!(meter.usage(), (steps, allocated));
@@ -273,6 +273,7 @@ fn source_fold_meters_each_iteration_and_stops_at_the_exact_budget() {
             Err(super::EvaluationError::AllocationBudgetExceeded)
         );
     }
+    Ok(())
 }
 
 fn nested_fixture(outer: u64, inner: u64) -> (Value, Value) {
@@ -304,9 +305,10 @@ fn nested_fixture(outer: u64, inner: u64) -> (Value, Value) {
 }
 
 #[test]
-fn source_fold_nested_iterations_share_no_state_frame_and_meter_multiplicatively() {
+fn source_fold_nested_iterations_share_no_state_frame_and_meter_multiplicatively(
+) -> Result<(), super::EvaluationError> {
     let (core, exports) = nested_fixture(3, 2);
-    let helpers = checked(&core, &exports).expect("valid test fixture");
+    let helpers = checked(&core, &exports)?;
     // Six base steps + three outer iterations of (two admission steps +
     // nested fold, initial copy/check, two toggle invocations, result check).
     let mut meter = Meter::new(EvaluationLimits {
@@ -323,18 +325,19 @@ fn source_fold_nested_iterations_share_no_state_frame_and_meter_multiplicatively
             &helpers,
             &mut meter,
             0
-        )
-        .expect("valid test fixture"),
+        )?,
         Value::Bool(true)
     );
     assert_eq!(meter.usage(), (93, 1408));
+    Ok(())
 }
 
 #[test]
-fn source_fold_main_expression_requires_the_retained_capability() {
+fn source_fold_main_expression_requires_the_retained_capability(
+) -> Result<(), super::EvaluationError> {
     let (mut core, exports) = fixture(None);
     *get_mut(&mut core, "requiredCoreCapabilities") = Value::Array(vec![]);
-    let helpers = checked(&core, &exports).expect("non-fold helpers remain valid");
+    let helpers = checked(&core, &exports)?;
     let expr = Expr::Fold {
         initial: Box::new(Expr::Constant(Value::Bool(true))),
         step: "iteration.example@1.toggle".into(),
@@ -354,4 +357,5 @@ fn source_fold_main_expression_requires_the_retained_capability() {
         checked && executed,
         "missing capability: static refused={checked}, runtime refused={executed}"
     );
+    Ok(())
 }

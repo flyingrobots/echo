@@ -335,8 +335,8 @@ impl<'a> Scope<'a> {
                 if !expected.accepts(&initial) {
                     return Err(invalid());
                 }
-                // Full helper closure, capability and resource proof precedes
-                // this independent Core/Target relation judgment.
+                // bounded_read calls source_functions::validate before this
+                // relation to check helper closure, capability and costs.
                 Ok(expected)
             }
             "call" => self.call(value, depth),

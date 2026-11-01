@@ -405,7 +405,8 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
-Native source-function judgments and runtime evaluation support the first-order
+Native refers to direct execution of the Rust lowerer, verifier, and runtime.
+These implementations support the first-order
 `fold(initial, step, bound)` expression. `step` is a named source-owned helper
 with exactly one parameter and the same declared return type; `stateType` must
 match that invariant signature. The initial value is checked in the caller's
@@ -543,10 +544,11 @@ constant, including an empty fallback passed to a match helper; its body is
 checked by the independent source-function judgments. Both read judgments
 preserve outer declarations and cumulative proof work across temporary arm scopes.
 
-The generic pure and bounded-read provider entry points independently admit
-only the known `core.variant/v1` required capability, once. Every variant
-declaration requires it, including unused declarations; the known capability
-is also permitted without a variant declaration. Unknown, duplicate, malformed
+The generic pure and bounded-read Rust provider entry points independently admit
+`core.variant/v1` and `core.fold/v1`, each at most once. Every variant declaration
+requires its capability, including unused declarations. Every fold requires its
+capability and a source-owned step, even at bound zero. Known capabilities are
+also permitted when unused. Unknown, duplicate, malformed
 or missing capability metadata refuses. Pure Core must include the capability
 inventory and type table, even when empty. The bounded-read lowerer retains its
 exact-field schema refusal for an absent inventory. The bounded-read verifier

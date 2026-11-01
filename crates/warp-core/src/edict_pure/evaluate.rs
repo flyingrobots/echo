@@ -600,8 +600,8 @@ pub(crate) fn validate(
     }
 }
 
-/// A fresh helper frame is shared by calls and each iteration, never across
-/// iterations. Values move into the frame; local reads meter their own copies.
+/// Calls and fold iterations use this body evaluator with a fresh frame each
+/// time. Values move into that frame; local reads meter their own copies.
 fn helper_body<'a>(
     helper: &'a Helper,
     mut frame: BTreeMap<&'a str, Value>,

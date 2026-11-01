@@ -7,7 +7,7 @@
 
 ### Added
 
-- Native provider judgments and the generic runtime support first-order bounded
+- Native Rust provider judgments and the generic runtime support first-order bounded
   state folds with a source-owned invariant helper, zero-bound closure checks,
   checked nested resource multiplication and metered iterative execution.
   Fold judgment also runs when Core has no function table, refusing missing

@@ -237,9 +237,9 @@ fn source_fold_meters_each_iteration_and_stops_at_the_exact_budget(
     for bound in [0, 1, 2, 3, 65] {
         let (core, exports) = fixture(Some(bound));
         let helpers = checked(&core, &exports)?;
-        // Six base steps: outer call, fold, initial expression/copy/check,
-        // outer result check. Each toggle adds eleven: iteration+argument
-        // check, if+comparison, three expression/copy pairs, result check.
+        // Base: 1 call + 1 fold + 3 initial expression/copy/check + 1 result = 6.
+        // Per iteration: 2 admission + 1 if + 1 comparison + 3*2 expression/copy
+        // + 1 result check = 11 steps; three copied Bools use 3*64 = 192 bytes.
         let steps = 6 + 11 * bound;
         let allocated = 64 + 192 * bound; // initial Bool plus three copied Bools/step.
         let limits = EvaluationLimits {
@@ -309,8 +309,8 @@ fn source_fold_nested_iterations_share_no_state_frame_and_meter_multiplicatively
 ) -> Result<(), super::EvaluationError> {
     let (core, exports) = nested_fixture(3, 2);
     let helpers = checked(&core, &exports)?;
-    // Six base steps + three outer iterations of (two admission steps +
-    // nested fold, initial copy/check, two toggle invocations, result check).
+    // Steps: 6 + 3*(2 admission + 1 fold + 3 initial + 2*11 inner + 1 result)
+    // = 93. Allocations: 64 + 3*(64 initial copy + 2*192 inner copies) = 1408.
     let mut meter = Meter::new(EvaluationLimits {
         max_package_bytes: 1048576,
         max_input_bytes: 1048576,

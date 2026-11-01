@@ -466,8 +466,9 @@ encoding bounds with checked arithmetic, including intents without helpers.
 Runtime construction charges the array cell and each evaluated element;
 validation checks every element and the actual length. List indexing, length
 and concatenation operations are not added by this support. The checked Wasm
-provider components have not yet been refreshed for lists, and a public
-compiler-to-runtime list witness remains required before claiming publication.
+provider components include these list judgments, reproduced independently
+and promoted together with their digest-bound package copies. A public
+compiler-to-runtime list witness remains required before claiming execution.
 
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved

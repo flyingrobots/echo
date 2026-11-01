@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 522,906 bytes with SHA-256
-`293937e81c30a3d78ed9c19bc5bbaf1b8a4633f58ebd4b658d65fc4462eb3cc1`.
+The checked component is 533,655 bytes with SHA-256
+`df515cc07804b1ff1f616cbe48b75e6373fd5427bcad3a12141002dfb4a2f5a4`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 549,024 bytes
+`wit-component` version recorded above. Its checked component is 571,432 bytes
 with SHA-256
-`b00e1d28908d379cd702336b8d96ababc24941ed88a39c8202acc7e8501a30d4`.
+`4311ddde4d0f6acabf4d0c10a693bb2b92dbf9719d094b1adde9c93897d885f5`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -55,6 +55,12 @@ directory and that `git rev-parse HEAD` names the selected commit before
 building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
+
+The bounded-list component pair was independently reproduced by the two G4
+candidate jobs in [CI run 41341805901](https://github.com/flyingrobots/echo/actions/runs/41341805901)
+at source commit `75d76a44eb7d20484820c7ae2a0be8db0155548f`. Both copies of
+each component matched byte-for-byte before promotion. Later runtime and test
+repairs do not alter either provider's compiled implementation.
 
 Rebuild and check the artifact without rewriting it:
 

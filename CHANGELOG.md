@@ -16,8 +16,9 @@
   elements and conditional/match branches. The ordered-read lowerer now charges
   each expression visit against proof work. Helper-free capability discovery
   scans the whole Core with a 65,536-value cap and refuses on exhaustion.
-  Checked provider component publication and the public compiler
-  runtime witness for lists remain pending.
+  The checked component pair is reproduced by two independent CI builds and
+  promoted with refreshed package manifests and identity goldens. The public
+  compiler/runtime witness for lists remains pending.
 
 - Native Rust provider judgments and the generic runtime support first-order bounded
   state folds with a source-owned invariant helper, zero-bound closure checks,

@@ -2198,7 +2198,7 @@ fn declared_package_cases_execute_their_exact_typed_contracts() {
 
     assert_eq!(
         observation.target_ir_digest,
-        "sha256:40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da"
+        "sha256:fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399"
     );
     assert_eq!(observation.verifier_outcome, "accepted");
     assert_eq!(

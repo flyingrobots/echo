@@ -72,6 +72,8 @@
   effectful conformance fixture and verifier use current canonical bounded-string
   identities and a Unit-erased obstruction binder; this grants no authenticated
   failure-payload authority. Keep incomplete-local refusal checks non-vacuous.
+  Refresh the independently reproduced components, package carriers and digest
+  checks together for the current compiler contract.
 
 - Public read payload-variant witnesses record an explicit allocation budget
   and require allocation to be the only exceeded dimension in the retained

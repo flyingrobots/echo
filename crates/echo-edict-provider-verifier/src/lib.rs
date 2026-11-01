@@ -45,14 +45,14 @@ const OPERATION_COORDINATE: &str = "a.b@1.t";
 const OPERATION_INPUT_TYPE: &str = "a.b@1.Input";
 const OPERATION_OUTPUT_TYPE: &str = "a.b@1.Output";
 const OPERATION_RECEIPT_TYPE: &str = "a.b@1.Receipt";
-const INPUT_ID_TYPE: &str = "a.b@1.Input.id";
-const OUTPUT_ID_TYPE: &str = "a.b@1.Output.id";
-const RECEIPT_ID_TYPE: &str = "a.b@1.Receipt.id";
+const BOUNDED_ID_TYPE: &str = "String<max=16,canonical=raw-utf8>";
 const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
 const SEMANTIC_EFFECT: &str = "target.replace";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.replace";
 const FAILURE_COORDINATE: &str = "rejected";
-const FAILURE_PAYLOAD_TYPE: &str = "target.replace.rejected";
+// This fixture has no authenticated effect signature and never reads the binder.
+// Unit denotes erased payload authority, not an authenticated failure schema.
+const OBSTRUCTION_BINDER_TYPE: &str = "Unit";
 const DOMAIN_OBSTRUCTION: &str = "domain.WriteRejected";
 const MAX_EXPRESSION_DEPTH: usize = 64;
 
@@ -1210,12 +1210,9 @@ fn expected_lowerability() -> Result<CanonicalValueV1, ()> {
 
 fn expected_core_types() -> Result<CanonicalValueV1, ()> {
     canonical_sorted_map([
-        ("Input", expected_record_type("a.b@1.Input.id")?),
-        ("Output", expected_record_type("a.b@1.Output.id")?),
-        ("Receipt", expected_record_type("a.b@1.Receipt.id")?),
-        ("Input.id", expected_string_type()?),
-        ("Output.id", expected_string_type()?),
-        ("Receipt.id", expected_string_type()?),
+        ("Input", expected_record_type(BOUNDED_ID_TYPE)?),
+        ("Output", expected_record_type(BOUNDED_ID_TYPE)?),
+        ("Receipt", expected_record_type(BOUNDED_ID_TYPE)?),
     ])
 }
 
@@ -1226,14 +1223,6 @@ fn expected_record_type(field_type: &str) -> Result<CanonicalValueV1, ()> {
             "fields",
             canonical_sorted_map([("id", canonical_text(field_type))])?,
         ),
-    ])
-}
-
-fn expected_string_type() -> Result<CanonicalValueV1, ()> {
-    canonical_sorted_map([
-        ("kind", canonical_text("String")),
-        ("max", CanonicalValueV1::Integer(16)),
-        ("canonical", canonical_text("raw-utf8")),
     ])
 }
 
@@ -1254,7 +1243,7 @@ fn reviewed_receipt_local() -> CanonicalValueV1 {
 }
 
 fn reviewed_reason_local() -> CanonicalValueV1 {
-    local("obstruction.0", "$obstruction0", FAILURE_PAYLOAD_TYPE)
+    local("obstruction.0", "$obstruction0", OBSTRUCTION_BINDER_TYPE)
 }
 
 fn local(id: &str, alpha_name: &str, ty: &str) -> CanonicalValueV1 {
@@ -1832,9 +1821,7 @@ fn reviewed_expr_shape(
                 OPERATION_INPUT_TYPE => Some(ReviewedValueShape::InputRecord),
                 OPERATION_OUTPUT_TYPE => Some(ReviewedValueShape::OutputRecord),
                 OPERATION_RECEIPT_TYPE => Some(ReviewedValueShape::ReceiptRecord),
-                INPUT_ID_TYPE | OUTPUT_ID_TYPE | RECEIPT_ID_TYPE => {
-                    Some(ReviewedValueShape::StringScalar)
-                }
+                BOUNDED_ID_TYPE => Some(ReviewedValueShape::StringScalar),
                 _ => None,
             }
         }

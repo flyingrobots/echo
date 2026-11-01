@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::expect_used, clippy::panic)]
-//! Explicit provider generation variant for the distinct source artifact.
+//! Current provider generation binds the distinct authenticated source-closure artifact.
 use echo_wesley_gen::provider_artifacts::generate_provider_primary_artifacts_v1;
 use echo_wesley_gen::provider_contract_pack::{
     admit_provider_contract_pack_v1, AdmittedProviderContractPackV1,

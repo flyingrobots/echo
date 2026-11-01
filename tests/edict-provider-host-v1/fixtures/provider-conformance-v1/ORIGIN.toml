@@ -14,4 +14,4 @@ note = "Materialized reviewed source fixture; whitespace is part of this exact E
 [canonicalization_profile]
 file = "canonicalization-profile.json"
 coordinate = "edict.canonical-cbor/v1"
-note = "Echo-owned descriptor binding the pinned Edict canonical ABI and admitted contract pack."
+note = "Echo-owned descriptor binding the current compiler observation and admitted contract pack. Its newer compiler revision does not replace the original source.edict attribution above."

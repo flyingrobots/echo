@@ -76,8 +76,9 @@ the exact source artifact.
 normalized semantic model into five canonical-CBOR primary artifacts, fourteen
 declarative generated resources, and one exact self-contained CDDL artifact.
 Before construction, it requires both contract-pack source artifacts to match
-the exact schema and manifest bound into the generation input. A different
-admitted publication returns `ContractPackInputMismatch` without an output.
+the exact schema and manifest bound into the generation input. The defensive
+identity check returns `ContractPackInputMismatch` on disagreement; the public
+admission API constructs only the single current pinned publication.
 Every canonical value is validated against its generated owning root; the
 Edict-owned lawpack, target-profile, authority-facts, export, intrinsic, and
 operation-profile values are also checked independently against the admitted

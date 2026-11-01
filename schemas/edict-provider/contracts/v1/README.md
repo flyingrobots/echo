@@ -33,3 +33,6 @@ and package generation do not establish fold execution, structured control
 execution, admission, or authored-rope completion. The consumer publication
 witness uses this same current pair and accepts explicit candidate components;
 it has no historical-publication selector flags.
+
+Amblicit is the renamed Edict compiler repository and crate family. Published
+Edict wire-domain identifiers remain the exact protocol identifiers in this pair.

@@ -7,12 +7,6 @@
 
 ### Added
 
-- Replace historical contract-publication selectors with one current upstream
-  schema/manifest pair and one 32-binding package inventory. Older pairs are
-  refused and retained only as rejection-test fixtures. Provider generation
-  uses one semantic declaration. The schema includes folds and structured Target
-  IR; checked components still refuse fold execution.
-
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered
   dispatch and frame copies. The checked provider component pair, reproduced by
@@ -60,11 +54,24 @@
 
 ### Changed
 
+- Replace historical contract-publication selectors with one current upstream
+  schema/manifest pair and one 32-binding package inventory. Remove
+  `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;
+  the host witness pins the matching Amblicit compiler revision. Older pairs are
+  refused and retained only as rejection-test fixtures. Provider generation
+  uses one semantic declaration. The schema includes folds and structured Target
+  IR; checked components still refuse fold execution.
+
 - Provider type-copy proof work counts each nominal wrapper as well as its
   representation, tightening admission for nominal-typed flows near the proof
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- Bind generated DPO helpers to the current provider schema identity. The
+  effectful conformance fixture and verifier use current canonical bounded-string
+  identities and a Unit-erased obstruction binder; this grants no authenticated
+  failure-payload authority. Keep incomplete-local refusal checks non-vacuous.
 
 - Public read payload-variant witnesses record an explicit allocation budget
   and require allocation to be the only exceeded dimension in the retained

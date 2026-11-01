@@ -637,11 +637,10 @@ results, increasing constructor/payload charges, repeated outcomes, resource
 ceilings and package identity. The checked component pair is reproduced by two
 matching CI builds and promoted. Regenerating with
 `cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output>`
-uses those checked components without a candidate override. All 25 generated
-files match the source-modules candidate consumed by the public witness byte for
-byte. This generated publication is a different selection from the committed
-default `package/v1` publication: their manifests differ, while both embed the
-same lowerer and verifier component bytes. The PR review receipts retain the CI
+uses those checked components without a candidate override. Under the single
+current publication, all 25 generated files equal the committed `package/v1`
+files byte for byte. Historical candidate comparisons describe their recorded
+producer snapshots, not additional supported publication selections. The PR review receipts retain the CI
 run, source commit and comparison inventory. This evidence covers helper-local
 construction and exhaustive matching. Public compiler variant result encoding,
 recursive variants and the application's persistent-rope cutover remain outside

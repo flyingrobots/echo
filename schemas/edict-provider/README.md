@@ -183,9 +183,8 @@ promoted verifier is 545,858 bytes with SHA-256
 The checked schema/components also support the explicit
 `compiler-produced-bounded-read/v1` configuration with required `maxReads`
 (1–65,536) and `maxReadBytes` (1–67,108,864) limits. Its package kind is distinct
-from pure computation. Ordered read programs require explicit selection of the
-ordered contract publication; the default generation path preserves the
-original contract selection. The public compiler witness builds a single read
+from pure computation. Ordered read programs use the same current contract
+publication as the default generation path. The public compiler witness builds a single read
 and a pair with independent addresses, runs both Wasm components, and requires
 repeatable package/report pairs. It proves no runtime read or mutation.
 
@@ -320,7 +319,7 @@ independent host-side CDDL admission before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
-routes, 31 domain-to-root bindings (nine compatibility invocation domains, the
+routes, 32 domain-to-root bindings (ten current invocation domains, the
 generated artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains), and raw SHA-256 of all 24 physical
 members without hashing the derived manifest into itself. The five routed
@@ -338,6 +337,13 @@ by #652 byte-for-byte, then
 writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
+
+The effectful conformance source uses the compiler's untyped effect context.
+Its bounded strings have canonical inline identities, and its unused obstruction
+binder is `Unit`: it carries no authenticated failure-payload authority. The
+DPO verifier requires this exact current Core shape. A program that reads a typed
+failure payload must instead obtain its signature from authenticated lawpack
+exports; this fixture is not evidence for that separate path.
 
 The isolated current Amblicit host gate pins revision
 `2269d81f257f7794b44270cf3f7ca330966a0784` and consumes that exact checked package.

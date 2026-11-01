@@ -1250,3 +1250,48 @@ fn native_result_is_invariant_under_all_host_limits() {
         expected
     );
 }
+
+#[test]
+fn current_core_rejects_synthetic_field_type_aliases() {
+    verify(request()).expect("current compiler fixture is the accepted control");
+    let mut wrong = core_value();
+    *map_field_mut(
+        map_field_mut(
+            map_field_mut(map_field_mut(&mut wrong, "types"), "Input"),
+            "fields",
+        ),
+        "id",
+    ) = text("a.b@1.Input.id");
+    let mut changed = request();
+    bind_core(&mut changed, &wrong);
+    let refusal = verify(changed).expect_err("the current fixture has an inline bounded string");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_unsupported_check(
+        &refusal,
+        "Core imports, types, or required capabilities differ from the reviewed Core",
+    );
+}
+
+#[test]
+fn erased_obstruction_binder_cannot_claim_authenticated_payload_type() {
+    verify(request()).expect("Unit-erased fixture is the accepted control");
+    let mut wrong = core_value();
+    let body = map_field_mut(
+        map_field_mut(map_field_mut(&mut wrong, "intents"), "t"),
+        "body",
+    );
+    let CanonicalValueV1::Array(locals) = map_field_mut(body, "locals") else {
+        panic!("Core locals are an array");
+    };
+    assert_eq!(locals.len(), 3);
+    assert_eq!(map_field(&locals[2], "type"), &text("Unit"));
+    *map_field_mut(&mut locals[2], "type") = text("target.replace.rejected");
+    let mut changed = request();
+    bind_core(&mut changed, &wrong);
+    let refusal = verify(changed).expect_err("typed payload authority cannot be fabricated");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_unsupported_check(
+        &refusal,
+        "Core locals differ from the reviewed input, receipt, and reason locals",
+    );
+}

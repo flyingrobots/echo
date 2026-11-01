@@ -100,7 +100,11 @@ fn malformed_contract_manifest_has_stable_failure_kind() {
 #[test]
 fn oversized_contract_manifest_fails_before_json_admission() {
     let mut oversized = CONTRACT_MANIFEST.to_vec();
-    oversized.extend(std::iter::repeat_n(b' ', CONTRACT_MANIFEST.len()));
+    assert_eq!(
+        oversized.len(),
+        echo_wesley_gen::provider_contract_pack::EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES
+    );
+    oversized.push(b' ');
 
     assert_manifest_failure(
         &oversized,

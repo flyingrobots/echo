@@ -209,9 +209,9 @@ acceptance control and does not isolate match as the sole cause of refusal. The 
 example consumes the exact emitted packages and reports: each pure alternative
 passes twelve byte-output cases, and bounded reads retain their output and
 resource-refusal checks. Repeated compiler builds retain identical package and
-report bytes. The source-modules publication regenerated from checked components matches the
-candidate used by these witnesses. It is distinct from the committed default
-package selection; see the [publication comparison](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+report bytes. The current publication regenerated from checked components equals
+the committed package in all 25 files. Earlier candidate comparisons remain
+recorded producer snapshots; see the [publication comparison](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
 for the generation command and manifest boundary.
 
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands

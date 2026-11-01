@@ -112,6 +112,17 @@ impl Schema {
                     bound: n.max(m),
                 })
             }
+            (Self::Fields(a), Self::Fields(b)) => {
+                if !a.keys().eq(b.keys()) {
+                    return Err(());
+                }
+                let fields = a
+                    .into_iter()
+                    .zip(b)
+                    .map(|((key, a), (_, b))| Ok((key, a.choice(b)?)))
+                    .collect::<Check<BTreeMap<_, _>>>()?;
+                Ok(Self::Fields(fields))
+            }
             (a, b) if a == b => Ok(a),
             _ => Err(()),
         }

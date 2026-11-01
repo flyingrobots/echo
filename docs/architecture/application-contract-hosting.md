@@ -449,6 +449,10 @@ Native list judgments accept finite `List<Item,max=N>` references and named
 Core `List` definitions, plus empty, homogeneous and nested list literals.
 Empty literals have no inferred element and fit any declared element type;
 nonempty elements must admit a common type without erasing nominal identity.
+The separate ordered-read relation and audit also judge list arguments and
+results, including conditional and exhaustive-match joins. Record elements
+must have the same field names; compatible bounded fields join recursively.
+Expression traversal consumes the existing proof-work budget in both judgments.
 The lowerer and independent verifier multiply element copy, validation and
 encoding bounds with checked arithmetic, including intents without helpers.
 Runtime construction charges the array cell and each evaluated element;

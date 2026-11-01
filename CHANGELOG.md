@@ -9,7 +9,10 @@
 
 - Native source-function lowerer, independent verifier and runtime support
   bounded list values with element/length checks and deterministic resource
-  accounting. Checked provider component publication and the public compiler
+  accounting. Ordered-read judgments accept lists and recursive record/branch
+  joins without erasing nominal identities. Native witnesses cover transitive
+  calls, exact and one-unit-short budgets, malformed values and proof limits.
+  Checked provider component publication and the public compiler
   runtime witness for lists remain pending.
 
 - Native Rust provider judgments and the generic runtime support first-order bounded

@@ -226,21 +226,22 @@ fn read_matches_carry_proof_work_and_preserve_available_locals() {
     // The binder's inner work must reach the outer counter before Empty runs.
     arms.swap(0, 1);
     // Choice expansion: four units. Data: arm + binder type + scope copy +
-    // local body type = four. Empty: arm + constant type = two. Total: ten.
-    for budget in [9, 10, 20] {
+    // local body type = four. Empty: arm + constant type = two.
+    // Four expression visits (match, call, local, constant) add four: fourteen.
+    for budget in [13, 14, 15, 16, 20] {
         let mut s = scope(&core);
         s.available.insert("outer", &outer);
         let before = s.available.clone();
         set_work(&s, budget);
-        assert_eq!(s.expression(&value, 0).is_ok(), budget >= 10);
-        assert_eq!(s.remaining_type_work.get(), budget.saturating_sub(10));
+        assert_eq!(s.expression(&value, 0).is_ok(), budget >= 14);
+        assert_eq!(s.remaining_type_work.get(), budget.saturating_sub(14));
         assert_eq!(s.available, before);
         assert_eq!(
             matches!(
                 s.expression(&m([("kind", t("local")), ("ref", outer.clone())]), 0),
                 Ok(ReadType::Unsigned(255))
             ),
-            budget > 10
+            budget >= 16
         );
     }
 
@@ -260,7 +261,7 @@ fn read_matches_carry_proof_work_and_preserve_available_locals() {
     ]);
     set_work(&s, 20);
     assert!(s.expression(&value, 0).is_err());
-    assert_eq!(s.remaining_type_work.get(), 12);
+    assert_eq!(s.remaining_type_work.get(), 8);
     assert_eq!(s.available, before);
 }
 

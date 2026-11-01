@@ -21,7 +21,7 @@ impl Scope<'_> {
             return Err(invalid());
         }
         let mut seen = BTreeSet::new();
-        let mut result = None;
+        let mut result: Option<ReadType> = None;
         for arm in arms {
             self.remaining_type_work.set(
                 self.remaining_type_work
@@ -37,11 +37,7 @@ impl Scope<'_> {
             let actual = self.match_arm(arm, payload.as_ref(), depth)?;
             result = Some(match (result, actual) {
                 (None, actual) => actual,
-                (Some(ReadType::Bytes(a, b)), ReadType::Bytes(c, d)) => {
-                    ReadType::Bytes(a.min(c), b.max(d))
-                }
-                (Some(previous), actual) if previous == actual => actual,
-                _ => return Err(invalid()),
+                (Some(previous), actual) => previous.join(actual)?,
             });
         }
         result.ok_or_else(invalid)

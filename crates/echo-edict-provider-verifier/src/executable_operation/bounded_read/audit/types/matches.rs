@@ -12,22 +12,14 @@ impl Symbols<'_> {
             return Err(());
         };
         let arms = super::super::sequence(value, "arms")?;
-        let mut result = None;
+        let mut result: Option<Schema> = None;
         for arm in arms {
             self.charge(depth + 1)?;
             let payload = alternatives.remove(text(arm, "case")?).ok_or(())?;
             let actual = self.arm_schema(arm, payload.as_ref(), depth)?;
             result = Some(match (result, actual) {
                 (None, actual) => actual,
-                (
-                    Some(Schema::Bytes { lower: a, upper: b }),
-                    Schema::Bytes { lower: c, upper: d },
-                ) => Schema::Bytes {
-                    lower: a.min(c),
-                    upper: b.max(d),
-                },
-                (Some(previous), actual) if previous == actual => actual,
-                _ => return Err(()),
+                (Some(previous), actual) => previous.choice(actual)?,
             });
         }
         if !alternatives.is_empty() {

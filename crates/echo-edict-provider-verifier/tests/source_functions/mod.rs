@@ -4,6 +4,7 @@
 use super::*;
 mod capabilities;
 mod fold;
+mod lists;
 mod proven_ranges;
 mod unsigned_addition;
 

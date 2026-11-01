@@ -13,6 +13,10 @@ pub(super) enum Schema {
         upper: u64,
     },
     Word(u64),
+    Sequence {
+        element: Option<Box<Schema>>,
+        maximum: u64,
+    },
     Variant {
         identity: String,
         alternatives: BTreeMap<String, Option<Schema>>,
@@ -51,6 +55,20 @@ impl Schema {
         match (self, actual) {
             (Self::Bytes { lower, upper }, Self::Bytes { lower: a, upper: b }) => {
                 lower <= a && b <= upper
+            }
+            (
+                Self::Sequence { element, maximum },
+                Self::Sequence {
+                    element: actual,
+                    maximum: count,
+                },
+            ) => {
+                count <= maximum
+                    && match (element, actual) {
+                        (_, None) => *count == 0,
+                        (Some(want), Some(got)) => want.includes(got),
+                        _ => false,
+                    }
             }
             (Self::Row(expected), Self::Row(actual)) => {
                 expected.len() == actual.len()
@@ -159,6 +177,17 @@ impl<'a> Symbols<'a> {
             return Err(());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
+        if let Some(parameters) = name
+            .strip_prefix("List<")
+            .and_then(|name| name.strip_suffix('>'))
+        {
+            let (item, maximum) = parameters.rsplit_once(",max=").ok_or(())?;
+            let maximum = decimal(maximum)?;
+            return Ok(Schema::Sequence {
+                element: Some(Box::new(self.schema(item, depth + 1)?)),
+                maximum,
+            });
+        }
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let value = get(get(self.core, "types")?, key)?;
         match text(value, "kind")? {
@@ -185,6 +214,15 @@ impl<'a> Symbols<'a> {
                 })
             }
             "Variant" => self.variant_schema(value, key, depth),
+            "List" => {
+                exact(value, &["kind", "item", "max"])?;
+                let maximum = number(get(value, "max")?)?;
+                let element = self.schema(text(value, "item")?, depth + 1)?;
+                Ok(Schema::Sequence {
+                    element: Some(Box::new(element)),
+                    maximum,
+                })
+            }
             "Record" => {
                 let mut fields = BTreeMap::new();
                 for (key, value) in members(get(value, "fields")?)? {
@@ -231,6 +269,22 @@ impl<'a> Symbols<'a> {
     pub(super) fn expression(&mut self, value: &Value, depth: usize) -> Check<Schema> {
         self.charge(depth)?;
         match text(value, "kind")? {
+            "list" => {
+                exact(value, &["kind", "values"])?;
+                let values = super::sequence(value, "values")?;
+                let mut element: Option<Schema> = None;
+                for expression in values {
+                    let schema = self.expression(expression, depth + 1)?;
+                    element = Some(match element {
+                        Some(previous) => previous.choice(schema)?,
+                        None => schema,
+                    });
+                }
+                Ok(Schema::Sequence {
+                    element: element.map(Box::new),
+                    maximum: u64::try_from(values.len()).map_err(|_| ())?,
+                })
+            }
             "match" => self.match_schema(value, depth),
             "local" => {
                 exact(value, &["kind", "ref"])?;
@@ -286,17 +340,7 @@ impl<'a> Symbols<'a> {
                 self.predicate_at(get(value, "predicate")?, depth + 1)?;
                 let yes = self.expression(get(value, "then")?, depth + 1)?;
                 let no = self.expression(get(value, "else")?, depth + 1)?;
-                match (yes, no) {
-                    (
-                        Schema::Bytes { lower: a, upper: b },
-                        Schema::Bytes { lower: c, upper: d },
-                    ) => Ok(Schema::Bytes {
-                        lower: a.min(c),
-                        upper: b.max(d),
-                    }),
-                    (a, b) if a == b => Ok(a),
-                    _ => Err(()),
-                }
+                yes.choice(no)
             }
             "fold" => {
                 exact(value, &["kind", "initial", "step", "bound", "stateType"])?;
@@ -576,6 +620,11 @@ mod tests {
 #[cfg(test)]
 mod variant_tests;
 
+#[cfg(test)]
+mod list_tests;
+
 mod variants;
 
 mod matches;
+
+mod lists;

@@ -1090,6 +1090,14 @@ fn union(left: Ty, right: Ty) -> Check<Ty> {
             },
             n.max(m),
         )),
+        (Ty::Record(a), Ty::Record(mut b)) if a.keys().eq(b.keys()) => {
+            let mut fields = BTreeMap::new();
+            for (key, value) in a {
+                let other = b.remove(&key).ok_or(())?;
+                fields.insert(key, union(value, other)?);
+            }
+            Ok(Ty::Record(fields))
+        }
         (a, b) if a == b => Ok(a),
         _ => Err(()),
     }

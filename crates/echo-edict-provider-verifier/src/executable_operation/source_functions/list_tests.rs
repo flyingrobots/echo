@@ -1,6 +1,94 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use super::{validate, Value};
+
+#[test]
+fn bounded_lists_join_record_elements_and_conditional_results() -> Result<(), String> {
+    let record = |bytes: Vec<u8>| {
+        map([
+            ("kind", text("record")),
+            (
+                "fields",
+                map([(
+                    "payload",
+                    map([
+                        ("kind", text("const")),
+                        (
+                            "value",
+                            map([("kind", text("bytes")), ("value", Value::Bytes(bytes))]),
+                        ),
+                    ]),
+                )]),
+            ),
+        ])
+    };
+    let alternatives = [
+        list(vec![record(vec![]), record(vec![0, 255, 3])]),
+        map([
+            ("kind", text("if")),
+            (
+                "predicate",
+                map([
+                    ("kind", text("compare")),
+                    ("op", text("==")),
+                    ("left", integer(1)),
+                    ("right", integer(1)),
+                ]),
+            ),
+            ("then", list(vec![record(vec![1])])),
+            (
+                "else",
+                list(vec![record(vec![2, 3]), record(vec![4, 5, 6])]),
+            ),
+        ]),
+    ];
+    for value in alternatives {
+        let (mut core, exports) = fixture(value, "List<Row,max=2>");
+        let Value::Map(fields) = &mut core else {
+            return Err("fixture Core is not a map".into());
+        };
+        fields
+            .iter_mut()
+            .find(|(key, _)| key == &text("types"))
+            .ok_or("fixture types missing")?
+            .1 = map([(
+            "Row",
+            map([
+                ("kind", text("Record")),
+                ("fields", map([("payload", text("Bytes<max=4>"))])),
+            ]),
+        )]);
+        validate(&core, &exports, false)
+            .map_err(|refusal| format!("record list refused: {refusal:?}"))?;
+    }
+    Ok(())
+}
+
+#[test]
+fn bounded_lists_refuse_malformed_literals_and_exhausted_proof_limits() {
+    for value in [
+        map([("kind", text("list"))]),
+        map([("kind", text("list")), ("values", Value::Integer(0))]),
+        map([
+            ("kind", text("list")),
+            ("values", Value::Array(vec![])),
+            ("unexpected", Value::Bool(true)),
+        ]),
+        list(vec![integer(1); 65_537]),
+    ] {
+        let (core, exports) = fixture(value, "List<U64,max=65537>");
+        assert!(validate(&core, &exports, false).is_err());
+    }
+    let mut value = integer(1);
+    let mut result = "U64".to_owned();
+    for _ in 0..66 {
+        value = list(vec![value]);
+        result = format!("List<{result},max=1>");
+    }
+    let (core, exports) = fixture(value, &result);
+    assert!(validate(&core, &exports, false).is_err());
+}
+
 fn text(s: &str) -> Value {
     Value::Text(s.into())
 }
@@ -86,7 +174,13 @@ fn bounded_lists_without_helpers_enforce_whole_intent_budget() {
         ("pureFunctions", Value::Array(vec![])),
     ]);
     for (steps, allocation, output, accepted) in [
-        (100, 1024, 100, true),
+        // Bool input copy/validation: 2 steps, 64 bytes; list evaluation:
+        // 1 container + 2*(1 expression + 1 copy) steps, 192 bytes;
+        // output copy/validation: 6 steps, 192 bytes; encoded ceiling: 9+2*9.
+        (13, 448, 27, true),
+        (12, 448, 27, false),
+        (13, 447, 27, false),
+        (13, 448, 26, false),
         (0, 1024, 100, false),
         (100, 0, 100, false),
         (100, 1024, 0, false),

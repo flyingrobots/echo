@@ -14,6 +14,7 @@ pub(super) enum ReadType {
     Bool,
     Bytes(u64, u64),
     Unsigned(u64),
+    List(Option<Box<ReadType>>, u64),
     Record(BTreeMap<String, ReadType>),
     Nominal(String, Box<ReadType>),
     Variant(String, BTreeMap<String, Option<ReadType>>),
@@ -43,6 +44,14 @@ impl ReadType {
         match (self, actual) {
             (Self::Bytes(min, max), Self::Bytes(actual_min, actual_max)) => {
                 min <= actual_min && actual_max <= max
+            }
+            (Self::List(item, max), Self::List(actual_item, count)) => {
+                count <= max
+                    && match (item, actual_item) {
+                        (_, None) => *count == 0,
+                        (Some(want), Some(actual)) => want.accepts(actual),
+                        _ => false,
+                    }
             }
             (Self::Record(expected), Self::Record(actual)) => {
                 expected.len() == actual.len()
@@ -153,6 +162,16 @@ impl<'a> Scope<'a> {
             return Err(invalid());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
+        if let Some(spec) = coordinate
+            .strip_prefix("List<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let (item, max) = spec.rsplit_once(",max=").ok_or_else(invalid)?;
+            return Ok(ReadType::List(
+                Some(Box::new(self.resolve(item, depth + 1)?)),
+                canonical_number(max)?,
+            ));
+        }
         let key = coordinate.strip_prefix(&prefix).unwrap_or(coordinate);
         let value = field(field(self.core, "types")?, key)?;
         match text(value, "kind")? {
@@ -179,6 +198,13 @@ impl<'a> Scope<'a> {
                 ))
             }
             "Variant" => self.variant_type(value, key, depth),
+            "List" => {
+                require_exact_fields(value, &["kind", "item", "max"], SUBJECT)?;
+                Ok(ReadType::List(
+                    Some(Box::new(self.resolve(text(value, "item")?, depth + 1)?)),
+                    required_u64(value, "max", SUBJECT)?,
+                ))
+            }
             "Record" => {
                 let fields = entries(field(value, "fields")?)?
                     .iter()
@@ -241,7 +267,29 @@ impl<'a> Scope<'a> {
         if depth > 64 {
             return Err(invalid());
         }
+        self.remaining_type_work.set(
+            self.remaining_type_work
+                .get()
+                .checked_sub(1)
+                .ok_or_else(invalid)?,
+        );
         match text(value, "kind")? {
+            "list" => {
+                require_exact_fields(value, &["kind", "values"], SUBJECT)?;
+                let values = super::array(value, "values")?;
+                let mut item: Option<ReadType> = None;
+                for value in values {
+                    let actual = self.expression(value, depth + 1)?;
+                    item = Some(match item {
+                        None => actual,
+                        Some(previous) => previous.join(actual)?,
+                    });
+                }
+                Ok(ReadType::List(
+                    item.map(Box::new),
+                    u64::try_from(values.len()).map_err(|_| invalid())?,
+                ))
+            }
             "match" => self.variant_match(value, depth),
             "local" => {
                 require_exact_fields(value, &["kind", "ref"], SUBJECT)?;
@@ -302,13 +350,7 @@ impl<'a> Scope<'a> {
                 self.predicate_at(field(value, "predicate")?, depth + 1)?;
                 let yes = self.expression(field(value, "then")?, depth + 1)?;
                 let no = self.expression(field(value, "else")?, depth + 1)?;
-                match (yes, no) {
-                    (ReadType::Bytes(a, b), ReadType::Bytes(c, d)) => {
-                        Ok(ReadType::Bytes(a.min(c), b.max(d)))
-                    }
-                    (a, b) if a == b => Ok(a),
-                    _ => Err(invalid()),
-                }
+                yes.join(no)
             }
             "fold" => {
                 require_exact_fields(
@@ -663,6 +705,11 @@ mod tests {
 #[cfg(test)]
 mod variant_tests;
 
+#[cfg(test)]
+mod list_tests;
+
 mod variants;
 
 mod matches;
+
+mod lists;

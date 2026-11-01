@@ -454,6 +454,9 @@ fn byte_lookup(root: &Path, evidence: &serde_json::Value) -> Result<()> {
     }
     Ok(())
 }
+#[path = "source_functions_public_runtime/lists.rs"]
+mod lists;
+
 fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u64, u64)> {
     let (package_bytes, report_bytes) = emitted(&root.join(name), evidence)?;
     let (package, pin) = checked_pair(package_bytes, report_bytes)?;
@@ -500,6 +503,10 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
     if name.starts_with("read-byte-lookup") {
         input_fields.push(("probe", Value::Bytes(vec![0, 128, 255])));
     }
+    if name == "list-read-nominal" {
+        input_fields.push(("identity", Value::Bytes(vec![7; 32])));
+        input_fields.push(("raw", Value::Bytes(vec![7; 32])));
+    }
     let input = encode(&record(input_fields))?;
     let result = warp_core::edict_read::evaluate(
         &package,
@@ -525,7 +532,12 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
         "wrong read evidence or mutation"
     );
     let read_limits = warp_core::edict_read::ReadLimits {
-        evaluation: limits(),
+        evaluation: EvaluationLimits {
+            max_steps: result.steps,
+            max_allocated_bytes: result.allocated_bytes,
+            max_output_bytes: result.output.len() as u64,
+            ..limits()
+        },
         max_reads: 1,
         max_read_bytes: 5,
     };
@@ -552,8 +564,8 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
         (
             warp_core::edict_read::ReadLimits {
                 evaluation: EvaluationLimits {
-                    max_steps: 1,
-                    ..limits()
+                    max_steps: result.steps - 1,
+                    ..read_limits.evaluation
                 },
                 ..read_limits
             },
@@ -562,8 +574,8 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
         (
             warp_core::edict_read::ReadLimits {
                 evaluation: EvaluationLimits {
-                    max_allocated_bytes: 1,
-                    ..limits()
+                    max_allocated_bytes: result.allocated_bytes - 1,
+                    ..read_limits.evaluation
                 },
                 ..read_limits
             },
@@ -572,8 +584,8 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
         (
             warp_core::edict_read::ReadLimits {
                 evaluation: EvaluationLimits {
-                    max_output_bytes: 1,
-                    ..limits()
+                    max_output_bytes: result.output.len() as u64 - 1,
+                    ..read_limits.evaluation
                 },
                 ..read_limits
             },
@@ -881,6 +893,9 @@ fn main() -> Result<()> {
     }
     if evidence["results"].get("fold-pure-0").is_some() {
         state_folds(root, &evidence)?;
+    }
+    if evidence["results"].get("list-pure-empty").is_some() {
+        lists::run(root, &evidence, read_usage)?;
     }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");
     Ok(())

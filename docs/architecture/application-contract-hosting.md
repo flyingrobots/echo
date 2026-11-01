@@ -428,7 +428,7 @@ those components. Native synthetic tests alone do not establish public compiler
 provenance, persistent-rope semantics, or operation admission/WAL/recovery evidence.
 
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean, U8/U32/U64 and raw byte
+bounded bytes, lists, records and nominal types, with Boolean, U8/U32/U64 and raw byte
 literals. The U8 domain is exactly 0 through 255; malformed values, overflow,
 negative values and cross-width helper returns refuse. U8 constants retain
 ordinary scalar work/storage charges. Arithmetic remains U32/U64: both
@@ -445,6 +445,37 @@ one value cell plus its payload length through the existing runtime meter. The
 checked lowerer and verifier components include this rule; source-function and
 source-module consumers use the same current schema publication.
 
+List judgments accept finite `List<Item,max=N>` references and named
+Core `List` definitions, plus empty, homogeneous and nested list literals.
+Empty literals have no inferred element and fit any declared element type;
+nonempty elements must admit a common type without erasing nominal identity.
+The separate ordered-read relation and audit also judge list arguments and
+results, including conditional and exhaustive-match joins. Record elements
+must have the same field names; compatible bounded fields join recursively in
+the provider judgments and runtime helper inference, including record-valued
+conditional and match branches. Named lists and inline list references are
+structural types; nominal identity comes from their nominal elements.
+The lowerer's ordered-read judgment now charges one proof-work unit per
+expression visit, as the verifier already did. Programs near that limit may
+therefore refuse where they previously passed. For Cores without a function
+table, capability discovery now scans the whole Core with a 65,536-value cap.
+A `List<` text reference or `kind: "List"` definition activates whole-intent
+checking even when no list literal appears; exhausting discovery refuses.
+The lowerer and independent verifier multiply element copy, validation and
+encoding bounds with checked arithmetic, including intents without helpers.
+Runtime construction charges the array cell and each evaluated element;
+validation checks every element and the actual length. List indexing, length
+and concatenation operations are not added by this support. The checked Wasm
+provider components include these list judgments, reproduced independently
+and promoted together with their digest-bound package copies. Public
+compiler-to-runtime witnesses execute empty, nonempty, nested, record and
+nominal-element lists through the exact emitted package/report pairs, including
+the ordered-read route. They check repeated artifacts, exact and one-unit-short
+resource limits, invalid inputs, package identity and nominal refusal. The
+[publication driver](../../scripts/consumer-witnesses/source-functions-publication.py)
+and [runtime witness](../../xtask/examples/source_functions_public_runtime.rs)
+retain the distinction between compilation, provider verification and execution.
+
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
@@ -455,7 +486,7 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list and effectful helper forms
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String and effectful helper forms
 receive provider refusal. Native closed-variant checks and runtime realization
 are described below. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and

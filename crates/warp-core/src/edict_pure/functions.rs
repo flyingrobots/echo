@@ -283,6 +283,20 @@ pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
         (RuntimeType::Bytes { min, max }, RuntimeType::Bytes { min: a, max: b }) => {
             min <= a && b <= max
         }
+        (
+            RuntimeType::List { item: a, max },
+            RuntimeType::List {
+                item: b,
+                max: count,
+            },
+        ) => {
+            count <= max
+                && match (a, b) {
+                    (_, None) => *count == 0,
+                    (Some(a), Some(b)) => accepts(a, b),
+                    _ => false,
+                }
+        }
         (RuntimeType::Record(left), RuntimeType::Record(right)) => {
             left.len() == right.len()
                 && left.iter().all(|(key, ty)| {
@@ -303,6 +317,26 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
                 min: a.min(c),
                 max: b.max(d),
             })
+        }
+        (RuntimeType::List { item: a, max: n }, RuntimeType::List { item: b, max: m }) => {
+            Ok(RuntimeType::List {
+                item: match (a, b) {
+                    (Some(a), Some(b)) => Some(Box::new(join(*a, *b)?)),
+                    (a, b) => a.or(b),
+                },
+                max: n.max(m),
+            })
+        }
+        (RuntimeType::Record(left), RuntimeType::Record(right)) if left.len() == right.len() => {
+            let mut fields = Vec::new();
+            for (name, ty) in left {
+                let other = right
+                    .iter()
+                    .find(|(key, _)| key == &name)
+                    .ok_or(Error::UnsupportedProgram)?;
+                fields.push((name, join(ty, other.1.clone())?));
+            }
+            Ok(RuntimeType::Record(fields))
         }
         (left, right) if left == right => Ok(left),
         _ => Err(Error::UnsupportedProgram),
@@ -455,6 +489,22 @@ pub(crate) fn infer<'v>(
                     (text_field(value, "field") == Ok(name.as_str())).then_some(ty)
                 })
                 .ok_or(Error::InvalidArtifact)
+        }
+        "list" => {
+            exact_fields(value, &["kind", "values"])?;
+            let values = array(field(value, "values")?)?;
+            let mut item: Option<Box<RuntimeType>> = None;
+            for value in values {
+                let next = infer(value, scope, proof, definitions, source, parser, depth + 1)?;
+                item = Some(Box::new(match item {
+                    Some(previous) => join(*previous, next)?,
+                    None => next,
+                }));
+            }
+            Ok(RuntimeType::List {
+                item,
+                max: u64::try_from(values.len()).map_err(|_| Error::UnsupportedProgram)?,
+            })
         }
         "record" => {
             exact_fields(value, &["kind", "fields"])?;
@@ -933,6 +983,13 @@ impl Heights<'_> {
                 height + 1
             }
             Expr::Field(base, _) => self.expr(base, depth + 1)? + 1,
+            Expr::List(values) => {
+                let mut maximum = 0;
+                for value in values {
+                    maximum = maximum.max(self.expr(value, depth + 1)? + 1);
+                }
+                maximum
+            }
             Expr::Record(fields) => {
                 let mut maximum = 0;
                 for (_, value) in fields {
@@ -1052,6 +1109,13 @@ fn type_height(ty: &RuntimeType) -> usize {
                 .map(type_height)
                 .max()
                 .unwrap_or(0)
+        }
+        RuntimeType::List { item, max } => {
+            if *max == 0 {
+                0
+            } else {
+                item.as_ref().map_or(0, |ty| type_height(ty) + 1)
+            }
         }
         RuntimeType::Record(fields) => fields
             .iter()

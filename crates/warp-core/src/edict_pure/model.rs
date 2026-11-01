@@ -21,6 +21,7 @@ pub(crate) enum Expr {
     Match(Box<Expr>, Vec<MatchArm>),
     Local(String),
     Field(Box<Expr>, String),
+    List(Vec<Expr>),
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
@@ -114,6 +115,10 @@ pub(crate) enum RuntimeType {
     Unsigned(u64),
     Bytes {
         min: u64,
+        max: u64,
+    },
+    List {
+        item: Option<Box<RuntimeType>>,
         max: u64,
     },
     Record(Vec<(String, RuntimeType)>),

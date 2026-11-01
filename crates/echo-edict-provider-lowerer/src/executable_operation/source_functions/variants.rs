@@ -157,7 +157,7 @@ pub(super) fn type_nodes(ty: &Ty) -> Check<usize> {
                 count = count.checked_add(fields.len()).ok_or(())?;
                 pending.extend(fields.values());
             }
-            Ty::Nominal(_, inner) => pending.push(inner),
+            Ty::List(Some(inner), _) | Ty::Nominal(_, inner) => pending.push(inner),
             Ty::Variant { cases, .. } => {
                 count = count.checked_add(cases.len()).ok_or(())?;
                 pending.extend(cases.values().filter_map(Option::as_ref));

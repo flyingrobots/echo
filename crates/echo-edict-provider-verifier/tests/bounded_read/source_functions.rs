@@ -697,3 +697,5 @@ mod capabilities;
 
 #[path = "source_functions/fold.rs"]
 mod fold;
+#[path = "source_functions/lists.rs"]
+mod lists;

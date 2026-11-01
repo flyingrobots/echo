@@ -10,6 +10,8 @@ mod byte_literals_tests;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+#[cfg(test)]
+mod list_tests;
 mod matches;
 mod order;
 #[cfg(test)]
@@ -30,6 +32,7 @@ enum Ty {
     Bool,
     Word(u64),
     Bytes(u64, u64),
+    List(Option<Box<Ty>>, u64),
     Record(BTreeMap<String, Ty>),
     Nominal(String, Box<Ty>),
     Variant {
@@ -290,6 +293,13 @@ impl<'a> Judgment<'a> {
             }
             return Err(());
         }
+        if let Some(spec) = name.strip_prefix("List<").and_then(|s| s.strip_suffix('>')) {
+            let (item, max) = spec.rsplit_once(",max=").ok_or(())?;
+            return Ok(Ty::List(
+                Some(Box::new(self.ty(item, depth + 1)?)),
+                decimal(max)?,
+            ));
+        }
         let prefix = format!("{}.", string(get(self.core, "coordinate")?)?);
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.core, "types")?, key)?;
@@ -315,6 +325,15 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
                 Ok(Ty::Bytes(min, max))
+            }
+            "List" => {
+                exact(definition, &["kind", "item", "max"])?;
+                Ok(Ty::List(
+                    Some(Box::new(
+                        self.ty(string(get(definition, "item")?)?, depth + 1)?,
+                    )),
+                    number(get(definition, "max")?)?,
+                ))
             }
             "Record" => {
                 let mut fields = BTreeMap::new();
@@ -523,6 +542,22 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 };
                 fields.remove(string(get(value, "field")?)?).ok_or(())?
+            }
+            "list" => {
+                exact(value, &["kind", "values"])?;
+                let values = list(get(value, "values")?)?;
+                let mut item: Option<Box<Ty>> = None;
+                cost.bytes = 64;
+                for value in values {
+                    let fact = self.expression(value, scope, source, prefix + 1)?;
+                    cost = cost.plus(fact.cost)?;
+                    depth = depth.max(fact.depth + 1);
+                    item = Some(Box::new(match item {
+                        None => fact.ty,
+                        Some(previous) => union(*previous, fact.ty)?,
+                    }));
+                }
+                Ty::List(item, u64::try_from(values.len()).map_err(|_| ())?)
             }
             "record" => {
                 exact(value, &["kind", "fields"])?;
@@ -960,6 +995,46 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
             max.checked_add(9).ok_or(())?,
             0,
         )),
+        Ty::List(item, max) => {
+            let Some(item) = item else {
+                if *max != 0 {
+                    return Err(());
+                }
+                return Ok((
+                    Cost {
+                        steps: 1,
+                        bytes: 64,
+                    },
+                    1,
+                    9,
+                    0,
+                ));
+            };
+            let (copy, validations, encoded, height) = shape(item)?;
+            Ok((
+                Cost {
+                    steps: copy
+                        .steps
+                        .checked_mul(*max)
+                        .and_then(|v| v.checked_add(1))
+                        .ok_or(())?,
+                    bytes: copy
+                        .bytes
+                        .checked_mul(*max)
+                        .and_then(|v| v.checked_add(64))
+                        .ok_or(())?,
+                },
+                validations
+                    .checked_mul(*max)
+                    .and_then(|v| v.checked_add(1))
+                    .ok_or(())?,
+                encoded
+                    .checked_mul(*max)
+                    .and_then(|v| v.checked_add(9))
+                    .ok_or(())?,
+                if *max == 0 { 0 } else { height + 1 },
+            ))
+        }
         Ty::Record(fields) => {
             let mut cost = Cost {
                 steps: 1,
@@ -989,6 +1064,14 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
 fn includes(expected: &Ty, actual: &Ty) -> bool {
     match (expected, actual) {
         (Ty::Bytes(a, b), Ty::Bytes(c, d)) => a <= c && d <= b,
+        (Ty::List(a, max), Ty::List(b, count)) => {
+            count <= max
+                && match (a, b) {
+                    (_, None) => *count == 0,
+                    (Some(a), Some(b)) => includes(a, b),
+                    (None, Some(_)) => false,
+                }
+        }
         (Ty::Record(a), Ty::Record(b)) => {
             a.len() == b.len()
                 && a.iter()
@@ -1000,6 +1083,21 @@ fn includes(expected: &Ty, actual: &Ty) -> bool {
 fn union(left: Ty, right: Ty) -> Check<Ty> {
     match (left, right) {
         (Ty::Bytes(a, b), Ty::Bytes(c, d)) => Ok(Ty::Bytes(a.min(c), b.max(d))),
+        (Ty::List(a, n), Ty::List(b, m)) => Ok(Ty::List(
+            match (a, b) {
+                (Some(a), Some(b)) => Some(Box::new(union(*a, *b)?)),
+                (a, b) => a.or(b),
+            },
+            n.max(m),
+        )),
+        (Ty::Record(a), Ty::Record(mut b)) if a.keys().eq(b.keys()) => {
+            let mut fields = BTreeMap::new();
+            for (key, value) in a {
+                let other = b.remove(&key).ok_or(())?;
+                fields.insert(key, union(value, other)?);
+            }
+            Ok(Ty::Record(fields))
+        }
         (a, b) if a == b => Ok(a),
         _ => Err(()),
     }

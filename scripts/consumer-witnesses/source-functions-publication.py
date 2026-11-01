@@ -13,7 +13,7 @@ provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
 Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
-byte-lookup (seven), closed-variant (seven), match and state-fold controls retain at most
+byte-lookup (seven), closed-variant (seven), match, state-fold and list controls retain at most
 64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
@@ -153,6 +153,8 @@ def selected_inputs(args):
         result["matchProviderBefore"] = inventory(args.match_provider_before)
     if getattr(args, "fold_provider_before", None) is not None:
         result["foldProviderBefore"] = inventory(args.fold_provider_before)
+    if getattr(args, "list_provider_before", None) is not None:
+        result["listProviderBefore"] = inventory(args.list_provider_before)
     return result
 
 
@@ -160,6 +162,56 @@ def replace_once(source, old, new):
     if source.count(old) != 1:
         raise RuntimeError(f"Expected one source anchor: {old!r}")
     return source.replace(old, new, 1)
+
+
+def list_variants(baseline, read):
+    """Authored lists; every successful pure variant returns the actual list."""
+    imports = [line for line in baseline.splitlines() if line.startswith("use lawpack ")]
+    if len(imports) != 1:
+        raise RuntimeError("Expected one selected pure lawpack import")
+    prefix = f"package {PURE_COORDINATE};\n{imports[0]}\n"
+    prefix += "type Input = { values: List<U64, max=3>, };\n"
+    prefix += "type Row = { payload: Bytes<max=4>, };\n"
+    prefix += "fn listValue(value: U64) -> U64 { return value; }\n"
+    cases = {
+        "empty": ("List<U64, max=0>", "[]"),
+        "nonempty": ("List<U64, max=3>", "[listValue(7u64), 2u64, 7u64]"),
+        "nested": ("List<List<U64, max=3>, max=2>", "[[], [7u64, 2u64, 7u64]]"),
+        "record": ("List<Row, max=3>", r'[{ payload: b"" }, { payload: b"\x00\xff" }, { payload: b"x" }]'),
+        "input": ("List<U64, max=3>", "values"),
+        "invalid-bound": ("List<U64, max=1>", "[7u64, 2u64, 7u64]"),
+        "invalid-element": ("List<U64, max=3>", "[true]"),
+    }
+    variants = {}
+    for name, (result, expression) in cases.items():
+        variants[f"list-pure-{name}"] = (
+            prefix + f"type Output = {{ items: {result}, }};\n"
+            f"fn makeList(values: List<U64, max=3>) -> {result} {{ return {expression}; }}\n"
+            "intent assembleRange(input: Input) returns Output profile text.replaceRange "
+            "basis none budget <= text.replaceRangeBudget { "
+            "let items = makeList(input.values); return { items }; }\n")
+    for name, item, expression in [
+        ("empty", "text.FactBytes", "[]"),
+        ("nonempty", "text.FactBytes", "[actual, actual]"),
+        ("nested", "List<text.FactBytes, max=2>", "[[], [actual]]"),
+        ("record", "ListRow", "[{ payload: actual }, { payload: actual }]"),
+        ("nominal", "text.WitnessId", "[input.identity, input.identity]"),
+        ("nominal-bare", "text.WitnessId", "[input.identity, input.raw]"),
+    ]:
+        authored = read
+        if name.startswith("nominal"):
+            authored = replace_once(authored, "type Input = {",
+                "type Input = { identity: text.WitnessId, raw: Bytes<exact=32>,")
+        declaration = ("type ListRow = { payload: text.FactBytes, };\n"
+            f"fn consumeList(values: List<{item}, max=2>, value: text.FactBytes) "
+            "-> text.FactBytes { return value; }\n\n")
+        authored = replace_once(authored, "intent replaceRange(",
+                                declaration + "intent replaceRange(")
+        variants[f"list-read-{name}"] = replace_once(authored,
+            "  let retained = retainBytes(actual);",
+            f"  let marker: List<{item}, max=2> = {expression};\n"
+            "  let retained = consumeList(marker, actual);")
+    return variants
 
 
 def source_variants(args):
@@ -266,7 +318,8 @@ def source_variants(args):
             "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
             "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
             "read-byte-lookup": read_lookup,
-            "read-byte-lookup-constant": read_lookup_constant, **tagged, **folded}
+            "read-byte-lookup-constant": read_lookup_constant, **tagged, **folded,
+            **list_variants(baseline, read)}
 
 
 def child_limits():
@@ -489,6 +542,11 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
     if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION, READ_MATCH_ALLOCATION}:
         raise RuntimeError("Unexpected authored allocation budget")
     changes = []
+    if root.name.startswith("list-read-nominal"):
+        nominal = {"coordinate": "jedit.text@1.WitnessId",
+                   "definition": "Nominal<Bytes<exact=32>>"}
+        authored["exports"]["types"].append(nominal)
+        changes.append({"path": "/lawpack/exports/types/-", "before": None, "after": nominal})
     for field, before, after in [("maxSteps", READ_OLD_STEPS, read_steps),
                                  ("maxAllocatedBytes", READ_OLD_ALLOCATION, read_allocation)]:
         budget[field] = after
@@ -546,12 +604,18 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     elif refusal in {"original-budget", "original-allocation"}:
         provenance["refusalBoundary"] = require_budget_refusal(
             result, allocation_only=refusal == "original-allocation")
-    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider", "match-provider"}:
+    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider", "match-provider", "list-provider"}:
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
             raise RuntimeError(f"Original provider did not refuse {refusal} semantics: {result}")
         provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal in {"list-bound", "list-element"}:
+        diagnostic = source_refusal_diagnostic(result)
+        expected = "InvalidBound" if refusal == "list-bound" else "TypeMismatch"
+        if diagnostic.get("kind") != expected or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Invalid list did not refuse at its source boundary: {result}")
+        provenance["refusalBoundary"] = expected
     elif refusal == "fold-provider":
         diagnostic = source_refusal_diagnostic(result)
         if (diagnostic.get("kind") != "ProviderLowererRefused"
@@ -661,6 +725,7 @@ def main():
     parser.add_argument("--variant-provider-before", type=Path)
     parser.add_argument("--match-provider-before", type=Path)
     parser.add_argument("--fold-provider-before", type=Path)
+    parser.add_argument("--list-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -791,6 +856,21 @@ def main():
                 specs.append((f"fold-read-{bound}", variants[f"fold-read-{bound}"],
                               args.provider, {"read": True, "read_steps": READ_FOLD_STEPS,
                                               "read_allocation": READ_MATCH_ALLOCATION}))
+        if args.list_provider_before is not None:
+            specs.append(("list-control-before", variants["pure"], args.list_provider_before, {}))
+            specs.append(("list-pure-before", variants["list-pure-nonempty"],
+                          args.list_provider_before, {"refusal": "list-provider"}))
+            for case in ["empty", "nonempty", "nested", "record", "input"]:
+                specs.append((f"list-pure-{case}", variants[f"list-pure-{case}"], args.provider, {}))
+            for case, refusal in [("invalid-bound", "list-bound"), ("invalid-element", "list-element")]:
+                specs.append((f"list-pure-{case}", variants[f"list-pure-{case}"],
+                              args.provider, {"refusal": refusal}))
+            for case in ["empty", "nonempty", "nested", "record", "nominal", "nominal-bare"]:
+                options = {"read": True, "read_steps": READ_FOLD_STEPS,
+                           "read_allocation": READ_MATCH_ALLOCATION}
+                if case == "nominal-bare":
+                    options["refusal"] = "list-element"
+                specs.append((f"list-read-{case}", variants[f"list-read-{case}"], args.provider, options))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

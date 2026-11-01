@@ -192,7 +192,7 @@ class PublicationTests(unittest.TestCase):
                          "read/edict.lawpack.json", "read/source.edict"]:
                 file(name)
             providers = {}
-            for name in ["old", "candidate", "literal", "lookup", "unsigned", "variant", "match"]:
+            for name in ["old", "candidate", "literal", "lookup", "unsigned", "variant", "match", "list"]:
                 file(name + "/component.wasm")
                 providers[name] = root / name
             args = SimpleNamespace(
@@ -205,8 +205,9 @@ class PublicationTests(unittest.TestCase):
                 unsigned_byte_provider_before=providers["unsigned"],
                 variant_provider_before=providers["variant"],
                 match_provider_before=providers["match"],
+                list_provider_before=providers["list"],
             )
-            for name in ["literal", "lookup", "unsigned", "variant", "match"]:
+            for name in ["literal", "lookup", "unsigned", "variant", "match", "list"]:
                 original = publication.selected_inputs(args)
                 component = providers[name] / "component.wasm"
                 component.write_bytes(component.read_bytes() + b"changed")

@@ -108,3 +108,122 @@ fn bounded_lists_validate_every_element_and_length() -> Result<(), Error> {
     );
     Ok(())
 }
+
+fn text(value: &str) -> Value {
+    Value::Text(value.into())
+}
+fn list(values: Vec<Value>) -> Value {
+    map([("kind", text("list")), ("values", Value::Array(values))])
+}
+fn record(bytes: Vec<u8>) -> Value {
+    map([
+        ("kind", text("record")),
+        (
+            "fields",
+            map([(
+                "payload",
+                map([
+                    ("kind", text("const")),
+                    (
+                        "value",
+                        map([("kind", text("bytes")), ("value", Value::Bytes(bytes))]),
+                    ),
+                ]),
+            )]),
+        ),
+    ])
+}
+fn call(name: &str) -> Value {
+    map([
+        ("kind", text("call")),
+        ("callee", text(&format!("generic.lists@1.{name}"))),
+        ("args", Value::Array(vec![])),
+        ("typeArgs", Value::Array(vec![])),
+    ])
+}
+
+#[test]
+fn bounded_lists_decode_and_execute_transitive_record_helpers() -> Result<(), Error> {
+    let types = map([(
+        "Row",
+        map([
+            ("kind", text("Record")),
+            ("fields", map([("payload", text("Bytes<max=4>"))])),
+        ]),
+    )]);
+    let helper = |result| {
+        map([
+            ("params", Value::Array(vec![])),
+            ("returnType", text("List<Row,max=2>")),
+            (
+                "body",
+                map([
+                    ("locals", Value::Array(vec![])),
+                    ("bindings", Value::Array(vec![])),
+                    ("result", result),
+                ]),
+            ),
+        ])
+    };
+    let core = map([
+        ("types", types.clone()),
+        ("intents", map([])),
+        (
+            "functions",
+            map([
+                (
+                    "make",
+                    helper(list(vec![record(vec![]), record(vec![0, 255, 3])])),
+                ),
+                ("relay", helper(call("make"))),
+            ]),
+        ),
+    ]);
+    let exports = map([
+        ("pureFunctions", Value::Array(vec![])),
+        ("effects", Value::Array(vec![])),
+    ]);
+    let mut parser = Parser {
+        types: &types,
+        coordinate: "generic.lists@1",
+        remaining: MAX_PROGRAM_NODES,
+    };
+    // This invokes helper inference and closure checks before evaluation.
+    let helpers = super::functions::decode(&core, &exports, &mut parser)?;
+    let expr = parser.expr(&call("relay"), 0)?;
+    let expected = Value::Array(vec![
+        map([("payload", Value::Bytes(vec![]))]),
+        map([("payload", Value::Bytes(vec![0, 255, 3]))]),
+    ]);
+    let mut meter = Meter::new(limits(1024, 16_384));
+    let actual = expression(&expr, &BTreeMap::new(), &helpers, &mut meter, 0)?;
+    assert_eq!(actual, expected);
+    validate(&actual, &parser.ty("List<Row,max=2>", 0)?, &mut meter, 0)?;
+    Ok(())
+}
+
+#[test]
+fn bounded_lists_record_joins_preserve_field_names_and_nominals() -> Result<(), Error> {
+    use super::{functions::join, model::RuntimeType as Ty};
+    let row = |name: &str, value| Ty::Record(vec![(name.into(), value)]);
+    let bytes = |length| Ty::Bytes {
+        min: length,
+        max: length,
+    };
+    assert_eq!(
+        join(row("payload", bytes(0)), row("payload", bytes(3)))?,
+        row("payload", Ty::Bytes { min: 0, max: 3 })
+    );
+    assert_eq!(
+        join(row("left", bytes(0)), row("right", bytes(3))),
+        Err(Error::UnsupportedProgram)
+    );
+    assert_eq!(
+        join(
+            row("payload", Ty::Nominal("A".into(), Box::new(bytes(3)))),
+            row("payload", Ty::Nominal("B".into(), Box::new(bytes(3))))
+        ),
+        Err(Error::UnsupportedProgram)
+    );
+    Ok(())
+}

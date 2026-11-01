@@ -215,11 +215,22 @@ fn ordered_lists_join_exhaustive_match_and_conditional_branches() {
 fn ordered_lists_bound_depth_and_proof_work() {
     let core = core();
     let mut deep = integer(1);
-    for _ in 0..66 {
+    for _ in 0..64 {
         deep = list(vec![deep]);
     }
-    assert_refusal(check(&core, &deep, "Numbers"));
-    assert_work_refusal(&core, &list(vec![integer(1)]));
+    // Direct inference avoids a shallower expected type or type-parser refusal.
+    assert!(scope(&core).expression(&deep, 0).is_ok());
+    assert_eq!(
+        scope(&core).expression(&list(vec![deep]), 0),
+        Err(invalid())
+    );
+    let value = list(vec![integer(1)]);
+    let judgment = scope(&core);
+    judgment.remaining_type_work.set(3);
+    assert!(judgment.expression(&value, 0).is_ok());
+    assert_eq!(judgment.remaining_type_work.get(), 0);
+    judgment.remaining_type_work.set(2);
+    assert_eq!(judgment.expression(&value, 0), Err(invalid()));
 }
 
 fn scope(core: &Value) -> Scope<'_> {
@@ -243,9 +254,4 @@ fn assert_refusal(result: Result<(), ProviderRefusalV1>) {
         && refusal.subject.as_deref() == Some(SUBJECT)),
         "{result:?}"
     );
-}
-fn assert_work_refusal(core: &Value, value: &Value) {
-    let scope = scope(core);
-    scope.remaining_type_work.set(1);
-    assert_eq!(scope.expression(value, 0), Err(invalid()));
 }

@@ -327,6 +327,17 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
                 max: n.max(m),
             })
         }
+        (RuntimeType::Record(left), RuntimeType::Record(right)) if left.len() == right.len() => {
+            let mut fields = Vec::new();
+            for (name, ty) in left {
+                let other = right
+                    .iter()
+                    .find(|(key, _)| key == &name)
+                    .ok_or(Error::UnsupportedProgram)?;
+                fields.push((name, join(ty, other.1.clone())?));
+            }
+            Ok(RuntimeType::Record(fields))
+        }
         (left, right) if left == right => Ok(left),
         _ => Err(Error::UnsupportedProgram),
     }

@@ -65,7 +65,7 @@ fn bounded_lists_join_record_elements_and_conditional_results() -> Result<(), St
 }
 
 #[test]
-fn bounded_lists_refuse_malformed_literals_and_exhausted_proof_limits() {
+fn bounded_lists_refuse_malformed_literals() {
     for value in [
         map([("kind", text("list"))]),
         map([("kind", text("list")), ("values", Value::Integer(0))]),
@@ -74,19 +74,10 @@ fn bounded_lists_refuse_malformed_literals_and_exhausted_proof_limits() {
             ("values", Value::Array(vec![])),
             ("unexpected", Value::Bool(true)),
         ]),
-        list(vec![integer(1); 65_537]),
     ] {
         let (core, exports) = fixture(value, "List<U64,max=65537>");
         assert!(validate(&core, &exports, false).is_err());
     }
-    let mut value = integer(1);
-    let mut result = "U64".to_owned();
-    for _ in 0..66 {
-        value = list(vec![value]);
-        result = format!("List<{result},max=1>");
-    }
-    let (core, exports) = fixture(value, &result);
-    assert!(validate(&core, &exports, false).is_err());
 }
 
 fn text(s: &str) -> Value {
@@ -217,4 +208,64 @@ fn bounded_lists_without_helpers_enforce_whole_intent_budget() {
             "{steps}/{allocation}/{output}"
         );
     }
+}
+
+#[test]
+fn bounded_lists_isolate_expression_depth_and_work_limits() {
+    let mut value = integer(1);
+    for _ in 0..64 {
+        value = list(vec![value]);
+    }
+    assert!(infer_expression(&value, 65_536).is_ok());
+    assert_eq!(infer_expression(&list(vec![value]), 65_536), Err(()));
+    let value = list(vec![integer(1)]);
+    assert_eq!(infer_expression(&value, 3), Ok(()));
+    assert_eq!(infer_expression(&value, 2), Err(()));
+}
+
+#[test]
+fn bounded_lists_bound_helper_free_discovery() {
+    // One root + each array child consumes one discovery unit, independently
+    // of type resolution, expression checking, or execution budgets.
+    let at_limit = Value::Array(vec![Value::Bool(false); 65_535]);
+    assert_eq!(super::unsigned_addition::present(&at_limit), Ok(false));
+    let over_limit = Value::Array(vec![Value::Bool(false); 65_536]);
+    assert_eq!(super::unsigned_addition::present(&over_limit), Err(()));
+    // Types alone must activate whole-intent checks even without helpers.
+    for definition in [
+        text("List<U64,max=1>"),
+        map([
+            ("kind", text("List")),
+            ("item", text("U64")),
+            ("max", Value::Integer(1)),
+        ]),
+    ] {
+        let core = map([
+            ("types", map([("Numbers", definition)])),
+            ("intents", map([])),
+        ]);
+        assert_eq!(super::unsigned_addition::present(&core), Ok(true));
+    }
+}
+
+fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
+    let core = map([("types", map([]))]);
+    let mut types = super::Types::new(&core);
+    types.proof_work(65_536 - work)?;
+    let definitions = super::BTreeMap::new();
+    let summaries = super::BTreeMap::new();
+    let mut checker = super::Checker {
+        types: &mut types,
+        definitions: &definitions,
+        summaries: &summaries,
+        proven: vec![],
+        path: vec![],
+        bound: vec![],
+        proven_sum: None,
+    };
+    let frame = super::Frame {
+        declared: super::BTreeMap::new(),
+        values: super::BTreeMap::new(),
+    };
+    checker.expression(value, &frame, 0).map(|_| ())
 }

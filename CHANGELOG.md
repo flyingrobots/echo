@@ -12,6 +12,10 @@
   accounting. Ordered-read judgments accept lists and recursive record/branch
   joins without erasing nominal identities. Native witnesses cover transitive
   calls, exact and one-unit-short budgets, malformed values and proof limits.
+  Runtime helper inference joins record fields recursively, including list
+  elements and conditional/match branches. The ordered-read lowerer now charges
+  each expression visit against proof work. Helper-free capability discovery
+  scans the whole Core with a 65,536-value cap and refuses on exhaustion.
   Checked provider component publication and the public compiler
   runtime witness for lists remain pending.
 

@@ -451,8 +451,16 @@ Empty literals have no inferred element and fit any declared element type;
 nonempty elements must admit a common type without erasing nominal identity.
 The separate ordered-read relation and audit also judge list arguments and
 results, including conditional and exhaustive-match joins. Record elements
-must have the same field names; compatible bounded fields join recursively.
-Expression traversal consumes the existing proof-work budget in both judgments.
+must have the same field names; compatible bounded fields join recursively in
+the provider judgments and runtime helper inference, including record-valued
+conditional and match branches. Named lists and inline list references are
+structural types; nominal identity comes from their nominal elements.
+The lowerer's ordered-read judgment now charges one proof-work unit per
+expression visit, as the verifier already did. Programs near that limit may
+therefore refuse where they previously passed. For Cores without a function
+table, capability discovery now scans the whole Core with a 65,536-value cap.
+A `List<` text reference or `kind: "List"` definition activates whole-intent
+checking even when no list literal appears; exhausting discovery refuses.
 The lowerer and independent verifier multiply element copy, validation and
 encoding bounds with checked arithmetic, including intents without helpers.
 Runtime construction charges the array cell and each evaluated element;

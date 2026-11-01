@@ -211,11 +211,22 @@ fn ordered_lists_join_exhaustive_match_and_conditional_branches() {
 fn ordered_lists_bound_depth_and_proof_work() {
     let core = core();
     let mut deep = integer(1);
-    for _ in 0..66 {
+    for _ in 0..64 {
         deep = list(vec![deep]);
     }
-    assert_refusal(check(&core, &deep, "Numbers"));
-    assert_work_refusal(&core, &list(vec![integer(1)]));
+    // Audit the expression itself, without any expected-type comparison.
+    assert!(symbols(&core).expression(&deep, 0).is_ok());
+    assert!(matches!(
+        symbols(&core).expression(&list(vec![deep]), 0),
+        Err(())
+    ));
+    let value = list(vec![integer(1)]);
+    let mut judgment = symbols(&core);
+    judgment.work = 3;
+    assert!(judgment.expression(&value, 0).is_ok());
+    assert_eq!(judgment.work, 0);
+    judgment.work = 2;
+    assert!(matches!(judgment.expression(&value, 0), Err(())));
 }
 
 fn symbols(core: &Value) -> Symbols<'_> {
@@ -240,9 +251,4 @@ fn check(core: &Value, value: &Value, expected: &str) -> Check<()> {
 }
 fn assert_refusal(result: Check<()>) {
     assert_eq!(result, Err(()));
-}
-fn assert_work_refusal(core: &Value, value: &Value) {
-    let mut symbols = symbols(core);
-    symbols.work = 1;
-    assert!(matches!(symbols.expression(value, 0), Err(())));
 }

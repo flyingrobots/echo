@@ -1057,9 +1057,9 @@ retention, a receipt, or an admitted reading. Integration and release evidence a
 [#740](https://github.com/flyingrobots/echo/issues/740).
 
 Primary artifact generation also compares the supplied pack's exact schema and
-manifest with the source materials bound into its generation input. Admission
-of each pack separately does not establish this relation: crossed publications
-return `ContractPackInputMismatch` before constructing any output or provenance.
+manifest with the source materials bound into its generation input. This
+defensive identity check returns `ContractPackInputMismatch` on disagreement;
+the public admission API constructs only the single current pinned publication.
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
@@ -1119,8 +1119,8 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-contract pack introduced in Edict PR #162 and extended with the
-generic pure-binding contracts in Edict PR #201. Echo admits its exact CDDL,
+current Amblicit contract pack from PR #285 (revision
+`2269d81f257f7794b44270cf3f7ca330966a0784`). Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact

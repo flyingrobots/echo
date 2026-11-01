@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Generates an explicitly selected source-function publication candidate.
+//! Generates the current provider package for source-function witnesses.
 //! Supports public compiler witnesses; generation grants no runtime authority.
 
 use anyhow::{bail, ensure, Context, Result};

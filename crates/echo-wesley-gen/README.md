@@ -43,8 +43,8 @@ Apache-2.0 contract pack checked under
 [`schemas/edict-provider/contracts/v1/`](../../schemas/edict-provider/contracts/v1/README.md)
 is admitted through
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
-requires the pinned Edict contract-pack publication from PR #162 as extended
-through the generic pure-binding extension in PR #201, verifies every
+requires the current Amblicit contract-pack publication from PR #285
+(revision `2269d81f257f7794b44270cf3f7ca330966a0784`), verifies every
 embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.

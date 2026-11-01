@@ -10,6 +10,8 @@ mod byte_literals_tests;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+#[cfg(test)]
+mod list_tests;
 mod matches;
 mod order;
 mod types;
@@ -116,6 +118,11 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                     for arm in sequence(get(expression, "arms")?)? {
                         types.step(depth + 1)?;
                         expressions.push((get(arm, "body")?, depth + 1));
+                    }
+                }
+                "list" => {
+                    for value in sequence(get(expression, "values")?)? {
+                        expressions.push((value, depth + 1));
                     }
                 }
                 "record" => {
@@ -494,6 +501,26 @@ impl<'a> Checker<'a, '_> {
                 };
                 fields.remove(string(get(value, "field")?)?).ok_or(())?
             }
+            "list" => {
+                exact(value, &["kind", "values"])?;
+                let values = sequence(get(value, "values")?)?;
+                charge.storage = 64;
+                let mut element: Option<Box<Schema>> = None;
+                for value in values {
+                    let next = self.expression(value, frame, depth + 1)?;
+                    charge.append(next.charge)?;
+                    height = height.max(next.height + 1);
+                    element = Some(Box::new(match element {
+                        Some(previous) => previous.choice(next.schema)?,
+                        None => next.schema,
+                    }));
+                }
+                Schema::Sequence {
+                    element,
+                    bound: u64::try_from(values.len()).map_err(|_| ())?,
+                }
+            }
+
             "record" => {
                 exact(value, &["kind", "fields"])?;
                 charge.storage = 64;

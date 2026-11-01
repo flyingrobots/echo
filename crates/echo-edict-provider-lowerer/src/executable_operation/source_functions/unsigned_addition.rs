@@ -5,14 +5,19 @@ use super::{get, list, literal, string, Check, Value};
 
 /// Whether an intent body calls an operation only this judgment checks: an
 /// addition's no-overflow proof, a subtraction's or slice's range proof,
-/// a count's full-byte scan charge, exhaustive variant dispatch, or bounded state iteration.
+/// a count's full-byte scan charge, exhaustive variant dispatch, or bounded state iteration, or bounded lists.
 /// A Core without a function table still needs the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
-    let mut pending = vec![get(core, "intents")?];
+    let mut remaining = 65_536_usize;
+    let mut pending = vec![core];
     while let Some(value) = pending.pop() {
+        remaining = remaining.checked_sub(1).ok_or(())?;
         match value {
             Value::Map(fields) => {
-                if matches!(get(value, "kind").and_then(string), Ok("match" | "fold")) {
+                if matches!(
+                    get(value, "kind").and_then(string),
+                    Ok("match" | "fold" | "list" | "List")
+                ) {
                     return Ok(true);
                 }
                 // Each of these needs an intent-level proof, even without a
@@ -32,6 +37,7 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                 pending.extend(fields.iter().map(|(_, value)| value));
             }
             Value::Array(values) => pending.extend(values),
+            Value::Text(name) if name.starts_with("List<") => return Ok(true),
             _ => {}
         }
     }

@@ -259,6 +259,19 @@ pub(crate) fn expression(
                 })
                 .ok_or(Error::InvalidArtifact)
         }
+        Expr::List(items) => {
+            meter.allocate(VALUE_CELL_BYTES)?;
+            let mut values = Vec::new();
+            // Reserve only after each element's storage has passed the meter.
+            for item in items {
+                let value = expression(item, locals, helpers, meter, depth + 1)?;
+                values
+                    .try_reserve_exact(1)
+                    .map_err(|_| Error::HostAllocationFailed)?;
+                values.push(value);
+            }
+            Ok(Value::Array(values))
+        }
         Expr::Record(fields) => {
             meter.allocate(VALUE_CELL_BYTES)?;
             let mut values = Vec::new();
@@ -578,6 +591,17 @@ pub(crate) fn validate(
         (Value::Bytes(value), RuntimeType::Bytes { min, max })
             if (value.len() as u64) >= *min && (value.len() as u64) <= *max =>
         {
+            Ok(())
+        }
+        (Value::Array(values), RuntimeType::List { item, max }) if values.len() as u64 <= *max => {
+            for value in values {
+                validate(
+                    value,
+                    item.as_deref().ok_or(Error::InvalidArtifact)?,
+                    meter,
+                    depth + 1,
+                )?;
+            }
             Ok(())
         }
         (Value::Map(fields), RuntimeType::Record(types)) if fields.len() == types.len() => {

@@ -159,6 +159,14 @@ fn storage_bound(ty: &RuntimeType) -> Option<u64> {
         RuntimeType::Nominal(_, inner) => storage_bound(inner),
         RuntimeType::Bool | RuntimeType::Unsigned(_) => Some(VALUE_CELL_BYTES),
         RuntimeType::Bytes { max, .. } => VALUE_CELL_BYTES.checked_add(*max),
+        RuntimeType::List { item, max } => {
+            let child = match item {
+                Some(ty) => storage_bound(ty)?,
+                None if *max == 0 => 0,
+                None => return None,
+            };
+            child.checked_mul(*max)?.checked_add(VALUE_CELL_BYTES)
+        }
         RuntimeType::Record(fields) => fields.iter().try_fold(VALUE_CELL_BYTES, |n, (name, ty)| {
             n.checked_add(VALUE_CELL_BYTES)?
                 .checked_add(name.len() as u64)?

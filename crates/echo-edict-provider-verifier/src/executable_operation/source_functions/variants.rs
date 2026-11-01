@@ -162,6 +162,9 @@ pub(super) fn type_nodes(schema: &Schema) -> Check<usize> {
                 n.checked_add(1)?
                     .checked_add(child.as_ref().map_or(Some(0), count)?)
             }),
+            Schema::Sequence { element, .. } => element
+                .as_ref()
+                .map_or(Some(1), |ty| count(ty)?.checked_add(1)),
             Schema::Nominal { representation, .. } => count(representation)?.checked_add(1),
             _ => Some(1),
         }

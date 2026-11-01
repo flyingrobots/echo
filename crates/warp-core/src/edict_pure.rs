@@ -15,6 +15,8 @@ pub(crate) mod evaluate;
 #[cfg(test)]
 mod fold_tests;
 pub(crate) mod functions;
+#[cfg(test)]
+mod list_tests;
 mod matches;
 pub(crate) mod model;
 pub(crate) mod proven_order;

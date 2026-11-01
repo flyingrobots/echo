@@ -7,6 +7,11 @@
 
 ### Added
 
+- Native source-function lowerer, independent verifier and runtime support
+  bounded list values with element/length checks and deterministic resource
+  accounting. Checked provider component publication and the public compiler
+  runtime witness for lists remain pending.
+
 - Native Rust provider judgments and the generic runtime support first-order bounded
   state folds with a source-owned invariant helper, zero-bound closure checks,
   checked nested resource multiplication and metered iterative execution.

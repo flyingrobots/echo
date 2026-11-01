@@ -43,6 +43,17 @@ impl Parser<'_> {
         if name.starts_with("Bytes<") {
             return bounded_bytes(name);
         }
+        if let Some(spec) = name.strip_prefix("List<").and_then(|s| s.strip_suffix('>')) {
+            let (item, digits) = spec.rsplit_once(",max=").ok_or(Error::InvalidArtifact)?;
+            let max: u64 = digits.parse().map_err(|_| Error::InvalidArtifact)?;
+            if max.to_string() != digits {
+                return Err(Error::InvalidArtifact);
+            }
+            return Ok(RuntimeType::List {
+                item: Some(Box::new(self.ty(item, depth + 1)?)),
+                max,
+            });
+        }
         let name = name
             .strip_prefix(self.coordinate)
             .and_then(|name| name.strip_prefix('.'))
@@ -74,6 +85,15 @@ impl Parser<'_> {
                 Ok(RuntimeType::Bytes { min, max })
             }
             "Variant" => self.variant_type(definition, name, depth),
+            "List" => {
+                exact_fields(definition, &["kind", "item", "max"])?;
+                Ok(RuntimeType::List {
+                    item: Some(Box::new(
+                        self.ty(text_field(definition, "item")?, depth + 1)?,
+                    )),
+                    max: number(field(definition, "max")?)?,
+                })
+            }
             "Record" => {
                 let mut fields = Vec::new();
                 for (key, value) in map(field(definition, "fields")?)? {
@@ -106,6 +126,19 @@ impl Parser<'_> {
             "const" => {
                 exact_fields(value, &["kind", "value"])?;
                 constant(field(value, "value")?)
+            }
+            "list" => {
+                exact_fields(value, &["kind", "values"])?;
+                let values = array(field(value, "values")?)?;
+                if values.len() > self.remaining {
+                    return Err(Error::UnsupportedProgram);
+                }
+                Ok(Expr::List(
+                    values
+                        .iter()
+                        .map(|value| self.expr(value, depth + 1))
+                        .collect::<Result<_, _>>()?,
+                ))
             }
             "record" => {
                 exact_fields(value, &["kind", "fields"])?;

@@ -428,7 +428,7 @@ those components. Native synthetic tests alone do not establish public compiler
 provenance, persistent-rope semantics, or operation admission/WAL/recovery evidence.
 
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean, U8/U32/U64 and raw byte
+bounded bytes, lists, records and nominal types, with Boolean, U8/U32/U64 and raw byte
 literals. The U8 domain is exactly 0 through 255; malformed values, overflow,
 negative values and cross-width helper returns refuse. U8 constants retain
 ordinary scalar work/storage charges. Arithmetic remains U32/U64: both
@@ -445,6 +445,18 @@ one value cell plus its payload length through the existing runtime meter. The
 checked lowerer and verifier components include this rule; source-function and
 source-module consumers use the same current schema publication.
 
+Native list judgments accept finite `List<Item,max=N>` references and named
+Core `List` definitions, plus empty, homogeneous and nested list literals.
+Empty literals have no inferred element and fit any declared element type;
+nonempty elements must admit a common type without erasing nominal identity.
+The lowerer and independent verifier multiply element copy, validation and
+encoding bounds with checked arithmetic, including intents without helpers.
+Runtime construction charges the array cell and each evaluated element;
+validation checks every element and the actual length. List indexing, length
+and concatenation operations are not added by this support. The checked Wasm
+provider components have not yet been refreshed for lists, and a public
+compiler-to-runtime list witness remains required before claiming publication.
+
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
@@ -455,7 +467,7 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list and effectful helper forms
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String and effectful helper forms
 receive provider refusal. Native closed-variant checks and runtime realization
 are described below. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and

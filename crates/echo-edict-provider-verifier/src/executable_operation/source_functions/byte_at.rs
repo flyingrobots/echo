@@ -45,7 +45,7 @@ pub(super) fn valid(
     }
     Ok(false)
 }
-fn establishes(
+pub(super) fn establishes(
     p: &Value,
     holds: bool,
     index: &[u8],
@@ -85,7 +85,7 @@ fn establishes(
         _ => Ok(false),
     }
 }
-fn canonical(v: &Value, types: &mut Types<'_>) -> Check<Vec<u8>> {
+pub(super) fn canonical(v: &Value, types: &mut Types<'_>) -> Check<Vec<u8>> {
     let encoded = echo_edict_canonical::encode_canonical_cbor_v1(v).map_err(|_| ())?;
     types.proof_work(encoded.len())?;
     Ok(encoded)

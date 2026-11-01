@@ -464,9 +464,8 @@ checking even when no list literal appears; exhausting discovery refuses.
 The lowerer and independent verifier multiply element copy, validation and
 encoding bounds with checked arithmetic, including intents without helpers.
 Runtime construction charges the array cell and each evaluated element;
-validation checks every element and the actual length. List indexing, length
-and concatenation operations are not added by this support. The checked Wasm
-provider components include these list judgments, reproduced independently
+validation checks every element and the actual length. The checked Wasm
+provider components include these list-value judgments, reproduced independently
 and promoted together with their digest-bound package copies. Public
 compiler-to-runtime witnesses execute empty, nonempty, nested, record and
 nominal-element lists through the exact emitted package/report pairs, including
@@ -475,6 +474,25 @@ resource limits, invalid inputs, package identity and nominal refusal. The
 [publication driver](../../scripts/consumer-witnesses/source-functions-publication.py)
 and [runtime witness](../../xtask/examples/source_functions_public_runtime.rs)
 retain the distinction between compilation, provider verification and execution.
+
+The native Rust lowerer, verifier and runtime additionally implement
+`core.list.length`, `core.list.at`, `core.list.append` and `core.list.concat`
+under `core.list/v1`. Access requires an exact-operand strict index/length
+proof; append requires room under the declared capacity and retains that
+capacity. Concatenation checks identical item coordinates and the sum of the
+declared maxima. Both provider judgments charge operand validation and bounded
+result copies. Runtime evaluation checks actual lengths and elements and charges
+result storage before reserving it. The ordered-read type judgments admit the
+same operations after whole-intent validation.
+
+These native operation paths have synthetic provider and runtime tests in
+[`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
+and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),
+including strict-guard, capability, bounds and exact/one-unit-short resource
+refusals. The checked Wasm component pair still implements list values only;
+these tests do not establish public compiler-to-runtime operation execution.
+Component promotion and that public witness remain gates of
+[Echo #946](https://github.com/flyingrobots/echo/issues/946).
 
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved

@@ -175,6 +175,9 @@ impl Parser<'_> {
         let callee = text_field(value, "callee")?;
         let args = array(field(value, "args")?)?;
         let types = array(field(value, "typeArgs")?)?;
+        if super::list_operations::is_operation(callee) {
+            return super::list_operations::parse(self, callee, args, types, depth);
+        }
         if callee == "core.bytes.isUtf8" {
             let ([value], [coordinate]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);

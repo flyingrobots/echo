@@ -2,6 +2,87 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Read type-judgment witnesses; these do not claim public compiler provenance.
 use super::*;
+#[test]
+fn ordered_list_operations_preserve_types_after_domain_validation() {
+    let core = core();
+    let operation = |name: &str, types: &[&str], args| {
+        m([
+            ("kind", t("call")),
+            ("callee", t(name)),
+            (
+                "typeArgs",
+                Value::Array(types.iter().map(|s| t(s)).collect()),
+            ),
+            ("args", Value::Array(args)),
+        ])
+    };
+    let numbers = || call("numbers", vec![]);
+    // This type relation runs after the separate whole-intent domain audit.
+    for (value, expected) in [
+        (
+            operation("core.list.length", &["Numbers"], vec![numbers()]),
+            "U64",
+        ),
+        (
+            operation("core.list.at", &["Numbers"], vec![numbers(), integer(0)]),
+            "U64",
+        ),
+        (
+            operation(
+                "core.list.append",
+                &["Numbers"],
+                vec![numbers(), integer(7)],
+            ),
+            "Numbers",
+        ),
+        (
+            operation(
+                "core.list.concat",
+                &["Numbers", "Numbers"],
+                vec![numbers(), numbers()],
+            ),
+            "List<U64,max=4>",
+        ),
+    ] {
+        assert!(check(&core, &value, expected).is_ok(), "{expected}");
+    }
+    for (value, expected) in [
+        (
+            operation(
+                "core.list.append",
+                &["List<U64,max=3>"],
+                vec![numbers(), integer(7)],
+            ),
+            "List<U64,max=3>",
+        ),
+        (
+            operation(
+                "core.list.concat",
+                &["Numbers", "Numbers"],
+                vec![numbers(), numbers()],
+            ),
+            "List<U64,max=3>",
+        ),
+        (
+            operation(
+                "core.list.at",
+                &["List<U8,max=2>"],
+                vec![numbers(), integer(0)],
+            ),
+            "U8",
+        ),
+        (
+            operation(
+                "core.list.concat",
+                &["List<U64,max=18446744073709551615>", "Numbers"],
+                vec![numbers(), numbers()],
+            ),
+            "Numbers",
+        ),
+    ] {
+        assert_refusal(check(&core, &value, expected));
+    }
+}
 
 fn t(value: &str) -> Value {
     Value::Text(value.into())
@@ -47,6 +128,7 @@ fn row(value: Value) -> Value {
 fn core() -> Value {
     m([
         ("coordinate", t("example@1")),
+        ("pureFunctions", Value::Array(vec![])),
         (
             "types",
             m([

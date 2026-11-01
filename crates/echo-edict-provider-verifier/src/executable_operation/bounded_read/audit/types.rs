@@ -416,6 +416,46 @@ impl<'a> Symbols<'a> {
             declared.push(self.schema(string(coordinate)?, 0)?);
         }
         match (name, actual.as_slice(), declared.as_slice()) {
+            // The independent whole-intent audit has proved the strict domains.
+            (
+                "core.list.length",
+                [value],
+                [ty @ Schema::Sequence {
+                    element: Some(_), ..
+                }],
+            ) if ty.includes(value) => Ok(Schema::Word(u64::MAX)),
+            (
+                "core.list.at",
+                [value, Schema::Word(u64::MAX)],
+                [ty @ Schema::Sequence {
+                    element: Some(element),
+                    ..
+                }],
+            ) if ty.includes(value) => Ok(*element.clone()),
+            (
+                "core.list.append",
+                [value, entry],
+                [ty @ Schema::Sequence {
+                    element: Some(element),
+                    ..
+                }],
+            ) if ty == value && element.includes(entry) => Ok(ty.clone()),
+            (
+                "core.list.concat",
+                [left, right],
+                [a @ Schema::Sequence {
+                    element: Some(element),
+                    maximum: n,
+                }, b @ Schema::Sequence {
+                    element: Some(other),
+                    maximum: m,
+                }],
+            ) if element == other && a.includes(left) && b.includes(right) => {
+                Ok(Schema::Sequence {
+                    element: Some(element.clone()),
+                    maximum: n.checked_add(*m).ok_or(())?,
+                })
+            }
             // The source-function audit has independently proved totality and order.
             ("core.integer.add", [left, right], [expected @ Schema::Word(_)])
                 if left == expected && right == expected =>

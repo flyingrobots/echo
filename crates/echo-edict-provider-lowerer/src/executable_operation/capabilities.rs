@@ -16,8 +16,10 @@ pub(super) fn validate(core: &Value) -> Result<(), ProviderRefusalV1> {
                 "required capability is not text",
             ));
         };
-        if !matches!(name.as_str(), "core.variant/v1" | "core.fold/v1")
-            || !supported.insert(name.as_str())
+        if !matches!(
+            name.as_str(),
+            "core.variant/v1" | "core.fold/v1" | "core.list/v1"
+        ) || !supported.insert(name.as_str())
         {
             return Err(super::super::unsupported_semantics(
                 SUBJECT,

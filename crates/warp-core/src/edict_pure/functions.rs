@@ -32,14 +32,21 @@ pub(crate) fn definitions<'a>(
     if let Ok(required) = field(core, "requiredCoreCapabilities") {
         for capability in array(required)? {
             let capability = text(capability)?;
-            if !matches!(capability, "core.fold/v1" | "core.variant/v1")
-                || !capabilities.insert(capability)
+            if !matches!(
+                capability,
+                "core.fold/v1" | "core.variant/v1" | "core.list/v1"
+            ) || !capabilities.insert(capability)
             {
                 return Err(Error::UnsupportedProgram);
             }
         }
     }
     let fold_capability = capabilities.contains("core.fold/v1");
+    if !capabilities.contains("core.list/v1") {
+        let mut remaining = MAX_PROGRAM_NODES;
+        super::list_operations::without_capability(core, &mut remaining, 0)?;
+        super::list_operations::without_capability(exports, &mut remaining, 0)?;
+    }
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;
         let implementation = field(item, "body")?;
@@ -635,6 +642,17 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::list_operations::is_operation(name) {
+                return super::list_operations::infer(
+                    value,
+                    &actual,
+                    &declared,
+                    proof.facts,
+                    proof.path,
+                    parser,
+                    depth,
+                );
+            }
             match (name, actual.as_slice(), declared.as_slice()) {
                 ("core.bytes.isUtf8", [actual], [expected @ RuntimeType::Bytes { .. }])
                     if expected == actual =>
@@ -1048,9 +1066,14 @@ impl Heights<'_> {
                 maximum + 1
             }
             Expr::ByteUtf8 { value, .. }
+            | Expr::ListLength { value, .. }
             | Expr::ByteLength { value, .. }
             | Expr::ByteCount { value, .. } => self.expr(value, depth + 1)? + 1,
-            Expr::ByteAt { value, index, .. } => {
+            Expr::ByteAt { value, index, .. }
+            | Expr::ListAt { value, index, .. }
+            | Expr::ListAppend {
+                value, item: index, ..
+            } => {
                 self.expr(value, depth + 1)?
                     .max(self.expr(index, depth + 1)?)
                     + 1
@@ -1064,6 +1087,7 @@ impl Heights<'_> {
                     + 1
             }
             Expr::ByteConcat { left, right, .. }
+            | Expr::ListConcat { left, right, .. }
             | Expr::UnsignedSubtract { left, right, .. }
             | Expr::UnsignedAdd { left, right, .. } => {
                 self.expr(left, depth + 1)?

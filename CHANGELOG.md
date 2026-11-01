@@ -7,6 +7,13 @@
 
 ### Added
 
+- Native Rust provider judgments and runtime paths support bounded list length,
+  checked access, capacity-preserving append and bound-summing concatenation
+  under `core.list/v1`. Synthetic tests cover strict domains, capability and
+  type refusals, deterministic copy charges and one-unit-short budgets.
+  The checked Wasm provider components have not yet been promoted with these
+  operations; public compiler-to-runtime execution remains a separate gate.
+
 - The source-function lowerer, independent verifier and runtime support
   bounded list values with element/length checks and deterministic resource
   accounting. Ordered-read judgments accept lists and recursive record/branch

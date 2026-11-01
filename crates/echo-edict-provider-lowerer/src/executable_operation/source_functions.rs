@@ -10,6 +10,7 @@ mod byte_literals_tests;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
@@ -634,6 +635,12 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, declared) if list_operations::is_operation(name) => {
+                            let result = self.list_operation(value, actual, declared)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
                         ("core.bytes.isUtf8", [actual], [expected @ Ty::Bytes(_, max)])
                             if expected == actual =>
                         {

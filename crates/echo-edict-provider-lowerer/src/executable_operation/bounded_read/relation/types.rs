@@ -437,6 +437,30 @@ impl<'a> Scope<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
+            // Whole-intent checking has already proved the list domains.
+            ("core.list.length", [value], [ty @ ReadType::List(Some(_), _)])
+                if ty.accepts(value) =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
+            }
+            (
+                "core.list.at",
+                [value, ReadType::Unsigned(u64::MAX)],
+                [ty @ ReadType::List(Some(item), _)],
+            ) if ty.accepts(value) => Ok(*item.clone()),
+            ("core.list.append", [value, entry], [ty @ ReadType::List(Some(item), _)])
+                if ty == value && item.accepts(entry) =>
+            {
+                Ok(ty.clone())
+            }
+            (
+                "core.list.concat",
+                [left, right],
+                [a @ ReadType::List(Some(item), n), b @ ReadType::List(Some(other), m)],
+            ) if item == other && a.accepts(left) && b.accepts(right) => Ok(ReadType::List(
+                Some(item.clone()),
+                n.checked_add(*m).ok_or_else(invalid)?,
+            )),
             // source_functions::validate already established the independent
             // no-overflow and order proofs before this read relation is constructed.
             ("core.integer.add", [left, right], [expected @ ReadType::Unsigned(_)])

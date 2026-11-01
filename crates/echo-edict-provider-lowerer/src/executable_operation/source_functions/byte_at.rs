@@ -29,7 +29,7 @@ pub(super) fn valid(
     }
     Ok(false)
 }
-fn strict(
+pub(super) fn strict(
     fact: &Value,
     truth: bool,
     index: &[u8],
@@ -72,7 +72,7 @@ fn strict(
         _ => Ok(false),
     }
 }
-fn key(value: &Value, work: &mut usize) -> Check<Vec<u8>> {
+pub(super) fn key(value: &Value, work: &mut usize) -> Check<Vec<u8>> {
     let b = echo_edict_canonical::encode_canonical_cbor_v1(value).map_err(|_| ())?;
     *work = work.checked_sub(b.len()).ok_or(())?;
     Ok(b)

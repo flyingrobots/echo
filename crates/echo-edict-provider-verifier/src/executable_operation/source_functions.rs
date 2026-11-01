@@ -7,6 +7,9 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod fold;
+#[cfg(test)]
+mod fold_tests;
 mod matches;
 mod order;
 mod types;
@@ -125,6 +128,14 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                     predicate_expressions(predicate, depth + 1, &mut types, &mut expressions)?;
                     expressions.push((get(expression, "then")?, depth + 1));
                     expressions.push((get(expression, "else")?, depth + 1));
+                }
+                "fold" => {
+                    let callee = string(get(expression, "step")?)?;
+                    if !definition.source || !definitions.get(callee).is_some_and(|f| f.source) {
+                        return Err(());
+                    }
+                    edges.insert(callee);
+                    expressions.push((get(expression, "initial")?, depth + 1));
                 }
                 "call" => {
                     let callee = string(get(expression, "callee")?)?;
@@ -405,6 +416,7 @@ impl<'a> Checker<'a, '_> {
         };
         let mut height = 0;
         let schema = match string(get(value, "kind")?)? {
+            "fold" => return self.state_fold(value, frame, depth),
             "match" => return self.audit_match(value, frame, depth),
             "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {

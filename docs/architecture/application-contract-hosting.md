@@ -405,6 +405,27 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
+Native source-function judgments and runtime evaluation support the first-order
+`fold(initial, step, bound)` expression. `step` is a named source-owned helper
+with exactly one parameter and the same declared return type; `stateType` must
+match that invariant signature. The initial value is checked in the caller's
+lexical scope. The complete helper closure remains checked at bound zero,
+including cycle rejection and helper authority. Opaque imported helpers and
+callback values cannot become iteration steps.
+
+Evaluation computes the initial state once and moves each result into a fresh
+step frame. Iterations do not accumulate native stack depth. The existing depth
+limit applies to expression nesting and helper dependencies. Static judgments
+multiply the complete step and argument-validation charges by the bound with
+checked arithmetic; the runtime meters each executed iteration, copies and
+validation. Zero iterations still validate and return the initial state. The
+capability is `core.fold/v1`; unknown and duplicate capabilities refuse.
+
+These native changes require refreshed, independently reproduced provider
+components before distributed public compiler builds can use them. Native
+synthetic tests do not establish public compiler provenance, persistent-rope
+semantics, or operation admission/WAL/recovery evidence.
+
 The native source-function target subset supports Boolean values, unsigned words,
 bounded bytes, records and nominal types, with Boolean, U8/U32/U64 and raw byte
 literals. The U8 domain is exactly 0 through 255; malformed values, overflow,

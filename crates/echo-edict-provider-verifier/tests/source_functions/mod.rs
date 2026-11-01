@@ -3,6 +3,7 @@
 //! Deliberately rebound native-provider tests, not compiler acceptance evidence.
 use super::*;
 mod capabilities;
+mod fold;
 mod proven_ranges;
 mod unsigned_addition;
 

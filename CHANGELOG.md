@@ -7,6 +7,12 @@
 
 ### Added
 
+- Native provider judgments and the generic runtime support first-order bounded
+  state folds with a source-owned invariant helper, zero-bound closure checks,
+  checked nested resource multiplication and metered iterative execution.
+  Checked provider component promotion and public compiler/runtime evidence
+  remain required before publication of this capability.
+
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered
   dispatch and frame copies. The checked provider component pair, reproduced by

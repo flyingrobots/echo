@@ -7,6 +7,9 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod fold;
+#[cfg(test)]
+mod fold_tests;
 mod matches;
 mod order;
 #[cfg(test)]
@@ -445,6 +448,7 @@ impl<'a> Judgment<'a> {
         let mut cost = Cost { steps: 1, bytes: 0 };
         let mut depth = 0;
         let ty = match string(get(value, "kind")?)? {
+            "fold" => return self.state_fold(value, scope, source, prefix),
             "match" => return self.variant_match(value, scope, source, prefix),
             "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {

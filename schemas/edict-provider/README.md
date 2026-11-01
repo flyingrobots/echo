@@ -12,15 +12,11 @@ The current source is
 `echo.edict-provider-semantics/v1`, and its semantic-source coordinate is
 `echo.semantic-schema@1`.
 
-The explicit source-module variant is
-[`echo-provider-semantics-source-modules-v1.json`](echo-provider-semantics-source-modules-v1.json).
-It adds only an alternative source-closure invocation input and its owning
-schema binding. Each generation selects exactly one semantic source and binds
-its exact bytes together with an explicit contract publication. The module
-variant requires `ProviderContractPublicationV1::SourceModules`; there is no
-automatic upgrade from a legacy selection. `provider_source_module_generation`
-checks that every pre-existing semantic declaration is identical in both
-variants and that module generation has its owning schema root.
+The one current declaration includes both raw source and authenticated source
+closure as distinct invocation inputs, with their owning schema bindings.
+Generation binds these exact bytes to the sole current upstream contract pack.
+The production package inventory is the exact 32-binding set; historical
+publication variants and their 31-binding package path are not admitted.
 
 ## Authority
 
@@ -343,24 +339,22 @@ writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
 
-The isolated legacy Edict host gate pins revision
-`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes that exact checked package.
-It constructs all 31 native schema bindings, validates the five canonical primaries
+The isolated current Amblicit host gate pins revision
+`2269d81f257f7794b44270cf3f7ca330966a0784` and consumes that exact checked package.
+It constructs all 32 native schema bindings, validates the five canonical primaries
 and 14 generated resources, proves every owner field names the expected exact
 resource digest, prepares both components, and obtains both opaque request
 proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The [source-function contract publication](contracts/source-functions-v1/README.md)
-is selected explicitly through `ProviderContractPublicationV1::SourceFunctions`.
-It preserves the existing pure-binding and ordered publication bytes and does
-not change the default checked generation route. Its candidate generator uses
-the same artifact/provenance/package admission libraries with the selected new
-pair and the refreshed checked component carriers. Source-owned call authority
-and runtime capability still require independent provider validation.
+The [current upstream contract publication](contracts/v1/README.md) includes
+source functions, authenticated source closures, folds and structured Target IR
+schema shapes. Older publications are rejected. Independent provider judgments
+still own source-call authority, capability support and costs; the checked
+components currently refuse fold execution.
 
-The crate-local `assets/v1/` tree is an exact 46-file publication carrier for
+The crate-local `assets/v1/` tree is an exact 39-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
 provenance. The compile-time generator identity enumerates a 21-file source
 closure, including the provider-generic registry implementation. Carrier paths

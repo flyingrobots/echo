@@ -16,12 +16,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use edict_provider_host_wasmtime::{
+use amblicit_provider_host_wasmtime::{
     PreparedProviderComponent, ProviderComponentHost, ProviderHostFailureKind, ProviderHostLimits,
     ProviderHostPhase, ProviderReplayObservation, ResolvedProviderComponent,
 };
-use edict_provider_schema::{ProviderArtifactSchemaRegistry, ResolvedProviderSchemaArtifact};
-use edict_syntax::{
+use amblicit_provider_schema::{ProviderArtifactSchemaRegistry, ResolvedProviderSchemaArtifact};
+use amblicit_syntax::{
     bind_target_provider_manifest, compile_to_core, decode_canonical_cbor, digest_core_module,
     digest_target_ir_artifact, encode_canonical_cbor, encode_core_module,
     encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
@@ -677,8 +677,9 @@ fn echo_verifier_harness_with_request(
     let schema = echo_verifier_registry(manifest);
     let contract = Box::leak(Box::new(contract));
     let request = Box::leak(Box::new(request));
-    let request = edict_syntax::validate_provider_verification_request(schema, contract, request)
-        .expect("Echo verification request passes complete schema admission");
+    let request =
+        amblicit_syntax::validate_provider_verification_request(schema, contract, request)
+            .expect("Echo verification request passes complete schema admission");
     VerifyHarness {
         host,
         prepared,
@@ -1207,6 +1208,8 @@ fn echo_verifier_observation() -> String {
 
 fn oracle_target_ir_artifact(core: &CoreModule) -> TargetIrArtifact {
     let facts = TargetIrLoweringFacts {
+        effect_signatures: Vec::new(),
+        pure_functions: Vec::new(),
         target_profile: ResourceRef {
             coordinate: ECHO_DPO_TARGET_PROFILE.to_owned(),
             digest: Some(format!("sha256:{DOMAIN_TARGET_PROFILE_SHA256}")),
@@ -1251,6 +1254,7 @@ fn compatibility_verifier_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDige
 fn closed_lowerer_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
     let mut artifact = oracle_target_ir_artifact(core);
     artifact.semantic_closure = Some(TargetIrSemanticClosure {
+        capabilities: Vec::new(),
         source_core: ResourceRef {
             coordinate: core.coordinate.clone(),
             digest: Some(

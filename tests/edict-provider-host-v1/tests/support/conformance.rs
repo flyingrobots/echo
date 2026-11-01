@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use edict_syntax::{decode_canonical_cbor, CanonicalValue};
+use amblicit_syntax::{decode_canonical_cbor, CanonicalValue};
 
 pub const CONFORMANCE_CORPUS_BYTES: &[u8] = include_bytes!(
     "../../../../schemas/edict-provider/generated/v1/resources/resource.conformance-corpus.cbor"

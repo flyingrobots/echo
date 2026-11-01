@@ -1,103 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::expect_used, clippy::panic)]
-//! Exact bounded-fold schema publication selection, separate from execution.
-use echo_wesley_gen::provider_contract_pack::{
-    admit_provider_contract_pack_for_publication_v1, ProviderContractPublicationV1,
-};
-use sha2::{Digest, Sha256};
-const SCHEMA: &[u8] = include_bytes!(
-    "../assets/v1/edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl"
-);
-const MANIFEST: &[u8] =
-    include_bytes!("../assets/v1/edict-provider/contracts/bounded-state-fold-v1/manifest.json");
-
-#[test]
-fn bounded_fold_pair_has_one_explicit_admission_route() {
-    assert_eq!(
-        hex::encode(Sha256::digest(SCHEMA)),
-        "2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284"
-    );
-    assert_eq!(
-        hex::encode(Sha256::digest(MANIFEST)),
-        "48c08670e27bd722dc779488e5839f01252ff4ecc90c670043a509365bab6361"
-    );
-    let publications = [
-        ProviderContractPublicationV1::PureBindings,
-        ProviderContractPublicationV1::OrderedInstructions,
-        ProviderContractPublicationV1::SourceFunctions,
-        ProviderContractPublicationV1::SourceModules,
-        ProviderContractPublicationV1::BoundedStateFold,
-    ];
-    let admitted = publications
-        .into_iter()
-        .filter_map(|publication| {
-            admit_provider_contract_pack_for_publication_v1(publication, SCHEMA, MANIFEST).ok()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        admitted.len(),
-        1,
-        "one closed selector must admit the new pair"
-    );
-    assert_eq!(admitted[0].schema_bytes(), SCHEMA);
-    assert_eq!(admitted[0].manifest_bytes(), MANIFEST);
-    assert_eq!(admitted[0].contract_count(), 12);
-    assert_eq!(admitted[0].domain_count(), 8);
-}
-
-#[test]
-fn bounded_fold_selection_refuses_older_crossed_and_tampered_publications() {
-    use echo_wesley_gen::provider_contract_pack::ProviderContractPackErrorKind as Kind;
-    for (publication, schema, manifest) in [
-        (ProviderContractPublicationV1::PureBindings, include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl").as_slice(), include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json").as_slice()),
-        (ProviderContractPublicationV1::OrderedInstructions, include_bytes!("../assets/v1/edict-provider/contracts/ordered/edict-provider-contracts.cddl").as_slice(), include_bytes!("../assets/v1/edict-provider/contracts/ordered/manifest.json").as_slice()),
-        (ProviderContractPublicationV1::SourceFunctions, include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl").as_slice(), include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/manifest.json").as_slice()),
-        (ProviderContractPublicationV1::SourceModules, include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl").as_slice(), include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/manifest.json").as_slice()),
-    ] {
-        assert_eq!(admit_provider_contract_pack_for_publication_v1(publication, SCHEMA, MANIFEST).expect_err("old selector must not upgrade").kind(), Kind::ManifestSizeExceeded);
-        assert_eq!(admit_provider_contract_pack_for_publication_v1(ProviderContractPublicationV1::BoundedStateFold, schema, manifest).expect_err("new selector must not downgrade").kind(), Kind::SchemaDigestMismatch);
-        for (schema, manifest) in [(schema, MANIFEST), (SCHEMA, manifest)] {
-            assert_eq!(admit_provider_contract_pack_for_publication_v1(ProviderContractPublicationV1::BoundedStateFold, schema, manifest).expect_err("crossed pair").kind(), Kind::SchemaBytesMismatch);
-        }
-    }
-    let mut schema = SCHEMA.to_vec();
-    schema[0] ^= 1;
-    assert_eq!(
-        admit_provider_contract_pack_for_publication_v1(
-            ProviderContractPublicationV1::BoundedStateFold,
-            &schema,
-            MANIFEST
-        )
-        .expect_err("tampered schema")
-        .kind(),
-        Kind::SchemaBytesMismatch
-    );
-    let mut manifest = MANIFEST.to_vec();
-    manifest.pop(); // Preserve valid JSON while changing its exact publication identity.
-    assert_eq!(
-        admit_provider_contract_pack_for_publication_v1(
-            ProviderContractPublicationV1::BoundedStateFold,
-            SCHEMA,
-            &manifest
-        )
-        .expect_err("manifest byte substitution")
-        .kind(),
-        Kind::ManifestDigestMismatch
-    );
-    assert_eq!(
-        admit_provider_contract_pack_for_publication_v1(
-            ProviderContractPublicationV1::BoundedStateFold,
-            SCHEMA,
-            &vec![b' '; MANIFEST.len() + 1]
-        )
-        .expect_err("oversized manifest")
-        .kind(),
-        Kind::ManifestSizeExceeded
-    );
-}
-
+//! Current publication structural conformance; not runtime execution evidence.
 use echo_wesley_gen::provider_canonical::{encode_canonical_cbor_v1, CanonicalValueV1 as Value};
+use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
+const SCHEMA: &[u8] =
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+const MANIFEST: &[u8] = include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 fn text(value: &str) -> Value {
     Value::Text(value.to_owned())
 }
@@ -212,29 +121,14 @@ fn replace(value: &mut Value, key: &str, next: Value) {
 }
 
 #[test]
-fn fold_shape_requires_the_new_schema_and_closed_fields() {
+fn current_fold_shape_requires_closed_fields_and_unsigned_bound() {
     use echo_wesley_gen::provider_contract_pack::ProviderContractValidationErrorKind as Kind;
-    let old = admit_provider_contract_pack_for_publication_v1(
-        ProviderContractPublicationV1::SourceModules,
-        include_bytes!(
-            "../assets/v1/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl"
-        ),
-        include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/manifest.json"),
-    )
-    .expect("old publication");
-    let new = admit_provider_contract_pack_for_publication_v1(
-        ProviderContractPublicationV1::BoundedStateFold,
-        SCHEMA,
-        MANIFEST,
-    )
-    .expect("fold publication");
+    let new = admit_provider_contract_pack_v1(SCHEMA, MANIFEST).expect("current publication");
     let function = identity_function(Some(text("U64")));
     let baseline = core_module(Some(map([("identity", function.clone())])));
     let baseline_bytes = encode_canonical_cbor_v1(&baseline).expect("baseline bytes");
-    for pack in [&old, &new] {
-        pack.validate_contract_bytes("core-module", &baseline_bytes)
-            .expect("non-fold control");
-    }
+    new.validate_contract_bytes("core-module", &baseline_bytes)
+        .expect("non-fold control");
     // Structural specimens deliberately do not establish typing or execution.
     let initial = map([("kind", text("local")), ("ref", parameter())]);
     let fold = map([
@@ -258,12 +152,6 @@ fn fold_shape_requires_the_new_schema_and_closed_fields() {
         core_module(Some(map([("identity", function.clone()), ("run", run)])))
     };
     let bytes = encode_canonical_cbor_v1(&specimen(fold.clone())).expect("fold bytes");
-    assert_eq!(
-        old.validate_contract_bytes("core-module", &bytes)
-            .expect_err("old schema refuses fold")
-            .kind(),
-        Kind::SchemaMismatch
-    );
     new.validate_contract_bytes("core-module", &bytes)
         .expect("new schema admits fold shape");
     for key in ["initial", "step", "bound", "stateType"] {
@@ -280,6 +168,18 @@ fn fold_shape_requires_the_new_schema_and_closed_fields() {
             Kind::SchemaMismatch
         );
     }
+    let mut extra = fold.clone();
+    let Value::Map(ref mut fields) = extra else {
+        panic!("map")
+    };
+    fields.push((text("ignored"), Value::Bool(true)));
+    let bytes = encode_canonical_cbor_v1(&specimen(extra)).expect("extra field bytes");
+    assert_eq!(
+        new.validate_contract_bytes("core-module", &bytes)
+            .expect_err("unknown field")
+            .kind(),
+        Kind::SchemaMismatch
+    );
     let mut invalid = fold;
     replace(&mut invalid, "bound", Value::Integer(-1));
     let bytes = encode_canonical_cbor_v1(&specimen(invalid)).expect("negative bound bytes");

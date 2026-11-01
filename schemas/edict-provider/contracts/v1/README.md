@@ -1,27 +1,35 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Edict Provider Contract Pack v1
+# Current upstream provider contract pack
 
-This directory vendors the exact Edict provider contract pack introduced in
-[Edict PR #162](https://github.com/flyingrobots/edict/pull/162), extended with
-`edict.result-projection.artifact/v1` in
-[Edict PR #174](https://github.com/flyingrobots/edict/pull/174), and extended
-with generic pure bindings in
-[Edict PR #201](https://github.com/flyingrobots/edict/pull/201) at commit
-[`39a796de04b3400f569880da06878da50d8ed0ee`](https://github.com/flyingrobots/edict/commit/39a796de04b3400f569880da06878da50d8ed0ee):
+This is the exact schema/manifest pair from Amblicit merge
+`2269d81f257f7794b44270cf3f7ca330966a0784`, [PR #285](https://github.com/flyingrobots/amblicit/pull/285), published upstream as `bounded-state-fold-v1`.
+The API and coordinate remain `edict.provider-contract-pack/v1` and
+`edict.provider-contract-pack.cddl@1`; exact bytes identify this publication.
 
-- `edict-provider-contracts.cddl` is the assembled Edict-owned CDDL contract.
-- `manifest.json` binds that CDDL and its contract resources to their published
-  identities, digests, and provenance.
+| Artifact | SHA-256 |
+| --- | --- |
+| `edict-provider-contracts.cddl` | `2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284` |
+| `manifest.json` | `48c08670e27bd722dc779488e5839f01252ff4ecc90c670043a509365bab6361` |
 
-Both files are licensed under Apache-2.0, as declared by the upstream CDDL and
-manifest. They are exact external inputs, not Echo-authored schemas and not
-generated Echo outputs. Do not edit either file independently. An update must
-replace the pair from one reviewed Edict publication and update this provenance
-record in the same change.
+Both files are Apache-2.0 upstream inputs. Replace them together; do not edit
+one independently. The sole production admission API pins this pair, its
+84,340-byte manifest ceiling, twelve contracts, eight domains and five resources.
+Earlier pairs are rejected. Historical bytes survive only in Git and test-only
+rejection fixtures, without a production selector or historical decoder.
 
-The Echo generator receives these bytes explicitly. It does not discover this
-directory, resolve a mutable coordinate, read a registry, or fetch the pack at
-generation time. The checked path makes the selected publication reviewable;
-admission of the supplied bytes is the executable authority boundary.
+Relative to the prior source-module pair, this publication adds the fold
+expression to Core and the shared Target expression schema. It also includes
+the upstream structured Target IR family (`structuredTargetIrArtifact`,
+`echo.span-ir/v3`, branch and bounded-for control entries) and tightens phased
+Target domains so `echo.span-ir/v2` and `echo.span-ir/v3` cannot masquerade as
+phased artifacts. The source-closure envelope remains structurally bounded to
+1–64 modules with typed SHA-256 digests. Source authentication, typing,
+capability declarations, total costs and execution remain semantic obligations.
+
+The checked provider components still reject `core.fold/v1`. Schema admission
+and package generation do not establish fold execution, structured control
+execution, admission, or authored-rope completion. The consumer publication
+witness uses this same current pair and accepts explicit candidate components;
+it has no historical-publication selector flags.

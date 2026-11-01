@@ -636,7 +636,7 @@ and the original-allocation refusal. Runtime consumption checks unchanged byte
 results, increasing constructor/payload charges, repeated outcomes, resource
 ceilings and package identity. The checked component pair is reproduced by two
 matching CI builds and promoted. Regenerating with
-`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output> --source-modules`
+`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output>`
 uses those checked components without a candidate override. All 25 generated
 files match the source-modules candidate consumed by the public witness byte for
 byte. This generated publication is a different selection from the committed
@@ -945,20 +945,14 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
-Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
-publications. The original `admit_provider_contract_pack_v1` entry point remains
-bound to its pure-binding publication. The opt-in
-`admit_provider_contract_pack_for_publication_v1` entry point additionally admits
-the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md),
-the source-function publication, and the explicit `SourceModules` publication
-from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
-The latter adds a `source-closure` contract and `edict.source-closure/v1` domain
-while retaining the exact bytes and inventories of earlier selections. Its
-CDDL validates the closed envelope, 1–64 module entries and typed SHA-256
-digests. Source import authentication, root membership, reachability and
-aggregate byte/depth budgets remain Edict semantic obligations; structural
-admission does not prove them. See the [publication boundary](../../schemas/edict-provider/contracts/source-modules-v1/README.md).
-The explicit `BoundedStateFold` selection admits the exact [fold publication](../../schemas/edict-provider/contracts/bounded-state-fold-v1/README.md) from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`. It widens Core and Target expression schemas while retaining the source-closure inventory. Existing components still refuse `core.fold/v1`; this selection alone establishes no fold execution or budget guarantee.
+Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
+
+The current schema includes the authenticated source closure, bounded fold
+expressions and structured Target IR, with phased-domain collision refusals.
+Structural acceptance does not establish source authentication, helper typing,
+capability support, costs or execution. The checked components still reject
+`core.fold/v1`. The generator uses one current semantic declaration and the
+package validator requires its exact 32-binding inventory.
 
 The native lowerer and independent verifier accept exactly one source artifact
 in their existing invocation closure: the legacy `edict-source` byte string
@@ -1142,7 +1136,7 @@ install a package, admit an operation, or authorize a runtime consequence.
 The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
 not a hash of the completed JSON manifest. It binds the manifest role and
 coordinate, exact API and provider ABI, ten sorted semantic/component routes,
-31 sorted schema bindings—nine compatibility invocation domains, the generated
+32 sorted schema bindings—ten current invocation domains, the generated
 artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains—and raw exact-byte hashes for all 24
 non-manifest members. The derived manifest carries that root and has its own
@@ -1162,8 +1156,8 @@ corpus. Its check mode inventories the exact tree through retained no-follow
 directory capabilities and reports drift without repair. This distribution
 copy is a release occurrence, not a second semantic authority.
 
-Native readiness is a later, independent crossing pinned to Edict revision
-`2e3f52f9e6d615f96eb594a40126e223a9253d98`. The exact manifest constructs the
+Native readiness is a later, independent crossing pinned to Amblicit revision
+`2269d81f257f7794b44270cf3f7ca330966a0784`. The exact manifest constructs the
 immutable schema registry; all five canonical primaries and 14 generated
 resources validate under their owning roots; every lawpack/target-profile field
 is bound to the expected coordinate and independently recomputed domain-framed
@@ -1173,7 +1167,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 46-file package-local carrier tree
+The publishable Rust crate uses a separate 39-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

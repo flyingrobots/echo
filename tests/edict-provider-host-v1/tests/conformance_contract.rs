@@ -7,7 +7,7 @@ mod support;
 
 use std::collections::BTreeSet;
 
-use edict_syntax::{decode_canonical_cbor, encode_canonical_cbor, CanonicalValue};
+use amblicit_syntax::{decode_canonical_cbor, encode_canonical_cbor, CanonicalValue};
 use support::conformance::{
     decode_declared_cases, CorpusContractErrorKind, ExecutableContract, ExecutorOwner,
     CONFORMANCE_CORPUS_BYTES,

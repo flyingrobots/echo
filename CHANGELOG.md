@@ -7,9 +7,11 @@
 
 ### Added
 
-- Explicit digest-pinned `BoundedStateFold` contract-pack selection and publication
-  witness flag admit the upstream fold schema. Checked provider components still
-  refuse fold execution; the default publication is unchanged.
+- Replace historical contract-publication selectors with one current upstream
+  schema/manifest pair and one 32-binding package inventory. Older pairs are
+  refused and retained only as rejection-test fixtures. Provider generation
+  uses one semantic declaration. The schema includes folds and structured Target
+  IR; checked components still refuse fold execution.
 
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered

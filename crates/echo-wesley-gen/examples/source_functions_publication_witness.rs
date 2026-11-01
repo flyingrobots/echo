@@ -6,9 +6,7 @@
 use anyhow::{bail, ensure, Context, Result};
 use clap::Parser;
 use echo_wesley_gen::provider_artifacts::generate_provider_primary_artifacts_v1;
-use echo_wesley_gen::provider_contract_pack::{
-    admit_provider_contract_pack_for_publication_v1, ProviderContractPublicationV1,
-};
+use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
 use echo_wesley_gen::provider_corpus::checked_provider_generator_source_bundle_v1;
 use echo_wesley_gen::provider_generation::build_provider_generation_input_v1;
 use echo_wesley_gen::provider_package::{
@@ -23,12 +21,6 @@ use std::path::PathBuf;
 struct Arguments {
     /// New directory for the admitted candidate package.
     output: PathBuf,
-    /// Select the source-module publication and semantic variant.
-    #[arg(long)]
-    source_modules: bool,
-    /// Select the fold-capable schema; component execution support is separate.
-    #[arg(long, conflicts_with = "source_modules")]
-    bounded_state_fold: bool,
     /// Explicit candidate lowerer; requires an explicit verifier too.
     #[arg(long, requires = "verifier_component")]
     lowerer_component: Option<PathBuf>,
@@ -76,31 +68,11 @@ fn main() -> Result<()> {
     if output.exists() {
         bail!("expected a new output directory");
     }
-    let (publication, schema, manifest, source): (_, &[u8], &[u8], &[u8]) = if arguments
-        .bounded_state_fold
-    {
-        (
-            ProviderContractPublicationV1::BoundedStateFold,
-            include_bytes!("../assets/v1/edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl"),
-            include_bytes!("../assets/v1/edict-provider/contracts/bounded-state-fold-v1/manifest.json"),
-            include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-source-modules-v1.json"),
-        )
-    } else if arguments.source_modules {
-        (
-            ProviderContractPublicationV1::SourceModules,
-            include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl"),
-            include_bytes!("../assets/v1/edict-provider/contracts/source-modules-v1/manifest.json"),
-            include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-source-modules-v1.json"),
-        )
-    } else {
-        (
-            ProviderContractPublicationV1::SourceFunctions,
-            include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl"),
-            include_bytes!("../assets/v1/edict-provider/contracts/source-functions-v1/manifest.json"),
-            include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json"),
-        )
-    };
-    let contracts = admit_provider_contract_pack_for_publication_v1(publication, schema, manifest)?;
+    let contracts = admit_provider_contract_pack_v1(
+        include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl"),
+        include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json"),
+    )?;
+    let source = include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
     let input = build_provider_generation_input_v1(
         source,
         &contracts,

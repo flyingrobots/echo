@@ -57,15 +57,7 @@ named contract's owning root in the authenticated CDDL. Canonical decoding or
 hashing alone is not schema admission, and even successful owning-root
 validation does not install an artifact or confer Echo runtime authority.
 
-`admit_provider_contract_pack_for_publication_v1(...)` also permits explicit
-selection of the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md)
-from Edict #219 and the
-[source-function publication](../../schemas/edict-provider/contracts/source-functions-v1/README.md)
-from Edict #226. Each schema/manifest pair has separate fixed digests and a
-publication-specific size bound. The original entry point and checked provider
-generation still select the original pure-binding publication. Neither API
-infers a publication from input bytes or treats schema admission as support for
-source-function execution, ordered execution, or stateful effects.
+`admit_provider_contract_pack_v1(...)` admits only the [current upstream pair](../../schemas/edict-provider/contracts/v1/README.md). Its schema and manifest digests, size ceiling and inventories are fixed before parsing. Older publications are rejected; their bytes remain only as test rejection evidence. No selector or compatibility wrapper exposes them in production. Schema admission does not grant executable support.
 
 `provider_generation::build_provider_generation_input_v1(...)` joins that
 admitted pack with exact Echo semantic-source bytes and the checked versioned
@@ -133,7 +125,7 @@ identity, not an executable-build or supply-chain attestation.
 provider components into one 24-member, non-self-referential package closure,
 then derives the separate `edict.provider-manifest/v1` JSON file. The Echo-owned
 package root is a domain-framed canonical-CBOR value over the exact manifest
-routes, 31 schema bindings (nine compatibility invocation domains, the
+routes, 32 schema bindings (ten current invocation domains, the
 generated artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains), and raw SHA-256 of every non-manifest
 member.
@@ -180,7 +172,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 46-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 39-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every
@@ -207,9 +199,9 @@ verifier resource trees to the ordinary package-carrier operation. Without
 `--write` it synchronizes both. `--check-package-list` composes with the same
 invocation, so no accepted flag is silently skipped.
 
-The isolated `tests/edict-provider-host-v1` gate pins Edict revision
-`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes the exact checked
-package. It constructs the native 31-binding schema registry, validates all 19
+The isolated `tests/edict-provider-host-v1` gate pins Amblicit revision
+`2269d81f257f7794b44270cf3f7ca330966a0784` and consumes the exact checked
+package. It constructs the native 32-binding schema registry, validates all 19
 canonical package members under their owning roots, binds every lawpack and
 target-profile resource field to exact packaged bytes, prepares both frozen-WIT
 components, and validates both request kinds without invoking guest code. That
@@ -265,22 +257,11 @@ cargo +1.96.0 run --locked -p echo-wesley-gen \
 ```
 
 Run this only inside the same guarded worker, with a new destination in its
-guarded data root. By default it uses the checked component carriers. It selects
-`ProviderContractPublicationV1::SourceFunctions` and admits the complete package
-before writing it. The default checked generators retain the pure-binding
-publication. Supplying `--source-modules` after the new destination explicitly
-selects `SourceModules` and the source-module semantic variant:
-
-```bash
-cargo +1.96.0 run --locked -p echo-wesley-gen \
-  --example source_functions_publication_witness -- /owned-data/source-modules-provider --source-modules
-```
-
-That variant adds only the `source-closure.echo-operation` input alternative
-and its `edict.source-closure/v1` owning schema binding. It requires the
-source-module contract publication; a legacy pack lacks the required root and
-fails generation. Package admission accepts the exact legacy 31-binding set or
-the exact extended 32-binding set.
+guarded data root. It uses the current contract pack and semantic declaration,
+checks the complete package before writing, and defaults to the checked component
+carriers. The one current manifest has 32 schema bindings, including distinct
+raw-source and source-closure artifact domains. There are no publication-version
+flags or a legacy 31-binding admission path.
 
 To exercise rebuilt components before checked-distribution promotion, supply
 both explicit candidate paths:
@@ -288,7 +269,6 @@ both explicit candidate paths:
 ```bash
 cargo +1.96.0 run --locked -p echo-wesley-gen \
   --example source_functions_publication_witness -- /owned-data/candidate-provider \
-  --source-modules \
   --lowerer-component /owned-data/lowerer.component.wasm \
   --verifier-component /owned-data/verifier.component.wasm
 ```

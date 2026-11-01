@@ -265,7 +265,7 @@ so zero identity is total and an unbounded parameter plus one refuses. Caller
 constraints do not cross into a helper frame.
 
 The retained public compiler fixtures cover a legacy-producer execution control
-and a strict SourceFunctions publication containing an authored arithmetic helper.
+and the current pinned publication containing an authored arithmetic helper.
 The accepted public verifier report binds the unmodified package bytes; repeated
 public compilation preserves both package and report identity.
 Checked provider components are promoted from two byte-identical designated

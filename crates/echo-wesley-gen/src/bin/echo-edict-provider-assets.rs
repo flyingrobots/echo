@@ -49,39 +49,7 @@ impl AssetSpec {
     }
 }
 
-const ASSETS: [AssetSpec; 48] = [
-    AssetSpec::new(
-        "edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl",
-        "schemas/edict-provider/contracts/bounded-state-fold-v1/edict-provider-contracts.cddl",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/bounded-state-fold-v1/manifest.json",
-        "schemas/edict-provider/contracts/bounded-state-fold-v1/manifest.json",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/ordered/edict-provider-contracts.cddl",
-        "schemas/edict-provider/contracts/ordered/edict-provider-contracts.cddl",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/ordered/manifest.json",
-        "schemas/edict-provider/contracts/ordered/manifest.json",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl",
-        "schemas/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/source-functions-v1/manifest.json",
-        "schemas/edict-provider/contracts/source-functions-v1/manifest.json",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl",
-        "schemas/edict-provider/contracts/source-modules-v1/edict-provider-contracts.cddl",
-    ),
-    AssetSpec::new(
-        "edict-provider/contracts/source-modules-v1/manifest.json",
-        "schemas/edict-provider/contracts/source-modules-v1/manifest.json",
-    ),
+const ASSETS: [AssetSpec; 39] = [
     AssetSpec::new(
         "edict-provider/contracts/v1/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl",
@@ -89,10 +57,6 @@ const ASSETS: [AssetSpec; 48] = [
     AssetSpec::new(
         "edict-provider/contracts/v1/manifest.json",
         "schemas/edict-provider/contracts/v1/manifest.json",
-    ),
-    AssetSpec::new(
-        "edict-provider/echo-provider-semantics-source-modules-v1.json",
-        "schemas/edict-provider/echo-provider-semantics-source-modules-v1.json",
     ),
     AssetSpec::new(
         "edict-provider/echo-provider-semantics-v1.json",

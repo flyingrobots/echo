@@ -7,7 +7,8 @@
 ; Shared CDDL types for the Edict ABIs, defined ONCE here so they cannot drift
 ; (EDICT-ABI-NODUP-001). Two groups:
 ;   - resource-ref, sha256-digest, effect-failure-body, effect-kind, authority-class,
-;     core-type-ref: assembled with edict-target-profile.cddl and
+;     core-type-ref, core-named-type-ref: assembled with edict-core.cddl,
+;     edict-target-profile.cddl, and
 ;     edict-lawpack.cddl by the build; those schemas do not redefine them.
 ;   - operation-profile, optic-template, aperture-requirement and their refs:
 ;     consumed by the Core/optic layer (edict-core.cddl) and referenced by the
@@ -53,7 +54,14 @@ effect-kind = "read" / "create" / "ensure" / "replace" / "delete" /
 authority-class = "domainMappable" / "participantOwned" / "integrityFault" /
                   "resourceFault" / "internalFault"
 
-core-type-ref = tstr   ; canonical Core type coordinate
+; The normative lexical and semantic grammar for Core type references lives in
+; SPEC_edict-language-v1.md. CDDL can express only the wire-level text shape.
+core-type-ref = tstr
+
+; A core.types map key is narrower than a general core-type-ref: it must be a
+; named identity, never an intrinsic or canonical structural reference. The
+; formal spec and executable Core validator enforce that semantic distinction.
+core-named-type-ref = tstr
 
 ; An operation profile supplies the optic template a Core intent resolves its
 ; opticKind/boundaryKind/supportPolicy/lossDisposition from. Target profiles and
@@ -96,7 +104,8 @@ core-module = {
   apiVersion: "edict.core/v1",
   coordinate: tstr,
   imports: [* core-import],
-  types: { * tstr => core-type },
+  types: { * core-named-type-ref => core-type },
+  ? functions: { + tstr => core-source-function },
   intents: { + tstr => core-intent },
   requiredCoreCapabilities: [* tstr],
 }
@@ -212,6 +221,14 @@ core-capability-value = {
 ; Edict-authored pure helpers use a pure Core function body. The body can bind
 ; pure expressions and return an expression, but it cannot contain Core effect,
 ; guard, branch, loop, match-node, or proof-obligation nodes.
+; Source-owned functions use the same pure body algebra, with their result type
+; authenticated by the enclosing module. An empty function table is omitted.
+core-source-function = {
+  params: [* local-ref],
+  returnType: core-type-ref,
+  body: core-pure-block,
+}
+
 core-fn-body = {
   params: [* local-ref],
   body: core-pure-block,
@@ -232,7 +249,7 @@ pure-let-node = {
 ; --- expressions and predicates -----------------------------------------
 
 core-expr = local-expr / const-expr / record-expr / field-expr /
-            variant-expr / match-expr / call-expr / list-expr / map-expr /
+            variant-expr / match-expr / fold-expr / call-expr / list-expr / map-expr /
             if-expr
 
 local-expr = { kind: "local", ref: local-ref }
@@ -245,6 +262,17 @@ variant-expr = {
   case: tstr,
   ? payload: core-expr,
 }
+; First-order pure state iteration requires core.fold/v1. The step is a
+; source-owned helper with one parameter and return type equal to stateType.
+; Initial evaluates once; bound ordered steps follow, including zero steps.
+fold-expr = {
+  kind: "fold",
+  initial: core-expr,
+  step: tstr,
+  bound: uint,
+  stateType: core-type-ref,
+}
+
 match-expr = {
   kind: "match",
   scrutinee: core-expr,
@@ -433,8 +461,8 @@ core-bound = literal-bound / coordinate-bound
 literal-bound = { kind: "literal", value: uint }
 coordinate-bound = { kind: "coordinate", ref: tstr }
 
-; Shared resource-ref, sha256-digest, failure-ident, aperture-requirement, and
-; core-type-ref are defined once in edict-common.cddl.
+; Shared resource-ref, sha256-digest, failure-ident, aperture-requirement,
+; core-type-ref, and core-named-type-ref are defined once in edict-common.cddl.
 
 ; --- edict-lawpack.cddl ---
 ; edict-lawpack.cddl
@@ -895,22 +923,132 @@ target-ir-resource-ref = {
   digest: sha256-digest,
 }
 
-target-ir-artifact = target-ir-closed-artifact / target-ir-legacy-artifact
+target-ir-artifact = target-ir-phased-artifact / target-ir-ordered-artifact /
+                     target-ir-structured-artifact
+
+target-ir-phased-artifact = target-ir-closed-artifact / target-ir-legacy-artifact
 
 target-ir-artifact-common = (
-  kind: "targetIrArtifact",
-  domain: tstr,
+  domain: target-ir-phased-domain,
   targetProfile: target-ir-resource-ref,
   sourceCoreCoordinate: tstr .regexp "(?s).+",
 )
 
+; The phased shapes may carry any domain except the ordered and structured
+; ones, so a v2 or v3 document cannot omit its required execution order by
+; claiming the phased kind. The pattern (Rust `regex` syntax, anchored by `^`
+; and `$`) accepts every text except exactly "echo.span-ir/v2" and
+; "echo.span-ir/v3": any length other than 15 characters, or a 15-character
+; text that differs from both at its first differing position.
+target-ir-phased-domain = tstr .regexp "(?s)^(?:.{0,14}|.{16,}|[^e].{14}|e[^c].{13}|ec[^h].{12}|ech[^o].{11}|echo[^.].{10}|echo[.][^s].{9}|echo[.]s[^p].{8}|echo[.]sp[^a].{7}|echo[.]spa[^n].{6}|echo[.]span[^-].{5}|echo[.]span-[^i].{4}|echo[.]span-i[^r].{3}|echo[.]span-ir[^/].{2}|echo[.]span-ir/[^v].{1}|echo[.]span-ir/v[^23])$"
+
+; v2 binds one execution order over the instruction tables. The encoder also
+; validates the exact permutation and producer-before-consumer dependencies.
+target-ir-ordered-artifact = target-ir-ordered-closed / target-ir-ordered-legacy
+
+target-ir-ordered-common = (
+  domain: "echo.span-ir/v2",
+  targetProfile: target-ir-resource-ref,
+  sourceCoreCoordinate: tstr .regexp "(?s).+",
+)
+
+target-ir-ordered-closed = {
+  kind: "orderedTargetIrArtifact",
+  target-ir-ordered-common,
+  semanticClosure: target-ir-semantic-closure,
+  intents: { * tstr => target-ir-ordered-intent },
+}
+
+target-ir-ordered-legacy = {
+  kind: "orderedTargetIrArtifact",
+  target-ir-ordered-common,
+  intents: { * tstr => target-ir-ordered-legacy-intent },
+}
+
+target-ir-ordered-intent = {
+  target-ir-intent-common,
+  ? basis: core-expr,
+  ? pureBindings: [1* target-ir-pure-binding],
+  executionOrder: [* tstr .regexp "(?s).+"],
+}
+
+target-ir-ordered-legacy-intent = {
+  target-ir-intent-common,
+  executionOrder: [* tstr .regexp "(?s).+"],
+}
+
+; v3 replaces the flat order with a tree. Instruction ids still reference the
+; pureBindings, steps, and requirements tables; `for` and `branch` entries carry
+; the Core iterable, bound, binder, and predicate. The encoder validates the
+; exactly-once instruction cover, unique control ids, and block scoping.
+target-ir-structured-artifact = target-ir-structured-closed / target-ir-structured-legacy
+
+target-ir-structured-common = (
+  domain: "echo.span-ir/v3",
+  targetProfile: target-ir-resource-ref,
+  sourceCoreCoordinate: tstr .regexp "(?s).+",
+)
+
+target-ir-structured-closed = {
+  kind: "structuredTargetIrArtifact",
+  target-ir-structured-common,
+  semanticClosure: target-ir-semantic-closure,
+  intents: { * tstr => target-ir-structured-intent },
+}
+
+target-ir-structured-legacy = {
+  kind: "structuredTargetIrArtifact",
+  target-ir-structured-common,
+  intents: { * tstr => target-ir-structured-legacy-intent },
+}
+
+target-ir-structured-intent = {
+  target-ir-intent-common,
+  ? basis: core-expr,
+  ? pureBindings: [1* target-ir-pure-binding],
+  executionOrder: [* target-ir-order-entry],
+}
+
+target-ir-structured-legacy-intent = {
+  target-ir-intent-common,
+  executionOrder: [* target-ir-order-entry],
+}
+
+; Only the control alternative re-enters the order tree, and the control family
+; is discriminated by its required `kind` tag, so recursive validation selects
+; exactly one arm.
+target-ir-order-entry = tstr .regexp "(?s).+" / target-ir-control-entry
+
+target-ir-control-entry = target-ir-for-entry / target-ir-branch-entry
+
+target-ir-for-entry = {
+  kind: "for",
+  id: tstr .regexp "(?s).+",
+  binder: local-ref,
+  iterable: core-expr,
+  ; Target has no authenticated constant values, so v3 admits only literal
+  ; loop bounds; lowering and the encoder refuse coordinate bounds.
+  bound: literal-bound,
+  body: [* target-ir-order-entry],
+}
+
+target-ir-branch-entry = {
+  kind: "branch",
+  id: tstr .regexp "(?s).+",
+  predicate: core-predicate,
+  then: [* target-ir-order-entry],
+  else: [* target-ir-order-entry],
+}
+
 target-ir-closed-artifact = {
+  kind: "targetIrArtifact",
   target-ir-artifact-common,
   semanticClosure: target-ir-semantic-closure,
   intents: { * tstr => target-ir-intent },
 }
 
 target-ir-legacy-artifact = {
+  kind: "targetIrArtifact",
   target-ir-artifact-common,
   intents: { * tstr => target-ir-legacy-intent },
 }
@@ -979,3 +1117,26 @@ target-ir-external-action-request = {
   state: "awaitingSettlement",
   settlementAdmission: "schemaRequired",
 }
+
+; --- edict-source-closure.cddl ---
+; edict.source-closure/v1. Assemble with edict-common.cddl for sha256-digest.
+; The canonical encoder owns field ordering. No self-digest is embedded.
+source-closure = {
+  apiVersion: "edict.source-closure/v1",
+  root: tstr,
+  modules: { 1*64 tstr => source-closure-module },
+}
+
+source-closure-module = {
+  digest: sha256-digest,
+  source: bstr,
+}
+
+; Additional semantic constraints:
+; - keys are the exact package coordinates parsed from UTF-8 source bytes;
+; - root names a retained module;
+; - every supplied module is root-reachable through digest-bound module imports;
+; - module digest is edict.source/v1 over canonical CBOR bstr(source);
+; - every import agrees with the corresponding module digest;
+; - imports are acyclic, aliases are unique, and source surfaces validate;
+; - total original source bytes <= 1048576, import path depth <= 32 units.

@@ -18,6 +18,7 @@ pub(crate) struct Definition<'a> {
     body: &'a Value,
     result_type: &'a str,
     source_owned: bool,
+    fold_capability: bool,
 }
 
 /// Collect the one current source/imported helper signature authority.
@@ -27,6 +28,18 @@ pub(crate) fn definitions<'a>(
     coordinate: &str,
 ) -> Result<BTreeMap<String, Definition<'a>>, Error> {
     let mut definitions = BTreeMap::new();
+    let mut capabilities = BTreeSet::new();
+    if let Ok(required) = field(core, "requiredCoreCapabilities") {
+        for capability in array(required)? {
+            let capability = text(capability)?;
+            if !matches!(capability, "core.fold/v1" | "core.variant/v1")
+                || !capabilities.insert(capability)
+            {
+                return Err(Error::UnsupportedProgram);
+            }
+        }
+    }
+    let fold_capability = capabilities.contains("core.fold/v1");
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;
         let implementation = field(item, "body")?;
@@ -54,6 +67,7 @@ pub(crate) fn definitions<'a>(
                         body,
                         result_type: text_field(item, "returnType")?,
                         source_owned: false,
+                        fold_capability,
                     },
                 )
                 .is_some()
@@ -95,6 +109,7 @@ pub(crate) fn definitions<'a>(
                             body: field(value, "body")?,
                             result_type: text_field(value, "returnType")?,
                             source_owned: true,
+                            fold_capability,
                         },
                     )
                     .is_some()
@@ -205,6 +220,7 @@ pub(crate) fn decode(
             name.clone(),
             Helper {
                 source_owned: definition.source_owned,
+                fold_capability: definition.fold_capability,
                 params,
                 bindings,
                 result: parser.expr(result, 0)?,
@@ -328,6 +344,37 @@ pub(crate) fn infer<'v>(
 ) -> Result<RuntimeType, Error> {
     parser.enter(depth)?;
     match text_field(value, "kind")? {
+        "fold" => {
+            exact_fields(value, &["kind", "initial", "step", "bound", "stateType"])?;
+            number(field(value, "bound")?)?;
+            let state = text_field(value, "stateType")?;
+            let definition = definitions
+                .get(text_field(value, "step")?)
+                .ok_or(Error::InvalidArtifact)?;
+            if !source
+                || !definition.fold_capability
+                || !definition.source_owned
+                || definition.params.len() != 1
+                || definition.result_type != state
+                || text_field(&definition.params[0], "type")? != state
+            {
+                return Err(Error::InvalidArtifact);
+            }
+            let ty = parser.ty(state, 0)?;
+            let initial = infer(
+                field(value, "initial")?,
+                scope,
+                proof,
+                definitions,
+                source,
+                parser,
+                depth + 1,
+            )?;
+            if !accepts(&ty, &initial) {
+                return Err(Error::InvalidArtifact);
+            }
+            Ok(ty)
+        }
         "match" => {
             super::matches::infer_match(value, scope, proof, definitions, source, parser, depth)
         }
@@ -897,6 +944,31 @@ impl Heights<'_> {
                 self.predicate(condition, depth + 1)?
                     .max(self.expr(yes, depth + 1)?)
                     .max(self.expr(no, depth + 1)?)
+                    + 1
+            }
+            Expr::Fold {
+                initial,
+                step,
+                state,
+                ..
+            } => {
+                let helper = self.helpers.get(step).ok_or(Error::UnsupportedProgram)?;
+                if !helper.source_owned
+                    || !helper.fold_capability
+                    || helper.params.len() != 1
+                    || helper.params[0].ty != *state
+                    || helper.ty != *state
+                    || self
+                        .visiting
+                        .iter()
+                        .any(|owner| !self.helpers[owner].source_owned)
+                {
+                    return Err(Error::InvalidArtifact);
+                }
+                // Zero iterations still retain a closed, acyclic helper graph.
+                self.helper(step, depth + 1)?
+                    .max(self.expr(initial, depth + 1)?)
+                    .max(type_height(state))
                     + 1
             }
             Expr::Call(name, args) => {

@@ -405,6 +405,28 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
+Native refers to direct execution of the Rust lowerer, verifier, and runtime.
+These implementations support the first-order
+`fold(initial, step, bound)` expression. `step` is a named source-owned helper
+with exactly one parameter and the same declared return type; `stateType` must
+match that invariant signature. The initial value is checked in the caller's
+lexical scope. The complete helper closure remains checked at bound zero,
+including cycle rejection and helper authority. Opaque imported helpers and
+callback values cannot become iteration steps.
+
+Evaluation computes the initial state once and moves each result into a fresh
+step frame. Iterations do not accumulate native stack depth. The existing depth
+limit applies to expression nesting and helper dependencies. Static judgments
+multiply the complete step and argument-validation charges by the bound with
+checked arithmetic; the runtime meters each executed iteration, copies and
+validation. Zero iterations still validate and return the initial state. The
+capability is `core.fold/v1`; unknown and duplicate capabilities refuse.
+
+The checked provider components include these judgments and were reproduced
+by two independent CI builds. The public compiler witnesses below consume
+those components. Native synthetic tests alone do not establish public compiler
+provenance, persistent-rope semantics, or operation admission/WAL/recovery evidence.
+
 The native source-function target subset supports Boolean values, unsigned words,
 bounded bytes, records and nominal types, with Boolean, U8/U32/U64 and raw byte
 literals. The U8 domain is exactly 0 through 255; malformed values, overflow,
@@ -522,10 +544,11 @@ constant, including an empty fallback passed to a match helper; its body is
 checked by the independent source-function judgments. Both read judgments
 preserve outer declarations and cumulative proof work across temporary arm scopes.
 
-The generic pure and bounded-read provider entry points independently admit
-only the known `core.variant/v1` required capability, once. Every variant
-declaration requires it, including unused declarations; the known capability
-is also permitted without a variant declaration. Unknown, duplicate, malformed
+The generic pure and bounded-read Rust provider entry points independently admit
+`core.variant/v1` and `core.fold/v1`, each at most once. Every variant declaration
+requires its capability, including unused declarations. Every fold requires its
+capability and a source-owned step, even at bound zero. Known capabilities are
+also permitted when unused. Unknown, duplicate, malformed
 or missing capability metadata refuses. Pure Core must include the capability
 inventory and type table, even when empty. The bounded-read lowerer retains its
 exact-field schema refusal for an absent inventory. The bounded-read verifier
@@ -693,6 +716,27 @@ steps and allocated bytes than the lookup variant. These checks do not prove
 implicit access to a nominal read payload's representation. The public missing-
 and non-strict-bound controls stop at compiler refusal; the corresponding
 provider defenses are exercised separately by the provider unit tests.
+
+The optional `--fold-provider-before` control selects the preceding publication.
+It must accept the unchanged pure helper and refuse folds at bounds zero and
+three. The candidate compiles a non-idempotent U8 step at bounds 0/1/2/3 and a
+byte-preserving step over an immutable read result at bounds 0/1/3. Both package
+and verifier-report bytes must repeat exactly. The runtime consumer checks four
+U8 inputs per bound, iteration parity, exact resource ceilings, one-under
+refusals, and input and package identity for pure folds. Read folds check the
+retained bytes, basis, aperture, unchanged state, repeated accounting and five
+explicit resource refusals; their cost check is monotonic, not an exact-count
+oracle. The pure cost oracle adds independently counted per-iteration work to
+the observed zero-bound wrapper cost; it does not claim an independent absolute
+wrapper-cost oracle.
+
+The read-fold witness uses Amblicit `fbb0b93d87eda0e44e678247ca4102599be41a4d`
+(merged in [Amblicit #286](https://github.com/flyingrobots/amblicit/pull/286)),
+which meters nullary effect obstruction annotations separately from pure helper
+calls. This compiler repair is separate from the unchanged upstream schema and
+host-contract pin below. The witnesses establish bounded iteration through the
+public compiler and generic runtime, while authored rope mutation, Tick, WAL,
+receipts and recovery remain separate obligations.
 
 The optional `--variant-provider-before` control selects the preceding matching
 publication. It requires that publication to accept an unchanged pure helper and
@@ -949,8 +993,9 @@ Echo's contract-pack admission authenticates one [current upstream publication](
 The current schema includes the authenticated source closure, bounded fold
 expressions and structured Target IR, with phased-domain collision refusals.
 Structural acceptance does not establish source authentication, helper typing,
-capability support, costs or execution. The checked components still reject
-`core.fold/v1`. The generator uses one current semantic declaration and the
+capability support, costs or execution. The checked components include the
+independent `core.fold/v1` judgments described above. The generator uses one
+current semantic declaration and the
 package validator requires its exact 32-binding inventory.
 
 The native lowerer and independent verifier accept exactly one source artifact

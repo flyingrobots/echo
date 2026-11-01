@@ -12,6 +12,8 @@
 
 mod decode;
 pub(crate) mod evaluate;
+#[cfg(test)]
+mod fold_tests;
 pub(crate) mod functions;
 mod matches;
 pub(crate) mod model;

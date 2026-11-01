@@ -17,7 +17,9 @@ pub(super) fn validate(core: &Value) -> Result<(), ProviderRefusalV1> {
     let mut supported = BTreeSet::new();
     for capability in array_field(core, "requiredCoreCapabilities").ok_or_else(refused)? {
         let capability = as_text(capability).ok_or_else(refused)?;
-        if capability != "core.variant/v1" || !supported.insert(capability) {
+        if !matches!(capability, "core.variant/v1" | "core.fold/v1")
+            || !supported.insert(capability)
+        {
             return Err(refused());
         }
     }

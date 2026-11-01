@@ -77,41 +77,20 @@ fn pure_verifier_independently_refuses_missing_unknown_or_malformed_required_cap
 }
 
 #[test]
-fn pure_providers_refuse_fold_capability_before_emitting_artifacts() {
-    let (names, fixture, package) = edited_fixture(|_, _| {});
-    lowerer::lower(lowering_request(names, &fixture)).expect("non-fold control lowers");
-    verifier::verify(verification_request(names, &fixture, package))
-        .expect("non-fold control independently verifies");
-
+fn pure_providers_admit_fold_metadata_without_executing_an_unused_capability() {
     for capabilities in [
         vec![text("core.fold/v1")],
         vec![text("core.fold/v1"), text("core.variant/v1")],
     ] {
-        let (names, fixture, package) = edited_fixture(|core, _| {
-            edit(core, Some(list(capabilities)), false);
-        });
-        let refusal = lowerer::lower(lowering_request(names, &fixture))
-            .expect_err("schema admission does not authorize fold lowering");
-        assert_eq!(
-            refusal.kind,
-            lowerer::ProviderRefusalKind::UnsupportedSemantics
-        );
-        assert_eq!(
-            refusal.subject.as_deref(),
-            Some("core.required-capabilities")
-        );
-
-        // Rebind the verifier candidate independently; a lowerer refusal must
-        // not prevent the verifier's own capability boundary from being tested.
-        let refusal = verifier::verify(verification_request(names, &fixture, package))
-            .expect_err("schema admission does not authorize fold verification");
-        assert_eq!(
-            refusal.kind,
-            verifier::ProviderRefusalKind::UnsupportedSemantics
-        );
-        assert_eq!(
-            refusal.subject.as_deref(),
-            Some("core.required-capabilities")
-        );
+        let (names, fixture, package) =
+            edited_fixture(|core, _| edit(core, Some(list(capabilities)), false));
+        let lowered =
+            lowerer::lower(lowering_request(names, &fixture)).expect("known fold capability");
+        assert_eq!(lowered.outputs[0].artifact.bytes, package);
+        let verified = verifier::verify(verification_request(names, &fixture, package))
+            .expect("independent fold capability");
+        let report = decode_canonical_cbor_v1(&verified.outputs[0].artifact.bytes)
+            .expect("valid test fixture");
+        assert_eq!(text_field(&report, "outcome"), Some("accepted"));
     }
 }

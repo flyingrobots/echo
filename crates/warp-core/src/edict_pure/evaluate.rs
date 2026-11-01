@@ -279,6 +279,31 @@ pub(crate) fn expression(
             };
             expression(branch, locals, helpers, meter, depth + 1)
         }
+        Expr::Fold {
+            initial,
+            step,
+            bound,
+            state,
+        } => {
+            let helper = helpers.get(step).ok_or(Error::UnsupportedProgram)?;
+            if !helper.source_owned
+                || !helper.fold_capability
+                || helper.params.len() != 1
+                || helper.params[0].ty != *state
+                || helper.ty != *state
+            {
+                return Err(Error::InvalidArtifact);
+            }
+            let mut value = expression(initial, locals, helpers, meter, depth + 1)?;
+            validate(&value, state, meter, depth + 1)?;
+            for _ in 0..*bound {
+                meter.step(depth + 1)?;
+                validate(&value, &helper.params[0].ty, meter, depth + 1)?;
+                let frame = BTreeMap::from([(helper.params[0].id.as_str(), value)]);
+                value = helper_body(helper, frame, helpers, meter, depth + 1)?;
+            }
+            Ok(value)
+        }
         Expr::Call(name, args) => {
             let helper = helpers.get(name).ok_or(Error::UnsupportedProgram)?;
             if args.len() != helper.params.len() {
@@ -292,14 +317,7 @@ pub(crate) fn expression(
                 validate(&value, &parameter.ty, meter, depth + 1)?;
                 frame.insert(parameter.id.as_str(), value);
             }
-            for binding in &helper.bindings {
-                let value = expression(&binding.value, &frame, helpers, meter, depth + 1)?;
-                validate(&value, &binding.ty, meter, depth + 1)?;
-                frame.insert(binding.id.as_str(), value);
-            }
-            let value = expression(&helper.result, &frame, helpers, meter, depth + 1)?;
-            validate(&value, &helper.ty, meter, depth + 1)?;
-            Ok(value)
+            helper_body(helper, frame, helpers, meter, depth + 1)
         }
         Expr::UnsignedSubtract { max, left, right } | Expr::UnsignedAdd { max, left, right } => {
             let left = expression(left, locals, helpers, meter, depth + 1)?;
@@ -580,6 +598,25 @@ pub(crate) fn validate(
         }
         _ => Err(Error::InvalidArtifact),
     }
+}
+
+/// Calls and fold iterations use this body evaluator with a fresh frame each
+/// time. Values move into that frame; local reads meter their own copies.
+fn helper_body<'a>(
+    helper: &'a Helper,
+    mut frame: BTreeMap<&'a str, Value>,
+    helpers: &BTreeMap<String, Helper>,
+    meter: &mut Meter,
+    depth: usize,
+) -> Result<Value, Error> {
+    for binding in &helper.bindings {
+        let value = expression(&binding.value, &frame, helpers, meter, depth)?;
+        validate(&value, &binding.ty, meter, depth)?;
+        frame.insert(binding.id.as_str(), value);
+    }
+    let value = expression(&helper.result, &frame, helpers, meter, depth)?;
+    validate(&value, &helper.ty, meter, depth)?;
+    Ok(value)
 }
 
 #[cfg(test)]

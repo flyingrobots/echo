@@ -8,16 +8,24 @@ use super::{
 pub(super) fn validate(core: &Value) -> Result<(), ProviderRefusalV1> {
     const SUBJECT: &str = "core.required-capabilities";
     let capabilities = required_array(core, "requiredCoreCapabilities", SUBJECT)?;
-    let variant_supported = match capabilities.as_slice() {
-        [] => false,
-        [Value::Text(name)] if name == "core.variant/v1" => true,
-        _ => {
+    let mut supported = std::collections::BTreeSet::new();
+    for capability in capabilities {
+        let Value::Text(name) = capability else {
             return Err(super::super::unsupported_semantics(
                 SUBJECT,
-                "required capabilities contain an unknown, duplicate or malformed entry",
-            ))
+                "required capability is not text",
+            ));
+        };
+        if !matches!(name.as_str(), "core.variant/v1" | "core.fold/v1")
+            || !supported.insert(name.as_str())
+        {
+            return Err(super::super::unsupported_semantics(
+                SUBJECT,
+                "required capabilities contain an unknown or duplicate entry",
+            ));
         }
-    };
+    }
+    let variant_supported = supported.contains("core.variant/v1");
     let types = required_map(core, "types", SUBJECT)?;
     let declares_variant = as_map(types).is_some_and(|types| {
         types

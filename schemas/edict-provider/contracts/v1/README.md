@@ -28,9 +28,10 @@ phased artifacts. The source-closure envelope remains structurally bounded to
 1–64 modules with typed SHA-256 digests. Source authentication, typing,
 capability declarations, total costs and execution remain semantic obligations.
 
-The checked provider components still reject `core.fold/v1`. Schema admission
-and package generation do not establish fold execution, structured control
-execution, admission, or authored-rope completion. The consumer publication
+The checked provider components include `core.fold/v1` judgments for pure and
+bounded-read operations, with source-owned invariant steps and bounded costs.
+Schema admission and package generation alone do not establish fold execution,
+structured control execution, admission, or authored-rope completion. The consumer publication
 witness uses this same current pair and accepts explicit candidate components;
 it has no historical-publication selector flags.
 

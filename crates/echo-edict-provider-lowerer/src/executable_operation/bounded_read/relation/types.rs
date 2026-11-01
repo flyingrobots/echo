@@ -310,6 +310,35 @@ impl<'a> Scope<'a> {
                     _ => Err(invalid()),
                 }
             }
+            "fold" => {
+                require_exact_fields(
+                    value,
+                    &["kind", "initial", "step", "bound", "stateType"],
+                    SUBJECT,
+                )?;
+                required_u64(value, "bound", SUBJECT)?;
+                let state = text(value, "stateType")?;
+                let prefix = format!("{}.", text(self.core, "coordinate")?);
+                let name = text(value, "step")?
+                    .strip_prefix(&prefix)
+                    .ok_or_else(invalid)?;
+                let function = field(field(self.core, "functions")?, name)?;
+                let params = super::array(function, "params")?;
+                if params.len() != 1
+                    || text(&params[0], "type")? != state
+                    || text(function, "returnType")? != state
+                {
+                    return Err(invalid());
+                }
+                let expected = self.ty(state)?;
+                let initial = self.expression(field(value, "initial")?, depth + 1)?;
+                if !expected.accepts(&initial) {
+                    return Err(invalid());
+                }
+                // bounded_read calls source_functions::validate before this
+                // relation to check helper closure, capability and costs.
+                Ok(expected)
+            }
             "call" => self.call(value, depth),
             _ => Err(invalid()),
         }

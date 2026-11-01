@@ -123,6 +123,15 @@ impl Parser<'_> {
                     Box::new(self.expr(field(value, "else")?, depth + 1)?),
                 ))
             }
+            "fold" => {
+                exact_fields(value, &["kind", "initial", "step", "bound", "stateType"])?;
+                Ok(Expr::Fold {
+                    initial: Box::new(self.expr(field(value, "initial")?, depth + 1)?),
+                    step: text_field(value, "step")?.to_owned(),
+                    bound: number(field(value, "bound")?)?,
+                    state: self.ty(text_field(value, "stateType")?, 0)?,
+                })
+            }
             "call" => self.call(value, depth),
             _ => Err(Error::UnsupportedProgram),
         }

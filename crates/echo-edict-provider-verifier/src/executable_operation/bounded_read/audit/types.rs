@@ -298,6 +298,28 @@ impl<'a> Symbols<'a> {
                     _ => Err(()),
                 }
             }
+            "fold" => {
+                exact(value, &["kind", "initial", "step", "bound", "stateType"])?;
+                number(get(value, "bound")?)?;
+                let state = text(value, "stateType")?;
+                let core = self.core;
+                let prefix = format!("{}.", text(core, "coordinate")?);
+                let name = text(value, "step")?.strip_prefix(&prefix).ok_or(())?;
+                let definition = get(get(core, "functions")?, name)?;
+                let params = super::sequence(definition, "params")?;
+                if params.len() != 1
+                    || text(&params[0], "type")? != state
+                    || text(definition, "returnType")? != state
+                {
+                    return Err(());
+                }
+                let expected = self.schema(state, 0)?;
+                let initial = self.expression(get(value, "initial")?, depth + 1)?;
+                if !expected.includes(&initial) {
+                    return Err(());
+                }
+                Ok(expected)
+            }
             "call" => self.call(value, depth),
             _ => Err(()),
         }

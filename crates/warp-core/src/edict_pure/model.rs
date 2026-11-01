@@ -24,6 +24,12 @@ pub(crate) enum Expr {
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+    Fold {
+        initial: Box<Expr>,
+        step: String,
+        bound: u64,
+        state: RuntimeType,
+    },
     ByteUtf8 {
         min: u64,
         max: u64,
@@ -142,6 +148,7 @@ pub(crate) struct Parameter {
 
 pub(crate) struct Helper {
     pub source_owned: bool,
+    pub fold_capability: bool,
     pub params: Vec<Parameter>,
     pub bindings: Vec<Binding>,
     pub result: Expr,

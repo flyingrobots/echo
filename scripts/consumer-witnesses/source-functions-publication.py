@@ -13,7 +13,7 @@ provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
 Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
-byte-lookup (seven), closed-variant (seven) and match controls retain at most
+byte-lookup (seven), closed-variant (seven), match and state-fold controls retain at most
 64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
@@ -43,6 +43,7 @@ MAX_WORK_ENTRIES = 2048
 BUILD_TIMEOUT_SECONDS = 120
 READ_OLD_STEPS = 1_048_576
 READ_HELPER_STEPS = 4_194_304
+READ_FOLD_STEPS = 16_777_216
 READ_OLD_ALLOCATION = 16_777_216
 READ_VARIANT_ALLOCATION = 33_554_432
 READ_MATCH_ALLOCATION = 67_108_864
@@ -150,6 +151,8 @@ def selected_inputs(args):
         result["variantProviderBefore"] = inventory(args.variant_provider_before)
     if getattr(args, "match_provider_before", None) is not None:
         result["matchProviderBefore"] = inventory(args.match_provider_before)
+    if getattr(args, "fold_provider_before", None) is not None:
+        result["foldProviderBefore"] = inventory(args.fold_provider_before)
     return result
 
 
@@ -243,6 +246,17 @@ def source_variants(args):
             replacement = (f"let bytes = assembleFragments({selected}, input.secondFragment);"
                            if profile == "pure" else f"  let retained = retainBytes({selected});")
             tagged[f"match-{profile}-{case}"] = replace_once(consumed, anchor, replacement)
+    toggle = replace_once(identity, "return value;",
+                          "return if value == 0u8 then 1u8 else 0u8;")
+    folded = {"fold-control": toggle}
+    for bound in [0, 1, 2, 3]:
+        folded[f"fold-pure-{bound}"] = replace_once(
+            toggle, "let bytes = byteValue(input.firstFragment);",
+            f"let bytes = fold(input.firstFragment, byteValue, {bound}u64);")
+    for bound in [0, 1, 3]:
+        folded[f"fold-read-{bound}"] = replace_once(
+            read, "  let retained = retainBytes(actual);",
+            f"  let retained = fold(actual, retainBytes, {bound}u64);")
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
             "changed-body": changed, "read": read, "u8-identity": identity,
             "u8-literal": u8_literal, "u8-invalid-bound": invalid,
@@ -252,7 +266,7 @@ def source_variants(args):
             "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
             "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
             "read-byte-lookup": read_lookup,
-            "read-byte-lookup-constant": read_lookup_constant, **tagged}
+            "read-byte-lookup-constant": read_lookup_constant, **tagged, **folded}
 
 
 def child_limits():
@@ -470,7 +484,7 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
         raise RuntimeError("Read seed must already select the bounded-read profile")
     for item in [adapter, *authored["localResources"]]:
         relative_path(item["output"])
-    if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS}:
+    if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS, READ_FOLD_STEPS}:
         raise RuntimeError("Unexpected authored budget variant")
     if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION, READ_MATCH_ALLOCATION}:
         raise RuntimeError("Unexpected authored allocation budget")
@@ -537,6 +551,12 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         if (diagnostic.get("kind") != "ProviderLowererRefused"
                 or "core.source-functions" not in diagnostic.get("message", "")):
             raise RuntimeError(f"Original provider did not refuse {refusal} semantics: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "fold-provider":
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.required-capabilities" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Original provider did not refuse fold capability: {result}")
         provenance["refusalBoundary"] = "ProviderLowererRefused"
     elif refusal == "byte-lookup-bound":
         diagnostic = source_refusal_diagnostic(result)
@@ -640,6 +660,7 @@ def main():
     parser.add_argument("--byte-lookup-provider-before", type=Path)
     parser.add_argument("--variant-provider-before", type=Path)
     parser.add_argument("--match-provider-before", type=Path)
+    parser.add_argument("--fold-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -756,6 +777,19 @@ def main():
                               args.provider, {}))
                 specs.append((f"match-read-{case}", variants[f"match-read-{case}"],
                               args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                              "read_allocation": READ_MATCH_ALLOCATION}))
+        if args.fold_provider_before is not None:
+            specs.append(("fold-control-before", variants["fold-control"],
+                          args.fold_provider_before, {}))
+            for bound in [0, 3]:
+                specs.append((f"fold-pure-before-{bound}", variants[f"fold-pure-{bound}"],
+                              args.fold_provider_before, {"refusal": "fold-provider"}))
+            for bound in [0, 1, 2, 3]:
+                specs.append((f"fold-pure-{bound}", variants[f"fold-pure-{bound}"],
+                              args.provider, {}))
+            for bound in [0, 1, 3]:
+                specs.append((f"fold-read-{bound}", variants[f"fold-read-{bound}"],
+                              args.provider, {"read": True, "read_steps": READ_FOLD_STEPS,
                                               "read_allocation": READ_MATCH_ALLOCATION}))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)

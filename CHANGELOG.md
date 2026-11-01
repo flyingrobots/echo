@@ -7,6 +7,16 @@
 
 ### Added
 
+- Native Rust provider judgments and the generic runtime support first-order bounded
+  state folds with a source-owned invariant helper, zero-bound closure checks,
+  checked nested resource multiplication and metered iterative execution.
+  Missing step authority refuses even when Core has no function table.
+  The checked provider components are promoted from two byte-identical builds,
+  with regenerated canonical package manifests and publication assets.
+  Public compiler/runtime witnesses exercise pure folds at bounds 0/1/2/3 and
+  immutable-read result folds at bounds 0/1/3, with repeated artifacts and
+  resource, input and identity refusals.
+
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered
   dispatch and frame copies. The checked provider component pair, reproduced by
@@ -60,7 +70,8 @@
   the host witness pins the matching Amblicit compiler revision. Older pairs are
   refused and retained only as rejection-test fixtures. Provider generation
   uses one semantic declaration. The schema includes folds and structured Target
-  IR; checked components still refuse fold execution.
+  IR; fold execution was initially refused by the checked components and is
+  admitted by the bounded-fold publication described above.
 
 - Provider type-copy proof work counts each nominal wrapper as well as its
   representation, tightening admission for nominal-typed flows near the proof

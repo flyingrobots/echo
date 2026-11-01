@@ -10,10 +10,10 @@
 - Native Rust provider judgments and the generic runtime support first-order bounded
   state folds with a source-owned invariant helper, zero-bound closure checks,
   checked nested resource multiplication and metered iterative execution.
-  Fold judgment also runs when Core has no function table, refusing missing
-  step authority instead of silently skipping validation.
-  Checked provider component promotion and public compiler/runtime evidence
-  remain required before publication of this capability.
+  Missing step authority refuses even when Core has no function table.
+  The checked provider components are promoted from two byte-identical builds,
+  with regenerated canonical package manifests and publication assets.
+  Public compiler/runtime evidence remains required to complete this capability.
 
 - Native source-helper preparation and execution accept exhaustive closed-variant
   matches with lexical payload bindings, selected-arm evaluation, and metered

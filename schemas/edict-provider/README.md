@@ -175,10 +175,10 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-518,509 bytes with SHA-256
-`d59f5152cc1a82ffb90053b99d3eaf69e450389246336548aa03a05c562fbd54`; the
-promoted verifier is 544,865 bytes with SHA-256
-`13b5fb86b9e26fd109585073c0cb2a634bd01ec888a10e26edcb9877d677b596`.
+522,906 bytes with SHA-256
+`293937e81c30a3d78ed9c19bc5bbaf1b8a4633f58ebd4b658d65fc4462eb3cc1`; the
+promoted verifier is 549,024 bytes with SHA-256
+`b00e1d28908d379cd702336b8d96ababc24941ed88a39c8202acc7e8501a30d4`.
 
 The checked schema/components also support the explicit
 `compiler-produced-bounded-read/v1` configuration with required `maxReads`

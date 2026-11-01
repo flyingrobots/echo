@@ -972,8 +972,9 @@ Echo's contract-pack admission authenticates one [current upstream publication](
 The current schema includes the authenticated source closure, bounded fold
 expressions and structured Target IR, with phased-domain collision refusals.
 Structural acceptance does not establish source authentication, helper typing,
-capability support, costs or execution. The checked components still reject
-`core.fold/v1`. The generator uses one current semantic declaration and the
+capability support, costs or execution. The checked components include the
+independent `core.fold/v1` judgments described above. The generator uses one
+current semantic declaration and the
 package validator requires its exact 32-binding inventory.
 
 The native lowerer and independent verifier accept exactly one source artifact

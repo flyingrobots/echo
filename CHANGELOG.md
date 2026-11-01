@@ -10,6 +10,8 @@
 - Native provider judgments and the generic runtime support first-order bounded
   state folds with a source-owned invariant helper, zero-bound closure checks,
   checked nested resource multiplication and metered iterative execution.
+  Fold judgment also runs when Core has no function table, refusing missing
+  step authority instead of silently skipping validation.
   Checked provider component promotion and public compiler/runtime evidence
   remain required before publication of this capability.
 

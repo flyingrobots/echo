@@ -357,8 +357,9 @@ before execution. This does not grant Echo runtime authority.
 The [current upstream contract publication](contracts/v1/README.md) includes
 source functions, authenticated source closures, folds and structured Target IR
 schema shapes. Older publications are rejected. Independent provider judgments
-still own source-call authority, capability support and costs; the checked
-components currently refuse fold execution.
+still own source-call authority, capability support and costs. The checked
+components admit the bounded source-owned folds described in the
+[application hosting contract](../../docs/architecture/application-contract-hosting.md).
 
 The crate-local `assets/v1/` tree is an exact 39-file publication carrier for
 the same provider bytes plus the repository sources needed for generator

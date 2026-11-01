@@ -1,0 +1,26 @@
+{
+  "compilerRepository": "https://github.com/flyingrobots/amblicit",
+  "compilerRevision": "2269d81f257f7794b44270cf3f7ca330966a0784",
+  "source": "tests/edict-provider-host-v1/fixtures/provider-conformance-v1/source.edict",
+  "sourceSha256": "dd8ac9cd78b852287cfae9d72351a822d03c43625a8b56b02498c5d1dc71a3f4",
+  "compilerContext": "tests/edict-provider-host-v1/tests/host_contract.rs::echo_core",
+  "targetOracle": "amblicit_syntax::lower_with_builtin_lowerer(BuiltinTargetLowerer::EchoDpo)",
+  "reproduction": "cargo test --locked --manifest-path tests/edict-provider-host-v1/Cargo.toml --test host_contract emit_current_compiler_fixture -- --exact --ignored --nocapture",
+  "authorityBoundary": "The fixture has no authenticated effect-signature facts. Its unused obstruction binder is Unit, not proof of a typed failure payload. No provider component produces these oracle bytes.",
+  "artifacts": {
+    "core": {
+      "bytes": 1087,
+      "rawSha256": "6a493e681d9e2a5aae661848f1e618c1d7ac7f25940175bc8425258ff8c65be6",
+      "domainDigest": "930ad162c2cc80421ce71c58388ae8f92ecbfd27bd899c50d80fa651fe55d42c"
+    },
+    "openTargetIr": {
+      "bytes": 829,
+      "rawSha256": "edfd7a6e973720a7fe11060ca2f34460ae0cdcf362c4d27b109c10f15105f8a4"
+    },
+    "closedTargetIr": {
+      "bytes": 998,
+      "rawSha256": "4b2b5f68a978e8a2ac6c10efc827eeb575b125fe31afecb2eb506bbbc7345e22",
+      "domainDigest": "fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399"
+    }
+  }
+}

@@ -12,12 +12,13 @@ const CONTRACT_CDDL: &[u8] =
     include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
     include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
-const DOMAIN_ROOTS: [(&str, &str); 7] = [
+const DOMAIN_ROOTS: [(&str, &str); 8] = [
     ("edict.authority-facts/v1", "authority-facts"),
     ("edict.core.module/v1", "core-module"),
     ("edict.lawpack/v1", "lawpack-manifest"),
     ("edict.lowering-requirements/v1", "lowering-requirements"),
     ("edict.result-projection.artifact/v1", "result-projection"),
+    ("edict.source-closure/v1", "source-closure"),
     ("edict.target-ir.artifact/v1", "target-ir-artifact"),
     ("edict.target-profile/v1", "target-profile-manifest"),
 ];
@@ -48,10 +49,10 @@ fn checked_edict_provider_contract_pack_is_admitted() {
     assert_eq!(pack.license(), "Apache-2.0");
     assert_eq!(
         pack.schema_sha256(),
-        "8d77c84ecbd7d7e38496479b2f8346c15504a56f076170d79c0eca2a57fdb3a5"
+        "2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284"
     );
-    assert_eq!(pack.contract_count(), 11);
-    assert_eq!(pack.domain_count(), 7);
+    assert_eq!(pack.contract_count(), 12);
+    assert_eq!(pack.domain_count(), 8);
     assert_eq!(pack.resource_count(), 5);
     assert_eq!(pack.schema_bytes(), CONTRACT_CDDL);
     assert_eq!(pack.manifest_bytes(), CONTRACT_MANIFEST);
@@ -86,7 +87,7 @@ fn tampered_contract_cddl_has_stable_failure_kind() {
         error.to_string(),
         concat!(
             "provider contract pack schema-bytes-mismatch: schema.bytesHex -> ",
-            "8d77c84ecbd7d7e38496479b2f8346c15504a56f076170d79c0eca2a57fdb3a5"
+            "2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284"
         )
     );
 }
@@ -99,7 +100,11 @@ fn malformed_contract_manifest_has_stable_failure_kind() {
 #[test]
 fn oversized_contract_manifest_fails_before_json_admission() {
     let mut oversized = CONTRACT_MANIFEST.to_vec();
-    oversized.extend(std::iter::repeat_n(b' ', CONTRACT_MANIFEST.len()));
+    assert_eq!(
+        oversized.len(),
+        echo_wesley_gen::provider_contract_pack::EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES
+    );
+    oversized.push(b' ');
 
     assert_manifest_failure(
         &oversized,

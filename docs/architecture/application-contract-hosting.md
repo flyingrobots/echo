@@ -421,7 +421,7 @@ remain bytes. The inferred byte type has equal minimum and maximum bounds at the
 actual length, so a narrower result type still refuses. Materialization charges
 one value cell plus its payload length through the existing runtime meter. The
 checked lowerer and verifier components include this rule; source-function and
-source-module consumers still select their matching schema publication.
+source-module consumers use the same current schema publication.
 
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
@@ -636,12 +636,11 @@ and the original-allocation refusal. Runtime consumption checks unchanged byte
 results, increasing constructor/payload charges, repeated outcomes, resource
 ceilings and package identity. The checked component pair is reproduced by two
 matching CI builds and promoted. Regenerating with
-`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output> --source-modules`
-uses those checked components without a candidate override. All 25 generated
-files match the source-modules candidate consumed by the public witness byte for
-byte. This generated publication is a different selection from the committed
-default `package/v1` publication: their manifests differ, while both embed the
-same lowerer and verifier component bytes. The PR review receipts retain the CI
+`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output>`
+uses those checked components without a candidate override. Under the single
+current publication, all 25 generated files equal the committed `package/v1`
+files byte for byte. Historical candidate comparisons describe their recorded
+producer snapshots, not additional supported publication selections. The PR review receipts retain the CI
 run, source commit and comparison inventory. This evidence covers helper-local
 construction and exhaustive matching. Public compiler variant result encoding,
 recursive variants and the application's persistent-rope cutover remain outside
@@ -670,7 +669,7 @@ judgment tests provide separate evidence. It does not establish a persistent rop
 a decided Tick, atomic effects, recovery or final pinned integration.
 
 The companion fixture in `crates/warp-core/tests/fixtures/edict-pure-utf8-helper`
-selects the explicit source-function publication using the guarded Docker publisher
+uses the current publication through the guarded Docker publisher
 with copied read-only sources. The public compiler then invokes both promoted
 components and retains their unchanged accepted package/report. A byte-parameter
 helper exercises UTF-8 validation, Boolean equality, conjunction, negation and
@@ -945,19 +944,15 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
-Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
-publications. The original `admit_provider_contract_pack_v1` entry point remains
-bound to its pure-binding publication. The opt-in
-`admit_provider_contract_pack_for_publication_v1` entry point additionally admits
-the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md),
-the source-function publication, and the explicit `SourceModules` publication
-from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
-The latter adds a `source-closure` contract and `edict.source-closure/v1` domain
-while retaining the exact bytes and inventories of earlier selections. Its
-CDDL validates the closed envelope, 1–64 module entries and typed SHA-256
-digests. Source import authentication, root membership, reachability and
-aggregate byte/depth budgets remain Edict semantic obligations; structural
-admission does not prove them. See the [publication boundary](../../schemas/edict-provider/contracts/source-modules-v1/README.md).
+Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
+
+The current schema includes the authenticated source closure, bounded fold
+expressions and structured Target IR, with phased-domain collision refusals.
+Structural acceptance does not establish source authentication, helper typing,
+capability support, costs or execution. The checked components still reject
+`core.fold/v1`. The generator uses one current semantic declaration and the
+package validator requires its exact 32-binding inventory.
+
 The native lowerer and independent verifier accept exactly one source artifact
 in their existing invocation closure: the legacy `edict-source` byte string
 under `edict.source/v1`, or an `edict-source-closure` envelope under
@@ -969,16 +964,14 @@ bounded-read decoder applies the same bounded envelope checks and rechecks the
 closure identity under the selected source domain before any reading. Pure
 execution continues to require its independently supplied exact package pin.
 
-The explicit module semantic variant adds one source input alternative and
-schema binding. Generation refuses it with a legacy contract pack that lacks
-`source-closure`. Existing generation inputs keep their exact legacy inventory;
-raw package admission accepts only that inventory or the closed extension.
+The current semantic declaration includes the source-module input alternative
+and its schema binding. Generation and raw package admission use the same
+current 32-binding inventory, including `source-closure`.
 
-The closed selector fixes both byte identities and the input size ceiling before
-parsing; mixed publications reject. This is structural schema authority only.
-It does not prove instruction ordering, select an executable profile, or confer
-support for graph reads or writes. The existing provider generation path still
-selects the original publication.
+Contract-pack admission fixes both byte identities and the input size ceiling
+before parsing; historical and mixed publications reject. This is structural
+schema authority only. It does not prove instruction ordering, select an
+executable profile, or confer support for graph reads or writes.
 
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
@@ -1008,12 +1001,11 @@ rejected reports bind the exact package, Target IR, and projection; response
 ceilings include their artifact bytes, role/domain strings, and diagnostics.
 
 The checked schema and reproducibly promoted components now support this read
-configuration. The explicit ordered-contract publication compiles the authored
-single and independent-address paired read/guard programs through unmodified
-Edict, including both Wasm components and exact accepted verifier reports.
-Repeated builds reproduce the package/report bytes. The original contract
-publication remains selected by the default generator; callers must explicitly
-select the ordered publication for these ordered read programs.
+configuration. The ordered-read witness compiles the authored single and
+independent-address paired read/guard programs through unmodified Edict,
+including both Wasm components and exact accepted verifier reports. Repeated
+builds reproduce the package/report bytes. These programs use the same current
+publication as the default generator; there is no publication selector.
 
 The [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
 preserves the authored source and also proves the old provider's schema refusal.
@@ -1065,9 +1057,9 @@ retention, a receipt, or an admitted reading. Integration and release evidence a
 [#740](https://github.com/flyingrobots/echo/issues/740).
 
 Primary artifact generation also compares the supplied pack's exact schema and
-manifest with the source materials bound into its generation input. Admission
-of each pack separately does not establish this relation: crossed publications
-return `ContractPackInputMismatch` before constructing any output or provenance.
+manifest with the source materials bound into its generation input. This
+defensive identity check returns `ContractPackInputMismatch` on disagreement;
+the public admission API constructs only the single current pinned publication.
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
@@ -1127,8 +1119,8 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-contract pack introduced in Edict PR #162 and extended with the
-generic pure-binding contracts in Edict PR #201. Echo admits its exact CDDL,
+current Amblicit contract pack from PR #285 (revision
+`2269d81f257f7794b44270cf3f7ca330966a0784`). Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact
@@ -1140,7 +1132,7 @@ install a package, admit an operation, or authorize a runtime consequence.
 The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
 not a hash of the completed JSON manifest. It binds the manifest role and
 coordinate, exact API and provider ABI, ten sorted semantic/component routes,
-31 sorted schema bindings—nine compatibility invocation domains, the generated
+32 sorted schema bindings—ten current invocation domains, the generated
 artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains—and raw exact-byte hashes for all 24
 non-manifest members. The derived manifest carries that root and has its own
@@ -1160,8 +1152,8 @@ corpus. Its check mode inventories the exact tree through retained no-follow
 directory capabilities and reports drift without repair. This distribution
 copy is a release occurrence, not a second semantic authority.
 
-Native readiness is a later, independent crossing pinned to Edict revision
-`2e3f52f9e6d615f96eb594a40126e223a9253d98`. The exact manifest constructs the
+Native readiness is a later, independent crossing pinned to Amblicit revision
+`2269d81f257f7794b44270cf3f7ca330966a0784`. The exact manifest constructs the
 immutable schema registry; all five canonical primaries and 14 generated
 resources validate under their owning roots; every lawpack/target-profile field
 is bound to the expected coordinate and independently recomputed domain-framed
@@ -1171,7 +1163,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 46-file package-local carrier tree
+The publishable Rust crate uses a separate 39-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

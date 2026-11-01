@@ -49,8 +49,8 @@ locals, record construction/selection, byte equality, and unsigned equality or
 ordering guards. Failure arms currently require zero-argument application
 obstruction constructors; terminal guards require an empty obstruction payload.
 
-The checked schema and component now publish this read configuration. Selecting
-the ordered contract publication lets unmodified Edict compile the authored
+The checked schema and component publish this read configuration through the
+single current contract publication. Unmodified Amblicit compiles the authored
 single and independent-address paired reads through this component and the
 independent verifier. The original native fixtures retain their diagnostic
 capture provenance; the separate public compiler witness proves package/report

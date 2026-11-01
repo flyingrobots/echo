@@ -70,8 +70,8 @@ violate that relation. Accepted and rejected reports retain the existing exact
 executable-subject binding; the byte ceiling counts artifact bytes, role and
 domain strings, and diagnostic strings.
 
-This route is included in the checked schema/components. The explicit ordered
-contract publication passes unmodified public Edict builds for single and paired
+This route is included in the checked schema/components. The single current
+contract publication passes unmodified public Amblicit builds for single and paired
 reads, including this verifier's accepted report and repeatable package/report
 bytes. Native fixtures retain their diagnostic-capture provenance; the separate
 public witness requires no compiler instrumentation. A separate trusted-host

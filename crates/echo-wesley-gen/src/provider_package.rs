@@ -49,7 +49,7 @@ const PROVIDER_MANIFEST_COORDINATE_V1: &str = "echo.edict-provider-manifest@1";
 const SEMANTIC_SOURCE_COORDINATE_V1: &str = "echo.semantic-schema@1";
 const GENERATOR_COORDINATE_V1: &str = "echo-wesley-gen.provider-artifact-generator@1";
 const EXPECTED_ARTIFACT_COUNT: usize = 10;
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 31;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 32;
 const EXPECTED_MEMBER_COUNT: usize = 24;
 const EXPECTED_FILE_COUNT: usize = 25;
 const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
@@ -1542,11 +1542,7 @@ fn validate_artifact_source(
 fn validate_schema_bindings(
     bindings: &[ProviderManifestSchemaBindingV1],
 ) -> Result<(), ProviderPackageError> {
-    let mut expected = schema_binding_specs().to_vec();
-    if bindings.len() == EXPECTED_SCHEMA_BINDING_COUNT + 1 {
-        expected.push(("edict.source-closure/v1", "source-closure"));
-        expected.sort_unstable();
-    }
+    let expected = schema_binding_specs();
     if bindings.len() != expected.len() {
         return Err(ProviderPackageError::new(
             ProviderPackageErrorKind::SchemaBindingMismatch,
@@ -2011,6 +2007,7 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
         ("edict.lawpack/v1", "lawpack-manifest"),
         ("edict.lowering-requirements/v1", "lowering-requirements"),
         ("edict.result-projection.artifact/v1", "result-projection"),
+        ("edict.source-closure/v1", "source-closure"),
         ("edict.source/v1", "edict-source-bytes"),
         ("edict.target-ir.artifact/v1", "target-ir-artifact"),
         ("edict.target-profile/v1", "target-profile-manifest"),

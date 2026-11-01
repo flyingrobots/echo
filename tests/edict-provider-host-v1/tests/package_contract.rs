@@ -20,15 +20,15 @@ use std::fmt::Write as _;
 use std::process::Command;
 use std::sync::Arc;
 
-use edict_provider_host_wasmtime::{
+use amblicit_provider_host_wasmtime::{
     ProviderComponentHost, ProviderHostFailureKind, ProviderHostLimits, ProviderHostPhase,
     ResolvedProviderComponent,
 };
-use edict_provider_schema::{
+use amblicit_provider_schema::{
     ProviderArtifactSchemaRegistry, ProviderSchemaRegistryFailureKind,
     ResolvedProviderSchemaArtifact,
 };
-use edict_syntax::{
+use amblicit_syntax::{
     assemble_contract_bundle_from_target_ir, bind_target_provider_manifest, compile_to_core,
     decode_canonical_cbor, digest_core_module, encode_canonical_cbor, encode_core_module,
     encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
@@ -68,7 +68,7 @@ const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
 const PACKAGE_OBSERVATION_MARKER: &str = "ECHO_EDICT_PACKAGE_OBSERVATION=";
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 31;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 32;
 
 const MANIFEST_BYTES: &[u8] =
     include_bytes!("../../../schemas/edict-provider/package/v1/provider-manifest.echo.json");
@@ -106,11 +106,11 @@ const LOWERER_BYTES: &[u8] = include_bytes!(
 const VERIFIER_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/components/verifier.echo-dpo.component.wasm"
 );
-const EDICT_REVISION: &str = "2e3f52f9e6d615f96eb594a40126e223a9253d98";
+const EDICT_REVISION: &str = "2269d81f257f7794b44270cf3f7ca330966a0784";
 const EDICT_COMPILER_DESCRIPTOR: &[u8] =
-    b"https://github.com/flyingrobots/edict\n2e3f52f9e6d615f96eb594a40126e223a9253d98\nedict_syntax::compile_to_core\n";
+    b"https://github.com/flyingrobots/amblicit\n2269d81f257f7794b44270cf3f7ca330966a0784\namblicit_syntax::compile_to_core\n";
 const BUILTIN_LOWERER_DESCRIPTOR: &[u8] =
-    b"https://github.com/flyingrobots/edict\n2e3f52f9e6d615f96eb594a40126e223a9253d98\nedict_syntax::BuiltinTargetLowerer::EchoDpo\n";
+    b"https://github.com/flyingrobots/amblicit\n2269d81f257f7794b44270cf3f7ca330966a0784\namblicit_syntax::BuiltinTargetLowerer::EchoDpo\n";
 const NON_SEMANTIC_COMPILE_OPTIONS: &[u8] = b"{\"profile\":\"release\"}\n";
 
 struct RoutedCanonicalArtifact {
@@ -601,6 +601,8 @@ fn lowering_request(
 
 fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> TargetIrArtifact {
     let facts = TargetIrLoweringFacts {
+        effect_signatures: Vec::new(),
+        pure_functions: Vec::new(),
         target_profile,
         target_ir_domain: ECHO_SPAN_IR_DOMAIN.to_owned(),
         operation_profiles: vec!["continuum.profile.write/v1".to_owned()],
@@ -623,6 +625,7 @@ fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> 
         .artifact
         .expect("the exact fixture lowers to Target IR");
     artifact.semantic_closure = Some(TargetIrSemanticClosure {
+        capabilities: Vec::new(),
         source_core: ResourceRef {
             coordinate: core.coordinate.clone(),
             digest: Some(
@@ -1763,6 +1766,7 @@ fn checked_package_is_ready_for_edict_before_guest_execution() {
         EXPECTED_SCHEMA_BINDING_COUNT
     );
     assert_eq!(registry.bindings().len(), EXPECTED_SCHEMA_BINDING_COUNT);
+    assert_schema_binding(&manifest, "edict.source-closure/v1", "source-closure");
     assert_schema_binding(
         &manifest,
         "edict.result-projection.artifact/v1",
@@ -2087,7 +2091,7 @@ fn malformed_manifest_fails_before_component_selection() {
     let report = bind_target_provider_manifest(&manifest)
         .expect_err("an invalid provider ABI cannot produce an Edict manifest proof");
     assert!(report.failures.iter().any(|failure| {
-        failure.kind == edict_syntax::ProviderManifestValidationFailureKind::InvalidProviderAbi
+        failure.kind == amblicit_syntax::ProviderManifestValidationFailureKind::InvalidProviderAbi
     }));
 }
 
@@ -2194,7 +2198,7 @@ fn declared_package_cases_execute_their_exact_typed_contracts() {
 
     assert_eq!(
         observation.target_ir_digest,
-        "sha256:40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da"
+        "sha256:fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399"
     );
     assert_eq!(observation.verifier_outcome, "accepted");
     assert_eq!(

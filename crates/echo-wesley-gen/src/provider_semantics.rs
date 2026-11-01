@@ -3411,18 +3411,7 @@ fn validate_invocation_schema_bindings(
         (InvocationInputKind::AuthorityFacts, 2),
         (InvocationInputKind::LowerabilityFacts, 1),
         (InvocationInputKind::TargetIr, 2),
-        (
-            InvocationInputKind::Auxiliary,
-            if source
-                .invocation_inputs
-                .iter()
-                .any(|input| input.role == "source-closure.echo-operation")
-            {
-                7
-            } else {
-                6
-            },
-        ),
+        (InvocationInputKind::Auxiliary, 7),
     ] {
         let actual = source
             .invocation_inputs

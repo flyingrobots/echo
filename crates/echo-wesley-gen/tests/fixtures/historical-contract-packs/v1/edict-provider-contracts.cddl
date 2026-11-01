@@ -7,8 +7,7 @@
 ; Shared CDDL types for the Edict ABIs, defined ONCE here so they cannot drift
 ; (EDICT-ABI-NODUP-001). Two groups:
 ;   - resource-ref, sha256-digest, effect-failure-body, effect-kind, authority-class,
-;     core-type-ref, core-named-type-ref: assembled with edict-core.cddl,
-;     edict-target-profile.cddl, and
+;     core-type-ref: assembled with edict-target-profile.cddl and
 ;     edict-lawpack.cddl by the build; those schemas do not redefine them.
 ;   - operation-profile, optic-template, aperture-requirement and their refs:
 ;     consumed by the Core/optic layer (edict-core.cddl) and referenced by the
@@ -54,14 +53,7 @@ effect-kind = "read" / "create" / "ensure" / "replace" / "delete" /
 authority-class = "domainMappable" / "participantOwned" / "integrityFault" /
                   "resourceFault" / "internalFault"
 
-; The normative lexical and semantic grammar for Core type references lives in
-; SPEC_edict-language-v1.md. CDDL can express only the wire-level text shape.
-core-type-ref = tstr
-
-; A core.types map key is narrower than a general core-type-ref: it must be a
-; named identity, never an intrinsic or canonical structural reference. The
-; formal spec and executable Core validator enforce that semantic distinction.
-core-named-type-ref = tstr
+core-type-ref = tstr   ; canonical Core type coordinate
 
 ; An operation profile supplies the optic template a Core intent resolves its
 ; opticKind/boundaryKind/supportPolicy/lossDisposition from. Target profiles and
@@ -104,7 +96,7 @@ core-module = {
   apiVersion: "edict.core/v1",
   coordinate: tstr,
   imports: [* core-import],
-  types: { * core-named-type-ref => core-type },
+  types: { * tstr => core-type },
   intents: { + tstr => core-intent },
   requiredCoreCapabilities: [* tstr],
 }
@@ -441,8 +433,8 @@ core-bound = literal-bound / coordinate-bound
 literal-bound = { kind: "literal", value: uint }
 coordinate-bound = { kind: "coordinate", ref: tstr }
 
-; Shared resource-ref, sha256-digest, failure-ident, aperture-requirement,
-; core-type-ref, and core-named-type-ref are defined once in edict-common.cddl.
+; Shared resource-ref, sha256-digest, failure-ident, aperture-requirement, and
+; core-type-ref are defined once in edict-common.cddl.
 
 ; --- edict-lawpack.cddl ---
 ; edict-lawpack.cddl
@@ -903,60 +895,22 @@ target-ir-resource-ref = {
   digest: sha256-digest,
 }
 
-target-ir-artifact = target-ir-phased-artifact / target-ir-ordered-artifact
-
-target-ir-phased-artifact = target-ir-closed-artifact / target-ir-legacy-artifact
+target-ir-artifact = target-ir-closed-artifact / target-ir-legacy-artifact
 
 target-ir-artifact-common = (
+  kind: "targetIrArtifact",
   domain: tstr,
   targetProfile: target-ir-resource-ref,
   sourceCoreCoordinate: tstr .regexp "(?s).+",
 )
 
-; v2 binds one execution order over the instruction tables. The encoder also
-; validates the exact permutation and producer-before-consumer dependencies.
-target-ir-ordered-artifact = target-ir-ordered-closed / target-ir-ordered-legacy
-
-target-ir-ordered-common = (
-  domain: "echo.span-ir/v2",
-  targetProfile: target-ir-resource-ref,
-  sourceCoreCoordinate: tstr .regexp "(?s).+",
-)
-
-target-ir-ordered-closed = {
-  kind: "orderedTargetIrArtifact",
-  target-ir-ordered-common,
-  semanticClosure: target-ir-semantic-closure,
-  intents: { * tstr => target-ir-ordered-intent },
-}
-
-target-ir-ordered-legacy = {
-  kind: "orderedTargetIrArtifact",
-  target-ir-ordered-common,
-  intents: { * tstr => target-ir-ordered-legacy-intent },
-}
-
-target-ir-ordered-intent = {
-  target-ir-intent-common,
-  ? basis: core-expr,
-  ? pureBindings: [1* target-ir-pure-binding],
-  executionOrder: [* tstr .regexp "(?s).+"],
-}
-
-target-ir-ordered-legacy-intent = {
-  target-ir-intent-common,
-  executionOrder: [* tstr .regexp "(?s).+"],
-}
-
 target-ir-closed-artifact = {
-  kind: "targetIrArtifact",
   target-ir-artifact-common,
   semanticClosure: target-ir-semantic-closure,
   intents: { * tstr => target-ir-intent },
 }
 
 target-ir-legacy-artifact = {
-  kind: "targetIrArtifact",
   target-ir-artifact-common,
   intents: { * tstr => target-ir-legacy-intent },
 }

@@ -421,7 +421,7 @@ remain bytes. The inferred byte type has equal minimum and maximum bounds at the
 actual length, so a narrower result type still refuses. Materialization charges
 one value cell plus its payload length through the existing runtime meter. The
 checked lowerer and verifier components include this rule; source-function and
-source-module consumers still select their matching schema publication.
+source-module consumers use the same current schema publication.
 
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
@@ -669,7 +669,7 @@ judgment tests provide separate evidence. It does not establish a persistent rop
 a decided Tick, atomic effects, recovery or final pinned integration.
 
 The companion fixture in `crates/warp-core/tests/fixtures/edict-pure-utf8-helper`
-selects the explicit source-function publication using the guarded Docker publisher
+uses the current publication through the guarded Docker publisher
 with copied read-only sources. The public compiler then invokes both promoted
 components and retains their unchanged accepted package/report. A byte-parameter
 helper exercises UTF-8 validation, Boolean equality, conjunction, negation and
@@ -964,16 +964,14 @@ bounded-read decoder applies the same bounded envelope checks and rechecks the
 closure identity under the selected source domain before any reading. Pure
 execution continues to require its independently supplied exact package pin.
 
-The explicit module semantic variant adds one source input alternative and
-schema binding. Generation refuses it with a legacy contract pack that lacks
-`source-closure`. Existing generation inputs keep their exact legacy inventory;
-raw package admission accepts only that inventory or the closed extension.
+The current semantic declaration includes the source-module input alternative
+and its schema binding. Generation and raw package admission use the same
+current 32-binding inventory, including `source-closure`.
 
-The closed selector fixes both byte identities and the input size ceiling before
-parsing; mixed publications reject. This is structural schema authority only.
-It does not prove instruction ordering, select an executable profile, or confer
-support for graph reads or writes. The existing provider generation path still
-selects the original publication.
+Contract-pack admission fixes both byte identities and the input size ceiling
+before parsing; historical and mixed publications reject. This is structural
+schema authority only. It does not prove instruction ordering, select an
+executable profile, or confer support for graph reads or writes.
 
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
@@ -1003,12 +1001,11 @@ rejected reports bind the exact package, Target IR, and projection; response
 ceilings include their artifact bytes, role/domain strings, and diagnostics.
 
 The checked schema and reproducibly promoted components now support this read
-configuration. The explicit ordered-contract publication compiles the authored
-single and independent-address paired read/guard programs through unmodified
-Edict, including both Wasm components and exact accepted verifier reports.
-Repeated builds reproduce the package/report bytes. The original contract
-publication remains selected by the default generator; callers must explicitly
-select the ordered publication for these ordered read programs.
+configuration. The ordered-read witness compiles the authored single and
+independent-address paired read/guard programs through unmodified Edict,
+including both Wasm components and exact accepted verifier reports. Repeated
+builds reproduce the package/report bytes. These programs use the same current
+publication as the default generator; there is no publication selector.
 
 The [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
 preserves the authored source and also proves the old provider's schema refusal.

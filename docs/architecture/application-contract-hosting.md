@@ -498,6 +498,8 @@ field identities.
 Runtime preparation includes list operand validation in the combined helper-call
 depth bound. Capability discovery uses the canonical artifact nesting ceiling;
 wire wrappers do not count as evaluator expression frames.
+Its node budget also follows each separately decoded Core/export artifact;
+the parser's shared program-work limit remains independent.
 
 These native operation paths have synthetic provider and runtime tests in
 [`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)

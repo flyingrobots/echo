@@ -10,7 +10,7 @@ use super::{
     values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
 };
-use echo_edict_canonical::CanonicalValueV1 as Value;
+use echo_edict_canonical::{CanonicalValueV1 as Value, MAX_CANONICAL_DECODE_NODES_V1};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Definition<'a> {
@@ -43,9 +43,12 @@ pub(crate) fn definitions<'a>(
     }
     let fold_capability = capabilities.contains("core.fold/v1");
     if !capabilities.contains("core.list/v1") {
-        let mut remaining = MAX_PROGRAM_NODES;
-        super::list_operations::without_capability(core, &mut remaining, 0)?;
-        super::list_operations::without_capability(exports, &mut remaining, 0)?;
+        // Each input was separately admitted by the canonical decoder. Scan
+        // under those wire budgets; the parser keeps its shared program budget.
+        for artifact in [core, exports] {
+            let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
+            super::list_operations::without_capability(artifact, &mut remaining, 0)?;
+        }
     }
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;

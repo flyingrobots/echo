@@ -150,6 +150,73 @@ fn list_capability_scan_preserves_supported_non_list_depth() -> Result<(), Error
 }
 
 #[test]
+fn list_capability_scan_preserves_supported_non_list_width() -> Result<(), Error> {
+    // Wire maps/keys outnumber expression nodes. Declaring an unused list
+    // capability must not change whether a supported record helper prepares.
+    for capability in [true, false] {
+        let fields = (0..2800)
+            .map(|i| (t(&format!("f{i:04}")), t("U64")))
+            .collect();
+        let values = (0..2800)
+            .map(|i| (t(&format!("f{i:04}")), literal()))
+            .collect();
+        let types = m([(
+            "Wide",
+            m([("kind", t("Record")), ("fields", Value::Map(fields))]),
+        )]);
+        let result = m([("kind", t("record")), ("fields", Value::Map(values))]);
+        let mut members = vec![
+            ("coordinate", t(COORDINATE)),
+            ("types", types),
+            ("intents", m([])),
+            ("functions", m([("wide", function(vec![], "Wide", result))])),
+        ];
+        if capability {
+            members.push((
+                "requiredCoreCapabilities",
+                Value::Array(vec![t("core.list/v1")]),
+            ));
+        }
+        let encoded = encode_canonical_cbor_v1(&m(members)).unwrap();
+        assert!(encoded.len() < 1_048_576, "bounded canonical fixture");
+        let core = decode_canonical_cbor_v1(&encoded).unwrap();
+        let types = super::values::field(&core, "types")?;
+        let imported = (0..1200)
+            .map(|i| {
+                m([
+                    ("coordinate", t(&format!("library@1.helper{i}"))),
+                    ("source", t("edict")),
+                    ("parameterTypes", Value::Array(vec![])),
+                    ("typeParameters", Value::Array(vec![])),
+                    ("returnType", t("U64")),
+                    ("body", function(vec![], "U64", literal())),
+                ])
+            })
+            .collect();
+        // Core and the lawpack exports are separately decoded artifacts. Each
+        // is within the canonical node ceiling; parser work spans both.
+        let exports = m([
+            ("pureFunctions", Value::Array(imported)),
+            ("effects", Value::Array(vec![])),
+        ]);
+        let exports =
+            decode_canonical_cbor_v1(&encode_canonical_cbor_v1(&exports).unwrap()).unwrap();
+        let mut parser = Parser {
+            types,
+            coordinate: COORDINATE,
+            remaining: MAX_PROGRAM_NODES,
+        };
+        let prepared = functions::decode(&core, &exports, &mut parser);
+        assert!(
+            prepared.is_ok(),
+            "unused capability {capability}: {:?}",
+            prepared.err()
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn list_capability_scan_refuses_unused_source_and_imported_operations() {
     let length = || {
         call(

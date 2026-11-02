@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 543,049 bytes with SHA-256
-`ca437b9caa3dd8a3e25761458970399c387609840c34e3ae27c6a6fcfaea7972`.
+The checked component is 543,117 bytes with SHA-256
+`873dfec859285f26cadff97a7aa602fd91bcbcba3a3d347918c3658c4575afaa`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 582,023 bytes
+`wit-component` version recorded above. Its checked component is 582,107 bytes
 with SHA-256
-`7b9f2235101a228adb58547b6ac65126071b2fd2ee35783b93b0132880c7a307`.
+`c9cc4a669a87f13d5b306357e8685cd4443871a14647b393bdc93b5fb1dd6f80`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -57,8 +57,8 @@ an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
 The bounded-list operation component pair was independently reproduced by the
-two G4 candidate jobs in [CI run 41387249722](https://github.com/flyingrobots/echo/actions/runs/41387249722)
-at source commit `12b3285e2a77eaf74927d1f44e5a9f6a30b7bbb8`. Both copies of
+two G4 candidate jobs in [CI run 41390189265](https://github.com/flyingrobots/echo/actions/runs/41390189265)
+at source commit `1154d4c47fc06ed7c12ee828f8a1e3cdc102c219`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 

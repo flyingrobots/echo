@@ -296,3 +296,61 @@ fn list_concat_preparation_rejects_coherent_operand_widening() -> Result<(), Err
     );
     Ok(())
 }
+
+#[test]
+fn list_inline_record_types_preserve_canonical_field_order() -> Result<(), Error> {
+    for item in ["U8", "List<Bytes<max=1>,max=2>", "Record<inner:U8>"] {
+        let types = map([(
+            "Row",
+            map([
+                ("kind", text("Record")),
+                // Canonical CBOR orders text keys by length, then bytes.
+                ("fields", map([("z", text("U8")), ("long", text(item))])),
+            ]),
+        )]);
+        let mut parser = Parser {
+            types: &types,
+            coordinate: "generic.worklist@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        let named = parser.ty("List<Row,max=2>", 0)?;
+        let inline = parser.ty(&format!("List<Record<long:{item},z:U8>,max=2>"), 0)?;
+        assert_eq!(named, inline);
+    }
+    Ok(())
+}
+
+#[test]
+fn list_inline_record_types_reject_malformed_or_unbounded_expansion() {
+    let types = map([]);
+    for invalid in [
+        "Record<x:U8,x:U8>",
+        "Record<z:U8,a:U8>",
+        "Record<x:U8,>",
+        "Record<:U8>",
+        "Record<0x:U8>",
+        "Record<x:>",
+        "Record<x:List<U8,max=1>>>",
+        "Record<x:Unknown>",
+    ] {
+        let mut parser = Parser {
+            types: &types,
+            coordinate: "generic.worklist@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        assert!(parser.ty(invalid, 0).is_err(), "{invalid}");
+    }
+    let mut parser = Parser {
+        types: &types,
+        coordinate: "generic.worklist@1",
+        remaining: 3,
+    };
+    assert!(parser.ty("Record<long:U8,z:U8>", 0).is_err());
+    let deep = format!("{}U8{}", "Record<x:".repeat(65), ">".repeat(65));
+    let mut parser = Parser {
+        types: &types,
+        coordinate: "generic.worklist@1",
+        remaining: MAX_PROGRAM_NODES,
+    };
+    assert!(parser.ty(&deep, 0).is_err());
+}

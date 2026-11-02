@@ -110,6 +110,80 @@ fn list_operations_are_independently_admitted_with_strict_domains() {
 }
 
 #[test]
+fn list_inline_record_operands_match_named_structural_types() {
+    let mut refused = Vec::new();
+    for item in ["U8", "List<Bytes<max=1>,max=2>", "Record<inner:U8>"] {
+        let inline = format!("List<Record<long:{item},z:U8>,max=2>");
+        let (names, candidate, package) = fixture("concat", |core| {
+            add_field(
+                map_field_mut(core, "types"),
+                "Row",
+                map([
+                    ("kind", text("Record")),
+                    ("fields", map([("long", text(item)), ("z", text("U8"))])),
+                ]),
+            );
+            let left = local("arg.0", "List<Row,max=2>");
+            let right = local("arg.1", "List<Row,max=2>");
+            *map_field_mut(map_field_mut(core, "functions"), "worklist") = function(
+                vec![left.clone(), right.clone()],
+                "List<Row,max=4>",
+                vec![],
+                vec![],
+                operation(
+                    "core.list.concat",
+                    &[&inline, &inline],
+                    vec![reference(&left), reference(&right)],
+                ),
+            );
+        });
+        if lowerer::lower(lowering_request(names, &candidate)).is_err() {
+            refused.push(format!("lowerer: {inline}"));
+        }
+        if !verifier_accepts(names, &candidate, package) {
+            refused.push(format!("verifier: {inline}"));
+        }
+    }
+    assert!(
+        refused.is_empty(),
+        "valid record operands refused: {refused:#?}"
+    );
+}
+
+#[test]
+fn list_inline_record_operands_reject_noncanonical_references() {
+    for record in [
+        "Record<x:U8,x:U8>",
+        "Record<z:U8,a:U8>",
+        "Record<x:U8,>",
+        "Record<:U8>",
+        "Record<0x:U8>",
+        "Record<x:>",
+        "Record<x:List<U8,max=1>>>",
+        "Record<x:Unknown>",
+    ] {
+        let operand = format!("List<{record},max=2>");
+        let output = format!("List<{record},max=4>");
+        let (names, candidate, package) = fixture("concat", |core| {
+            let left = local("arg.0", &operand);
+            let right = local("arg.1", &operand);
+            *map_field_mut(map_field_mut(core, "functions"), "worklist") = function(
+                vec![left.clone(), right.clone()],
+                &output,
+                vec![],
+                vec![],
+                operation(
+                    "core.list.concat",
+                    &[&operand, &operand],
+                    vec![reference(&left), reference(&right)],
+                ),
+            );
+        });
+        both_refuse(names, &candidate, package, record);
+    }
+}
+
+#[test]
 fn list_operations_refuse_missing_duplicate_and_unknown_capabilities() {
     for capabilities in [
         vec![],

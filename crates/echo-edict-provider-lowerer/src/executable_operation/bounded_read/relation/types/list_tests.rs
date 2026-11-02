@@ -337,3 +337,34 @@ fn assert_refusal(result: Result<(), ProviderRefusalV1>) {
         "{result:?}"
     );
 }
+
+#[test]
+fn list_inline_record_types_preserve_structural_and_nominal_meaning() {
+    let core = core();
+    let judgment = scope(&core);
+    assert_eq!(
+        judgment.ty("Row"),
+        judgment.ty("Record<payload:Bytes<max=4>>")
+    );
+    assert!(judgment
+        .ty("List<Record<a:A,nested:List<Record<x:U8>,max=2>>,max=3>")
+        .is_ok());
+    assert_ne!(judgment.ty("Record<a:A>"), judgment.ty("Record<a:B>"));
+    assert!(judgment.ty("Record<>").is_ok());
+    for invalid in [
+        "Record<x:U8,x:U8>",
+        "Record<z:U8,a:U8>",
+        "Record<x:U8,>",
+        "Record<:U8>",
+        "Record<0x:U8>",
+        "Record<x:>",
+        "Record<x:List<U8,max=1>>>",
+        "Record<x:Unknown>",
+    ] {
+        assert!(judgment.ty(invalid).is_err(), "{invalid}");
+    }
+    judgment.remaining_type_work.set(3);
+    assert!(judgment.ty("Record<long:U8,z:U8>").is_err());
+    let deep = format!("{}U8{}", "Record<x:".repeat(65), ">".repeat(65));
+    assert!(scope(&core).ty(&deep).is_err());
+}

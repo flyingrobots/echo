@@ -488,6 +488,13 @@ evaluation checks actual lengths and elements and charges
 result storage before reserving it. The ordered-read type judgments admit the
 same operations after whole-intent validation.
 
+Structural joins may produce inline `Record<field:Type,...>` coordinates inside
+lists. Each provider and the runtime parses these under its existing depth and
+work bounds, charging the scanned bytes. Fields must have unique, lexically
+ordered names. Runtime types normalize that spelling to canonical CBOR field
+order so named and inline records compare structurally without erasing nominal
+field identities.
+
 These native operation paths have synthetic provider and runtime tests in
 [`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
 and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),

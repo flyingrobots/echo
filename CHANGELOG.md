@@ -13,6 +13,8 @@
   type refusals, deterministic copy charges and one-unit-short budgets.
   Append and concat bind each declared operand type to its reconstructed type;
   coherently widening concat operands cannot invent capacity or item bounds.
+  Inline record coordinates from structural alias joins resolve under bounded
+  parsing in pure, ordered-read and runtime judgments, preserving nominal fields.
   The checked Wasm provider components have not yet been promoted with these
   operations; public compiler-to-runtime execution remains a separate gate.
 

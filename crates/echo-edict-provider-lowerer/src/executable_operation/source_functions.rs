@@ -301,6 +301,17 @@ impl<'a> Judgment<'a> {
                 decimal(max)?,
             ));
         }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.work = self.work.checked_sub(spec.len()).ok_or(())?;
+            let mut fields = BTreeMap::new();
+            for (field, coordinate) in super::record_type::fields(spec)? {
+                fields.insert(field.to_owned(), self.ty(coordinate, depth + 1)?);
+            }
+            return Ok(Ty::Record(fields));
+        }
         let prefix = format!("{}.", string(get(self.core, "coordinate")?)?);
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.core, "types")?, key)?;

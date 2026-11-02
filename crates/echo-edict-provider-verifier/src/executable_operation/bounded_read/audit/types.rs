@@ -188,6 +188,17 @@ impl<'a> Symbols<'a> {
                 maximum,
             });
         }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.work = self.work.checked_sub(spec.len()).ok_or(())?;
+            let mut fields = BTreeMap::new();
+            for (name, ty) in super::super::super::record_type::fields(spec)? {
+                fields.insert(name.to_owned(), self.schema(ty, depth + 1)?);
+            }
+            return Ok(Schema::Row(fields));
+        }
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let value = get(get(self.core, "types")?, key)?;
         match text(value, "kind")? {

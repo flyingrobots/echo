@@ -172,6 +172,24 @@ impl<'a> Scope<'a> {
                 canonical_number(max)?,
             ));
         }
+        if let Some(spec) = coordinate
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.remaining_type_work.set(
+                self.remaining_type_work
+                    .get()
+                    .checked_sub(spec.len())
+                    .ok_or_else(invalid)?,
+            );
+            let mut fields = BTreeMap::new();
+            for (name, coordinate) in
+                super::super::super::record_type::fields(spec).map_err(|()| invalid())?
+            {
+                fields.insert(name.to_owned(), self.resolve(coordinate, depth + 1)?);
+            }
+            return Ok(ReadType::Record(fields));
+        }
         let key = coordinate.strip_prefix(&prefix).unwrap_or(coordinate);
         let value = field(field(self.core, "types")?, key)?;
         match text(value, "kind")? {

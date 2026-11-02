@@ -334,3 +334,31 @@ fn check(core: &Value, value: &Value, expected: &str) -> Check<()> {
 fn assert_refusal(result: Check<()>) {
     assert_eq!(result, Err(()));
 }
+
+#[test]
+fn list_inline_record_types_preserve_structural_and_nominal_meaning() {
+    let core = core();
+    let mut judgment = symbols(&core);
+    assert!(judgment.schema("Row", 0) == judgment.schema("Record<payload:Bytes<max=4>>", 0));
+    assert!(judgment
+        .schema("List<Record<a:A,nested:List<Record<x:U8>,max=2>>,max=3>", 0)
+        .is_ok());
+    assert!(judgment.schema("Record<a:A>", 0) != judgment.schema("Record<a:B>", 0));
+    assert!(judgment.schema("Record<>", 0).is_ok());
+    for invalid in [
+        "Record<x:U8,x:U8>",
+        "Record<z:U8,a:U8>",
+        "Record<x:U8,>",
+        "Record<:U8>",
+        "Record<0x:U8>",
+        "Record<x:>",
+        "Record<x:List<U8,max=1>>>",
+        "Record<x:Unknown>",
+    ] {
+        assert!(judgment.schema(invalid, 0).is_err(), "{invalid}");
+    }
+    judgment.work = 3;
+    assert!(judgment.schema("Record<long:U8,z:U8>", 0).is_err());
+    let deep = format!("{}U8{}", "Record<x:".repeat(65), ">".repeat(65));
+    assert!(symbols(&core).schema(&deep, 0).is_err());
+}

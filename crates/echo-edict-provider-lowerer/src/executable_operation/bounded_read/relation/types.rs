@@ -570,7 +570,9 @@ impl<'a> Scope<'a> {
         ) {
             ("==", ReadType::Bool, ReadType::Bool)
             | ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
-            ("==" | "<=", ReadType::Unsigned(left), ReadType::Unsigned(right)) if left == right => {
+            ("==" | "<=" | "<", ReadType::Unsigned(left), ReadType::Unsigned(right))
+                if left == right =>
+            {
                 Ok(())
             }
             _ => Err(invalid()),

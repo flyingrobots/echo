@@ -2,6 +2,51 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Read type-judgment witnesses; these do not claim public compiler provenance.
 use super::*;
+
+#[test]
+fn ordered_list_guards_accept_strict_word_comparisons() {
+    let core = core();
+    let operation = |name: &str, args| {
+        m([
+            ("kind", t("call")),
+            ("callee", t(name)),
+            ("typeArgs", Value::Array(vec![t("Numbers")])),
+            ("args", Value::Array(args)),
+        ])
+    };
+    let length = operation("core.list.length", vec![call("numbers", vec![])]);
+    let access = operation("core.list.at", vec![call("numbers", vec![]), integer(0)]);
+    let conditional = |left| {
+        m([
+            ("kind", t("if")),
+            (
+                "predicate",
+                m([
+                    ("kind", t("compare")),
+                    ("op", t("<")),
+                    ("left", left),
+                    ("right", length.clone()),
+                ]),
+            ),
+            ("then", access.clone()),
+            ("else", integer(0)),
+        ])
+    };
+    assert!(check(&core, &conditional(integer(0)), "U64").is_ok());
+    let wrong_width = m([
+        ("kind", t("const")),
+        (
+            "value",
+            m([
+                ("kind", t("int")),
+                ("width", t("U8")),
+                ("value", Value::Integer(0)),
+            ]),
+        ),
+    ]);
+    assert_refusal(check(&core, &conditional(wrong_width), "U64"));
+}
+
 #[test]
 fn ordered_list_operations_preserve_types_after_domain_validation() {
     let core = core();

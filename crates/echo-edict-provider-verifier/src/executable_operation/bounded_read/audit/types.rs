@@ -564,7 +564,7 @@ impl<'a> Symbols<'a> {
         ) {
             ("==", Schema::Boolean, Schema::Boolean)
             | ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
-            ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
+            ("==" | "<=" | "<", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
             _ => Err(()),
         }
     }

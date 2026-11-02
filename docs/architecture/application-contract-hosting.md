@@ -496,8 +496,8 @@ ordered names. Runtime types normalize that spelling to canonical CBOR field
 order so named and inline records compare structurally without erasing nominal
 field identities.
 
-Runtime preparation includes list operand validation in the combined helper-call
-depth bound. Capability discovery uses the canonical artifact nesting ceiling;
+Both provider judgments and runtime preparation include list operand validation
+in the combined helper-call depth bound. Capability discovery uses the canonical artifact nesting ceiling;
 wire wrappers do not count as evaluator expression frames.
 Its node budget also follows each separately decoded Core/export artifact;
 the parser's shared program-work limit remains independent.

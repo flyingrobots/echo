@@ -601,6 +601,9 @@ impl<'a> Checker<'a, '_> {
                     }
                     if list_operations::is_operation(name) {
                         list_operations::authority(self.types.module, name, types)?;
+                        for operand in &declared {
+                            height = height.max(operand.measure()?.height + 1);
+                        }
                     }
                     height = height.max(1);
                     let addition_proven = if name == "core.integer.add" {

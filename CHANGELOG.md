@@ -15,7 +15,7 @@
   coherently widening concat operands cannot invent capacity or item bounds.
   Inline record coordinates from structural alias joins resolve under bounded
   parsing in pure, ordered-read and runtime judgments, preserving nominal fields.
-  Runtime preparation includes operand validation depth across helper calls;
+  Provider judgments and runtime preparation include operand validation depth across helper calls;
   capability discovery preserves the canonical artifact nesting allowance.
   The checked Wasm component pair is promoted from two matching independent
   builds, with refreshed package manifests and identity goldens. Public compiler

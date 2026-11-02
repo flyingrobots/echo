@@ -254,7 +254,8 @@ async function runCase(name: string, source: string, options: { read?: boolean; 
     requireThat(JSON.stringify(result.firstBuild.artifacts) === JSON.stringify(result.repeatedBuild.artifacts), 'Public compiler repeat changed package/report bytes');
   }
   retain();
-  console.log(`PUBLIC_WORKLIST_COMPILE_OK ${name}`);
+  const marker = options.refusal ? 'PUBLIC_WORKLIST_REFUSAL_OK' : 'PUBLIC_WORKLIST_COMPILE_OK';
+  console.log(`${marker} ${name}`);
 }
 try {
   // Exercise the read route first so a new cross-profile regression fails early.

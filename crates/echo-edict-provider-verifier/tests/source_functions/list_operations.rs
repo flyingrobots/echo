@@ -300,3 +300,69 @@ fn list_concat_refuses_coherent_operand_widening() {
         "forged operands admitted: {admitted:#?}"
     );
 }
+
+// Both independent judgments must account for nested operand validation inside
+// helper calls, including otherwise unused helpers in the checked closure.
+#[test]
+fn list_operand_validation_depth_matches_runtime_across_calls() {
+    fn wrapped(mut value: CanonicalValueV1, count: usize) -> CanonicalValueV1 {
+        for _ in 0..count {
+            value = choose(
+                map([
+                    ("kind", text("compare")),
+                    ("op", text("==")),
+                    ("left", literal("U64", 0)),
+                    ("right", literal("U64", 0)),
+                ]),
+                value,
+                literal("U64", 0),
+            );
+        }
+        value
+    }
+    let deep = format!("{}U8{}", "List<".repeat(40), ",max=1>".repeat(40));
+    let mut observations = Vec::new();
+    for outer_wrappers in [0, 20] {
+        let (names, candidate, package) = edited_fixture(|core, _| {
+            let coordinate = text_field(core, "coordinate")
+                .expect("fixture coordinate")
+                .to_owned();
+            let xs = local("arg.0", &deep);
+            let inner = wrapped(
+                operation("core.list.length", &[&deep], vec![reference(&xs)]),
+                10,
+            );
+            let outer = wrapped(
+                call(&format!("{coordinate}.inner"), vec![reference(&xs)]),
+                outer_wrappers,
+            );
+            *map_field_mut(core, "requiredCoreCapabilities") = list(vec![text("core.list/v1")]);
+            add_field(
+                core,
+                "functions",
+                map([
+                    (
+                        "inner",
+                        function(vec![xs.clone()], "U64", vec![], vec![], inner),
+                    ),
+                    ("outer", function(vec![xs], "U64", vec![], vec![], outer)),
+                ]),
+            );
+        });
+        let lowered = lowerer::lower(lowering_request(names, &candidate));
+        // Invoke the verifier on independently rebound carriers even if lowering
+        // refuses. A lowerer failure must not prevent the second observation.
+        let verified = verifier_accepts(names, &candidate, package.clone());
+        if outer_wrappers == 0 {
+            let success = lowered.as_ref().expect("zero-wrapper admission control");
+            assert_eq!(success.outputs[0].artifact.bytes, package);
+            assert!(verified, "zero-wrapper verifier control");
+        }
+        observations.push((outer_wrappers, lowered.is_ok(), verified));
+    }
+    assert_eq!(
+        observations,
+        vec![(0, true, true), (20, false, false)],
+        "providers must refuse the helper closure that runtime preparation rejects"
+    );
+}

@@ -63,10 +63,12 @@ impl Judgment<'_> {
             }
             _ => return Err(()),
         };
-        let (mut cost, _, _, depth) = shape(&result)?;
+        let (mut cost, _, _, mut depth) = shape(&result)?;
         for operand in validations {
+            let (_, validations, _, operand_depth) = shape(operand)?;
+            depth = depth.max(operand_depth);
             cost = cost.plus(Cost {
-                steps: shape(operand)?.1,
+                steps: validations,
                 bytes: 0,
             })?;
         }

@@ -40,10 +40,19 @@ binary and source hashes alone do not establish that one was built from the othe
 
 The driver checks selected input bytes before and after execution, repeats each
 accepted application build, and retains authored inputs, compiler diagnostics,
-package/report pairs and `evidence.json`. A failed run retains evidence without a
-success outcome. Use a new output directory for each run. The driver bounds its
+package/report pairs and `evidence.json`. After output creation, failure receipts
+retain the reason and omit the success outcome, including SIGTERM/SIGINT and
+output-limit failures. One entry and 1 MiB of the existing 64 MiB ceiling are
+reserved for that receipt. Invalid input selection fails before output creation.
+Use a new output directory for each run. The driver bounds its
 output tree and compiler process groups; the outer guard must still enforce the
 aggregate project build/data/log budgets and stop every child on failure.
+
+Run the bounded failure fixtures in that worker with
+`node --test scripts/consumer-witnesses/list-worklist-failures.test.ts`.
+They use a small fault process to check path rejection, interrupted receipts,
+output-limit receipts and compiler termination; they do not claim successful
+public compilation.
 
 Compilation acceptance does not prove runtime execution. The Rust example's
 `PUBLIC_WORKLIST_RUNTIME_ACCEPTED` marker is emitted only after the pure,

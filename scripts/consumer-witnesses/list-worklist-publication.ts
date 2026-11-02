@@ -72,7 +72,9 @@ function copyTree(tree: Tree, target: string) {
   }
 }
 function inventory(root: string, hashes = false): Record<string, string> {
-  let bytes = 0, entries = 0;
+  // Reserve one bounded receipt even when an output limit stops the compiler.
+  const reserveReceipt = root === work;
+  let bytes = reserveReceipt ? MiB : 0, entries = reserveReceipt ? 1 : 0;
   const files: Record<string, string> = {};
   function walk(path: string, prefix: string) {
     for (const name of readdirSync(path).sort()) {
@@ -82,6 +84,10 @@ function inventory(root: string, hashes = false): Record<string, string> {
         // Compiler publication atomically removes its transaction directory.
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
         throw error;
+      }
+      if (reserveReceipt && relative === 'evidence.json') {
+        requireThat(stat.isFile() && stat.size <= MiB, 'Unbounded/nonregular evidence receipt');
+        continue;
       }
       requireThat(++entries <= 2048, 'Witness entry limit exceeded');
       if (stat.isDirectory()) {
@@ -110,6 +116,7 @@ requireThat(inputs.schema === 'echo.list-worklist-inputs/v1' && /^[a-f0-9]{40}$/
 const trees = [inputs.compilerSource, inputs.pureSeed, inputs.readSeed, inputs.provider, inputs.oldProvider];
 function verifyInputs() {
   requireThat(digest(boundedFile(inputPath)) === selectedHash, 'Input manifest changed');
+  requireThat(isAbsolute(inputs.compiler.path), 'Absolute compiler path required');
   requireThat(digest(boundedFile(inputs.compiler.path, 256 * MiB)) === inputs.compiler.sha256, 'Compiler binary changed');
   for (const tree of trees) verifyTree(tree);
 }
@@ -129,10 +136,27 @@ function stopChild() {
   try { process.kill(-childGroup, 'SIGKILL'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
 }
-for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { stopChild(); process.exit(1); });
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => {
+  try { stopChild(); }
+  finally {
+    try { retainFailure(`Witness interrupted by ${signal}`); }
+    finally { process.exit(1); }
+  }
+});
+function writeEvidence() {
+  const bytes = Buffer.from(JSON.stringify(evidence, null, 2) + '\n');
+  requireThat(bytes.length <= MiB, 'Evidence receipt exceeds reserved 1 MiB');
+  writeFileSync(join(work, 'evidence.json'), bytes);
+}
+function retainFailure(error: unknown) {
+  delete evidence.outcome;
+  evidence.failure = String(error);
+  // The compiler is stopped; do not repeat the inventory check that failed.
+  writeEvidence();
+}
 function retain() {
   inventory(work);
-  writeFileSync(join(work, 'evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+  writeEvidence();
   inventory(work);
 }
 async function build(root: string, document: 'application' | 'lawpack', label: string): Promise<Build> {
@@ -275,5 +299,7 @@ try {
   evidence.outcome = 'public-compiler-and-provider-verifier-accepted'; retain();
   console.log(`PUBLIC_WORKLIST_EVIDENCE_SHA256 ${digest(boundedFile(join(work, 'evidence.json')))}`);
 } catch (error) {
-  delete evidence.outcome; evidence.failure = String(error); retain(); throw error;
+  try { retainFailure(error); }
+  catch (receiptError) { console.error('Could not retain failure evidence:', receiptError); }
+  throw error;
 } finally { stopChild(); }

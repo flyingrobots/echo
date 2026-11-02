@@ -41,7 +41,18 @@ intent assembleRange(input: Input) returns Output
 `;
 }
 
-export function readSource(importLine: string, count: number, nominal = false, bare = false): string {
+export function readSource(importLine: string, count: number, nominal = false, bare = false, guard: 'forward' | 'reversed' | 'negated' = 'forward'): string {
+  const appended = '{ items: listAppend(work.items,work.payload), payload: work.payload }';
+  const step = guard === 'reversed'
+    ? `if 3u64 > listLen(work.items) then ${appended} else work`
+    : guard === 'negated'
+      ? `if listLen(work.items) >= 3u64 then work else ${appended}`
+      : `if listLen(work.items) < 3u64 then ${appended} else work`;
+  const retained = guard === 'reversed'
+    ? 'if listLen(built.items) > 2u64 then listAt(built.items,2u64) else input.fallback'
+    : guard === 'negated'
+      ? 'if 2u64 >= listLen(built.items) then input.fallback else listAt(built.items,2u64)'
+      : 'if 2u64 < listLen(built.items) then listAt(built.items,2u64) else input.fallback';
   const identity = nominal ? `
   let ids: List<text.WitnessId,max=1> = [input.${bare ? 'raw' : 'identity'}];
   let selectedIdentity = if 0u64 < listLen(ids) then listAt(ids,0u64) else input.identity;
@@ -50,9 +61,7 @@ export function readSource(importLine: string, count: number, nominal = false, b
 ${importLine}
 type Work = { items: List<text.FactBytes,max=3>, payload: text.FactBytes };
 fn step(work: Work) -> Work {
-  return if listLen(work.items) < 3u64
-    then { items: listAppend(work.items,work.payload), payload: work.payload }
-    else work;
+  return ${step};
 }
 type Input = { address: text.FactAddress, expected: text.FactBytes, fallback: text.FactBytes${nominal ? ', identity: text.WitnessId, raw: Bytes<exact=32>' : ''} };
 intent replaceRange(input: Input) returns text.FactBytes
@@ -70,7 +79,7 @@ intent replaceRange(input: Input) returns text.FactBytes
   let empty: List<text.FactBytes,max=3> = [];
   let initial: Work = { items: empty, payload: actual };
   let built = fold(initial,step,${count}u64);
-  let retained = if 2u64 < listLen(built.items) then listAt(built.items,2u64) else input.fallback;
+  let retained = ${retained};
   return retained;
 }
 `;

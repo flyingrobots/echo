@@ -20,7 +20,8 @@
   The checked Wasm component pair is promoted from two matching independent
   builds, with refreshed package manifests and identity goldens. Public compiler
   witnesses execute non-idempotent worklist folds at bounds 0/1/2/3/5, structural
-  alias concatenation and stored-read worklists, including nominal elements.
+  alias concatenation and stored-read worklists, including nominal elements
+  and forward, reversed and negated strict bounds on equal-width words.
   Independent result oracles check contents, order, duplicate retention and
   guarded indexing. Exact/one-unit-short limits, invalid inputs and old-provider
   refusals exercise the compiler, separate verifier and runtime boundaries.

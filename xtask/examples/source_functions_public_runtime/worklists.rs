@@ -188,6 +188,10 @@ pub(super) fn run(root: &Path, evidence: &serde_json::Value) -> Result<()> {
         let expected: &[u8] = if count == 3 { b"alpha" } else { b"" };
         atom_read_expected(root, evidence, &format!("worklist-read-{count}"), expected)?;
     }
+    for guard in ["reversed", "negated"] {
+        // Five iterations exercise both append and capacity-reached branches.
+        atom_read_expected(root, evidence, &format!("worklist-read-{guard}"), b"alpha")?;
+    }
     let (package, report) = emitted(&root.join("worklist-read-nominal"), evidence)?;
     let (package, _) = checked_pair(package, report)?;
     let package = decode(&package)?;

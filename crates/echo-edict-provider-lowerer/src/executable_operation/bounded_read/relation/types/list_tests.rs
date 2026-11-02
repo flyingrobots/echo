@@ -16,23 +16,27 @@ fn ordered_list_guards_accept_strict_word_comparisons() {
     };
     let length = operation("core.list.length", vec![call("numbers", vec![])]);
     let access = operation("core.list.at", vec![call("numbers", vec![]), integer(0)]);
-    let conditional = |left| {
+    let conditional = |op: &str, index: Value, reversed: bool, negated: bool| {
+        let (left, right) = if reversed {
+            (length.clone(), index)
+        } else {
+            (index, length.clone())
+        };
         m([
             ("kind", t("if")),
             (
                 "predicate",
                 m([
                     ("kind", t("compare")),
-                    ("op", t("<")),
+                    ("op", t(op)),
                     ("left", left),
-                    ("right", length.clone()),
+                    ("right", right),
                 ]),
             ),
-            ("then", access.clone()),
-            ("else", integer(0)),
+            ("then", if negated { integer(0) } else { access.clone() }),
+            ("else", if negated { access.clone() } else { integer(0) }),
         ])
     };
-    assert!(check(&core, &conditional(integer(0)), "U64").is_ok());
     let wrong_width = m([
         ("kind", t("const")),
         (
@@ -44,7 +48,32 @@ fn ordered_list_guards_accept_strict_word_comparisons() {
             ]),
         ),
     ]);
-    assert_refusal(check(&core, &conditional(wrong_width), "U64"));
+    let mut admitted = Vec::new();
+    for (op, reversed, negated) in [
+        ("<", false, false),
+        ("<=", true, true),
+        (">", true, false),
+        (">=", false, true),
+    ] {
+        admitted.push(
+            check(
+                &core,
+                &conditional(op, integer(0), reversed, negated),
+                "U64",
+            )
+            .is_ok(),
+        );
+        assert_refusal(check(
+            &core,
+            &conditional(op, wrong_width.clone(), reversed, negated),
+            "U64",
+        ));
+    }
+    assert_eq!(
+        admitted,
+        vec![true, true, true, true],
+        "all compiler-supported strict guard orientations"
+    );
 }
 
 #[test]
@@ -387,6 +416,8 @@ fn assert_refusal(result: Result<(), ProviderRefusalV1>) {
 fn list_inline_record_types_preserve_structural_and_nominal_meaning() {
     let core = core();
     let judgment = scope(&core);
+    assert!(judgment.ty("Row").is_ok());
+    assert!(judgment.ty("Record<payload:Bytes<max=4>>").is_ok());
     assert_eq!(
         judgment.ty("Row"),
         judgment.ty("Record<payload:Bytes<max=4>>")
@@ -394,6 +425,8 @@ fn list_inline_record_types_preserve_structural_and_nominal_meaning() {
     assert!(judgment
         .ty("List<Record<a:A,nested:List<Record<x:U8>,max=2>>,max=3>")
         .is_ok());
+    assert!(judgment.ty("Record<a:A>").is_ok());
+    assert!(judgment.ty("Record<a:B>").is_ok());
     assert_ne!(judgment.ty("Record<a:A>"), judgment.ty("Record<a:B>"));
     assert!(judgment.ty("Record<>").is_ok());
     for invalid in [

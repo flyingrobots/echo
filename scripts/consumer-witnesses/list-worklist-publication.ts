@@ -260,6 +260,7 @@ async function runCase(name: string, source: string, options: { read?: boolean; 
 try {
   // Exercise the read route first so a new cross-profile regression fails early.
   for (const count of [0, 1, 3]) await runCase(`worklist-read-${count}`, readSource(importLine(readOriginal), count), { read: true });
+  for (const guard of ['reversed', 'negated'] as const) await runCase(`worklist-read-${guard}`, readSource(importLine(readOriginal), 5, false, false, guard), { read: true });
   await runCase('old-worklist-read', readSource(importLine(readOriginal), 3), { read: true, old: true, refusal: 'ProviderLowererRefused' });
   await runCase('worklist-read-nominal', readSource(importLine(readOriginal), 3, true), { read: true, nominal: true });
   await runCase('worklist-read-nominal-bare', readSource(importLine(readOriginal), 3, true, true), { read: true, nominal: true, refusal: 'TypeMismatch' });

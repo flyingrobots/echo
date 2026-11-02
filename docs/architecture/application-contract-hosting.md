@@ -486,8 +486,8 @@ item coordinates and the checked sum of the operand maxima. Both provider
 judgments charge operand validation and bounded result copies. Runtime
 evaluation checks actual lengths and elements and charges
 result storage before reserving it. The ordered-read type judgments admit the
-same operations after whole-intent validation, including strict `<` guards on
-equal-width words.
+same operations after whole-intent validation, including forward, reversed and
+negated strict bounds on equal-width words (`<`, `>`, and false `>=`/`<=`).
 
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
@@ -513,7 +513,8 @@ compiles authored source through those components, repeats accepted builds and
 retains the exact package/report pairs. Its [runtime witness](../../xtask/examples/source_functions_public_runtime/worklists.rs)
 checks non-idempotent folds at bounds 0/1/2/3/5 against closed-form contents and
 index results, structural alias concatenation, and stored-read worklists at
-bounds 0/1/3. Nominal-element acceptance and bare-representation refusal, invalid
+bounds 0/1/3 and reversed/negated guards at bound 5. Nominal-element acceptance
+and bare-representation refusal, invalid
 typed inputs, package identity, exact/one-unit-short budgets and old-provider
 refusals are separate controls. Witness usage and selected-input requirements
 are in the [consumer witness guide](../../scripts/consumer-witnesses/README.md).

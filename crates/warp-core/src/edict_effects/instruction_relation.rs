@@ -5,7 +5,7 @@ use crate::edict_pure::{
     functions,
     model::{Expr, Helper, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES},
     syntax::Parser,
-    values::{array, exact_fields, field, map, require_text, text, text_field},
+    values::{array, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
 };
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
@@ -51,78 +51,19 @@ pub(super) fn validate(
     for constraint in array(field(intent, "inputConstraints")?)? {
         scope.predicate(field(constraint, "predicate")?)?;
     }
-    let mut lowered = BTreeMap::new();
-    for (collection, kind) in [
-        ("steps", "effect"),
-        ("requirements", "require"),
-        ("pureBindings", "let"),
-    ] {
-        if collection == "pureBindings" && field(target, collection).is_err() {
-            continue;
-        }
-        for node in array(field(target, collection)?)? {
-            let id = text_field(node, "id")?;
-            if id.is_empty() || lowered.insert(id, (kind, node)).is_some() {
-                return Err(Error::InvalidArtifact);
-            }
-        }
-    }
-    let nodes = array(field(body, "nodes")?)?;
-    let order = array(field(target, "executionOrder")?)?;
-    if nodes.len() != order.len() || nodes.len() != lowered.len() {
-        return Err(Error::InvalidArtifact);
-    }
-    for (node, id) in nodes.iter().zip(order) {
-        scope.parser.enter(0)?;
-        let (kind, target) = lowered.remove(text(id)?).ok_or(Error::InvalidArtifact)?;
-        require_text(node, "kind", kind)?;
-        match kind {
-            "let" => {
-                exact_fields(node, &["kind", "binding", "value"])?;
-                exact_fields(target, &["id", "binding", "value"])?;
-                equal(node, target, "binding")?;
-                equal(node, target, "value")?;
-                scope.typed_expression(
-                    field(node, "value")?,
-                    text_field(field(node, "binding")?, "type")?,
-                )?;
-                scope.introduce(field(node, "binding")?)?;
-            }
-            "require" => {
-                exact_fields(node, &["kind", "predicate", "onFailure"])?;
-                exact_fields(target, &["id", "predicate", "onFailure"])?;
-                equal(node, target, "predicate")?;
-                equal(node, target, "onFailure")?;
-                scope.predicate(field(node, "predicate")?)?;
-                let failure = field(node, "onFailure")?;
-                exact_fields(failure, &["kind", "reason"])?;
-                require_text(failure, "kind", "terminal")?;
-                let reason = field(failure, "reason")?;
-                exact_fields(reason, &["reasonKind", "payload"])?;
-                if text_field(reason, "reasonKind")?.is_empty() {
-                    return Err(Error::InvalidArtifact);
-                }
-                for (_, value) in map(field(reason, "payload")?)? {
-                    scope.expression(value, None)?;
-                    scope.data_type(value)?;
-                }
-            }
-            "effect" => effect(
-                node,
-                target,
-                &mut scope,
-                signatures
-                    .get(text_field(target, "id")?)
-                    .copied()
-                    .ok_or(Error::InvalidArtifact)?,
-            )?,
-            _ => return Err(Error::UnsupportedProgram),
-        }
-    }
+    let lowered = super::control_order::instructions(intent, target)?
+        .into_iter()
+        .map(|(_, target)| Ok((text_field(target, "id")?, target)))
+        .collect::<Result<BTreeMap<_, _>, Error>>()?;
+    validate_block(
+        body,
+        field(target, "executionOrder")?,
+        &mut scope,
+        &lowered,
+        signatures,
+        0,
+    )?;
     scope.typed_expression(field(body, "result")?, text_field(intent, "output")?)?;
-    if scope.used.len() != scope.inventory.len() {
-        return Err(Error::InvalidArtifact);
-    }
     functions::check_roots(
         &scope.helpers,
         scope.expressions.iter(),
@@ -130,6 +71,150 @@ pub(super) fn validate(
     )?;
     Ok(())
 }
+
+fn validate_block<'a>(
+    body: &'a Value,
+    order: &Value,
+    scope: &mut Scope<'a>,
+    lowered: &BTreeMap<&str, &Value>,
+    signatures: &BTreeMap<&str, &Value>,
+    depth: usize,
+) -> Result<(), Error> {
+    scope.parser.enter(depth)?;
+    for (node, entry) in array(field(body, "nodes")?)?.iter().zip(array(order)?) {
+        scope.parser.enter(depth)?;
+        let kind = text_field(node, "kind")?;
+        match kind {
+            "for" => {
+                scope.expression(field(node, "iter")?, None)?;
+                let iterable = scope.data_type(field(node, "iter")?)?;
+                let RuntimeType::List { item, max } = iterable.representation() else {
+                    return Err(Error::InvalidArtifact);
+                };
+                let bound = field(node, "bound")?;
+                exact_fields(bound, &["kind", "value"])?;
+                require_text(bound, "kind", "literal")?;
+                if *max > number(field(bound, "value")?)? {
+                    return Err(Error::InvalidArtifact);
+                }
+                let binder = field(node, "binder")?;
+                let expected = scope.parser.ty(text_field(binder, "type")?, 0)?;
+                if item
+                    .as_ref()
+                    .is_some_and(|item| !functions::accepts(&expected, item))
+                {
+                    return Err(Error::InvalidArtifact);
+                }
+                validate_child(
+                    field(node, "body")?,
+                    field(entry, "body")?,
+                    Some(binder),
+                    scope,
+                    lowered,
+                    signatures,
+                    depth + 1,
+                )?;
+            }
+            "branch" => {
+                scope.predicate(field(node, "predicate")?)?;
+                for arm in ["then", "else"] {
+                    validate_child(
+                        field(node, arm)?,
+                        field(entry, arm)?,
+                        None,
+                        scope,
+                        lowered,
+                        signatures,
+                        depth + 1,
+                    )?;
+                }
+            }
+            _ => {
+                let target = *lowered.get(text(entry)?).ok_or(Error::InvalidArtifact)?;
+                match kind {
+                    "let" => {
+                        exact_fields(node, &["kind", "binding", "value"])?;
+                        exact_fields(target, &["id", "binding", "value"])?;
+                        equal(node, target, "binding")?;
+                        equal(node, target, "value")?;
+                        scope.typed_expression(
+                            field(node, "value")?,
+                            text_field(field(node, "binding")?, "type")?,
+                        )?;
+                        scope.introduce(field(node, "binding")?)?;
+                    }
+                    "require" => {
+                        exact_fields(node, &["kind", "predicate", "onFailure"])?;
+                        exact_fields(target, &["id", "predicate", "onFailure"])?;
+                        equal(node, target, "predicate")?;
+                        equal(node, target, "onFailure")?;
+                        scope.predicate(field(node, "predicate")?)?;
+                        let failure = field(node, "onFailure")?;
+                        exact_fields(failure, &["kind", "reason"])?;
+                        require_text(failure, "kind", "terminal")?;
+                        let reason = field(failure, "reason")?;
+                        exact_fields(reason, &["reasonKind", "payload"])?;
+                        if text_field(reason, "reasonKind")?.is_empty() {
+                            return Err(Error::InvalidArtifact);
+                        }
+                        for (_, value) in map(field(reason, "payload")?)? {
+                            scope.expression(value, None)?;
+                            scope.data_type(value)?;
+                        }
+                    }
+                    "effect" => effect(
+                        node,
+                        target,
+                        scope,
+                        signatures
+                            .get(text_field(target, "id")?)
+                            .copied()
+                            .ok_or(Error::InvalidArtifact)?,
+                    )?,
+                    _ => return Err(Error::UnsupportedProgram),
+                }
+            }
+        }
+    }
+    if scope.inventory.keys().any(|id| !scope.used.contains(id)) {
+        return Err(Error::InvalidArtifact);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_child<'a>(
+    body: &'a Value,
+    order: &Value,
+    binder: Option<&Value>,
+    scope: &mut Scope<'a>,
+    lowered: &BTreeMap<&str, &Value>,
+    signatures: &BTreeMap<&str, &Value>,
+    depth: usize,
+) -> Result<(), Error> {
+    scope.parser.enter(depth)?;
+    let mut inventory = BTreeMap::new();
+    for local in array(field(body, "locals")?)? {
+        scope.parser.enter(depth)?;
+        functions::local(local)?;
+        scope.parser.ty(text_field(local, "type")?, 0)?;
+        if inventory.insert(text_field(local, "id")?, local).is_some()
+            || scope.used.contains(text_field(local, "id")?)
+        {
+            return Err(Error::InvalidArtifact);
+        }
+    }
+    let parent_inventory = std::mem::replace(&mut scope.inventory, inventory);
+    let parent_available = scope.available.clone();
+    if let Some(binder) = binder {
+        scope.introduce(binder)?;
+    }
+    validate_block(body, order, scope, lowered, signatures, depth)?;
+    scope.inventory = parent_inventory;
+    scope.available = parent_available;
+    Ok(())
+}
+
 fn equal(core: &Value, target: &Value, key: &str) -> Result<(), Error> {
     if field(core, key)? != field(target, key)? {
         return Err(Error::InvalidArtifact);

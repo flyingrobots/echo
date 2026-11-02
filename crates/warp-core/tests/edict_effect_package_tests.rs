@@ -1708,3 +1708,6 @@ mod completion;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/derivation.rs"]
 mod derivation;
+
+#[path = "edict_effect_package_tests/structured.rs"]
+mod structured;

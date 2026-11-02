@@ -62,8 +62,18 @@ impl CompiledProgram {
                 "sourceCoreCoordinate",
             ],
         )?;
-        require_text(&target, "domain", "echo.span-ir/v2")?;
-        require_text(&target, "kind", "orderedTargetIrArtifact")?;
+        match (text_field(&target, "domain")?, text_field(&target, "kind")?) {
+            ("echo.span-ir/v2", "orderedTargetIrArtifact") => {
+                // The existing ordered contract admits only flat instruction IDs.
+                for (_, intent) in map(field(&target, "intents")?)? {
+                    for entry in array(field(intent, "executionOrder")?)? {
+                        text(entry)?;
+                    }
+                }
+            }
+            ("echo.span-ir/v3", "structuredTargetIrArtifact") => {}
+            _ => return Err(Error::UnsupportedProgram),
+        }
         exact_fields(
             &exports,
             &[

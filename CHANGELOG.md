@@ -7,6 +7,14 @@
 
 ### Added
 
+- Native authored effect evaluation supports explicitly selected structured
+  Target IR loops and statement branches, with exact recursive Core/Target
+  correspondence, lexical block scopes, cumulative metering and atomic effect
+  buffering. Existing ordered artifacts remain flat. Native witnesses cover
+  empty and maximum lists, repeated sites, nested loops, skipped reads/emissions,
+  malformed bounds/order and partial-execution failure. Public provider
+  publication remains a separate boundary.
+
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation
   under `core.list/v1`. Synthetic tests cover strict domains, capability and

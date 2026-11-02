@@ -979,8 +979,10 @@ encodings refuse.
 
 Preparation recomputes the Edict canonical SHA-256 identities for Core, Target
 IR and exports and checks them against the package closure and program. The
-Target IR must name the same Core coordinate and SHA-256 Core identity. Only
-the current ordered Target IR schema is accepted. The selected bundle intent
+Target IR must name the same Core coordinate and SHA-256 Core identity. Native
+preparation accepts flat `echo.span-ir/v2` instruction orders and explicitly
+selected `echo.span-ir/v3` structured orders through one instruction interpreter.
+The v2 contract rejects control entries. The selected bundle intent
 must name the package operation; its Core output type must equal the program's
 output type. The Core and Target IR must agree on operation profile, input
 constraints, evaluation budget, optional basis and result. Instruction IDs are
@@ -994,6 +996,11 @@ values, predicates, failure reasons and inputs exactly. Added, omitted,
 reordered and substituted nodes refuse, as do unknown Core node kinds and
 extra Target node fields. A single validator
 checks the execution order against Core; the former ID-only check was removed.
+Structured orders retain each loop's binder, iterable and literal bound, and
+each statement branch's predicate and both arms. Control IDs cannot collide
+with instruction IDs or other controls. Nested blocks return `Null`; a
+value-yielding branch or a symbolic loop bound refuses. A loop's bound must
+cover its list type's maximum and its items must fit the binder type.
 
 Core local declarations use the shared current local-identity check. IDs,
 complete type references and alpha names must match their declaration exactly;
@@ -1005,8 +1012,10 @@ an obstruction local cannot leak into the operation's result. Source arm
 binders/values and lowered arm values have a one-to-one correspondence, and
 lowered failure names are unique and cover the lowered arm keys exactly.
 Expression syntax, type expansion and reference traversal retain the existing
-combined work/depth ceilings. Unsupported control-flow and optic bodies refuse
-until their instruction contracts exist.
+combined work/depth ceilings. Each nested block has its own declaration table;
+identities remain unique across the whole intent. Loop and branch locals cannot
+escape their blocks or enter a sibling arm. Unsupported control-flow and optic
+bodies refuse until their instruction contracts exist.
 
 Effect bodies additionally require a single lawpack pinned identically by the
 Core imports and Target semantic closure. The lawpack must pin the exact exports
@@ -1193,13 +1202,23 @@ apertures refuse before new graph observations.
 This is trusted-host private evaluation, without installed dispatch, invocation
 grants or mutation authority.
 
-The checked Core body and ordered Target IR are decoded into typed `let`,
-node/atom-read and terminal `require` instructions. Expressions, predicates,
+The checked Core body and Target order are decoded into typed `let`,
+node/atom-read, mutation-emission and terminal `require` instructions, with
+bounded loops and statement branches. Expressions, predicates,
 helper calls and value validation reuse the existing pure evaluator. Input,
 Core, program and frame ceilings intersect; computation and real recorded reads
 spend the same cumulative meter. Each component retains its own declared work
 and storage ceiling. Basis expressions are evaluated and must yield 32 bytes;
 this does not establish the invocation's separate input-derived basis grant.
+
+A loop evaluates its iterable once, moves each item into a fresh iteration
+binding and charges each entered iteration. Its body runs in list order;
+bindings created by that body are discarded before the next item. A branch
+evaluates its predicate once and executes only its chosen arm. An unchosen arm
+performs no reads or emissions. All iterations share the existing cumulative
+meter and mutation buffer, so a late failure exposes no partial buffer while
+retaining charges for work already performed. Native structured-control
+witnesses do not establish public compiler/provider publication.
 
 Reads resolve the actual atom through the existing typed recording adapter.
 Successful node/atom pairs must satisfy the prepared graph schema before their

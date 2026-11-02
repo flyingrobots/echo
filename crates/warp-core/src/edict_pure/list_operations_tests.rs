@@ -209,3 +209,90 @@ fn list_operations_charge_nested_selected_payload_storage() -> Result<(), Error>
     assert_eq!(run(&source, 13, 389), Err(Error::AllocationBudgetExceeded));
     Ok(())
 }
+
+#[test]
+fn list_concat_preparation_rejects_coherent_operand_widening() -> Result<(), Error> {
+    let mut admitted = Vec::new();
+    for (operand, claimed, output) in [
+        ("List<U8,max=2>", "List<U8,max=3>", "List<U8,max=6>"),
+        (
+            "List<Bytes<max=1>,max=2>",
+            "List<Bytes<max=2>,max=2>",
+            "List<Bytes<max=2>,max=4>",
+        ),
+    ] {
+        for indices in [vec![], vec![0], vec![1], vec![0, 1]] {
+            let local = |id| {
+                map([
+                    ("id", text(id)),
+                    ("alphaName", text(id)),
+                    ("type", text(operand)),
+                ])
+            };
+            let left = local("arg.0");
+            let right = local("arg.1");
+            let mut coordinates = [operand, operand];
+            for index in &indices {
+                coordinates[*index] = claimed;
+            }
+            let result = call(
+                "core.list.concat",
+                &coordinates,
+                vec![
+                    map([("kind", text("local")), ("ref", left.clone())]),
+                    map([("kind", text("local")), ("ref", right.clone())]),
+                ],
+            );
+            let types = map([]);
+            let core = map([
+                ("types", types.clone()),
+                ("intents", map([])),
+                (
+                    "requiredCoreCapabilities",
+                    Value::Array(vec![text("core.list/v1")]),
+                ),
+                (
+                    "functions",
+                    map([(
+                        "join",
+                        map([
+                            ("params", Value::Array(vec![left, right])),
+                            ("returnType", text(output)),
+                            (
+                                "body",
+                                map([
+                                    ("locals", Value::Array(vec![])),
+                                    ("bindings", Value::Array(vec![])),
+                                    ("result", result),
+                                ]),
+                            ),
+                        ]),
+                    )]),
+                ),
+            ]);
+            let exports = map([
+                ("pureFunctions", Value::Array(vec![])),
+                ("effects", Value::Array(vec![])),
+            ]);
+            let mut parser = Parser {
+                types: &types,
+                coordinate: "generic.worklist@1",
+                remaining: MAX_PROGRAM_NODES,
+            };
+            let result = super::functions::decode(&core, &exports, &mut parser);
+            if indices.is_empty() {
+                result?;
+            } else if !matches!(result, Err(Error::InvalidArtifact)) {
+                admitted.push(format!(
+                    "{operand} -> {claimed}, {indices:?}: {:?}",
+                    result.err()
+                ));
+            }
+        }
+    }
+    assert!(
+        admitted.is_empty(),
+        "forged operands admitted: {admitted:#?}"
+    );
+    Ok(())
+}

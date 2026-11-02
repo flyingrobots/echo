@@ -479,17 +479,21 @@ The native Rust lowerer, verifier and runtime additionally implement
 `core.list.length`, `core.list.at`, `core.list.append` and `core.list.concat`
 under `core.list/v1`. Access requires an exact-operand strict index/length
 proof; append requires room under the declared capacity and retains that
-capacity. Concatenation checks identical item coordinates and the sum of the
-declared maxima. Both provider judgments charge operand validation and bounded
-result copies. Runtime evaluation checks actual lengths and elements and charges
+capacity. Append and concatenation require declared operand types to equal
+their independently reconstructed types, including capacity and nominal identity;
+structurally equivalent record types remain equal. Concatenation checks identical
+item coordinates and the checked sum of the operand maxima. Both provider
+judgments charge operand validation and bounded result copies. Runtime
+evaluation checks actual lengths and elements and charges
 result storage before reserving it. The ordered-read type judgments admit the
 same operations after whole-intent validation.
 
 These native operation paths have synthetic provider and runtime tests in
 [`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
 and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),
-including strict-guard, capability, bounds and exact/one-unit-short resource
-refusals. The checked Wasm component pair still implements list values only;
+including strict-guard, capability, coherently widened operand refusals, bounds
+and exact/one-unit-short resource refusals. The checked Wasm component pair still
+implements list values only;
 these tests do not establish public compiler-to-runtime operation execution.
 Component promotion and that public witness remain gates of
 [Echo #946](https://github.com/flyingrobots/echo/issues/946).

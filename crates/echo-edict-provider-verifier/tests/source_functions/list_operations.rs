@@ -174,3 +174,55 @@ fn list_operations_refuse_wrong_append_elements_and_concat_bounds() {
         both_refuse(names, &candidate, package, output);
     }
 }
+
+#[test]
+fn list_concat_refuses_coherent_operand_widening() {
+    let mut admitted = Vec::new();
+    for (operand, claimed, output) in [
+        ("List<U8,max=2>", "List<U8,max=3>", "List<U8,max=6>"),
+        (
+            "List<Bytes<max=1>,max=2>",
+            "List<Bytes<max=2>,max=2>",
+            "List<Bytes<max=2>,max=4>",
+        ),
+    ] {
+        for indices in [vec![], vec![0], vec![1], vec![0, 1]] {
+            let (names, candidate, package) = fixture("concat", |core| {
+                let left = local("arg.0", operand);
+                let right = local("arg.1", operand);
+                let mut coordinates = [operand, operand];
+                for index in &indices {
+                    coordinates[*index] = claimed;
+                }
+                *map_field_mut(map_field_mut(core, "functions"), "worklist") = function(
+                    vec![left.clone(), right.clone()],
+                    output,
+                    vec![],
+                    vec![],
+                    operation(
+                        "core.list.concat",
+                        &coordinates,
+                        vec![reference(&left), reference(&right)],
+                    ),
+                );
+            });
+            let lowered = lowerer::lower(lowering_request(names, &candidate));
+            let verified = verifier_accepts(names, &candidate, package);
+            if indices.is_empty() {
+                assert!(lowered.is_ok(), "valid wider result: {operand}");
+                assert!(verified, "valid wider result: {operand}");
+            } else {
+                if lowered.is_ok() {
+                    admitted.push(format!("lowerer: {operand} -> {claimed}, {indices:?}"));
+                }
+                if verified {
+                    admitted.push(format!("verifier: {operand} -> {claimed}, {indices:?}"));
+                }
+            }
+        }
+    }
+    assert!(
+        admitted.is_empty(),
+        "forged operands admitted: {admitted:#?}"
+    );
+}

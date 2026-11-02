@@ -52,7 +52,7 @@ impl Judgment<'_> {
                 "core.list.concat",
                 [left, right],
                 [a @ Ty::List(Some(item), n), b @ Ty::List(Some(other), m)],
-            ) if item == other && includes(a, left) && includes(b, right) => {
+            ) if item == other && a == left && b == right => {
                 if item_coordinate(self.core, string(&coordinates[0])?)?
                     != item_coordinate(self.core, string(&coordinates[1])?)?
                 {

@@ -79,7 +79,7 @@ pub(super) fn infer(
                 element: Some(other),
                 bound: m,
             }],
-        ) if element == other && a.encloses(left) && b.encloses(right) => {
+        ) if element == other && a == left && b == right => {
             checks.extend([a, b]);
             Schema::Sequence {
                 element: Some(element.clone()),

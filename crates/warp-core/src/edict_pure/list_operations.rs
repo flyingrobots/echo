@@ -165,7 +165,7 @@ pub(super) fn infer(
                 item: Some(other),
                 max: m,
             }],
-        ) if item == other && accepts(a, left) && accepts(b, right) => {
+        ) if item == other && a == left && b == right => {
             if item_coordinate(parser, text(&coordinates[0])?)?
                 != item_coordinate(parser, text(&coordinates[1])?)?
             {

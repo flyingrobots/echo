@@ -279,7 +279,8 @@ to 93–119 ms while the load average looked ordinary.
 
 ## Implemented fixtures
 
-The C1 star control and F5 append-and-replay workload are implemented.
+The C1 star control, the F5 append-and-replay workload and the F6 game
+scenes are implemented.
 Their conformance is checked by
 `crates/warp-core/tests/scene_fixture_tests.rs`, which CI runs with
 `native_rule_bootstrap,trusted_runtime`.
@@ -292,6 +293,8 @@ Their conformance is checked by
 | C1             | `benches/support/fixtures/star.rs`         | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells, and a pinned root                               |
 | F5             | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated                                                                                                       |
 | Runner         | `benches/scene_fixtures.rs`                | A fixed matrix (tiers S and M, seed 7, five rounds each) of classified rounds; a summary only when every round is valid                                     |
+| F6             | `benches/support/fixtures/game.rs`         | Arena, pile and bullets game scenes run frame by frame through the trusted host, validated against an in-memory reference                                   |
+| F6 runner      | `benches/game_scenes.rs`                   | Each scene once per commitment profile, seed 6; measured frame latencies and phases only when the run is valid                                              |
 
 ### F5 append and replay
 
@@ -329,6 +332,33 @@ Their conformance is checked by
   envelopes built beforehand. `replay` covers the full patch replay.
   Validation, outcome collection and checkpoint readings are outside both. The
   runner is a normal build; it does not measure memory yet.
+
+### F6 game scenes
+
+- **Construction.** Each scene starts a trusted host, installs the game's
+  contract package and builds its world. Every frame submits one step intent
+  carrying that frame's input, admits it, ticks, and reads every body back as
+  a renderer would. Bodies are fixed-point (Q16.16) circles; a body is a node
+  with its state as an attachment and an edge from its grid cell, and each
+  touching pair has a contact edge.
+- **One rewrite per frame.** The step is one rule application that reads the
+  whole world and writes what changed. Per-cell rewrites are not built:
+  neighbouring cells overlap, and Echo rejects a conflicting rewrite.
+- **What validity shows, and what it does not.** The same pure `step`
+  function drives the Echo rule and the in-memory reference. A valid run shows
+  that hosted execution stored, and the graph gave back, exactly what the
+  reference path computed. It does not show that `step` is correct physics: a
+  bug in `step` occurs on both sides. Two small hand-computed scenes in the
+  conformance test check collision, despawn and contact edges independently.
+- **Footprint enforcement.** The debug-build conformance test runs scaled-down
+  scenes, so footprint enforcement checks every read and write the step makes.
+- **Clocks.** The headline line reports only measured durations: frame
+  latency percentiles and maximum, frames over the 60 Hz budget, start-up, the
+  render read, the reference step timed alone outside Echo, teardown and
+  replay. A separate residual line reports frame time minus twice the
+  reference step. It is an estimate, not Echo's cost and not a bound on it:
+  cache effects, measurement conditions and the rule's own read-and-diff work
+  prevent that inference.
 
 Gates: the **correctness gate** is the conformance test
 above. The **performance gate** is not enabled; its environment, comparison

@@ -4,7 +4,9 @@
 //!
 //! These run in the ordinary test suite: generator vectors, the separation of
 //! workload and expectation identities, C1 parity with `action_scene`, one
-//! validated F5-S execution, and validator canaries that must be invalid.
+//! validated F5-S execution, validator canaries that must be invalid, small
+//! validated F6 scenes, and hand-computed F6 scenes that check collision,
+//! despawn and contact edges independently of the game's own step.
 #![cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 #![allow(missing_docs, dead_code, clippy::expect_used, clippy::panic)]
 
@@ -16,7 +18,7 @@ mod fixtures;
 use fixtures::manifest::hex32;
 use fixtures::outcome::ResultClass;
 use fixtures::prng::SplitMix64;
-use fixtures::{star, think_append};
+use fixtures::{game, star, think_append};
 
 /// SplitMix64 from seed 1234567: the reference sequence, cross-checked with
 /// an independent Python implementation of Vigna's code.
@@ -244,4 +246,187 @@ fn f5_rejects_missing_or_failed_application_root_parity() {
             "accepted missing or failed application-root parity {parity:?}: {class:?}"
         );
     }
+}
+
+/// Small F6 scenes run validly in a debug build, where footprint enforcement
+/// checks that the step declares every read and write it makes. The pile runs
+/// long enough to land and pile up, so contact edges are added and removed;
+/// the bullets run past a projectile lifetime, so bodies despawn.
+#[test]
+fn f6_small_scenes_run_validly() {
+    for scene in [
+        game::ARENA.scaled(1, 8, 30),
+        game::PILE.scaled(1, 16, 110),
+        game::BULLETS.scaled(1, 8, 70),
+    ] {
+        let obs = game::run(scene, 6);
+        assert_eq!(
+            game::validate(scene, &obs),
+            ResultClass::Valid,
+            "{}",
+            scene.name
+        );
+        assert!(obs.rendered > 0, "{} rendered nothing", scene.name);
+    }
+    let pile = game::PILE.scaled(1, 16, 110);
+    let obs = game::run(pile, 6);
+    assert!(obs.peak_contacts > 0, "the pile never made contact");
+    let bullets = game::BULLETS.scaled(1, 8, 70);
+    let obs = game::run(bullets, 6);
+    assert!(
+        obs.reference_world.next_id as usize > obs.reference_world.bodies.len(),
+        "no projectile despawned"
+    );
+}
+
+/// A 64-unit box with 16-unit cells, no gravity, fully elastic, no player
+/// and no emitters: the dimensions of the hand-computed F6 scenes below.
+const HAND: game::Scene = game::Scene {
+    name: "hand",
+    index: 0,
+    bodies: 0,
+    radius: 1,
+    world: 64,
+    cell: 16,
+    gravity: 0,
+    restitution: 256,
+    initial_speed: 0,
+    player: false,
+    emitters: 0,
+    spawn_per_emitter: 0,
+    projectile_ttl: 0,
+    projectile_speed: 0,
+    frames: 0,
+};
+
+fn hand_body(id: u32, kind: game::Kind, pos: [i64; 2], vel: [i64; 2], radius: i64) -> game::Body {
+    game::Body {
+        id,
+        kind,
+        pos,
+        vel,
+        radius,
+        ttl: 0,
+    }
+}
+
+fn hand_world(
+    frame: u64,
+    next_id: u32,
+    bodies: &[game::Body],
+    contacts: &[(u32, u32)],
+) -> game::World {
+    game::World {
+        frame,
+        next_id,
+        bodies: bodies.iter().map(|body| (body.id, *body)).collect(),
+        contacts: contacts.iter().copied().collect(),
+    }
+}
+
+/// Checks `expected` frame by frame, independently of `game::step`: the
+/// expected worlds are worked out by hand from the physics, not by running
+/// the step. Each prefix also runs hosted in Echo (a debug build, so with
+/// footprint enforcement) and the world read back from the graph, including
+/// its contact edges, must equal the hand-computed one.
+fn check_hand_scene(start: &game::World, expected: &[game::World]) {
+    let mut world = start.clone();
+    for (frame, want) in expected.iter().enumerate() {
+        world = game::step(HAND, 0, &world, [0, 0]);
+        assert_eq!(&world, want, "step, frame {}", frame + 1);
+        let scene = game::Scene {
+            frames: frame as u64 + 1,
+            ..HAND
+        };
+        let obs = game::run_from(scene, 0, start.clone());
+        assert_eq!(
+            game::validate(scene, &obs),
+            ResultClass::Valid,
+            "frame {}",
+            frame + 1
+        );
+        assert_eq!(
+            obs.final_world.as_ref(),
+            Some(want),
+            "graph, frame {}",
+            frame + 1
+        );
+    }
+}
+
+/// Two equal unit circles approach head-on at one unit per frame each. After
+/// integration their centres are one unit apart against a reach of two: they
+/// touch. The correction moves each half the overlap apart (to 10.5 and
+/// 12.5), and a fully elastic impulse between equal bodies swaps their
+/// velocities. The contact edge appears; one frame later they have moved
+/// apart to 9.5 and 13.5 and the edge is gone.
+#[test]
+fn f6_hand_collision_swaps_velocities_and_adds_then_removes_the_contact() {
+    use game::{Kind::Dynamic, ONE};
+    let y = 10 * ONE;
+    let start = hand_world(
+        0,
+        2,
+        &[
+            hand_body(0, Dynamic, [10 * ONE, y], [ONE, 0], ONE),
+            hand_body(1, Dynamic, [13 * ONE, y], [-ONE, 0], ONE),
+        ],
+        &[],
+    );
+    let touching = hand_world(
+        1,
+        2,
+        &[
+            hand_body(0, Dynamic, [10 * ONE + ONE / 2, y], [-ONE, 0], ONE),
+            hand_body(1, Dynamic, [12 * ONE + ONE / 2, y], [ONE, 0], ONE),
+        ],
+        &[(0, 1)],
+    );
+    let parted = hand_world(
+        2,
+        2,
+        &[
+            hand_body(0, Dynamic, [9 * ONE + ONE / 2, y], [-ONE, 0], ONE),
+            hand_body(1, Dynamic, [13 * ONE + ONE / 2, y], [ONE, 0], ONE),
+        ],
+        &[],
+    );
+    check_hand_scene(&start, &[touching, parted]);
+}
+
+/// A resting unit circle and a resting half-unit projectile one unit apart
+/// overlap by half a unit; each moves a quarter unit away and, at rest, no
+/// impulse applies. The projectile starts with two frames to live: it ages
+/// to one and stays, in contact. Next frame it ages to zero and despawns
+/// before integration, taking its contact edge with it; its number is not
+/// reused.
+#[test]
+fn f6_hand_projectile_despawns_and_drops_its_contact() {
+    use game::{
+        Kind::{Dynamic, Projectile},
+        ONE,
+    };
+    let y = 30 * ONE;
+    let projectile = |pos, ttl| game::Body {
+        ttl,
+        ..hand_body(1, Projectile, pos, [0, 0], ONE / 2)
+    };
+    let start = hand_world(
+        0,
+        2,
+        &[
+            hand_body(0, Dynamic, [30 * ONE, y], [0, 0], ONE),
+            projectile([31 * ONE, y], 2),
+        ],
+        &[],
+    );
+    let resting = hand_body(0, Dynamic, [30 * ONE - ONE / 4, y], [0, 0], ONE);
+    let aged = hand_world(
+        1,
+        2,
+        &[resting, projectile([31 * ONE + ONE / 4, y], 1)],
+        &[(0, 1)],
+    );
+    let despawned = hand_world(2, 2, &[resting], &[]);
+    check_hand_scene(&start, &[aged, despawned]);
 }

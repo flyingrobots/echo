@@ -475,7 +475,7 @@ resource limits, invalid inputs, package identity and nominal refusal. The
 and [runtime witness](../../xtask/examples/source_functions_public_runtime.rs)
 retain the distinction between compilation, provider verification and execution.
 
-The native Rust lowerer, verifier and runtime additionally implement
+The lowerer, verifier and runtime additionally implement
 `core.list.length`, `core.list.at`, `core.list.append` and `core.list.concat`
 under `core.list/v1`. Access requires an exact-operand strict index/length
 proof; append requires room under the declared capacity and retains that
@@ -486,7 +486,8 @@ item coordinates and the checked sum of the operand maxima. Both provider
 judgments charge operand validation and bounded result copies. Runtime
 evaluation checks actual lengths and elements and charges
 result storage before reserving it. The ordered-read type judgments admit the
-same operations after whole-intent validation.
+same operations after whole-intent validation, including strict `<` guards on
+equal-width words.
 
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
@@ -501,15 +502,23 @@ wire wrappers do not count as evaluator expression frames.
 Its node budget also follows each separately decoded Core/export artifact;
 the parser's shared program-work limit remains independent.
 
-These native operation paths have synthetic provider and runtime tests in
+These operation paths have synthetic provider and runtime tests in
 [`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
 and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),
 including strict-guard, capability, coherently widened operand refusals, bounds
-and exact/one-unit-short resource refusals. The checked Wasm component pair still
-implements list values only;
-these tests do not establish public compiler-to-runtime operation execution.
-Component promotion and that public witness remain gates of
-[Echo #946](https://github.com/flyingrobots/echo/issues/946).
+and exact/one-unit-short resource refusals. The checked Wasm component pair
+includes the operations and was promoted from two matching independent builds.
+The TypeScript [worklist publication driver](../../scripts/consumer-witnesses/list-worklist-publication.ts)
+compiles authored source through those components, repeats accepted builds and
+retains the exact package/report pairs. Its [runtime witness](../../xtask/examples/source_functions_public_runtime/worklists.rs)
+checks non-idempotent folds at bounds 0/1/2/3/5 against closed-form contents and
+index results, structural alias concatenation, and stored-read worklists at
+bounds 0/1/3. Nominal-element acceptance and bare-representation refusal, invalid
+typed inputs, package identity, exact/one-unit-short budgets and old-provider
+refusals are separate controls. Witness usage and selected-input requirements
+are in the [consumer witness guide](../../scripts/consumer-witnesses/README.md).
+This establishes bounded list operations; persistent-rope algorithms and
+collection membership semantics remain separate contracts.
 
 Provider compatibility
 retains each nominal type's contract identity, which must match its resolved

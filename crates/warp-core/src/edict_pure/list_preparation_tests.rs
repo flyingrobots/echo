@@ -114,7 +114,11 @@ fn decode(
         ));
     }
     // Exercise the real canonical artifact bound before runtime preparation.
-    let core = decode_canonical_cbor_v1(&encode_canonical_cbor_v1(&m(core)).unwrap()).unwrap();
+    let encoded = encode_canonical_cbor_v1(&m(core));
+    assert!(encoded.is_ok(), "canonical fixture encoding: {encoded:?}");
+    let decoded = decode_canonical_cbor_v1(&encoded.map_err(|_| Error::UnsupportedProgram)?);
+    assert!(decoded.is_ok(), "canonical fixture admission: {decoded:?}");
+    let core = decoded.map_err(|_| Error::UnsupportedProgram)?;
     let exports = m([
         ("pureFunctions", Value::Array(imported)),
         ("effects", Value::Array(vec![])),
@@ -177,9 +181,10 @@ fn list_capability_scan_preserves_supported_non_list_width() -> Result<(), Error
                 Value::Array(vec![t("core.list/v1")]),
             ));
         }
-        let encoded = encode_canonical_cbor_v1(&m(members)).unwrap();
+        let encoded =
+            encode_canonical_cbor_v1(&m(members)).map_err(|_| Error::UnsupportedProgram)?;
         assert!(encoded.len() < 1_048_576, "bounded canonical fixture");
-        let core = decode_canonical_cbor_v1(&encoded).unwrap();
+        let core = decode_canonical_cbor_v1(&encoded).map_err(|_| Error::UnsupportedProgram)?;
         let types = super::values::field(&core, "types")?;
         let imported = (0..1200)
             .map(|i| {
@@ -199,8 +204,10 @@ fn list_capability_scan_preserves_supported_non_list_width() -> Result<(), Error
             ("pureFunctions", Value::Array(imported)),
             ("effects", Value::Array(vec![])),
         ]);
-        let exports =
-            decode_canonical_cbor_v1(&encode_canonical_cbor_v1(&exports).unwrap()).unwrap();
+        let exports = decode_canonical_cbor_v1(
+            &encode_canonical_cbor_v1(&exports).map_err(|_| Error::UnsupportedProgram)?,
+        )
+        .map_err(|_| Error::UnsupportedProgram)?;
         let mut parser = Parser {
             types,
             coordinate: COORDINATE,

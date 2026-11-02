@@ -456,8 +456,19 @@ fn byte_lookup(root: &Path, evidence: &serde_json::Value) -> Result<()> {
 }
 #[path = "source_functions_public_runtime/lists.rs"]
 mod lists;
+#[path = "source_functions_public_runtime/worklists.rs"]
+mod worklists;
 
 fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u64, u64)> {
+    atom_read_expected(root, evidence, name, b"alpha")
+}
+
+fn atom_read_expected(
+    root: &Path,
+    evidence: &serde_json::Value,
+    name: &str,
+    expected: &[u8],
+) -> Result<(u64, u64)> {
     let (package_bytes, report_bytes) = emitted(&root.join(name), evidence)?;
     let (package, pin) = checked_pair(package_bytes, report_bytes)?;
     let mut store = GraphStore::default();
@@ -503,7 +514,10 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
     if name.starts_with("read-byte-lookup") {
         input_fields.push(("probe", Value::Bytes(vec![0, 128, 255])));
     }
-    if name == "list-read-nominal" {
+    if name.starts_with("worklist-read-") {
+        input_fields.push(("fallback", Value::Bytes(vec![])));
+    }
+    if matches!(name, "list-read-nominal" | "worklist-read-nominal") {
         input_fields.push(("identity", Value::Bytes(vec![7; 32])));
         input_fields.push(("raw", Value::Bytes(vec![7; 32])));
     }
@@ -521,7 +535,7 @@ fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u
     )
     .map_err(|error| anyhow!("read runtime refused: {error:?}"))?;
     ensure!(
-        decode(&result.output)? == Value::Bytes(b"alpha".to_vec()),
+        decode(&result.output)? == Value::Bytes(expected.to_vec()),
         "wrong stored-atom result"
     );
     ensure!(
@@ -857,6 +871,11 @@ fn main() -> Result<()> {
         evidence["outcome"] == "public-compiler-and-provider-verifier-accepted",
         "compiler witness incomplete"
     );
+    if evidence["schema"] == "echo.list-worklist-publication/v1" {
+        worklists::run(root, &evidence)?;
+        println!("PUBLIC_WORKLIST_RUNTIME_ACCEPTED");
+        return Ok(());
+    }
     pure(root, "pure", false, &evidence)?;
     pure(root, "renamed-pure", false, &evidence)?;
     pure(root, "changed-body", true, &evidence)?;

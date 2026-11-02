@@ -40,6 +40,18 @@ fn list(values: Vec<Value>) -> Value {
 fn octets(values: &[u8]) -> Value {
     list(values.iter().map(|n| integer("U8", (*n).into())).collect())
 }
+fn byte_literal(value: &[u8]) -> Value {
+    map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([
+                ("kind", text("bytes")),
+                ("value", Value::Bytes(value.to_vec())),
+            ]),
+        ),
+    ])
+}
 fn call(name: &str, types: &[&str], arguments: Vec<Value>) -> Value {
     map([
         ("kind", text("call")),
@@ -130,6 +142,38 @@ fn list_operations_execute_exact_results_and_resource_limits() -> Result<(), Err
             expected(&[1, 2, 3]),
             18,
             576,
+        ),
+        (
+            call(
+                "core.list.append",
+                &["List<Bytes<max=3>,max=2>"],
+                vec![list(vec![byte_literal(b"abc")]), byte_literal(b"de")],
+            ),
+            Value::Array(vec![
+                Value::Bytes(b"abc".to_vec()),
+                Value::Bytes(b"de".to_vec()),
+            ]),
+            12,
+            // Six 64-byte cells plus five input and five output payload bytes.
+            394,
+        ),
+        (
+            call(
+                "core.list.concat",
+                &["List<Bytes<max=3>,max=1>", "List<Bytes<max=3>,max=2>"],
+                vec![
+                    list(vec![byte_literal(b"abc")]),
+                    list(vec![byte_literal(b"de"), byte_literal(b"")]),
+                ],
+            ),
+            Value::Array(vec![
+                Value::Bytes(b"abc".to_vec()),
+                Value::Bytes(b"de".to_vec()),
+                Value::Bytes(vec![]),
+            ]),
+            18,
+            // Nine cells plus the same two complete payload copies.
+            586,
         ),
     ] {
         // Input expression evaluation + each declared operand validation +

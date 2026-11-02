@@ -1065,15 +1065,34 @@ impl Heights<'_> {
                 }
                 maximum + 1
             }
+            Expr::ListLength { ty, value } => self.expr(value, depth + 1)?.max(type_height(ty)) + 1,
+            Expr::ListAt { ty, value, index }
+            | Expr::ListAppend {
+                ty,
+                value,
+                item: index,
+            } => {
+                self.expr(value, depth + 1)?
+                    .max(self.expr(index, depth + 1)?)
+                    .max(type_height(ty))
+                    + 1
+            }
+            Expr::ListConcat {
+                left_type,
+                right_type,
+                left,
+                right,
+            } => {
+                self.expr(left, depth + 1)?
+                    .max(self.expr(right, depth + 1)?)
+                    .max(type_height(left_type))
+                    .max(type_height(right_type))
+                    + 1
+            }
             Expr::ByteUtf8 { value, .. }
-            | Expr::ListLength { value, .. }
             | Expr::ByteLength { value, .. }
             | Expr::ByteCount { value, .. } => self.expr(value, depth + 1)? + 1,
-            Expr::ByteAt { value, index, .. }
-            | Expr::ListAt { value, index, .. }
-            | Expr::ListAppend {
-                value, item: index, ..
-            } => {
+            Expr::ByteAt { value, index, .. } => {
                 self.expr(value, depth + 1)?
                     .max(self.expr(index, depth + 1)?)
                     + 1
@@ -1087,7 +1106,6 @@ impl Heights<'_> {
                     + 1
             }
             Expr::ByteConcat { left, right, .. }
-            | Expr::ListConcat { left, right, .. }
             | Expr::UnsignedSubtract { left, right, .. }
             | Expr::UnsignedAdd { left, right, .. } => {
                 self.expr(left, depth + 1)?

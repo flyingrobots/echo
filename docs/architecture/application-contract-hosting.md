@@ -495,6 +495,10 @@ ordered names. Runtime types normalize that spelling to canonical CBOR field
 order so named and inline records compare structurally without erasing nominal
 field identities.
 
+Runtime preparation includes list operand validation in the combined helper-call
+depth bound. Capability discovery uses the canonical artifact nesting ceiling;
+wire wrappers do not count as evaluator expression frames.
+
 These native operation paths have synthetic provider and runtime tests in
 [`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
 and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),

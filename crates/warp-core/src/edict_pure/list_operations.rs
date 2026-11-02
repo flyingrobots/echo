@@ -4,13 +4,13 @@
 mod evaluate;
 use super::{
     functions::accepts,
-    model::{Expr, RuntimeType, MAX_DEPTH},
+    model::{Expr, RuntimeType},
     proven_order,
     syntax::Parser,
     values::{array, field, text, text_field},
     EvaluationError as Error,
 };
-use echo_edict_canonical::CanonicalValueV1 as Value;
+use echo_edict_canonical::{CanonicalValueV1 as Value, MAX_CANONICAL_NESTING_DEPTH_V1};
 pub(super) use evaluate::evaluate;
 
 pub(super) fn is_operation(name: &str) -> bool {
@@ -28,7 +28,9 @@ pub(super) fn without_capability(
     depth: usize,
 ) -> Result<(), Error> {
     *remaining = remaining.checked_sub(1).ok_or(Error::UnsupportedProgram)?;
-    if depth > MAX_DEPTH {
+    // This traverses wire containers (including argument arrays and module
+    // wrappers), not evaluator expression frames.
+    if depth > MAX_CANONICAL_NESTING_DEPTH_V1 {
         return Err(Error::UnsupportedProgram);
     }
     match value {

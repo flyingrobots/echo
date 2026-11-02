@@ -284,6 +284,17 @@ impl<'a> Types<'a> {
                 bound,
             });
         }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.proof_work(spec.len())?;
+            let mut fields = BTreeMap::new();
+            for (field, ty) in super::super::record_type::fields(spec)? {
+                fields.insert(field.to_owned(), self.resolve(ty, depth + 1)?);
+            }
+            return Ok(Schema::Fields(fields));
+        }
         let prefix = format!("{}.", string(get(self.module, "coordinate")?)?);
         let resolved = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.module, "types")?, resolved)?;

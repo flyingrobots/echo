@@ -10,6 +10,7 @@ mod byte_literals_tests;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
@@ -299,6 +300,17 @@ impl<'a> Judgment<'a> {
                 Some(Box::new(self.ty(item, depth + 1)?)),
                 decimal(max)?,
             ));
+        }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.work = self.work.checked_sub(spec.len()).ok_or(())?;
+            let mut fields = BTreeMap::new();
+            for (field, coordinate) in super::record_type::fields(spec)? {
+                fields.insert(field.to_owned(), self.ty(coordinate, depth + 1)?);
+            }
+            return Ok(Ty::Record(fields));
         }
         let prefix = format!("{}.", string(get(self.core, "coordinate")?)?);
         let key = name.strip_prefix(&prefix).unwrap_or(name);
@@ -634,6 +646,12 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, declared) if list_operations::is_operation(name) => {
+                            let result = self.list_operation(value, actual, declared)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
                         ("core.bytes.isUtf8", [actual], [expected @ Ty::Bytes(_, max)])
                             if expected == actual =>
                         {

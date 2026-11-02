@@ -225,6 +225,12 @@ pub(crate) fn expression(
 ) -> Result<Value, Error> {
     meter.step(depth)?;
     match expr {
+        Expr::ListLength { .. }
+        | Expr::ListAt { .. }
+        | Expr::ListAppend { .. }
+        | Expr::ListConcat { .. } => {
+            super::list_operations::evaluate(expr, locals, helpers, meter, depth)
+        }
         Expr::Constant(value) => meter.copy(value),
         Expr::Variant {
             identity,

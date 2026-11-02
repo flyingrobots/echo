@@ -10,7 +10,7 @@ use super::{
     values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
 };
-use echo_edict_canonical::CanonicalValueV1 as Value;
+use echo_edict_canonical::{CanonicalValueV1 as Value, MAX_CANONICAL_DECODE_NODES_V1};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Definition<'a> {
@@ -32,14 +32,24 @@ pub(crate) fn definitions<'a>(
     if let Ok(required) = field(core, "requiredCoreCapabilities") {
         for capability in array(required)? {
             let capability = text(capability)?;
-            if !matches!(capability, "core.fold/v1" | "core.variant/v1")
-                || !capabilities.insert(capability)
+            if !matches!(
+                capability,
+                "core.fold/v1" | "core.variant/v1" | "core.list/v1"
+            ) || !capabilities.insert(capability)
             {
                 return Err(Error::UnsupportedProgram);
             }
         }
     }
     let fold_capability = capabilities.contains("core.fold/v1");
+    if !capabilities.contains("core.list/v1") {
+        // Each input was separately admitted by the canonical decoder. Scan
+        // under those wire budgets; the parser keeps its shared program budget.
+        for artifact in [core, exports] {
+            let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
+            super::list_operations::without_capability(artifact, &mut remaining, 0)?;
+        }
+    }
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;
         let implementation = field(item, "body")?;
@@ -635,6 +645,17 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::list_operations::is_operation(name) {
+                return super::list_operations::infer(
+                    value,
+                    &actual,
+                    &declared,
+                    proof.facts,
+                    proof.path,
+                    parser,
+                    depth,
+                );
+            }
             match (name, actual.as_slice(), declared.as_slice()) {
                 ("core.bytes.isUtf8", [actual], [expected @ RuntimeType::Bytes { .. }])
                     if expected == actual =>
@@ -1046,6 +1067,30 @@ impl Heights<'_> {
                     maximum = maximum.max(self.expr(argument, depth + 1)?);
                 }
                 maximum + 1
+            }
+            Expr::ListLength { ty, value } => self.expr(value, depth + 1)?.max(type_height(ty)) + 1,
+            Expr::ListAt { ty, value, index }
+            | Expr::ListAppend {
+                ty,
+                value,
+                item: index,
+            } => {
+                self.expr(value, depth + 1)?
+                    .max(self.expr(index, depth + 1)?)
+                    .max(type_height(ty))
+                    + 1
+            }
+            Expr::ListConcat {
+                left_type,
+                right_type,
+                left,
+                right,
+            } => {
+                self.expr(left, depth + 1)?
+                    .max(self.expr(right, depth + 1)?)
+                    .max(type_height(left_type))
+                    .max(type_height(right_type))
+                    + 1
             }
             Expr::ByteUtf8 { value, .. }
             | Expr::ByteLength { value, .. }

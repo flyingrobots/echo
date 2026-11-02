@@ -4,6 +4,7 @@
 
 mod bounded_read;
 mod capabilities;
+mod record_type;
 mod source_functions;
 
 use std::collections::BTreeSet;

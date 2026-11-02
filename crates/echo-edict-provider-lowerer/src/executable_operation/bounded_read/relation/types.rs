@@ -172,6 +172,24 @@ impl<'a> Scope<'a> {
                 canonical_number(max)?,
             ));
         }
+        if let Some(spec) = coordinate
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.remaining_type_work.set(
+                self.remaining_type_work
+                    .get()
+                    .checked_sub(spec.len())
+                    .ok_or_else(invalid)?,
+            );
+            let mut fields = BTreeMap::new();
+            for (name, coordinate) in
+                super::super::super::record_type::fields(spec).map_err(|()| invalid())?
+            {
+                fields.insert(name.to_owned(), self.resolve(coordinate, depth + 1)?);
+            }
+            return Ok(ReadType::Record(fields));
+        }
         let key = coordinate.strip_prefix(&prefix).unwrap_or(coordinate);
         let value = field(field(self.core, "types")?, key)?;
         match text(value, "kind")? {
@@ -437,6 +455,30 @@ impl<'a> Scope<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
+            // Whole-intent checking has already proved the list domains.
+            ("core.list.length", [value], [ty @ ReadType::List(Some(_), _)])
+                if ty.accepts(value) =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
+            }
+            (
+                "core.list.at",
+                [value, ReadType::Unsigned(u64::MAX)],
+                [ty @ ReadType::List(Some(item), _)],
+            ) if ty.accepts(value) => Ok(*item.clone()),
+            ("core.list.append", [value, entry], [ty @ ReadType::List(Some(item), _)])
+                if ty == value && item.accepts(entry) =>
+            {
+                Ok(ty.clone())
+            }
+            (
+                "core.list.concat",
+                [left, right],
+                [a @ ReadType::List(Some(item), n), b @ ReadType::List(Some(other), m)],
+            ) if item == other && a.accepts(left) && b.accepts(right) => Ok(ReadType::List(
+                Some(item.clone()),
+                n.checked_add(*m).ok_or_else(invalid)?,
+            )),
             // source_functions::validate already established the independent
             // no-overflow and order proofs before this read relation is constructed.
             ("core.integer.add", [left, right], [expected @ ReadType::Unsigned(_)])
@@ -528,7 +570,9 @@ impl<'a> Scope<'a> {
         ) {
             ("==", ReadType::Bool, ReadType::Bool)
             | ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
-            ("==" | "<=", ReadType::Unsigned(left), ReadType::Unsigned(right)) if left == right => {
+            ("==" | "<=" | "<", ReadType::Unsigned(left), ReadType::Unsigned(right))
+                if left == right =>
+            {
                 Ok(())
             }
             _ => Err(invalid()),

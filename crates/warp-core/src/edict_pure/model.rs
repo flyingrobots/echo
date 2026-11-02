@@ -22,6 +22,26 @@ pub(crate) enum Expr {
     Local(String),
     Field(Box<Expr>, String),
     List(Vec<Expr>),
+    ListLength {
+        ty: RuntimeType,
+        value: Box<Expr>,
+    },
+    ListAt {
+        ty: RuntimeType,
+        value: Box<Expr>,
+        index: Box<Expr>,
+    },
+    ListAppend {
+        ty: RuntimeType,
+        value: Box<Expr>,
+        item: Box<Expr>,
+    },
+    ListConcat {
+        left_type: Box<RuntimeType>,
+        right_type: Box<RuntimeType>,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),

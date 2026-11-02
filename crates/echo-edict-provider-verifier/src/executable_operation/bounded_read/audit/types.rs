@@ -188,6 +188,17 @@ impl<'a> Symbols<'a> {
                 maximum,
             });
         }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.work = self.work.checked_sub(spec.len()).ok_or(())?;
+            let mut fields = BTreeMap::new();
+            for (name, ty) in super::super::super::record_type::fields(spec)? {
+                fields.insert(name.to_owned(), self.schema(ty, depth + 1)?);
+            }
+            return Ok(Schema::Row(fields));
+        }
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let value = get(get(self.core, "types")?, key)?;
         match text(value, "kind")? {
@@ -416,6 +427,46 @@ impl<'a> Symbols<'a> {
             declared.push(self.schema(string(coordinate)?, 0)?);
         }
         match (name, actual.as_slice(), declared.as_slice()) {
+            // The independent whole-intent audit has proved the strict domains.
+            (
+                "core.list.length",
+                [value],
+                [ty @ Schema::Sequence {
+                    element: Some(_), ..
+                }],
+            ) if ty.includes(value) => Ok(Schema::Word(u64::MAX)),
+            (
+                "core.list.at",
+                [value, Schema::Word(u64::MAX)],
+                [ty @ Schema::Sequence {
+                    element: Some(element),
+                    ..
+                }],
+            ) if ty.includes(value) => Ok(*element.clone()),
+            (
+                "core.list.append",
+                [value, entry],
+                [ty @ Schema::Sequence {
+                    element: Some(element),
+                    ..
+                }],
+            ) if ty == value && element.includes(entry) => Ok(ty.clone()),
+            (
+                "core.list.concat",
+                [left, right],
+                [a @ Schema::Sequence {
+                    element: Some(element),
+                    maximum: n,
+                }, b @ Schema::Sequence {
+                    element: Some(other),
+                    maximum: m,
+                }],
+            ) if element == other && a.includes(left) && b.includes(right) => {
+                Ok(Schema::Sequence {
+                    element: Some(element.clone()),
+                    maximum: n.checked_add(*m).ok_or(())?,
+                })
+            }
             // The source-function audit has independently proved totality and order.
             ("core.integer.add", [left, right], [expected @ Schema::Word(_)])
                 if left == expected && right == expected =>
@@ -513,7 +564,7 @@ impl<'a> Symbols<'a> {
         ) {
             ("==", Schema::Boolean, Schema::Boolean)
             | ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
-            ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
+            ("==" | "<=" | "<", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
             _ => Err(()),
         }
     }

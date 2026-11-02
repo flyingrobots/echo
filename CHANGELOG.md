@@ -7,6 +7,24 @@
 
 ### Added
 
+- The provider judgments and runtime paths support bounded list length,
+  checked access, capacity-preserving append and bound-summing concatenation
+  under `core.list/v1`. Synthetic tests cover strict domains, capability and
+  type refusals, deterministic copy charges and one-unit-short budgets.
+  Append and concat bind each declared operand type to its reconstructed type;
+  coherently widening concat operands cannot invent capacity or item bounds.
+  Inline record coordinates from structural alias joins resolve under bounded
+  parsing in pure, ordered-read and runtime judgments, preserving nominal fields.
+  Runtime preparation includes operand validation depth across helper calls;
+  capability discovery preserves the canonical artifact nesting allowance.
+  The checked Wasm component pair is promoted from two matching independent
+  builds, with refreshed package manifests and identity goldens. Public compiler
+  witnesses execute non-idempotent worklist folds at bounds 0/1/2/3/5, structural
+  alias concatenation and stored-read worklists, including nominal elements.
+  Independent result oracles check contents, order, duplicate retention and
+  guarded indexing. Exact/one-unit-short limits, invalid inputs and old-provider
+  refusals exercise the compiler, separate verifier and runtime boundaries.
+
 - The source-function lowerer, independent verifier and runtime support
   bounded list values with element/length checks and deterministic resource
   accounting. Ordered-read judgments accept lists and recursive record/branch

@@ -10,6 +10,7 @@ mod byte_literals_tests;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
@@ -160,6 +161,10 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         "core.bytes.slice",
                         "core.integer.subtract",
                         "core.integer.add",
+                        "core.list.length",
+                        "core.list.at",
+                        "core.list.append",
+                        "core.list.concat",
                     ]
                     .contains(&callee)
                     {
@@ -594,6 +599,9 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
+                    if list_operations::is_operation(name) {
+                        list_operations::authority(self.types.module, name, types)?;
+                    }
                     height = height.max(1);
                     let addition_proven = if name == "core.integer.add" {
                         let [Schema::Word(max)] = declared.as_slice() else {
@@ -615,6 +623,9 @@ impl<'a> Checker<'a, '_> {
                         false
                     };
                     let order_proven = match name {
+                        "core.list.at" | "core.list.append" => {
+                            self.list_domain(value, &declared)?
+                        }
                         "core.integer.subtract" => {
                             let [left, right] = arguments else {
                                 return Err(());
@@ -881,6 +892,9 @@ fn intrinsic(
     addition_proven: bool,
     order_proven: bool,
 ) -> Check<(Schema, Charge)> {
+    if list_operations::is_operation(name) {
+        return list_operations::infer(name, actual, declared, order_proven);
+    }
     let literal = |value: &Value| -> Check<u64> {
         if string(get(value, "kind")?)? != "const" {
             return Err(());

@@ -14,6 +14,50 @@ pub(crate) struct Parser<'a> {
     pub remaining: usize,
 }
 
+/// Runtime-owned grammar; byte work is charged by the caller before scanning.
+fn record_fields(spec: &str) -> Result<Vec<(&str, &str)>, Error> {
+    let mut boundaries = Vec::new();
+    let mut depth = 0_usize;
+    for (index, byte) in spec.bytes().enumerate() {
+        match byte {
+            b'<' => {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return Err(Error::UnsupportedProgram);
+                }
+            }
+            b'>' => depth = depth.checked_sub(1).ok_or(Error::InvalidArtifact)?,
+            b',' if depth == 0 => boundaries.push(index),
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return Err(Error::InvalidArtifact);
+    }
+    if spec.is_empty() {
+        return Ok(Vec::new());
+    }
+    boundaries.push(spec.len());
+    let mut start = 0;
+    let mut fields = Vec::new();
+    for end in boundaries {
+        let (name, ty) = spec[start..end]
+            .split_once(':')
+            .ok_or(Error::InvalidArtifact)?;
+        let valid = name
+            .as_bytes()
+            .first()
+            .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
+            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        if !valid || ty.is_empty() || fields.last().is_some_and(|(prior, _)| *prior >= name) {
+            return Err(Error::InvalidArtifact);
+        }
+        fields.push((name, ty));
+        start = end + 1;
+    }
+    Ok(fields)
+}
+
 impl Parser<'_> {
     pub(crate) fn enter(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
@@ -53,6 +97,23 @@ impl Parser<'_> {
                 item: Some(Box::new(self.ty(item, depth + 1)?)),
                 max,
             });
+        }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.remaining = self
+                .remaining
+                .checked_sub(spec.len())
+                .ok_or(Error::UnsupportedProgram)?;
+            let mut fields = Vec::new();
+            for (field, ty) in record_fields(spec)? {
+                fields.push((field.to_owned(), self.ty(ty, depth + 1)?));
+            }
+            // Named records arrive in canonical CBOR text-key order. Structural
+            // coordinates spell fields lexically; normalize for exact type equality.
+            fields.sort_by(|(a, _), (b, _)| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+            return Ok(RuntimeType::Record(fields));
         }
         let name = name
             .strip_prefix(self.coordinate)
@@ -175,6 +236,9 @@ impl Parser<'_> {
         let callee = text_field(value, "callee")?;
         let args = array(field(value, "args")?)?;
         let types = array(field(value, "typeArgs")?)?;
+        if super::list_operations::is_operation(callee) {
+            return super::list_operations::parse(self, callee, args, types, depth);
+        }
         if callee == "core.bytes.isUtf8" {
             let ([value], [coordinate]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);

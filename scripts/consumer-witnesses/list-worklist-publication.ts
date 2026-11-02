@@ -259,7 +259,8 @@ async function runCase(name: string, source: string, options: { read?: boolean; 
     requireThat(/^sha256:[a-f0-9]{64}$/.test(pin), 'Invalid public lawpack digest');
     source = source.replace(importLine(source), `use lawpack jedit.text@1 digest "${pin}" as text;`);
   }
-  writeFileSync(join(root, 'source.edict'), source, { flag: 'wx' });
+  // This case directory is fresh; replace its selected seed copy if present.
+  writeFileSync(join(root, 'source.edict'), source);
   const result: Record<string, any> = {
     kind: 'public-compiler-output', sourceSha256: digest(Buffer.from(source)),
     applicationSha256: digest(boundedFile(applicationPath)), lawpackBuild,

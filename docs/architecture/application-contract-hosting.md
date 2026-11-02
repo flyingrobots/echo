@@ -502,6 +502,10 @@ wire wrappers do not count as evaluator expression frames.
 Its node budget also follows each separately decoded Core/export artifact;
 the parser's shared program-work limit remains independent.
 
+Each list-domain proof rescan traverses an already validated ancestor predicate
+with its own depth counter and the shared work budget. Disjoint guard and body
+branches do not consume a single combined expression-depth allowance.
+
 These operation paths have synthetic provider and runtime tests in
 [`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
 and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),

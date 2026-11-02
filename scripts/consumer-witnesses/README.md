@@ -52,8 +52,8 @@ aggregate project build/data/log budgets and stop every child on failure.
 Run the bounded failure fixtures in that worker with
 `node --test scripts/consumer-witnesses/list-worklist-failures.test.ts`.
 They use a small fault process to check path rejection, interrupted receipts,
-output-limit receipts and compiler termination; they do not claim successful
-public compilation.
+output-limit receipts, compiler termination and copied source filenames; they
+do not claim successful public compilation.
 
 Compilation acceptance does not prove runtime execution. The Rust example's
 `PUBLIC_WORKLIST_RUNTIME_ACCEPTED` marker is emitted only after the pure,

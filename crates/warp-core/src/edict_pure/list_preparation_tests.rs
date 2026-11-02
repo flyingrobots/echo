@@ -331,3 +331,75 @@ fn list_operand_validation_depth_is_proved_across_calls() -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[test]
+fn list_domain_proof_depth_does_not_add_disjoint_branches() -> Result<(), Error> {
+    let ty = "List<U64,max=1>";
+    for (nots, wrappers, op, accepted) in [
+        (66, 0, "<", false),
+        (0, 65, "<", false),
+        (36, 0, "<=", false),
+        (0, 0, "<", true),
+        (36, 0, "<", true),
+        (0, 35, "<", true),
+        (36, 35, "<", true),
+    ] {
+        let mut guard = m([
+            ("kind", t("compare")),
+            ("op", t(op)),
+            ("left", literal()),
+            (
+                "right",
+                call("core.list.length", &[ty], vec![reference(ty)]),
+            ),
+        ]);
+        for _ in 0..nots {
+            guard = m([("kind", t("not")), ("value", guard)]);
+        }
+        let access = call("core.list.at", &[ty], vec![reference(ty), literal()]);
+        let body = m([
+            ("kind", t("if")),
+            ("predicate", guard),
+            ("then", wrapped(access, wrappers)),
+            ("else", literal()),
+        ]);
+        let prepared = decode(
+            vec![("lookup", function(vec![local(ty)], "U64", body))],
+            true,
+            vec![],
+        );
+        if !accepted {
+            assert!(
+                matches!(prepared, Err(Error::UnsupportedProgram)),
+                "rejection control"
+            );
+            continue;
+        }
+        assert!(
+            prepared.is_ok(),
+            "nots={nots} wrappers={wrappers}: {:?}",
+            prepared.as_ref().err()
+        );
+        let helpers = prepared?;
+        let root = Expr::Call(
+            format!("{COORDINATE}.lookup"),
+            vec![Expr::Local("input".into())],
+        );
+        functions::check_roots(&helpers, [&root], [])?;
+        for (items, expected) in [(vec![], 0), (vec![Value::Integer(7)], 7)] {
+            let locals = BTreeMap::from([("input", Value::Array(items))]);
+            let mut meter = super::evaluate::Meter::new(super::EvaluationLimits {
+                max_steps: 10_000,
+                max_allocated_bytes: 1_048_576,
+                max_output_bytes: 1024,
+                max_package_bytes: 1_048_576,
+                max_input_bytes: 1024,
+            });
+            assert_eq!(
+                super::evaluate::expression(&root, &locals, &helpers, &mut meter, 0),
+                Ok(Value::Integer(expected)),
+            );
+        }
+    }
+    Ok(())
+}

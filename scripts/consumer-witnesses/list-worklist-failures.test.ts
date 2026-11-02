@@ -18,7 +18,7 @@ function killGroup(pid?: number) {
   try { process.kill(-pid, 'SIGKILL'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
 }
-for (const scenario of ['relative', 'SIGTERM', 'SIGINT', 'output-limit'] as const) {
+for (const scenario of ['relative', 'SIGTERM', 'SIGINT', 'output-limit', 'seed-source'] as const) {
   test(`public witness rejects or records ${scenario}`, { timeout: 15_000 }, async () => {
     assert.ok(existsSync('/.dockerenv'), 'Run these fixtures in the guarded Docker worker');
     const root = mkdtempSync(join(tmpdir(), 'worklist-failure-'));
@@ -27,7 +27,23 @@ for (const scenario of ['relative', 'SIGTERM', 'SIGINT', 'output-limit'] as cons
     const pidPath = join(work, 'worklist-read-0', 'fixture.pid');
     let childPid: number | undefined;
     try {
-      writeFileSync(compiler, `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';\nwriteFileSync('fixture.pid', String(process.pid));\n${scenario === 'output-limit' ? "writeFileSync('oversize.bin', Buffer.alloc(1024*1024+1));" : ''}\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
+      const behavior = scenario === 'seed-source' ? `
+let input = '';
+process.stdin.on('data', bytes => { input += bytes; });
+process.stdin.on('end', () => {
+  const settings = JSON.parse(input);
+  if (settings.lawpack) {
+    mkdirSync('vendor/atom-read', {recursive:true});
+    writeFileSync('vendor/atom-read/manifest.sha256', 'sha256:' + '0'.repeat(64));
+    console.log(JSON.stringify({type:'status',exitCode:0}));
+  } else {
+    writeFileSync('application.request', 'reached');
+    console.log(JSON.stringify({type:'status',exitCode:2}));
+    process.exitCode = 2;
+  }
+});
+` : `${scenario === 'output-limit' ? "writeFileSync('oversize.bin', Buffer.alloc(1024*1024+1));" : ''}\nsetInterval(() => {}, 1000);`;
+      writeFileSync(compiler, `#!${process.execPath}\nimport {writeFileSync,mkdirSync} from 'node:fs';\nwriteFileSync('fixture.pid', String(process.pid));\n${behavior}\n`, { mode: 0o755 });
       const source = `use lawpack jedit.text@1 digest "sha256:${'0'.repeat(64)}" as text;\n`;
       function tree(name: string, files: Record<string, string>) {
         const dir = join(root, name); mkdirSync(dir);
@@ -71,6 +87,15 @@ for (const scenario of ['relative', 'SIGTERM', 'SIGINT', 'output-limit'] as cons
       if (scenario === 'relative') {
         assert.match(output, /Absolute compiler path required/);
         assert.equal(existsSync(work), false, 'Invalid compiler selection must fail before output creation');
+      } else if (scenario === 'seed-source') {
+        const selected = join(work, 'worklist-read-0');
+        assert.ok(existsSync(join(selected, 'application.request')), 'A copied source.edict must not block application invocation');
+        assert.match(readFileSync(join(selected, 'source.edict'), 'utf8'), /fn step\(work: Work\)/);
+        assert.equal(readFileSync(join(seed.root, 'source.edict'), 'utf8'), source, 'Original selected seed stays intact');
+        const evidence = JSON.parse(readFileSync(join(work, 'evidence.json'), 'utf8'));
+        assert.equal(evidence.results['worklist-read-0'].firstBuild.exitCode, 2);
+        assert.match(evidence.failure, /Public compiler refused/);
+        assert.equal(evidence.outcome, undefined, 'Fault compiler must never imply successful compilation');
       } else {
         const receipt = join(work, 'evidence.json');
         assert.ok(existsSync(receipt), `${scenario} must retain failure evidence`);

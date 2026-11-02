@@ -17,6 +17,8 @@
   parsing in pure, ordered-read and runtime judgments, preserving nominal fields.
   Provider judgments and runtime preparation include operand validation depth across helper calls;
   capability discovery preserves the canonical artifact nesting allowance.
+  List-domain proof scans keep ancestor predicate depth separate from descendant
+  expression depth while preserving work and actual nesting limits.
   The checked Wasm component pair is promoted from two matching independent
   builds, with refreshed package manifests and identity goldens. Public compiler
   witnesses execute non-idempotent worklist folds at bounds 0/1/2/3/5, structural

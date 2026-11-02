@@ -366,3 +366,67 @@ fn list_operand_validation_depth_matches_runtime_across_calls() {
         "providers must refuse the helper closure that runtime preparation rejects"
     );
 }
+
+#[test]
+fn list_domain_proof_depth_does_not_add_disjoint_branches() {
+    let ty = "List<U64,max=1>";
+    for (nots, wrappers, op, accepted) in [
+        (66, 0, "<", false),
+        (0, 65, "<", false),
+        (36, 0, "<=", false),
+        (0, 0, "<", true),
+        (36, 0, "<", true),
+        (0, 35, "<", true),
+        (36, 35, "<", true),
+    ] {
+        let (names, candidate, package) = edited_fixture(|core, _| {
+            let xs = local("arg.0", ty);
+            let mut guard = map([
+                ("kind", text("compare")),
+                ("op", text(op)),
+                ("left", literal("U64", 0)),
+                (
+                    "right",
+                    operation("core.list.length", &[ty], vec![reference(&xs)]),
+                ),
+            ]);
+            for _ in 0..nots {
+                guard = map([("kind", text("not")), ("value", guard)]);
+            }
+            let mut access = operation(
+                "core.list.at",
+                &[ty],
+                vec![reference(&xs), literal("U64", 0)],
+            );
+            for _ in 0..wrappers {
+                access = choose(
+                    map([
+                        ("kind", text("compare")),
+                        ("op", text("==")),
+                        ("left", literal("U64", 0)),
+                        ("right", literal("U64", 0)),
+                    ]),
+                    access,
+                    literal("U64", 0),
+                );
+            }
+            let body = choose(guard, access, literal("U64", 0));
+            *map_field_mut(core, "requiredCoreCapabilities") = list(vec![text("core.list/v1")]);
+            add_field(
+                core,
+                "functions",
+                map([("lookup", function(vec![xs], "U64", vec![], vec![], body))]),
+            );
+        });
+        let lowered = lowerer::lower(lowering_request(names, &candidate));
+        let verified = verifier_accepts(names, &candidate, package.clone());
+        assert_eq!(
+            (lowered.is_ok(), verified),
+            (accepted, accepted),
+            "nots={nots} wrappers={wrappers} op={op}",
+        );
+        if accepted {
+            assert!(lowered.is_ok_and(|out| out.outputs[0].artifact.bytes == package));
+        }
+    }
+}

@@ -653,7 +653,6 @@ pub(crate) fn infer<'v>(
                     proof.facts,
                     proof.path,
                     parser,
-                    depth,
                 );
             }
             match (name, actual.as_slice(), declared.as_slice()) {

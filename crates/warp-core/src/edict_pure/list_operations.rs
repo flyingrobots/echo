@@ -117,7 +117,6 @@ pub(super) fn infer(
     facts: &[&Value],
     path: &[(&Value, bool)],
     parser: &mut Parser<'_>,
-    depth: usize,
 ) -> Result<RuntimeType, Error> {
     let name = text_field(call, "callee")?;
     let coordinates = array(field(call, "typeArgs")?)?;
@@ -135,7 +134,7 @@ pub(super) fn infer(
                 item: Some(item), ..
             }],
         ) if accepts(ty, value) => {
-            domain(&coordinates[0], args, None, facts, path, parser, depth + 1)?;
+            domain(&coordinates[0], args, None, facts, path, parser)?;
             Ok(*item.clone())
         }
         (
@@ -146,15 +145,7 @@ pub(super) fn infer(
                 max,
             }],
         ) if ty == value && accepts(item, entry) => {
-            domain(
-                &coordinates[0],
-                args,
-                Some(*max),
-                facts,
-                path,
-                parser,
-                depth + 1,
-            )?;
+            domain(&coordinates[0], args, Some(*max), facts, path, parser)?;
             Ok(ty.clone())
         }
         (
@@ -210,7 +201,6 @@ fn domain(
     facts: &[&Value],
     path: &[(&Value, bool)],
     parser: &mut Parser<'_>,
-    depth: usize,
 ) -> Result<(), Error> {
     let [value, operand] = args else {
         return Err(Error::InvalidArtifact);
@@ -240,7 +230,9 @@ fn domain(
     let lower = proven_order::key(lower, parser)?;
     let upper = proven_order::key(upper, parser)?;
     for (predicate, truth) in facts.iter().map(|p| (*p, true)).chain(path.iter().copied()) {
-        if proven_order::strict_fact(predicate, truth, &lower, &upper, parser, depth)? {
+        // This rescans an already checked ancestor predicate. Its nesting and
+        // the descendant call's nesting are disjoint evaluation branches.
+        if proven_order::strict_fact(predicate, truth, &lower, &upper, parser, 0)? {
             return Ok(());
         }
     }

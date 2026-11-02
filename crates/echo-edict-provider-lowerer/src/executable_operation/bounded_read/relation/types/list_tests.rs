@@ -3,6 +3,161 @@
 //! Read type-judgment witnesses; these do not claim public compiler provenance.
 use super::*;
 
+#[test]
+fn ordered_list_guards_accept_strict_word_comparisons() {
+    let core = core();
+    let operation = |name: &str, args| {
+        m([
+            ("kind", t("call")),
+            ("callee", t(name)),
+            ("typeArgs", Value::Array(vec![t("Numbers")])),
+            ("args", Value::Array(args)),
+        ])
+    };
+    let length = operation("core.list.length", vec![call("numbers", vec![])]);
+    let access = operation("core.list.at", vec![call("numbers", vec![]), integer(0)]);
+    let conditional = |op: &str, index: Value, reversed: bool, negated: bool| {
+        let (left, right) = if reversed {
+            (length.clone(), index)
+        } else {
+            (index, length.clone())
+        };
+        m([
+            ("kind", t("if")),
+            (
+                "predicate",
+                m([
+                    ("kind", t("compare")),
+                    ("op", t(op)),
+                    ("left", left),
+                    ("right", right),
+                ]),
+            ),
+            ("then", if negated { integer(0) } else { access.clone() }),
+            ("else", if negated { access.clone() } else { integer(0) }),
+        ])
+    };
+    let wrong_width = m([
+        ("kind", t("const")),
+        (
+            "value",
+            m([
+                ("kind", t("int")),
+                ("width", t("U8")),
+                ("value", Value::Integer(0)),
+            ]),
+        ),
+    ]);
+    let mut admitted = Vec::new();
+    for (op, reversed, negated) in [
+        ("<", false, false),
+        ("<=", true, true),
+        (">", true, false),
+        (">=", false, true),
+    ] {
+        admitted.push(
+            check(
+                &core,
+                &conditional(op, integer(0), reversed, negated),
+                "U64",
+            )
+            .is_ok(),
+        );
+        assert_refusal(check(
+            &core,
+            &conditional(op, wrong_width.clone(), reversed, negated),
+            "U64",
+        ));
+    }
+    assert_eq!(
+        admitted,
+        vec![true, true, true, true],
+        "all compiler-supported strict guard orientations"
+    );
+}
+
+#[test]
+fn ordered_list_operations_preserve_types_after_domain_validation() {
+    let core = core();
+    let operation = |name: &str, types: &[&str], args| {
+        m([
+            ("kind", t("call")),
+            ("callee", t(name)),
+            (
+                "typeArgs",
+                Value::Array(types.iter().map(|s| t(s)).collect()),
+            ),
+            ("args", Value::Array(args)),
+        ])
+    };
+    let numbers = || call("numbers", vec![]);
+    // This type relation runs after the separate whole-intent domain audit.
+    for (value, expected) in [
+        (
+            operation("core.list.length", &["Numbers"], vec![numbers()]),
+            "U64",
+        ),
+        (
+            operation("core.list.at", &["Numbers"], vec![numbers(), integer(0)]),
+            "U64",
+        ),
+        (
+            operation(
+                "core.list.append",
+                &["Numbers"],
+                vec![numbers(), integer(7)],
+            ),
+            "Numbers",
+        ),
+        (
+            operation(
+                "core.list.concat",
+                &["Numbers", "Numbers"],
+                vec![numbers(), numbers()],
+            ),
+            "List<U64,max=4>",
+        ),
+    ] {
+        assert!(check(&core, &value, expected).is_ok(), "{expected}");
+    }
+    for (value, expected) in [
+        (
+            operation(
+                "core.list.append",
+                &["List<U64,max=3>"],
+                vec![numbers(), integer(7)],
+            ),
+            "List<U64,max=3>",
+        ),
+        (
+            operation(
+                "core.list.concat",
+                &["Numbers", "Numbers"],
+                vec![numbers(), numbers()],
+            ),
+            "List<U64,max=3>",
+        ),
+        (
+            operation(
+                "core.list.at",
+                &["List<U8,max=2>"],
+                vec![numbers(), integer(0)],
+            ),
+            "U8",
+        ),
+        (
+            operation(
+                "core.list.concat",
+                &["List<U64,max=18446744073709551615>", "Numbers"],
+                vec![numbers(), numbers()],
+            ),
+            "Numbers",
+        ),
+    ] {
+        assert_refusal(check(&core, &value, expected));
+    }
+}
+
 fn t(value: &str) -> Value {
     Value::Text(value.into())
 }
@@ -47,6 +202,7 @@ fn row(value: Value) -> Value {
 fn core() -> Value {
     m([
         ("coordinate", t("example@1")),
+        ("pureFunctions", Value::Array(vec![])),
         (
             "types",
             m([
@@ -254,4 +410,39 @@ fn assert_refusal(result: Result<(), ProviderRefusalV1>) {
         && refusal.subject.as_deref() == Some(SUBJECT)),
         "{result:?}"
     );
+}
+
+#[test]
+fn list_inline_record_types_preserve_structural_and_nominal_meaning() {
+    let core = core();
+    let judgment = scope(&core);
+    assert!(judgment.ty("Row").is_ok());
+    assert!(judgment.ty("Record<payload:Bytes<max=4>>").is_ok());
+    assert_eq!(
+        judgment.ty("Row"),
+        judgment.ty("Record<payload:Bytes<max=4>>")
+    );
+    assert!(judgment
+        .ty("List<Record<a:A,nested:List<Record<x:U8>,max=2>>,max=3>")
+        .is_ok());
+    assert!(judgment.ty("Record<a:A>").is_ok());
+    assert!(judgment.ty("Record<a:B>").is_ok());
+    assert_ne!(judgment.ty("Record<a:A>"), judgment.ty("Record<a:B>"));
+    assert!(judgment.ty("Record<>").is_ok());
+    for invalid in [
+        "Record<x:U8,x:U8>",
+        "Record<z:U8,a:U8>",
+        "Record<x:U8,>",
+        "Record<:U8>",
+        "Record<0x:U8>",
+        "Record<x:>",
+        "Record<x:List<U8,max=1>>>",
+        "Record<x:Unknown>",
+    ] {
+        assert!(judgment.ty(invalid).is_err(), "{invalid}");
+    }
+    judgment.remaining_type_work.set(3);
+    assert!(judgment.ty("Record<long:U8,z:U8>").is_err());
+    let deep = format!("{}U8{}", "Record<x:".repeat(65), ">".repeat(65));
+    assert!(scope(&core).ty(&deep).is_err());
 }

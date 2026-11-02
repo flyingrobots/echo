@@ -29,7 +29,11 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                             | "core.integer.subtract"
                             | "core.bytes.slice"
                             | "core.bytes.at"
-                            | "core.bytes.count")
+                            | "core.bytes.count"
+                            | "core.list.length"
+                            | "core.list.at"
+                            | "core.list.append"
+                            | "core.list.concat")
                     )
                 {
                     return Ok(true);

@@ -90,7 +90,7 @@ fn supports(
 }
 
 /// Terms compare by canonical encoding, independent of in-memory map order.
-fn key(value: &Value, parser: &mut Parser<'_>) -> Result<Vec<u8>, Error> {
+pub(super) fn key(value: &Value, parser: &mut Parser<'_>) -> Result<Vec<u8>, Error> {
     let bytes = encode_canonical_cbor_v1(value).map_err(|_| Error::InvalidArtifact)?;
     parser.remaining = parser
         .remaining
@@ -141,7 +141,7 @@ pub(crate) fn strict_index(
     }
     Ok(false)
 }
-fn strict_fact(
+pub(super) fn strict_fact(
     p: &Value,
     truth: bool,
     index: &[u8],

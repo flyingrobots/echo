@@ -422,6 +422,9 @@ impl WarpTickPatchV1 {
                 }
                 previous = Some(key);
             }
+            // Room was reserved for every op offered; the patch keeps only
+            // what the canonical ops need.
+            canonical.shrink_to_fit();
             canonical
         };
         let digest = compute_patch_digest_v2(
@@ -2652,8 +2655,10 @@ mod tests {
             },
         ));
     }
-    #[test]
-    fn op_canonicalization_matches_the_last_wins_map_it_replaced() {
+    /// Four hundred ops over seven nodes and three values, drawn from a
+    /// fixed linear congruential sequence, so the ops repeat keys in a
+    /// varied but reproducible order.
+    fn ops_with_repeated_keys() -> Vec<WarpOp> {
         let (_, first, second) = reversible_fixture();
         let nodes: Vec<NodeKey> = (0..5)
             .map(|i| NodeKey {
@@ -2663,8 +2668,6 @@ mod tests {
             .chain([first, second])
             .collect();
         let values: [&'static [u8]; 3] = [b"a", b"b", b"c"];
-        // A fixed linear congruential sequence, so the ops repeat keys in a
-        // varied but reproducible order.
         let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
         let mut ops = Vec::new();
         for _ in 0..400 {
@@ -2684,6 +2687,12 @@ mod tests {
                 },
             });
         }
+        ops
+    }
+
+    #[test]
+    fn op_canonicalization_matches_the_last_wins_map_it_replaced() {
+        let ops = ops_with_repeated_keys();
         let mut reference: std::collections::BTreeMap<WarpOpKey, WarpOp> =
             std::collections::BTreeMap::new();
         for op in ops.clone() {
@@ -2702,6 +2711,27 @@ mod tests {
 
         assert!(reference.len() < 400, "the fixture must repeat keys");
         assert_eq!(patch.ops(), reference.as_slice());
+    }
+
+    #[test]
+    fn canonical_ops_keep_only_the_room_they_need() {
+        let ops = ops_with_repeated_keys();
+        let offered = ops.len();
+        let patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            Vec::new(),
+            Vec::new(),
+            ops,
+        );
+        assert!(patch.ops.len() < offered, "the fixture must repeat keys");
+        assert_eq!(
+            patch.ops.capacity(),
+            patch.ops.len(),
+            "the patch keeps room for the {} ops it dropped",
+            offered - patch.ops.len()
+        );
     }
 }
 

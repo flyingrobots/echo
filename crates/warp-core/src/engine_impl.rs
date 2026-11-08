@@ -543,6 +543,7 @@ struct ReserveOutcome {
     reserved: Vec<PendingRewrite>,
     /// Sorted, each slot once: read back from the scheduler's conflict sets.
     in_slots: Vec<SlotId>,
+    /// Sorted, each slot once: read back from the scheduler's conflict sets.
     out_slots: Vec<SlotId>,
 }
 

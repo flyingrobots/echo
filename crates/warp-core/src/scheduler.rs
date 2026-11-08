@@ -375,6 +375,10 @@ impl RadixScheduler {
     }
 
     /// Finalizes accounting for `tx`: clears internal state.
+    ///
+    /// For a committed tick, [`Self::take_reserved_slots`] has already taken
+    /// the conflict sets; they are removed here for a transaction closed
+    /// before or during reservation.
     pub(crate) fn finalize_tx(&mut self, tx: TxId) {
         self.active.remove(&tx);
         self.pending.remove(&tx);

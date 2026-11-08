@@ -101,6 +101,12 @@
 
 ### Changed
 
+- The tick patch digest is hashed through a stage of at most 16 KiB, so a
+  large atom payload is no longer copied while the digest is computed or
+  validated, and a tick's slots are read from the scheduler's conflict sets
+  instead of being collected a second time. Patch bytes, digests and ordering
+  are unchanged.
+
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
   `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;
@@ -115,6 +121,17 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- A commit that fails, by returning an error or because a rule panics, now
+  closes its transaction as an abort does: applying to it or committing it
+  again returns `EngineError::UnknownTx`, its reservations are released, and
+  the failed attempt's pending emissions, footprint evidence and cached
+  results are cleared. Before, the transaction stayed open with the failed
+  attempt's reservations still held, so committing it again rejected any
+  rewrite that overlapped them and failed with
+  `InternalCorruption("scheduler rejected rewrite but no blockers were
+  found")`. Reusing a transaction after a failed commit is unsupported, so
+  it is now refused.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.
@@ -2485,15 +2502,6 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   future specs).
 
 ### Fixed
-
-- A commit that fails, by returning an error or because a rule panics, now
-  closes its transaction; applying to it or committing it again returns
-  `EngineError::UnknownTx`. Before, the transaction stayed open with the
-  failed attempt's reservations still held, so committing it again rejected
-  any rewrite that overlapped them and failed with
-  `InternalCorruption("scheduler rejected rewrite but no blockers were
-  found")`. Reusing a transaction after a failed commit is unsupported, so
-  it is now refused.
 
 - Completed shadow application-root benchmark rounds are invalid when their
   recorded incremental/rebuild or live/replay parity is missing or failed, including

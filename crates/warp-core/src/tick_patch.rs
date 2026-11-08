@@ -1147,8 +1147,9 @@ impl DigestSink for ByteCount {
     }
 }
 
-/// The most bytes the hasher is handed at once: sixteen BLAKE3 chunks, the
-/// widest batch its SIMD paths compress together.
+/// The most bytes the hasher is handed at once: sixteen BLAKE3 chunks of
+/// 1 KiB, the widest batch its SIMD paths compress together (AVX-512; the
+/// narrower paths take 8, 4 or 1 chunks, so a stage feeds any of them whole).
 const DIGEST_STAGE_BYTES: usize = 16 * 1024;
 
 /// Hashes the digest's input in pieces of up to [`DIGEST_STAGE_BYTES`].
@@ -2828,9 +2829,10 @@ mod tests {
             ops,
         );
         assert!(patch.ops.len() < offered, "the fixture must repeat keys");
-        assert_eq!(
-            patch.ops.capacity(),
-            patch.ops.len(),
+        // `shrink_to_fit` may leave a little slack, so the property is that
+        // the room reserved for the dropped ops is given back.
+        assert!(
+            patch.ops.capacity() < offered,
             "the patch keeps room for the {} ops it dropped",
             offered - patch.ops.len()
         );

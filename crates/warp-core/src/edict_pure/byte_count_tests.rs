@@ -266,3 +266,77 @@ fn helper_results_do_not_carry_the_count_bound() {
     );
     assert_eq!(helpers(vec![("breaks", breaks)]), Ok(()));
 }
+
+fn compare(op: &str, left: Value, right: Value) -> Value {
+    map([
+        ("kind", text("compare")),
+        ("op", text(op)),
+        ("left", left),
+        ("right", right),
+    ])
+}
+fn all(values: Vec<Value>) -> Value {
+    map([("kind", text("all")), ("values", Value::Array(values))])
+}
+/// A `U64` helper answering `1` when `predicate` holds, else `0`.
+fn predicate_function(predicate: Value) -> Value {
+    let result = map([
+        ("kind", text("if")),
+        ("predicate", predicate),
+        ("then", integer(1)),
+        ("else", integer(0)),
+    ]);
+    map([
+        (
+            "params",
+            Value::Array(vec![local("arg.0", "Bytes<max=32>")]),
+        ),
+        ("returnType", text("U64")),
+        (
+            "body",
+            map([
+                ("locals", Value::Array(vec![])),
+                ("bindings", Value::Array(vec![])),
+                ("result", result),
+            ]),
+        ),
+    ])
+}
+
+/// Inside a helper, an earlier conjunct of one `all` that compares a term
+/// with a constant bounds an addition in a later conjunct; the same addition
+/// before the guard, or one unit too far, is refused. Caller constraints
+/// never reach the helper, so the guard must be the helper's own.
+#[test]
+fn helper_conjunct_prefix_bounds_a_later_addition() {
+    let text_bytes = reference(&local("arg.0", "Bytes<max=32>"));
+    let guard = compare("<=", count(text_bytes.clone()), integer(10));
+    let sum = |addend: u64| {
+        compare(
+            "==",
+            add(count(text_bytes.clone()), integer(addend)),
+            integer(u64::MAX),
+        )
+    };
+    let fits = helpers(vec![(
+        "fits",
+        predicate_function(all(vec![guard.clone(), sum(u64::MAX - 10)])),
+    )]);
+    assert!(fits.is_ok(), "the guard bounds the sum: {fits:?}");
+    assert!(
+        helpers(vec![(
+            "overflows",
+            predicate_function(all(vec![guard.clone(), sum(u64::MAX - 9)]))
+        )])
+        .is_err(),
+        "one past the guarded ceiling overflows"
+    );
+    assert!(
+        helpers(vec![(
+            "unguarded",
+            predicate_function(all(vec![sum(u64::MAX - 10), guard]))
+        )])
+        .is_err(),
+        "a later conjunct proves nothing for an earlier one"
+    );
+}

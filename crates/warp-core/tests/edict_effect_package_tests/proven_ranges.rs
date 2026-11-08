@@ -370,8 +370,18 @@ fn boundary_program() -> V {
     )
 }
 
-fn run(at: u64) -> Result<Vec<u8>, EffectFrameError> {
-    let package = prepare(&boundary_program()).expect("the conjunct prefix proves the slice");
+/// The headline path: an input constraint, not a conjunction, proves the
+/// slice in a `let`, and the program returns what the prefix check says.
+fn constrained_program() -> V {
+    package(
+        vec![at_most(input("at"), len(input("text")))],
+        vec![Node::Let(ok_binding(), prefix_is_utf8("text", input("at")))],
+        local(&ok_binding()),
+    )
+}
+
+fn run(source: &V, at: u64) -> Result<Vec<u8>, EffectFrameError> {
+    let package = prepare(source).expect("the program prepares");
     let program = package.program().as_effect_program().expect("effect");
     let (host, head, _) = host();
     let basis = host
@@ -402,17 +412,45 @@ fn run(at: u64) -> Result<Vec<u8>, EffectFrameError> {
 }
 
 #[test]
-fn a_valid_program_takes_its_authored_path_for_out_of_range_requests() {
+fn an_input_constraint_proves_a_slice_that_runs() {
+    // "hé" is h, then é as two bytes: offsets 0, 1 and 3 are boundaries and
+    // offset 2 is inside é, so the prefix check itself answers false there.
+    for (at, answer) in [(0, true), (1, true), (2, false), (3, true)] {
+        assert_eq!(
+            run(&constrained_program(), at),
+            Ok(encoded(&V::Bool(answer))),
+            "offset {at}"
+        );
+    }
+    // Past the end and at the U64 maximum the input constraint fails before
+    // any node runs, so the slice is never attempted out of range.
+    for at in [4, u64::MAX] {
+        let result = run(&constrained_program(), at);
+        assert!(
+            matches!(result, Err(ref err) if format!("{err:?}").contains("InputConstraintFailed")),
+            "offset {at}: {result:?}"
+        );
+    }
+}
+
+/// Guards the unchanged conjunct rule, which this PR did not touch: the first
+/// conjunct of one `all` proves the slice in the second at runtime.
+#[test]
+fn a_guarded_conjunction_runs_and_takes_the_authored_path_outside_boundaries() {
     let accepted = encoded(&V::Bool(true));
     // "hé" is h, then é as two bytes: offsets 0, 1 and 3 are boundaries.
     for at in [0, 1, 3] {
-        assert_eq!(run(at), Ok(accepted.clone()), "offset {at}");
+        assert_eq!(
+            run(&boundary_program(), at),
+            Ok(accepted.clone()),
+            "offset {at}"
+        );
     }
     // Inside é, past the end, and at the U64 maximum: the authored obstruction.
     for at in [2, 4, u64::MAX] {
         assert!(
             matches!(
-                run(at),
+                run(&boundary_program(), at),
                 Err(EffectFrameError::AuthoredObstruction { ref reason_kind, .. })
                     if reason_kind == "app.BadOffset"
             ),
@@ -460,8 +498,10 @@ fn an_equality_constraint_bounds_a_term_from_either_side() {
             local(&ok_binding()),
         )
     };
-    // Echo's predicates compare with `==` and `<=` only; as in Edict, an
-    // equality with a constant bounds the term on either side.
+    // Echo's unsigned predicates accept every comparison operator, but only
+    // `term <= c`, `term == c` and `c == term` bound an addition, the forms the
+    // checked lowerer and verifier also read. An equality with a constant
+    // bounds the term on either side.
     for constraint in [
         compare("==", input("at"), int(10)),
         compare("==", int(10), input("at")),

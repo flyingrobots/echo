@@ -685,8 +685,9 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
         );
         let after = engine.snapshot().state_root;
         assert_eq!(before, after, "state changed with {workers} workers");
-        // The scopes are not reachable from the root, so the state root does
-        // not cover their attachments; check each one directly.
+        // Apart from the root itself, the scopes are not reachable from the
+        // root, so the state root does not cover their attachments; check
+        // each one directly.
         for scope in &scopes {
             assert!(
                 engine
@@ -727,8 +728,9 @@ fn single_worker_ticks_run_rules_on_the_committing_thread() {
     let mut base_store = warp_core::GraphStore::default();
     let root = warp_core::make_node_id("t16t/root");
     base_store.insert_node(root, NodeRecord { ty: node_ty });
-    // Twenty scopes hash to twenty shards out of 256 almost surely (all in
-    // one shard has probability 256^-19), so they form several work units.
+    // Twenty scopes spread over the 256 shards (all in one shard has
+    // probability 256^-19; these twenty land in twenty distinct shards), so
+    // they form several work units.
     let mut scopes = vec![root];
     for i in 1..20 {
         let scope = warp_core::make_node_id(&format!("t16t/node{i}"));
@@ -792,5 +794,73 @@ fn single_worker_ticks_run_rules_on_the_committing_thread() {
                 touched.len()
             );
         }
+    }
+}
+
+/// With two or more workers every rule runs on a spawned scoped thread, never
+/// on the committing thread. Serialising that path onto the caller, or
+/// inlining any multi-worker tick, turns this red.
+#[test]
+fn multi_worker_ticks_run_rules_on_spawned_threads() {
+    use warp_core::{ApplyResult, AttachmentValue, EngineBuilder, NodeRecord};
+
+    const RULE_NAME: &str = "t16w/record-thread";
+    const MARKER_TYPE: &str = "t16w/thread-id";
+
+    let node_ty = warp_core::make_type_id("t16w/node");
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16w/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+    let mut scopes = vec![root];
+    for i in 1..20 {
+        let scope = warp_core::make_node_id(&format!("t16w/node{i}"));
+        base_store.insert_node(scope, NodeRecord { ty: node_ty });
+        scopes.push(scope);
+    }
+
+    let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, b"unused");
+    rule.executor = warp_core::RuleExecutor::observed(
+        |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+            let thread_id = format!("{:?}", std::thread::current().id());
+            let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                warp_id: view.warp_id(),
+                local_id: *scope,
+            });
+            let payload = warp_core::AtomPayload::new(
+                warp_core::make_type_id(MARKER_TYPE),
+                bytes::Bytes::from(thread_id.into_bytes()),
+            );
+            delta.push(warp_core::WarpOp::SetAttachment {
+                key,
+                value: Some(AttachmentValue::Atom(payload)),
+            });
+        },
+    );
+
+    let mut engine = EngineBuilder::new(base_store, root).workers(4).build();
+    engine.register_rule(rule).expect("register rule");
+    let tx = engine.begin();
+    for scope in &scopes {
+        assert!(matches!(
+            engine.apply(tx, RULE_NAME, scope),
+            Ok(ApplyResult::Applied)
+        ));
+    }
+    engine.commit(tx).expect("commit");
+
+    let caller = format!("{:?}", std::thread::current().id());
+    for scope in &scopes {
+        let recorded = engine
+            .node_attachment(scope)
+            .expect("scope is readable")
+            .expect("the rule recorded a thread id");
+        let AttachmentValue::Atom(atom) = recorded else {
+            panic!("the recorded thread id is an atom");
+        };
+        assert_ne!(
+            std::str::from_utf8(&atom.bytes).expect("thread id is utf-8"),
+            caller,
+            "with four workers no rule may run on the committing thread"
+        );
     }
 }

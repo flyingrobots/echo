@@ -562,7 +562,9 @@ fn execute_unretained(
 /// # Worker Count Cap
 ///
 /// Workers are capped at `min(workers, NUM_SHARDS)` to avoid spawning
-/// more threads than there are shards to process.
+/// more threads than there are shards to process. Unlike
+/// [`execute_work_queue`], this helper spawns a scoped thread even at
+/// `workers == 1`.
 ///
 /// # Panics
 ///
@@ -1025,26 +1027,35 @@ pub fn build_work_units(
 
 /// Execute work queue with parallel workers (cross-warp parallelism).
 ///
-/// This is the **only** spawn site for cross-warp execution. Workers claim
-/// units atomically and execute items serially within each unit.
+/// This is the **only** place cross-warp execution may spawn; with one worker
+/// it spawns nothing (see Threads). Workers claim units atomically and execute
+/// items serially within each unit.
 ///
 /// # Threads
 ///
-/// With `workers >= 2`, each worker runs on its own scoped thread, spawned for
-/// this call and joined before it returns, so nothing a rule leaves in
-/// thread-local storage survives the tick. With `workers == 1` (the engine
-/// default, and any tick the unit-count cap reduces to one worker) no thread
-/// is spawned: the single worker runs on the caller's thread and stack. Rule
-/// executors therefore cannot rely on a fresh thread or thread-local
-/// environment per tick: with one worker, thread-local values a rule sets
-/// persist on the caller's thread across ticks, and a deeply recursive rule
-/// uses the caller's stack, which may be larger (the main thread) or smaller
-/// (a small runtime worker) than a spawned thread's default. Results, their
-/// order, and panic payloads are the same either way. A panic that escapes
-/// the per-item `catch_unwind` runs the panic hook on the thread that
-/// panicked, so with one worker the hook reports the caller's thread rather
-/// than an unnamed worker. The single-warp `execute_parallel*` helpers in
-/// this module still spawn a scoped thread at `workers == 1`.
+/// - `workers >= 2`: each worker runs on its own scoped thread, spawned for
+///   this call and joined before it returns; nothing a rule leaves in
+///   thread-local storage survives the tick.
+/// - `workers == 1` (the engine default, and any tick the unit-count cap
+///   reduces to one worker): no thread is spawned; the single worker runs on
+///   the caller's thread and stack.
+/// - Consequences for rule executors: do not rely on a fresh thread or
+///   thread-local environment per tick. With one worker, thread-local values
+///   a rule sets persist on the caller's thread across ticks, and a deeply
+///   recursive rule uses the caller's stack, which may be larger (the main
+///   thread) or smaller (a small runtime worker) than a spawned thread's
+///   default. A rule also runs while any borrows the caller holds around
+///   `commit` are live.
+/// - Results, their order, and panic payloads are the same either way.
+/// - The panic hook runs on the panicking thread for every panic, including
+///   the ordinary rule panics the per-item `catch_unwind` captures, so with
+///   one worker the default hook now names the caller's thread (for example
+///   `thread 'main' panicked`) where it used to name an unnamed worker.
+///   Payloads are unchanged; only the hook's reported thread differs. A panic
+///   that escapes `catch_unwind` (see Panics) unwinds the caller's thread
+///   directly instead of being re-raised from a join.
+/// - The single-warp `execute_parallel*` helpers in this module are not
+///   affected; they still spawn a scoped thread at `workers == 1`.
 ///
 /// # Footprint Enforcement (cfg-gated)
 ///
@@ -1102,7 +1113,9 @@ where
 
     // One worker gains nothing from a thread: it would run the same loop
     // while this thread waits to join it. Run it here instead. Rules then run
-    // on the caller's thread and stack (see "Threads" above).
+    // on the caller's thread and stack (see "Threads" above). `warp-wasm`
+    // relies on this branch: std cannot spawn on wasm32-unknown-unknown, so
+    // removing it would trap every committing tick there.
     if workers == 1 {
         return vec![drain_units(units, &next_unit, &resolve_store)];
     }
@@ -1126,8 +1139,10 @@ where
     })
 }
 
-/// One worker's loop: claims units until none remain, executing each unit's
-/// items serially against its warp's store.
+/// One worker's loop: claims units from the shared counter until none
+/// remain, executing each unit's items serially against its warp's store.
+/// Returns at the first `MissingStore` or `Poisoned` item, leaving any
+/// unclaimed units to the other workers (with one worker, to nobody).
 fn drain_units<'state, F>(
     units: &[WorkUnit],
     next_unit: &AtomicUsize,
@@ -1139,7 +1154,7 @@ where
     let mut delta = TickDelta::new();
     let mut evidence = Vec::new();
 
-    // Work-stealing loop: claim units until none remain
+    // Claim loop: take the next unit index until none remain
     loop {
         let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
         if unit_idx >= units.len() {
@@ -1877,8 +1892,9 @@ mod tests {
 
     /// A missing store surfaces identically whether the single worker runs
     /// inline on the caller's thread or workers run on scoped threads: exactly
-    /// one `MissingStore` naming the unresolvable warp, and every other worker
-    /// an empty success. This exercises `execute_work_queue`'s own contract
+    /// one `MissingStore` naming the unresolvable warp (the resolver fails for
+    /// every warp, and only the worker that claims the single unit ever calls
+    /// it), and every other worker an empty success. This exercises `execute_work_queue`'s own contract
     /// at 1, 2, 4 and 8 workers over one unit; the engine pre-validates every
     /// store before building units and caps workers at the unit count, so it
     /// never sends this shape itself.

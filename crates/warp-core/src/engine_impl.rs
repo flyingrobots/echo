@@ -344,7 +344,6 @@ impl<S> EngineBuilder<S> {
     /// - Workers are clamped to `1..=NUM_SHARDS` (256), then capped per tick at
     ///   the number of work units (one per occupied warp shard); a tick with one
     ///   unit always runs one worker
-    /// - Values less than 1 are treated as 1
     /// - Use explicit worker counts in benchmarks to compare parallelism levels
     /// - With one worker (configured, or after the per-tick unit-count cap
     ///   above), rules execute on the thread that calls commit, on its stack;

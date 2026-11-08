@@ -232,7 +232,7 @@ impl WarpKernel {
 
         let engine = EngineBuilder::new(store, root)
             .scheduler(SchedulerKind::Radix)
-            .workers(1) // WASM is single-threaded; one worker runs inline, no spawn
+            .workers(1) // std cannot spawn threads on wasm32-unknown-unknown; one worker runs inline, no spawn
             .build();
         Self::with_engine(
             engine,

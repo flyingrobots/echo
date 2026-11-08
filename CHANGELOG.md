@@ -122,6 +122,11 @@
 
 ### Fixed
 
+- The Markdown tooling dependency is updated to pulldown-cmark 0.13.6, which
+  resolves RUSTSEC-2026-0433 (quadratic parsing of nested image wikilinks
+  under `ENABLE_WIKILINKS`). Only the root lockfile changes; `xtask` is the
+  sole consumer. No advisory exceptions are added.
+
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.
 

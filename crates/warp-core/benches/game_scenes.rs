@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(
-    missing_docs,
-    dead_code,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::print_stdout,
-    clippy::cast_precision_loss
-)]
+#![allow(missing_docs, dead_code, clippy::expect_used, clippy::print_stdout)]
 //! F6 game scenes: start each scene, run its frames, tear it down.
 //!
 //! ```bash
@@ -15,13 +8,15 @@
 //!   --bench game_scenes
 //! ```
 //!
-//! Each scene runs once per commitment profile. A frame is one submitted and
-//! admitted step intent, one tick, and a render read of every body. The
-//! headline `F6` line reports only measured durations: frame latency
-//! percentiles and maximum, frames over the 60 Hz budget, start-up, the
-//! render read, the reference step timed alone outside Echo, teardown and
-//! replay. A separate `F6-residual` line reports a derived estimate, described
-//! where it is computed. Only a valid run reports figures.
+//! Each scene runs once per compiled-in commitment profile (the application
+//! profile only under `application_root_profile`). A frame is one submitted
+//! and admitted step intent, one tick, and a render read of every body. The
+//! headline `F6` line reports measured durations and the reference run's peak
+//! counts: frame latency percentiles and maximum, frames over the 60 Hz
+//! budget, start-up, the render read, the reference step timed alone outside
+//! Echo, teardown and replay. A separate `F6-residual` line reports a derived
+//! estimate, described where it is computed. Only a valid run reports
+//! figures, and the run fails if any scene is not valid.
 
 #[path = "support/fixtures/mod.rs"]
 mod fixtures;
@@ -46,18 +41,21 @@ fn percentile(samples: &[Duration], per_mille: usize) -> f64 {
     sorted.get(index).copied().map_or(0.0, ms)
 }
 
-fn report(scene: Scene, profile: &str, obs: &Observation) {
-    let class = game::validate(scene, obs);
+fn report(scene: Scene, profile: &str, obs: &Observation) -> bool {
+    let expect = game::expectation(scene);
+    let class = game::validate(scene, &expect, obs);
     let spec = game::workload(scene, SEED);
+    let workload_id = spec.workload_id();
     println!(
-        "F6 scene={} profile={profile} workload_id={} class={}",
+        "F6 scene={} profile={profile} seed={SEED} workload_id={} expectation_id={} class={}",
         scene.name,
-        hex32(&spec.workload_id()),
+        hex32(&workload_id),
+        hex32(&expect.expectation_id(&workload_id)),
         class.label()
     );
     if !class.comparable() {
         println!("F6 scene={} detail: {class:?}", scene.name);
-        return;
+        return false;
     }
     let t = &obs.timings;
     let over = t
@@ -66,7 +64,8 @@ fn report(scene: Scene, profile: &str, obs: &Observation) {
         .filter(|frame| **frame > FRAME_BUDGET)
         .count();
     println!(
-        "F6 scene={} profile={profile} frames={} peak_bodies={} peak_contacts={} \
+        "F6 scene={} profile={profile} frames={} reference_peak_bodies={} \
+         reference_peak_contacts={} \
          startup_ms={:.2} frame_p50_ms={:.3} frame_p90_ms={:.3} frame_p99_ms={:.3} \
          frame_max_ms={:.3} over_16.7ms={over} render_p50_ms={:.3} \
          reference_step_p50_ms={:.3} teardown_ms={:.2} replay_ms={:.1}",
@@ -80,7 +79,7 @@ fn report(scene: Scene, profile: &str, obs: &Observation) {
         percentile(&t.frames, 990),
         percentile(&t.frames, 1000),
         percentile(&t.render, 500),
-        percentile(&t.physics, 500),
+        percentile(&t.reference_step, 500),
         ms(t.teardown),
         ms(t.replay),
     );
@@ -95,7 +94,7 @@ fn report(scene: Scene, profile: &str, obs: &Observation) {
     let residual: Vec<Duration> = t
         .frames
         .iter()
-        .zip(&t.physics)
+        .zip(&t.reference_step)
         .map(|(frame, step)| frame.saturating_sub(*step * 2))
         .collect();
     println!(
@@ -108,20 +107,42 @@ fn report(scene: Scene, profile: &str, obs: &Observation) {
         percentile(&residual, 990),
         percentile(&residual, 1000),
     );
+    true
 }
 
 fn main() {
+    let spec = game::workload(game::SCENES[0], SEED);
+    println!(
+        "F6 evidence={} construction={} history={:?}",
+        spec.evidence.label(),
+        spec.construction.label(),
+        spec.history_operations
+    );
+    println!(
+        "F6 clocks: frame = pack + submit + admit + tick + render read; render = the read alone; \
+         reference_step = the pure step outside Echo, before the hosted run; startup, teardown \
+         and replay are single samples; validation and outcome collection are outside all of them"
+    );
+    let mut all_valid = true;
     for scene in game::SCENES {
-        report(scene, "legacy-reachable-v1", &game::run(scene, SEED));
+        all_valid &= report(scene, "legacy-reachable-v1", &game::run(scene, SEED));
         #[cfg(feature = "application_root_profile")]
-        report(
-            scene,
-            "application-radix-v0",
-            &game::run_with_profile(
+        {
+            all_valid &= report(
                 scene,
-                SEED,
-                warp_core::application_root::CommitmentProfile::ApplicationRadixV0,
-            ),
-        );
+                "application-radix-v0",
+                &game::run_with_profile(
+                    scene,
+                    SEED,
+                    warp_core::application_root::CommitmentProfile::ApplicationRadixV0,
+                ),
+            );
+        }
     }
+    // Fail the bench run, and so its exit status, when any scene was not
+    // valid; no figures were reported for it.
+    assert!(
+        all_valid,
+        "an F6 run was not valid; see the detail lines above"
+    );
 }

@@ -290,11 +290,11 @@ Their conformance is checked by
 | Generator      | `benches/support/fixtures/prng.rs`         | SplitMix64 output vectors, cross-checked against an independent implementation; the bounded-integer mapping pinned separately, including a bound above 2^63 |
 | Manifests      | `benches/support/fixtures/manifest.rs`     | `workload_id` and `expectation_id` digested separately, with `edict.canonical-cbor/v1`; a test shows a golden change leaves `workload_id` unchanged         |
 | Result classes | `benches/support/fixtures/outcome.rs`      | Valid, invalid, unsupported and incomplete; only valid results are comparable                                                                               |
-| C1             | `benches/support/fixtures/star.rs`         | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells, and a pinned root                               |
+| C1             | `benches/support/fixtures/star.rs`         | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells (star leaves, not F6's grid cells), and a pinned root                               |
 | F5             | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated                                                                                                       |
 | Runner         | `benches/scene_fixtures.rs`                | A fixed matrix (tiers S and M, seed 7, five rounds each) of classified rounds; a summary only when every round is valid                                     |
-| F6             | `benches/support/fixtures/game.rs`         | Arena, pile and bullets game scenes run frame by frame through the trusted host, validated against an in-memory reference                                   |
-| F6 runner      | `benches/game_scenes.rs`                   | Each scene once per commitment profile, seed 6; measured frame latencies and phases only when the run is valid                                              |
+| F6             | `benches/support/fixtures/game.rs`         | Arena, pile and bullets game scenes run frame by frame through the trusted host, validated against an in-memory reference and a declared expectation; pinned initial-world digests and small-scene roots |
+| F6 runner      | `benches/game_scenes.rs`                   | Each scene once per compiled-in commitment profile, seed 6; measured frame latencies and phases only when the run is valid; non-zero exit otherwise          |
 
 ### F5 append and replay
 
@@ -341,24 +341,55 @@ Their conformance is checked by
   a renderer would. Bodies are fixed-point (Q16.16) circles; a body is a node
   with its state as an attachment and an edge from its grid cell, and each
   touching pair has a contact edge.
+- **Scenes.** Arena: 256 bodies of radius 6 in a 1,024-unit world with
+  32-unit cells, no gravity, a steered player. Pile: 2,048 bodies of radius 4
+  in a 576-unit world with 16-unit cells, gravity, low restitution; the world
+  is sized so every body starts on the lattice, and the generator refuses a
+  scene it cannot place rather than folding bodies onto the floor. Bullets:
+  128 bodies of radius 6 plus 8 emitters firing 4 projectiles a frame with a
+  60-frame life (at most 1,920 live projectiles, at half the scene radius).
+  All run 600 frames at seed 6. Peak bodies are `bodies + emitters + live
+  projectiles`; peak contacts are measured in the reference run, not
+  predicted. Every cell is at least twice the radius, so the 3x3 broadphase
+  finds every touching pair.
+- **Outcomes, with expectations from the scene rather than from Echo.** Every
+  frame committed and none refused; exactly one admitted intent per tick; the
+  world read from the graph (bodies, contacts and cell membership, each body
+  reached through exactly one member edge from the cell its position maps to)
+  equals the reference; retained-patch replay reproduces the live root. The
+  expectation carries these as named assertions, and `expectation_id` is
+  printed beside `workload_id`. Goldens: a digest of each full-size scene's
+  generated initial world, and the live roots of the three scaled conformance
+  scenes.
 - **One rewrite per frame.** The step is one rule application that reads the
   whole world and writes what changed. Per-cell rewrites are not built:
   neighbouring cells overlap, and Echo rejects a conflicting rewrite.
 - **What validity shows, and what it does not.** The same pure `step`
   function drives the Echo rule and the in-memory reference. A valid run shows
   that hosted execution stored, and the graph gave back, exactly what the
-  reference path computed. It does not show that `step` is correct physics: a
-  bug in `step` occurs on both sides. Two small hand-computed scenes in the
-  conformance test check collision, despawn and contact edges independently.
+  reference path computed: bodies, contacts and cell membership. It does not
+  show that `step` is correct physics: a bug in `step` occurs on both sides.
+  Two small hand-computed scenes in the conformance test check collision,
+  despawn and contact edges independently.
 - **Footprint enforcement.** The debug-build conformance test runs scaled-down
-  scenes, so footprint enforcement checks every read and write the step makes.
-- **Clocks.** The headline line reports only measured durations: frame
-  latency percentiles and maximum, frames over the 60 Hz budget, start-up, the
-  render read, the reference step timed alone outside Echo, teardown and
-  replay. A separate residual line reports frame time minus twice the
-  reference step. It is an estimate, not Echo's cost and not a bound on it:
-  cache effects, measurement conditions and the rule's own read-and-diff work
-  prevent that inference.
+  scenes, so footprint enforcement (`crates/warp-core/src/actual_footprint.rs`,
+  compiled in under `debug_assertions` or `footprint_enforce_release`) checks
+  every read and write the step makes.
+- **Clocks.** The headline line reports measured durations and the reference
+  run's peak counts: frame latency percentiles and maximum (a frame is build
+  and pack the envelope, submit, admit, tick and the render read), frames over
+  the 60 Hz budget, start-up, the render read alone, the reference step timed
+  alone outside Echo before the hosted run, teardown and replay. Start-up,
+  teardown and replay are single samples per run. A separate residual line
+  reports frame time minus twice the reference step. It is an estimate, not
+  Echo's cost and not a bound on it: cache effects, measurement conditions and
+  the rule's own read-and-diff work prevent that inference.
+- **Not covered, and reported as such.** No validator canaries beyond the
+  membership check in the reader; no readings at earlier coordinates, so a
+  wrong intermediate frame is caught only if it changes the final world or the
+  replayed root; the bench runner is compiled but not executed by CI; a
+  failing intent commits an empty delta, which validation reports as the graph
+  world differing from the reference, without a frame index.
 
 Gates: the **correctness gate** is the conformance test
 above. The **performance gate** is not enabled; its environment, comparison

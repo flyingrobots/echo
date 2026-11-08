@@ -589,3 +589,278 @@ fn multiwarp_worker_count_invariance_stress() {
         }
     }
 }
+
+/// A rule panic surfaces identically whether the single worker runs inline on
+/// the caller's thread (`workers(1)`) or workers run on scoped threads.
+///
+/// One of twenty independent scopes panics in its executor. For every worker
+/// count the commit must unwind with the executor's own payload, commit
+/// nothing, leave `last_execution_footprints` empty, keep the poisoned
+/// item's evidence in `last_aborted_execution_footprints`, and leave the
+/// state root and every scope's attachment unchanged.
+#[test]
+fn rule_panic_propagates_identically_for_every_worker_count() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use warp_core::{ApplyResult, EngineBuilder, NodeRecord};
+
+    const RULE_NAME: &str = "t16p/touch";
+    const MARKER_TYPE: &str = "t16p/marker";
+    const MARKER_BYTES: &[u8] = b"touched-t16p";
+    const POISONED_SCOPE: &str = "t16p/node7";
+    const PAYLOAD: &str = "t16p: executor failure on the poisoned scope";
+
+    let node_ty = warp_core::make_type_id("t16p/node");
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16p/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+    let mut scopes = vec![root];
+    for i in 1..20 {
+        let scope = warp_core::make_node_id(&format!("t16p/node{i}"));
+        base_store.insert_node(scope, NodeRecord { ty: node_ty });
+        scopes.push(scope);
+    }
+    let poisoned = warp_core::make_node_id(POISONED_SCOPE);
+
+    let make_rule = || {
+        // The macro supplies the matcher and footprint; only the executor
+        // differs. `ObservedExecuteFn` is a `fn` pointer, so the closure cannot
+        // capture; it reaches the shared values through the consts above.
+        let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, MARKER_BYTES);
+        rule.executor = warp_core::RuleExecutor::observed(
+            |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+                if *scope == warp_core::make_node_id(POISONED_SCOPE) {
+                    // Panic with the shared `PAYLOAD` const so the test can
+                    // downcast the payload to that exact `&'static str`.
+                    std::panic::panic_any(PAYLOAD);
+                }
+                let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                let payload = warp_core::AtomPayload::new(
+                    warp_core::make_type_id(MARKER_TYPE),
+                    bytes::Bytes::from_static(MARKER_BYTES),
+                );
+                delta.push(warp_core::WarpOp::SetAttachment {
+                    key,
+                    value: Some(warp_core::AttachmentValue::Atom(payload)),
+                });
+            },
+        );
+        rule
+    };
+
+    let run = |workers: usize| {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(workers)
+            .build();
+        engine.register_rule(make_rule()).expect("register rule");
+        let before = engine.snapshot().state_root;
+        let tx = engine.begin();
+        for scope in &scopes {
+            assert!(matches!(
+                engine.apply(tx, RULE_NAME, scope),
+                Ok(ApplyResult::Applied)
+            ));
+        }
+
+        let Err(payload) = catch_unwind(AssertUnwindSafe(|| engine.commit(tx))) else {
+            panic!("commit must unwind with {workers} workers");
+        };
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some(PAYLOAD),
+            "panic payload changed with {workers} workers"
+        );
+        assert!(
+            engine.last_execution_footprints().is_empty(),
+            "a failed tick retains no evidence ({workers} workers)"
+        );
+        assert!(
+            engine
+                .last_aborted_execution_footprints()
+                .iter()
+                .any(|record| record.scope() == poisoned),
+            "the poisoned item's evidence is kept as a failure artifact ({workers} workers)"
+        );
+        let after = engine.snapshot().state_root;
+        assert_eq!(before, after, "state changed with {workers} workers");
+        // Apart from the root itself, the scopes are not reachable from the
+        // root, so the state root does not cover their attachments; check
+        // each one directly.
+        for scope in &scopes {
+            assert!(
+                engine
+                    .node_attachment(scope)
+                    .expect("scope is readable")
+                    .is_none(),
+                "a failed tick left a marker on a scope ({workers} workers)"
+            );
+        }
+    };
+
+    // Twenty scopes in one warp give at most twenty work units, and the engine
+    // caps workers at the unit count, so 32 runs with no more threads than 20.
+    // What the sweep must cover is 1 (inline) against 2 or more (scoped).
+    for &workers in WORKER_COUNTS {
+        run(workers);
+    }
+}
+
+/// With one worker the rules run on the thread that calls `commit`, whether
+/// the single worker was configured with `.workers(1)` or produced by the
+/// per-tick unit-count cap (`.workers(8)` over a one-unit tick), and whether
+/// the tick holds one work unit or many.
+///
+/// Each executor records its own `ThreadId` as its scope's attachment; after
+/// the commit every recorded id must equal the test thread's. Removing the
+/// inline branch in `execute_work_queue`, or inlining only one-unit ticks,
+/// turns this red; the invariance witnesses above compare hashes, not
+/// threads, so they cannot.
+#[test]
+fn single_worker_ticks_run_rules_on_the_committing_thread() {
+    use warp_core::{ApplyResult, AttachmentValue, EngineBuilder, NodeRecord};
+
+    const RULE_NAME: &str = "t16t/record-thread";
+    const MARKER_TYPE: &str = "t16t/thread-id";
+
+    let node_ty = warp_core::make_type_id("t16t/node");
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16t/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+    // Twenty scopes spread over the 256 shards (all in one shard has
+    // probability 256^-19; these twenty land in twenty distinct shards), so
+    // they form several work units.
+    let mut scopes = vec![root];
+    for i in 1..20 {
+        let scope = warp_core::make_node_id(&format!("t16t/node{i}"));
+        base_store.insert_node(scope, NodeRecord { ty: node_ty });
+        scopes.push(scope);
+    }
+
+    let make_rule = || {
+        // The macro supplies the matcher and footprint; only the executor
+        // differs. `ObservedExecuteFn` is a `fn` pointer, so it cannot capture.
+        let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, b"unused");
+        rule.executor = warp_core::RuleExecutor::observed(
+            |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+                let thread_id = format!("{:?}", std::thread::current().id());
+                let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                let payload = warp_core::AtomPayload::new(
+                    warp_core::make_type_id(MARKER_TYPE),
+                    bytes::Bytes::from(thread_id.into_bytes()),
+                );
+                delta.push(warp_core::WarpOp::SetAttachment {
+                    key,
+                    value: Some(AttachmentValue::Atom(payload)),
+                });
+            },
+        );
+        rule
+    };
+
+    let expected = format!("{:?}", std::thread::current().id());
+    // (configured workers, scopes touched): many units under one configured
+    // worker, one unit under one, and one unit under eight (capped to one).
+    for (configured, touched) in [(1_usize, &scopes[..]), (1, &scopes[..1]), (8, &scopes[..1])] {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(configured)
+            .build();
+        engine.register_rule(make_rule()).expect("register rule");
+        let tx = engine.begin();
+        for scope in touched {
+            assert!(matches!(
+                engine.apply(tx, RULE_NAME, scope),
+                Ok(ApplyResult::Applied)
+            ));
+        }
+        engine.commit(tx).expect("commit");
+
+        for scope in touched {
+            let recorded = engine
+                .node_attachment(scope)
+                .expect("scope is readable")
+                .expect("the rule recorded a thread id");
+            let AttachmentValue::Atom(atom) = recorded else {
+                panic!("the recorded thread id is an atom");
+            };
+            assert_eq!(
+                std::str::from_utf8(&atom.bytes).expect("thread id is utf-8"),
+                expected,
+                "{} scopes with {configured} configured workers must run on the committing thread",
+                touched.len()
+            );
+        }
+    }
+}
+
+/// With two or more workers every rule runs on a spawned scoped thread, never
+/// on the committing thread. Serialising that path onto the caller, or
+/// inlining any multi-worker tick, turns this red.
+#[test]
+fn multi_worker_ticks_run_rules_on_spawned_threads() {
+    use warp_core::{ApplyResult, AttachmentValue, EngineBuilder, NodeRecord};
+
+    const RULE_NAME: &str = "t16w/record-thread";
+    const MARKER_TYPE: &str = "t16w/thread-id";
+
+    let node_ty = warp_core::make_type_id("t16w/node");
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16w/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+    let mut scopes = vec![root];
+    for i in 1..20 {
+        let scope = warp_core::make_node_id(&format!("t16w/node{i}"));
+        base_store.insert_node(scope, NodeRecord { ty: node_ty });
+        scopes.push(scope);
+    }
+
+    let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, b"unused");
+    rule.executor = warp_core::RuleExecutor::observed(
+        |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+            let thread_id = format!("{:?}", std::thread::current().id());
+            let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                warp_id: view.warp_id(),
+                local_id: *scope,
+            });
+            let payload = warp_core::AtomPayload::new(
+                warp_core::make_type_id(MARKER_TYPE),
+                bytes::Bytes::from(thread_id.into_bytes()),
+            );
+            delta.push(warp_core::WarpOp::SetAttachment {
+                key,
+                value: Some(AttachmentValue::Atom(payload)),
+            });
+        },
+    );
+
+    let mut engine = EngineBuilder::new(base_store, root).workers(4).build();
+    engine.register_rule(rule).expect("register rule");
+    let tx = engine.begin();
+    for scope in &scopes {
+        assert!(matches!(
+            engine.apply(tx, RULE_NAME, scope),
+            Ok(ApplyResult::Applied)
+        ));
+    }
+    engine.commit(tx).expect("commit");
+
+    let caller = format!("{:?}", std::thread::current().id());
+    for scope in &scopes {
+        let recorded = engine
+            .node_attachment(scope)
+            .expect("scope is readable")
+            .expect("the rule recorded a thread id");
+        let AttachmentValue::Atom(atom) = recorded else {
+            panic!("the recorded thread id is an atom");
+        };
+        assert_ne!(
+            std::str::from_utf8(&atom.bytes).expect("thread id is utf-8"),
+            caller,
+            "with four workers no rule may run on the committing thread"
+        );
+    }
+}

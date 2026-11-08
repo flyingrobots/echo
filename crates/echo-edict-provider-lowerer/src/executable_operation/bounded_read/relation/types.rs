@@ -14,8 +14,10 @@ pub(super) enum ReadType {
     Bool,
     Bytes(u64, u64),
     Unsigned(u64),
+    List(Option<Box<ReadType>>, u64),
     Record(BTreeMap<String, ReadType>),
     Nominal(String, Box<ReadType>),
+    Variant(String, BTreeMap<String, Option<ReadType>>),
 }
 
 impl ReadType {
@@ -42,6 +44,14 @@ impl ReadType {
         match (self, actual) {
             (Self::Bytes(min, max), Self::Bytes(actual_min, actual_max)) => {
                 min <= actual_min && actual_max <= max
+            }
+            (Self::List(item, max), Self::List(actual_item, count)) => {
+                count <= max
+                    && match (item, actual_item) {
+                        (_, None) => *count == 0,
+                        (Some(want), Some(actual)) => want.accepts(actual),
+                        _ => false,
+                    }
             }
             (Self::Record(expected), Self::Record(actual)) => {
                 expected.len() == actual.len()
@@ -152,6 +162,34 @@ impl<'a> Scope<'a> {
             return Err(invalid());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
+        if let Some(spec) = coordinate
+            .strip_prefix("List<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let (item, max) = spec.rsplit_once(",max=").ok_or_else(invalid)?;
+            return Ok(ReadType::List(
+                Some(Box::new(self.resolve(item, depth + 1)?)),
+                canonical_number(max)?,
+            ));
+        }
+        if let Some(spec) = coordinate
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.remaining_type_work.set(
+                self.remaining_type_work
+                    .get()
+                    .checked_sub(spec.len())
+                    .ok_or_else(invalid)?,
+            );
+            let mut fields = BTreeMap::new();
+            for (name, coordinate) in
+                super::super::super::record_type::fields(spec).map_err(|()| invalid())?
+            {
+                fields.insert(name.to_owned(), self.resolve(coordinate, depth + 1)?);
+            }
+            return Ok(ReadType::Record(fields));
+        }
         let key = coordinate.strip_prefix(&prefix).unwrap_or(coordinate);
         let value = field(field(self.core, "types")?, key)?;
         match text(value, "kind")? {
@@ -175,6 +213,14 @@ impl<'a> Scope<'a> {
                 Ok(ReadType::Nominal(
                     key.to_owned(),
                     Box::new(self.resolve(text(value, "representation")?, depth + 1)?),
+                ))
+            }
+            "Variant" => self.variant_type(value, key, depth),
+            "List" => {
+                require_exact_fields(value, &["kind", "item", "max"], SUBJECT)?;
+                Ok(ReadType::List(
+                    Some(Box::new(self.resolve(text(value, "item")?, depth + 1)?)),
+                    required_u64(value, "max", SUBJECT)?,
                 ))
             }
             "Record" => {
@@ -239,7 +285,30 @@ impl<'a> Scope<'a> {
         if depth > 64 {
             return Err(invalid());
         }
+        self.remaining_type_work.set(
+            self.remaining_type_work
+                .get()
+                .checked_sub(1)
+                .ok_or_else(invalid)?,
+        );
         match text(value, "kind")? {
+            "list" => {
+                require_exact_fields(value, &["kind", "values"], SUBJECT)?;
+                let values = super::array(value, "values")?;
+                let mut item: Option<ReadType> = None;
+                for value in values {
+                    let actual = self.expression(value, depth + 1)?;
+                    item = Some(match item {
+                        None => actual,
+                        Some(previous) => previous.join(actual)?,
+                    });
+                }
+                Ok(ReadType::List(
+                    item.map(Box::new),
+                    u64::try_from(values.len()).map_err(|_| invalid())?,
+                ))
+            }
+            "match" => self.variant_match(value, depth),
             "local" => {
                 require_exact_fields(value, &["kind", "ref"], SUBJECT)?;
                 let local = field(value, "ref")?;
@@ -283,7 +352,7 @@ impl<'a> Scope<'a> {
                 }
                 require_exact_fields(literal, &["kind", "value", "width"], SUBJECT)?;
                 let width = text(literal, "width")?;
-                if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
+                if text(literal, "kind")? != "int" || !["U8", "U32", "U64"].contains(&width) {
                     return Err(invalid());
                 }
                 let ReadType::Unsigned(max) = self.ty(width)? else {
@@ -299,13 +368,36 @@ impl<'a> Scope<'a> {
                 self.predicate_at(field(value, "predicate")?, depth + 1)?;
                 let yes = self.expression(field(value, "then")?, depth + 1)?;
                 let no = self.expression(field(value, "else")?, depth + 1)?;
-                match (yes, no) {
-                    (ReadType::Bytes(a, b), ReadType::Bytes(c, d)) => {
-                        Ok(ReadType::Bytes(a.min(c), b.max(d)))
-                    }
-                    (a, b) if a == b => Ok(a),
-                    _ => Err(invalid()),
+                yes.join(no)
+            }
+            "fold" => {
+                require_exact_fields(
+                    value,
+                    &["kind", "initial", "step", "bound", "stateType"],
+                    SUBJECT,
+                )?;
+                required_u64(value, "bound", SUBJECT)?;
+                let state = text(value, "stateType")?;
+                let prefix = format!("{}.", text(self.core, "coordinate")?);
+                let name = text(value, "step")?
+                    .strip_prefix(&prefix)
+                    .ok_or_else(invalid)?;
+                let function = field(field(self.core, "functions")?, name)?;
+                let params = super::array(function, "params")?;
+                if params.len() != 1
+                    || text(&params[0], "type")? != state
+                    || text(function, "returnType")? != state
+                {
+                    return Err(invalid());
                 }
+                let expected = self.ty(state)?;
+                let initial = self.expression(field(value, "initial")?, depth + 1)?;
+                if !expected.accepts(&initial) {
+                    return Err(invalid());
+                }
+                // bounded_read calls source_functions::validate before this
+                // relation to check helper closure, capability and costs.
+                Ok(expected)
             }
             "call" => self.call(value, depth),
             _ => Err(invalid()),
@@ -317,6 +409,9 @@ impl<'a> Scope<'a> {
         let args = super::array(value, "args")?;
         let types = super::array(value, "typeArgs")?;
         let name = text(value, "callee")?;
+        // A count's needle is a one-byte constant, checked structurally.
+        let args = crate::executable_operation::source_functions::checked_arguments(name, args)
+            .map_err(|()| invalid())?;
         let actual = args
             .iter()
             .map(|value| self.expression(value, depth + 1))
@@ -360,17 +455,59 @@ impl<'a> Scope<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
+            // Whole-intent checking has already proved the list domains.
+            ("core.list.length", [value], [ty @ ReadType::List(Some(_), _)])
+                if ty.accepts(value) =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
+            }
+            (
+                "core.list.at",
+                [value, ReadType::Unsigned(u64::MAX)],
+                [ty @ ReadType::List(Some(item), _)],
+            ) if ty.accepts(value) => Ok(*item.clone()),
+            ("core.list.append", [value, entry], [ty @ ReadType::List(Some(item), _)])
+                if ty == value && item.accepts(entry) =>
+            {
+                Ok(ty.clone())
+            }
+            (
+                "core.list.concat",
+                [left, right],
+                [a @ ReadType::List(Some(item), n), b @ ReadType::List(Some(other), m)],
+            ) if item == other && a.accepts(left) && b.accepts(right) => Ok(ReadType::List(
+                Some(item.clone()),
+                n.checked_add(*m).ok_or_else(invalid)?,
+            )),
             // source_functions::validate already established the independent
-            // no-overflow proof before this read relation is constructed.
+            // no-overflow and order proofs before this read relation is constructed.
             ("core.integer.add", [left, right], [expected @ ReadType::Unsigned(_)])
                 if left == expected && right == expected =>
             {
                 Ok(expected.clone())
             }
+            ("core.integer.subtract", [left, right], [expected @ ReadType::Unsigned(_)])
+                if expected.accepts(left) && expected.accepts(right) =>
+            {
+                Ok(expected.clone())
+            }
+            // The same validation established start <= end <= len(bytes).
+            (
+                "core.bytes.slice",
+                [actual, ReadType::Unsigned(a), ReadType::Unsigned(b)],
+                [expected @ ReadType::Bytes(_, max)],
+            ) if *a == u64::MAX && *b == u64::MAX && expected.accepts(actual) => {
+                Ok(ReadType::Bytes(0, *max))
+            }
             ("core.bytes.isUtf8", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected == actual =>
             {
                 Ok(ReadType::Bool)
+            }
+            ("core.bytes.count", [actual], [expected @ ReadType::Bytes(_, _)])
+                if expected == actual =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
             }
             ("core.bytes.length", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected.accepts(actual) =>
@@ -433,9 +570,11 @@ impl<'a> Scope<'a> {
         ) {
             ("==", ReadType::Bool, ReadType::Bool)
             | ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
-            ("==" | "<=", ReadType::Unsigned(left), ReadType::Unsigned(right)) if left == right => {
-                Ok(())
-            }
+            (
+                "==" | "<=" | "<" | ">" | ">=",
+                ReadType::Unsigned(left),
+                ReadType::Unsigned(right),
+            ) if left == right => Ok(()),
             _ => Err(invalid()),
         }
     }
@@ -481,6 +620,59 @@ mod tests {
                 .map(|(key, value)| (Value::Text(key.to_owned()), value))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn source_u8_read_literals_preserve_the_byte_domain() {
+        let core = map([]);
+        let scope = Scope {
+            core: &core,
+            exports: &core,
+            inventory: BTreeMap::new(),
+            available: BTreeMap::new(),
+            used: BTreeSet::new(),
+            input: &core,
+            remaining_type_work: Cell::new(65_536),
+        };
+        for value in [0_i128, 128, 255] {
+            let expression = u8_constant(Value::Integer(value));
+            assert_eq!(
+                scope.expression(&expression, 0),
+                Ok(ReadType::Unsigned(255))
+            );
+        }
+        for (value, kind) in [
+            (
+                Value::Integer(256),
+                crate::ProviderRefusalKind::InvalidSemanticArtifact,
+            ),
+            (
+                Value::Integer(-1),
+                crate::ProviderRefusalKind::UnsupportedSemantics,
+            ),
+            (
+                Value::Bytes(vec![255]),
+                crate::ProviderRefusalKind::UnsupportedSemantics,
+            ),
+        ] {
+            assert!(
+                matches!(scope.expression(&u8_constant(value), 0), Err(ref error)
+                if error.kind == kind)
+            );
+        }
+    }
+    fn u8_constant(value: Value) -> Value {
+        map([
+            ("kind", Value::Text("const".into())),
+            (
+                "value",
+                map([
+                    ("kind", Value::Text("int".into())),
+                    ("width", Value::Text("U8".into())),
+                    ("value", value),
+                ]),
+            ),
+        ])
     }
 
     #[test]
@@ -553,3 +745,15 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod variant_tests;
+
+#[cfg(test)]
+mod list_tests;
+
+mod variants;
+
+mod matches;
+
+mod lists;

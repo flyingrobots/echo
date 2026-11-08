@@ -242,10 +242,10 @@ edict-source-bytes = bstr
 echo-operation-package =
   echo-anchored-operation-package /
   echo-compiler-produced-pure-operation-package /
-  echo-compiler-produced-read-operation-package
+  echo-compiler-produced-read-operation-package /
+  echo-authored-effect-operation-package
 
-echo-anchored-operation-package = {
-  "application_result_projection": echo-operation-application-result-projection,
+echo-current-operation-package-fields = (
   "application_basis_schema_identity": bstr .size 32,
   "authority_profile_identity": bstr .size 32,
   "budget_ceiling": echo-operation-budget,
@@ -254,7 +254,6 @@ echo-anchored-operation-package = {
   "interpreter_profile_identity": bstr .size 32,
   "input_schema_identity": bstr .size 32,
   "intrinsic_profile_identity": bstr .size 32,
-  "obstruction_coordinate": echo-nonempty-tstr,
   "obstruction_schema_identity": bstr .size 32,
   "obstruction_interpretation_identity": bstr .size 32,
   "operation_coordinate": echo-nonempty-tstr,
@@ -262,8 +261,19 @@ echo-anchored-operation-package = {
   "result_schema_identity": bstr .size 32,
   "result_interpretation_identity": bstr .size 32,
   schema: "echo.operation-package/v1",
-  "semantic_closure": echo-operation-semantic-closure,
   "target_profile_identity": bstr .size 32,
+)
+
+echo-anchored-operation-package = {
+  echo-current-operation-package-fields,
+  "application_result_projection": echo-operation-application-result-projection,
+  "obstruction_coordinate": echo-nonempty-tstr,
+  "semantic_closure": echo-operation-semantic-closure,
+}
+
+echo-authored-effect-operation-package = {
+  echo-current-operation-package-fields,
+  "semantic_closure": echo-authored-effect-semantic-closure,
 }
 
 echo-compiler-produced-pure-operation-package = {
@@ -332,22 +342,31 @@ echo-operation-budget = {
   "write_bytes": uint,
 }
 
-echo-operation-semantic-closure = {
+echo-operation-semantic-closure-fields = (
   "application_schema_coordinate": echo-nonempty-tstr,
   "application_schema_identity": bstr .size 32,
   "canonical_meaning_identity": bstr .size 32,
   "core_identity": bstr .size 32,
   "edict_source_identity": bstr .size 32,
+  "target_ir_identity": bstr .size 32,
+)
+
+echo-operation-semantic-closure = {
+  echo-operation-semantic-closure-fields,
   "lawpack_coordinate": echo-nonempty-tstr,
   "lawpack_identity": bstr .size 32,
-  "target_ir_identity": bstr .size 32,
+}
+
+echo-authored-effect-semantic-closure = {
+  echo-operation-semantic-closure-fields,
 }
 
 echo-operation-lowering-configuration =
   echo-attachment-create-if-absent-lowering-configuration /
   echo-attachment-compare-and-set-lowering-configuration /
   echo-compiler-produced-bounded-pure-lowering-configuration /
-  echo-compiler-produced-bounded-read-lowering-configuration
+  echo-compiler-produced-bounded-read-lowering-configuration /
+  echo-authored-effect-lowering-configuration
 
 echo-compiler-produced-bounded-pure-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
@@ -359,6 +378,27 @@ echo-compiler-produced-bounded-read-lowering-configuration = {
   programKind: "compiler-produced-bounded-read/v1",
   maxReads: 1..65536,
   maxReadBytes: 1..67108864,
+}
+
+; This declares the current effect kind; schema admission grants no runtime authority.
+; Payload semantics still require producer and runtime validation.
+echo-authored-effect-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "edict-effect-program/v1",
+  identityLaw: 1,
+  intrinsicCatalog: bstr .size (1..16777216),
+  graphSchema: bstr .size (1..16777216),
+  footprintLaw: bstr .size (1..16777216),
+  maxInputBytes: 0..65536,
+  maxResultBytes: 0..65536,
+  maxAllocatedBytes: 0..16777216,
+  budgetCeiling: {
+    steps: 1..18446744073709551615,
+    readBytes: uint,
+    writeBytes: uint,
+  },
+  ; The requested authority class; the runtime owner's policy grants authority.
+  authorityProfile: echo-nonempty-tstr,
 }
 
 echo-attachment-create-if-absent-lowering-configuration = {

@@ -5,6 +5,169 @@
 
 ## Unreleased
 
+### Added
+
+- The provider judgments and runtime paths support bounded list length,
+  checked access, capacity-preserving append and bound-summing concatenation
+  under `core.list/v1`. Synthetic tests cover strict domains, capability and
+  type refusals, deterministic copy charges and one-unit-short budgets.
+  Append and concat bind each declared operand type to its reconstructed type;
+  coherently widening concat operands cannot invent capacity or item bounds.
+  Inline record coordinates from structural alias joins resolve under bounded
+  parsing in pure, ordered-read and runtime judgments, preserving nominal fields.
+  Provider judgments and runtime preparation include operand validation depth across helper calls;
+  capability discovery preserves the canonical artifact nesting allowance.
+  List-domain proof scans keep ancestor predicate depth separate from descendant
+  expression depth while preserving work and actual nesting limits.
+  The checked Wasm component pair is promoted from two matching independent
+  builds, with refreshed package manifests and identity goldens. Public compiler
+  witnesses execute non-idempotent worklist folds at bounds 0/1/2/3/5, structural
+  alias concatenation and stored-read worklists, including nominal elements
+  and forward, reversed and negated strict bounds on equal-width words.
+  Independent result oracles check contents, order, duplicate retention and
+  guarded indexing. Exact/one-unit-short limits, invalid inputs and old-provider
+  refusals exercise the compiler, separate verifier and runtime boundaries.
+
+- The source-function lowerer, independent verifier and runtime support
+  bounded list values with element/length checks and deterministic resource
+  accounting. Ordered-read judgments accept lists and recursive record/branch
+  joins without erasing nominal identities. Native witnesses cover transitive
+  calls, exact and one-unit-short budgets, malformed values and proof limits.
+  Runtime helper inference joins record fields recursively, including list
+  elements and conditional/match branches. The ordered-read lowerer now charges
+  each expression visit against proof work. Helper-free capability discovery
+  scans the whole Core with a 65,536-value cap and refuses on exhaustion.
+  The checked component pair is reproduced by two independent CI builds and
+  promoted with refreshed package manifests and identity goldens. Public
+  compiler/runtime witnesses execute empty, nonempty, nested, record and
+  nominal-element lists through pure and ordered-read operations, including
+  repeated artifacts, exact/one-unit-short budgets, invalid input and identity
+  controls, and an old-provider refusal alongside unchanged scalar/fold controls.
+
+- Native Rust provider judgments and the generic runtime support first-order bounded
+  state folds with a source-owned invariant helper, zero-bound closure checks,
+  checked nested resource multiplication and metered iterative execution.
+  Missing step authority refuses even when Core has no function table.
+  The checked provider components are promoted from two byte-identical builds,
+  with regenerated canonical package manifests and publication assets.
+  Public compiler/runtime witnesses exercise pure folds at bounds 0/1/2/3 and
+  immutable-read result folds at bounds 0/1/3, with repeated artifacts and
+  resource, input and identity refusals.
+
+- Native source-helper preparation and execution accept exhaustive closed-variant
+  matches with lexical payload bindings, selected-arm evaluation, and metered
+  dispatch and frame copies. The checked provider component pair, reproduced by
+  two matching CI builds, includes these judgments. Public compiler witnesses consume
+  empty and payload matches through pure and bounded-read operations.
+
+- The runtime expression parser rejects duplicate case tags and empty match-arm
+  lists, including in intent bindings and results. Intent-level typed coverage
+  and binder scope remain obligations of the independent provider judgments.
+
+- Independent native lowerer and verifier source-function judgments check
+  exhaustive matches and lexical payload types, inspect unused arms for invalid
+  calls, and bound dispatch and frame-copy costs. Direct intent matches cannot
+  skip budget validation when the Core function table is absent. Bounded-read
+  relation and audit checks also admit direct matches while keeping payload
+  bindings local to their arms.
+
+- Independent native provider judgments and runtime preparation check bounded
+  closed variant types and constructors with exact union/payload identity and
+  payload traversal. Runtime values retain their type, case and optional payload
+  with deterministic storage/copy charges and resource refusals. Independently
+  reproduced provider components and their checked packages are refreshed.
+
+- Optional public compiler/runtime controls for empty and payload-bearing variant
+  helpers require retained capability metadata, exact repeated artifacts and
+  explicit work/storage charges in pure and bounded-read operations.
+
+- Generic pure and bounded-read native providers independently enforce required
+  capabilities, admitting `core.variant/v1` and requiring it for every variant
+  declaration while refusing unknown, duplicate, missing or malformed metadata.
+  Pure Core must include its capability inventory and type table.
+
+- The guarded source-function candidate publisher accepts an explicit bounded
+  lowerer/verifier component pair before checked-distribution promotion. Public
+  compiler and runtime witnesses include optional old/new-provider raw-byte
+  helper controls, exact repeated artifacts and resource/identity refusals.
+
+- Generic `core.bytes.at` with an exact U64 index and U8 result under
+  independently proven strict bounds. Conditional and lazy Boolean guards stay
+  scoped to lookup evaluation; same-width unsigned comparisons and closed
+  disjunctions execute with deterministic accounting. Function-free lookups
+  enter the same totality judgment. Out-of-range access refuses before indexing.
+  Checked provider components and digest-locked packages are refreshed.
+  Application cutover remains a separate gate.
+
+### Changed
+
+- With one execution worker (the engine default), a tick now runs its rules
+  on the thread that commits it instead of spawning a thread and waiting for
+  it. Results, their order, and panic payloads are unchanged; two or more
+  workers still each get a scoped thread. Native rules run on the caller's
+  stack and must not rely on a fresh thread-local environment per tick.
+
+- Replace historical contract-publication selectors with one current upstream
+  schema/manifest pair and one 32-binding package inventory. Remove
+  `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;
+  the host witness pins the matching Amblicit compiler revision. Older pairs are
+  refused and retained only as rejection-test fixtures. Provider generation
+  uses one semantic declaration. The schema includes folds and structured Target
+  IR; fold execution was initially refused by the checked components and is
+  admitted by the bounded-fold publication described above.
+
+- Provider type-copy proof work counts each nominal wrapper as well as its
+  representation, tightening admission for nominal-typed flows near the proof
+  limit without adding runtime value tags or changing runtime storage charges.
+
+### Fixed
+
+- Semantic-source admission requires all seven current auxiliary inputs and
+  rejects the historical inventory without the source-closure input and binding.
+
+- Bind generated DPO helpers to the current provider schema identity. The
+  effectful conformance fixture and verifier use current canonical bounded-string
+  identities and a Unit-erased obstruction binder; this grants no authenticated
+  failure-payload authority. Keep incomplete-local refusal checks non-vacuous.
+  Refresh the independently reproduced components, package carriers and digest
+  checks together for the current compiler contract.
+
+- Public read payload-variant witnesses record an explicit allocation budget
+  and require allocation to be the only exceeded dimension in the retained
+  original-allocation compiler refusal.
+
+- Bounded-read relation judgments preserve closed variant helper-result and local
+  identities, with bounded case/payload expansion in each independent provider.
+
+- Public source-function witnesses verify and recycle disposable pure vendor
+  copies between variants, so optional controls do not multiply retained inputs.
+
+- Independent provider judgments and private pure/read runtime parsing accept
+  U8 literals in the exact 0 through 255 domain, preserving existing scalar
+  metering and rejecting malformed or cross-width helper values. Provider
+  subtraction is restricted to U32/U64, matching the runtime's supported widths.
+- Checked provider components and digest-bound publication assets carry the U8
+  judgments after independent designated builds and structural promotion.
+- Optional public source-function U8 controls compare matching old/new providers,
+  exact repeated artifacts and actual pure/read runtime behavior. Read controls
+  now test resource refusals explicitly.
+
+- The public source-function witness recognizes Amblicit's specific source
+  budget diagnostic followed by its CLI summary, while retaining rejection of
+  unrelated diagnostics and executable artifacts on a refused build.
+- Native lowerer, independent verifier and runtime helper judgments now accept
+  raw byte constants, including empty and non-UTF-8 values, with exact length
+  typing and materialization charges. Malformed payloads, extra fields and
+  narrower declared result bounds still refuse. Checked lowerer and verifier
+  carriers are refreshed from two independently reproduced designated builds;
+  generated package assets retain their existing publication selection. The
+  runtime retains its existing value-cell-plus-payload materialization meter.
+
+- The generator selects the synchronous Wesley kernel without its unused async
+  resilience dependencies, removing the affected Tokio/Ninelives chain from
+  the workspace lockfile. The Markdown tooling dependency is updated to
+  pulldown-cmark 0.13.5. No advisory exceptions are added.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used
@@ -95,11 +258,203 @@
 
 ### Changed
 
-- With one execution worker (the engine default), a tick now runs its rules
-  on the thread that commits it instead of spawning a thread and waiting for
-  it. Results, their order, and panic payloads are unchanged; two or more
-  workers still each get a scoped thread. Native rules run on the caller's
-  stack and must not rely on a fresh thread-local environment per tick.
+- `ContentAddressV1` now lives in one module, `warp_core::content_address_v1`,
+  with content node ids, content and slot edge ids, and attachment digests.
+  Effect admission and read evidence use it, replacing the inline hashing in
+  derivation and `edict_effects::value_digest`. A duplicate outgoing
+  (edge type, target) is refused rather than hashed. Identities are unchanged:
+  a regression test admits ids captured before the move, and independent
+  vectors, frozen hex and mutation postcards check the law without calling
+  the module. A two-effect proposal, a content node with an edge from it, is
+  admitted under independently computed ids, and admission refuses a content
+  edge id computed for another target, a slot id from a content source, and a
+  node id that omits an edge the same proposal adds. Edges already in
+  ascending order are hashed without a copy, and admission sorts its own.
+
+- An authored effect package no longer carries a single `obstruction_coordinate`.
+  Its embedded exports declare every obstruction the program can return, and
+  admission checks each arm against them. The effect-package shape exists only
+  on this unreleased route, so it is amended in place; fixed-profile packages keep
+  the field, and their bytes and identities are unchanged. The lowerer's effect
+  publication no longer takes an obstruction input.
+
+- The authored route names `echo.dpo@1.node-atom-read`'s failures by Edict ABI
+  identifiers (`atomMissing`, `atomRequired`, `atomTypeMismatch`,
+  `atomByteBoundExceeded`). One Echo-owned table, scoped to that intrinsic,
+  translates each to the runtime tag Echo records; missing, unknown, repeated
+  or tag-spelled names refuse the package. The bounded-read route is unchanged.
+
+- `receipt_correlations_for_current_basis` compiles only where the trusted
+  runtime host that calls it does, removing a dead-code warning from
+  `trusted_runtime` builds without `native_rule_bootstrap`.
+
+- Make current effect publication preparation available as a data-only check
+  without trusted-host features, sharing the existing runtime checker while
+  retaining private host helpers and gated authority constructors.
+
+- Admit the current authored-effect envelope through the provider's owning
+  operation-package schema, sharing current package fields with anchored
+  operations and preserving kind-specific closure/projection requirements.
+  Program verification and runtime authority remain separate checks.
+
+- Added a pure current-format effect proposal serializer that preserves compiler
+  bundle bytes and derives embedded artifact identities. Synthetic controls
+  round-trip through the current runtime decoder; public producer integration,
+  independent verification and effect execution remain unfinished.
+
+- Required explicit bounded intrinsic-catalog bytes in authored-effect lowering
+  configurations and reject catalogs that do not reproduce the selected
+  target profile's owner-framed reference. This validates resource transport;
+  authored-effect body lowering and execution remain unfinished.
+
+- Provider configuration validation recognizes an explicit bounded declaration
+  for the current authored-effect program kind. Graph schema and footprint-law bytes, identity
+  recipe, resource limits and I/O budget are required. This declaration does not
+  implement the public effect lowerer/verifier or grant runtime authority.
+
+- Completed authored evaluations now retain their runtime owner's private
+  authority through frame consumption. Patch derivation refuses foreign-owner
+  completion even when program and parent coordinates match. This closes a
+  substitution gap because equal reachable-state roots can conceal different
+  detached store records. The authority is process-local and adds no wire format.
+
+- Trusted runtime owners can privately derive counterfactual patches from
+  completed authored evaluation at an exact unchanged full parent. Validation
+  checks all five mutation forms, schema and identity rules, typed write laws,
+  comparisons and endpoint presence while retaining evaluation and validation
+  costs. Derivation does not apply the patch or enable scheduler, scoped-history,
+  receipt/WAL or fresh-engine effect recovery.
+
+- Authored mutation emission now follows the fixed effect contract: one step,
+  64 write bytes plus atom payload for node/atom effects, or 128 write bytes for
+  edges, and at most 1,024 emitted effects. Step/write/row admission is atomic,
+  failed operations expose no partial buffer, and retained usage includes write
+  charges even for Ensure intents that may later resolve without writes. This
+  replaces the buffering prototype's incorrect deferral of emission charges.
+
+- Completed authored evaluation now has one runtime-owned origin record binding
+  its exact program, canonical input basis, actual result, mutation intents and
+  recorded reads to the same parent. Whole authored evaluation requires an
+  unused frame and stops further evaluation on success. Consuming completion
+  refuses substituted input bindings, failed frames and read-export failures;
+  result storage is borrowed during evaluation and moved into completion.
+  Completion grants no installation or scheduler authority; the runtime owner
+  independently validates its origin when deriving a private patch.
+
+- Prepared authored programs can now emit all five typed mutation intents into
+  private frames under the explicit graph-effects profile. Fixed input layouts,
+  empty-record results and row reservations apply. Failed operations discard
+  partial emission. Emission does not modify the frontier or derive a patch;
+  the owner crossing separately resolves and validates intents. Physical
+  allocation guarantees and durable scheduler execution remain unfinished.
+
+- Runtime-bound private frames now evaluate prepared authored read/let/require
+  programs through the shared expression evaluator and typed recording adapter.
+  Exact footprint-law binding, graph-schema checks and cumulative component
+  budgets apply; authored failures retain read dependencies and terminate the
+  frame. Installed Action execution, the physical arena and decision recovery
+  remain unfinished.
+
+- Effect compiler bundles now require the pinned target profile and intrinsic
+  catalog. Preparation checks catalog registration and concrete signature/fault
+  agreement, then enforces the existing node/atom recording ABI independently
+  of those declarations. Fresh pins cannot redefine 32-byte addresses or fault
+  authority. Further intrinsic families, general signature unification, complete
+  profile obligations and installed effect execution remain unfinished.
+
+- Shared expression/helper inference now preserves nominal contract identity.
+  Effect expressions cannot interchange equal representations across contracts,
+  implicitly unwrap opaque values, or construct them from untyped literals.
+  Nominal declarations must bind their own Core identity. Wire validation keeps
+  the existing representation and value-metering rules; complete pure-main
+  static typing, explicit construction operations and installed effect execution remain
+  unfinished.
+
+- Effect compiler preparation now authenticates imported Core type declarations
+  in the selected lawpack namespace against pinned export definitions, including
+  bounds, record fields, nominal contract names and unused declarations. Fresh
+  pins cannot hide imported type redefinitions or unknown members. Named unsigned
+  aliases now use the actual compiler's canonical width-kind encoding; the
+  synthetic `Int`/`width` form and its decoder were replaced.
+
+- Effect compiler preparation now shares the pure expression and helper checker
+  for data values, predicates, effect inputs and results. Matching Core/Target
+  bytes cannot hide wrong representations, unpublished calls or invalid helper
+  arguments. Declared failure-arm constructors must preserve their exported
+  failure authority class. Complete type/source authentication, nominal and
+  intrinsic semantics, and installed effect Action execution remain unfinished.
+
+- Effect compiler preparation now binds the declared lawpack's exports and
+  adapter bytes and checks each lowered intrinsic and failure arm against that
+  adapter. Fresh artifact/package pins cannot hide a swapped failure tag or a
+  substituted intrinsic name. The sole compiler bundle now includes lowering
+  artifacts; source-to-Core proof, full intrinsic signatures and execution
+  remain unfinished. The inconsistent retained raw capture refuses; positive
+  correspondence tests use an explicitly repinned synthetic chain.
+
+- Effect compiler preparation now checks ordered Core/Target IR node
+  correspondence and exact lexical local identities. Fresh artifact/package
+  pins cannot hide altered inputs, effects, predicates, failure reasons,
+  definitions, or instruction order. Source and lowered failure-arm values
+  must correspond without duplication, and obstruction locals stay scoped to
+  their arms. One relation validator replaces the former ID-only order check;
+  full typing, complete intrinsic signatures and execution remain open.
+
+- Authored-effect payloads now bind a single canonical compiler-artifact bundle
+  containing Core, ordered Target IR and exports. Fresh package pins cannot
+  admit opaque bytes, false artifact identities, a different selected operation
+  or output type, inconsistent Core/Target metadata, or invalid instruction
+  ordering. This replaces the opaque-byte placeholder; full instruction
+  semantics and authored-effect Action execution remain unfinished.
+
+- Invocations now use one `EchoOperationInvocation`, codec, owner policy and
+  admitted token for fixed and authored-effect program kinds. The current
+  schema has an explicit kind and no invented anchor for effects; historical
+  invocation schemas and the duplicate effect decoder were removed. Owner
+  admission checks installed meaning, independent grants, all budget axes,
+  canonical input binding and the actual exact parent. Authored-effect Action
+  execution remains unfinished and refuses explicitly.
+
+- Installation now uses one `InstalledEchoOperation`, runtime-owner API, engine
+  catalog, retained record codec and recovery collection for all program kinds.
+  The duplicate effect installation module and schema-version dispatch were
+  removed. Lawpack evidence is optional for installed programs and receipts;
+  current receipt hashes bind its presence explicitly. Uncertain WAL errors
+  reconcile the exact installation evidence before registry publication.
+
+- Package admission now uses one runtime-owner method, opaque
+  `AdmittedExecutableOperationPackage`, validator and evidence identity recipe
+  for all supported program kinds. Version-specific admission methods and the
+  duplicate effect token/module were removed. Installation and retained recovery
+  consume the common checked evidence; this does not grant invocation rights.
+
+- Operation publications now use one `ExecutableOperationPackage`, one
+  `EchoOperationProgram` sum and one semantic closure. Fixed and authored-effect
+  program kinds share the current package/program schemas and identity domains;
+  the former V2 package type and decoder were removed. Program-kind validation
+  requires real lawpack bindings for fixed programs and forbids them for authored
+  effects. Invocation consolidation is complete; authored-effect Action execution
+  remains unfinished.
+
+- Recovery certificates now use one current operation-index recipe for empty,
+  installation-only, receipt-bearing and Action-bearing histories. It binds
+  count-prefixed retained sections, canonical installation ordering, and causal
+  receipt/outcome ordering. Historical index recipes and conditional switches
+  were removed; this does not consolidate the remaining package formats.
+
+- Operation package admission now uses one `EchoOperationAdmissionPolicy`,
+  one structured refusal contract, and shared authority/operation/budget checks.
+  Version-specific policy definitions were removed; runtime entry points,
+  retained recovery, compiler tooling, tests, and allocation witnesses use the
+  current API directly. Package and installation format consolidation remains
+  separate work.
+- A Core without a function table that contains `core.bytes.slice` or
+  `core.integer.subtract` is now judged in full by the lowerer and verifier,
+  including its declared budget, as addition already was. Previously such a
+  Core skipped that judgment, so an unproven runtime slice was not refused
+  before installation. Jim's retained leaf-slice package declares a 1 MiB step
+  budget, 93 steps below Echo's worst-case charge for slicing its whole 1 MiB
+  operand, and is now refused until it declares an adequate budget.
 
 - Provider semantic declarations now support explicitly bounded Core byte
   aliases, including exact 32-byte identifiers. Byte aliases participate in
@@ -347,6 +702,81 @@
   hook regressions.
 
 ### Added
+
+- Runtime-owned installation retains exact policy and package evidence in the
+  current WAL catalog and restores all program kinds through one fresh-host
+  recovery path. Conflicts and failed WAL appends publish no registry entry.
+  Installation recovery does not authorize or execute effects.
+
+- Runtime-owner package admission checks independently pinned publication,
+  operation, authority profile and budget policy, retaining checked
+  admission evidence under one shared recipe. Restricted application handles cannot admit packages.
+  This does not install or execute an effect program or grant invocation rights.
+
+- V2 invocation preparation binds canonical application input to its recorded
+  basis, selected package and operation, and checks declared input and budget
+  ceilings. It retains the V1 parent format without granting authority or
+  establishing frontier freshness.
+
+- Current effect publication preparation binds exact package/program bytes, validates
+  profile and Target IR equalities, and decodes the program's schema and exact
+  footprint-law contract together. This does not admit, install or execute the
+  effect program; all program kinds use the shared current publication codec.
+
+- Strict executable graph-schema preparation validates content/mutable node
+  addressing, node/atom compatibility and edge endpoint-type relations with
+  exact canonical shapes and ordered sets. It grants no graph access or Action
+  admission authority.
+
+- Typed private frames can export bounded canonical read-set images while
+  preserving their runtime parent and evaluation accounting. The aligned row
+  format has explicit wire ordering, typed absence, value digests and packed
+  range pairs. An allocation-free borrowed validator refuses malformed framing,
+  padding, duplicates and ranges. This does not add receipt/WAL formats,
+  authenticated effect admission or a physical interpreter arena.
+
+- Runtime-bound private frames can bind strict typed read laws. Actual node and
+  atom types authorize present values, named types authorize absence, and
+  descended reads witness authorized alpha-portal chains before target access.
+  Typed ranges retain whole-bucket limits and untyped entry points cannot bypass
+  a bound law. This remains host-private evaluation without a new admitted
+  effect profile, persisted read image or mutation authority.
+
+- Runtime-bound private frames interpret existing compiled node-atom reads with recorded presence/absence dependencies, shared metering and host-selected apertures. This does not admit a new authored-effect profile.
+
+- Bind private effect evaluation frames to the runtime-selected writer and exact commit parent, refusing substituted histories even when reading coordinates match.
+
+- Trusted-host range-read sessions record real source-node and range values at
+  an immutable basis, including absence and empty ranges. They reject forbidden
+  types before access and charge whole buckets before inspection. This is read
+  infrastructure for the unfinished authored-effect interpreter, without new
+  installation or mutation authority. Read storage reservations now have a
+  fixed ceiling, atomic charging with I/O and explicit host-allocation faults.
+  A trusted-host evaluation frame now shares cumulative work and storage with
+  the real pure interpreter, preserves each component's local ceiling and stops
+  after failure. Existing standalone APIs retain their accounting behavior.
+- Runtime operands for `core.bytes.slice` and `core.integer.subtract` under
+  Edict's proven-range rules. The lowerer, the verifier and the native helper
+  checker each require a dominating fact (an input constraint or an earlier
+  conjunct of the same `all`) for `start <= end <= len(bytes)` or
+  `right <= left`; conditional predicates, negations and later conjuncts prove
+  nothing. The bounded-read relations type both calls, so a read guard such as
+  `at <= len(text) && isUtf8(slice(text, 0, at))` verifies, and short-circuit
+  evaluation sends an out-of-range `at` down the authored path. Slices are now
+  typed `Bytes<max=N>`, as Edict types them, rather than narrowed for literal
+  offsets, so `isUtf8` of a literal slice type-checks.
+
+- Bounded pure evaluation executes Edict's `core.bytes.count` (edict#269):
+  raw single-byte counting with a structurally checked one-byte constant
+  needle and one complete scan charged. The lowerer and verifier type it
+  independently, including on the bounded-read route, and their addition
+  proofs bound it by the operand's byte maximum, resolving named byte types
+  through the module's type table. A count triggers that judgment even in a
+  Core without source functions or additions, so its scan is always charged
+  against the step ceiling. A binding whose value is an addition reuses the cap
+  its no-overflow proof established instead of recomputing it. Proven unsigned bounds now
+  travel through let bindings in intent and helper bodies, so Jim's
+  `lineCount = lineBreaks + 1` is proven.
 
 - Bounded pure evaluation executes compiler-produced U32/U64 addition with
   checked width bounds and ordinary work/value-storage charging. Independent

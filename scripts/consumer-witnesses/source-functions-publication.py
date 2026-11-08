@@ -12,7 +12,9 @@ The compiler binary hash identifies the executed binary; source-to-binary build
 provenance belongs to the caller's guarded build receipt. This script does not
 claim reproducible compilation from a source/binary hash pair alone.
 
-Eight sequential variants retain at most 64 MiB / 2048 filesystem entries here,
+Eight baseline variants plus optional unsigned-byte (six), byte-literal (four),
+byte-lookup (seven), closed-variant (seven), match, state-fold and list controls retain at most
+64 MiB / 2048 filesystem entries here,
 with 1 MiB per child-created file and 120 seconds per compiler invocation.
 The shared runner must also enforce the aggregate project budget and host/VM
 free-space floors, covering this work root, compiler caches and container layer.
@@ -41,6 +43,11 @@ MAX_WORK_ENTRIES = 2048
 BUILD_TIMEOUT_SECONDS = 120
 READ_OLD_STEPS = 1_048_576
 READ_HELPER_STEPS = 4_194_304
+READ_FOLD_STEPS = 16_777_216
+READ_OLD_ALLOCATION = 16_777_216
+READ_VARIANT_ALLOCATION = 33_554_432
+READ_MATCH_ALLOCATION = 67_108_864
+READ_OUTPUT_BYTES = 8_388_608
 READ_BUDGET = "jedit.text@1.replaceRangeBudget"
 OUTPUTS = {"executable-operation-package.cbor", "verification-report.cbor"}
 PURE_COORDINATE = "jedit.text.replace_range@1"
@@ -53,6 +60,11 @@ PURE_HELPERS = """fn assembleFragments(left: Bytes<max=8>, right: Bytes<max=8>) 
 fn joinFragments(left: Bytes<max=8>, right: Bytes<max=8>) -> Bytes<max=16> {
   let bytes = left + right;
   return bytes;
+}
+
+"""
+BYTE_LITERAL_HELPER = r"""fn literalBytes(empty: Bool) -> Bytes<max=4> {
+  return if empty then b"" else b"\x00\xff\n\r";
 }
 
 """
@@ -115,7 +127,7 @@ def verify_compiler(args):
 
 
 def selected_inputs(args):
-    return {
+    result = {
         "compilerBinarySha256": sha256(args.compiler),
         "compilerManifestSha256": sha256(args.compiler_manifest),
         "pureApplicationSha256": sha256(args.pure_application_source / "edict.application.json"),
@@ -128,12 +140,78 @@ def selected_inputs(args):
         "oldProvider": inventory(args.old_provider),
         "provider": inventory(args.provider),
     }
+    if getattr(args, "byte_literal_provider_before", None) is not None:
+        result["byteLiteralProviderBefore"] = inventory(args.byte_literal_provider_before)
+
+    if getattr(args, "byte_lookup_provider_before", None) is not None:
+        result["byteLookupProviderBefore"] = inventory(args.byte_lookup_provider_before)
+    if getattr(args, "unsigned_byte_provider_before", None) is not None:
+        result["unsignedByteProviderBefore"] = inventory(args.unsigned_byte_provider_before)
+    if getattr(args, "variant_provider_before", None) is not None:
+        result["variantProviderBefore"] = inventory(args.variant_provider_before)
+    if getattr(args, "match_provider_before", None) is not None:
+        result["matchProviderBefore"] = inventory(args.match_provider_before)
+    if getattr(args, "fold_provider_before", None) is not None:
+        result["foldProviderBefore"] = inventory(args.fold_provider_before)
+    if getattr(args, "list_provider_before", None) is not None:
+        result["listProviderBefore"] = inventory(args.list_provider_before)
+    return result
 
 
 def replace_once(source, old, new):
     if source.count(old) != 1:
         raise RuntimeError(f"Expected one source anchor: {old!r}")
     return source.replace(old, new, 1)
+
+
+def list_variants(baseline, read):
+    """Authored lists; every successful pure variant returns the actual list."""
+    imports = [line for line in baseline.splitlines() if line.startswith("use lawpack ")]
+    if len(imports) != 1:
+        raise RuntimeError("Expected one selected pure lawpack import")
+    prefix = f"package {PURE_COORDINATE};\n{imports[0]}\n"
+    prefix += "type Input = { values: List<U64, max=3>, };\n"
+    prefix += "type Row = { payload: Bytes<max=4>, };\n"
+    prefix += "fn listValue(value: U64) -> U64 { return value; }\n"
+    cases = {
+        "empty": ("List<U64, max=0>", "[]"),
+        "nonempty": ("List<U64, max=3>", "[listValue(7u64), 2u64, 7u64]"),
+        "nested": ("List<List<U64, max=3>, max=2>", "[[], [7u64, 2u64, 7u64]]"),
+        "record": ("List<Row, max=3>", r'[{ payload: b"" }, { payload: b"\x00\xff" }, { payload: b"x" }]'),
+        "input": ("List<U64, max=3>", "values"),
+        "invalid-bound": ("List<U64, max=1>", "[7u64, 2u64, 7u64]"),
+        "invalid-element": ("List<U64, max=3>", "[true]"),
+    }
+    variants = {}
+    for name, (result, expression) in cases.items():
+        variants[f"list-pure-{name}"] = (
+            prefix + f"type Output = {{ items: {result}, }};\n"
+            f"fn makeList(values: List<U64, max=3>) -> {result} {{ return {expression}; }}\n"
+            "intent assembleRange(input: Input) returns Output profile text.replaceRange "
+            "basis none budget <= text.replaceRangeBudget { "
+            "let items = makeList(input.values); return { items }; }\n")
+    for name, item, expression in [
+        ("empty", "text.FactBytes", "[]"),
+        ("nonempty", "text.FactBytes", "[actual, actual]"),
+        ("nested", "List<text.FactBytes, max=2>", "[[], [actual]]"),
+        ("record", "ListRow", "[{ payload: actual }, { payload: actual }]"),
+        ("nominal", "text.WitnessId", "[input.identity, input.identity]"),
+        ("nominal-bare", "text.WitnessId", "[input.identity, input.raw]"),
+    ]:
+        authored = read
+        if name.startswith("nominal"):
+            authored = replace_once(authored, "type Input = {",
+                "type Input = { identity: text.WitnessId, raw: Bytes<exact=32>,")
+        declaration = ("type ListRow = { payload: text.FactBytes, };\n"
+            f"fn consumeList(values: List<{item}, max=2>, value: text.FactBytes) "
+            "-> text.FactBytes { return value; }\n\n")
+        authored = replace_once(authored, "intent replaceRange(",
+                                declaration + "intent replaceRange(")
+        variants[f"list-read-{name}"] = replace_once(authored,
+            "  let retained = retainBytes(actual);",
+            f"  let marker: List<{item}, max=2> = {expression};\n"
+            "  let retained = consumeList(marker, actual);")
+    return variants
 
 
 def source_variants(args):
@@ -154,8 +232,94 @@ def source_variants(args):
     read = replace_once(read, "intent replaceRange(", READ_HELPER + "intent replaceRange(")
     read = replace_once(read, "  return actual;",
                         "  let retained = retainBytes(actual);\n  return retained;")
+    u8 = baseline.replace("Bytes<max=8>", "U8").replace("Bytes<max=16>", "U8")
+    u8 = replace_once(u8, "let bytes = input.firstFragment + input.secondFragment;",
+                      "let bytes = byteValue(input.firstFragment);")
+    identity = replace_once(u8, "intent assembleRange(",
+                            "fn byteValue(value: U8) -> U8 { return value; }\n\nintent assembleRange(")
+    u8_literal = replace_once(identity, "return value;",
+                           "return if value == 0u8 then 0u8 else 255u8;")
+    invalid = replace_once(u8_literal, "else 255u8;", "else 256u8;")
+    read_u8 = replace_once(read, "  let retained = retainBytes(actual);",
+                           "  let marker: U8 = 255u8;\n  let retained = retainBytes(actual);")
+    literal = replace_once(baseline, "intent assembleRange(", BYTE_LITERAL_HELPER + "intent assembleRange(")
+    literal = replace_once(literal,
+                           "let bytes = input.firstFragment + input.secondFragment;",
+                           "let bytes = literalBytes(len(input.firstFragment) == 0u64);")
+    narrow = replace_once(literal, "-> Bytes<max=4>", "-> Bytes<max=1>")
+    lawpack_imports = [line for line in baseline.splitlines() if line.startswith('use lawpack ')]
+    if len(lawpack_imports) != 1:
+        raise RuntimeError("Expected the selected pure application's one pinned lawpack import")
+    lookup_header = f'package {PURE_COORDINATE};\n' + lawpack_imports[0] + '\n'
+    lookup_header += 'type Input = { bytes: Bytes<max=8>, index: U64, };\ntype Output = { value: U8, };\n'
+    lookup_helper = 'fn lookupByte(bytes: Bytes<max=8>, index: U64) -> U8 { return if index < len(bytes) then at(bytes,index) else 0u8; }\n'
+    lookup_intent = 'intent assembleRange(input: Input) returns Output profile text.replaceRange basis none budget <= text.replaceRangeBudget { let value = lookupByte(input.bytes,input.index); return { value }; }\n'
+    lookup = lookup_header + lookup_helper + lookup_intent
+    lazy = lookup.replace('index < len(bytes) then at(bytes,index) else 0u8',
+                          'index >= len(bytes) || at(bytes,index) < 128u8 then 0u8 else 255u8')
+    read_lookup = replace_once(read, 'type Input = {', 'type Input = { probe: Bytes<max=8>,')
+    read_lookup = replace_once(read_lookup, 'intent replaceRange(', lookup_helper + 'intent replaceRange(')
+    read_lookup = replace_once(read_lookup, '  let retained = retainBytes(actual);',
+                              '  let marker: U8 = lookupByte(input.probe,0u64);\n  let retained = retainBytes(actual);')
+    read_lookup_constant = replace_once(read_lookup,
+        '  let marker: U8 = lookupByte(input.probe,0u64);', '  let marker: U8 = 255u8;')
+    tagged = {}
+    for case, expression in [("empty", "WitnessChoice::Empty"),
+                             ("payload", "WitnessChoice::Data(value)")]:
+        for profile, value_type, original, intent, anchor, binding in [
+            ("pure", "Bytes<max=8>", pure, "assembleRange",
+             "let bytes = assembleFragments(input.firstFragment, input.secondFragment);",
+             "let marker: WitnessChoice = witnessChoice(input.firstFragment);"),
+            ("read", "text.FactBytes", read, "replaceRange",
+             "  let retained = retainBytes(actual);",
+             "  let marker: WitnessChoice = witnessChoice(actual);"),
+        ]:
+            declarations = (f"type WitnessChoice = variant {{ Empty, Data({value_type}) }};\n"
+                            f"fn witnessChoice(value: {value_type}) -> WitnessChoice {{ "
+                            f"return {expression}; }}\n\n")
+            authored = replace_once(original, f"intent {intent}(",
+                                    declarations + f"intent {intent}(")
+            tagged[f"variant-{profile}-{case}"] = replace_once(
+                authored, anchor, binding + "\n" + anchor)
+            selector = (f"fn selectChoice(value: WitnessChoice, fallback: {value_type}) "
+                        f"-> {value_type} {{ return match value {{ "
+                        "Empty => fallback, Data(payload) => payload, }; }\n\n")
+            consumed = replace_once(tagged[f"variant-{profile}-{case}"],
+                                    f"intent {intent}(", selector + f"intent {intent}(")
+            original_value = "input.firstFragment" if profile == "pure" else "actual"
+            # A Data arm returning fallback would fail the retained byte cases.
+            fallback = original_value if case == "empty" else 'b""'
+            if profile == "read" and case == "payload":
+                # The read relation admits helper results, not direct byte literals.
+                consumed = replace_once(consumed, f"intent {intent}(",
+                    f'fn emptyFallback() -> {value_type} {{ return b""; }}\n\nintent {intent}(')
+                fallback = "emptyFallback()"
+            selected = f"selectChoice(marker, {fallback})"
+            replacement = (f"let bytes = assembleFragments({selected}, input.secondFragment);"
+                           if profile == "pure" else f"  let retained = retainBytes({selected});")
+            tagged[f"match-{profile}-{case}"] = replace_once(consumed, anchor, replacement)
+    toggle = replace_once(identity, "return value;",
+                          "return if value == 0u8 then 1u8 else 0u8;")
+    folded = {"fold-control": toggle}
+    for bound in [0, 1, 2, 3]:
+        folded[f"fold-pure-{bound}"] = replace_once(
+            toggle, "let bytes = byteValue(input.firstFragment);",
+            f"let bytes = fold(input.firstFragment, byteValue, {bound}u64);")
+    for bound in [0, 1, 3]:
+        folded[f"fold-read-{bound}"] = replace_once(
+            read, "  let retained = retainBytes(actual);",
+            f"  let retained = fold(actual, retainBytes, {bound}u64);")
     return {"function-free": baseline, "pure": pure, "renamed-pure": renamed,
-            "changed-body": changed, "read": read}
+            "changed-body": changed, "read": read, "u8-identity": identity,
+            "u8-literal": u8_literal, "u8-invalid-bound": invalid,
+            "read-u8-constant": read_u8, "byte-literals": literal,
+            "byte-literals-invalid-bound": narrow,
+            "byte-lookup": lookup, "byte-lookup-lazy-or": lazy,
+            "byte-lookup-nonstrict": lookup.replace('index < len(bytes)', 'index <= len(bytes)'),
+            "byte-lookup-unproved": lookup.replace('if index < len(bytes) then at(bytes,index) else 0u8', 'at(bytes,index)'),
+            "read-byte-lookup": read_lookup,
+            "read-byte-lookup-constant": read_lookup_constant, **tagged, **folded,
+            **list_variants(baseline, read)}
 
 
 def child_limits():
@@ -182,23 +346,30 @@ def stop_group(child):
 
 def check_work_bound(root):
     """Supplement the shared guard with a live bound on this witness's outputs."""
+    def scan_error(error):
+        # Compiler publication removes transaction directories atomically.
+        # Missing descendants are transient; an unreadable or missing root is not.
+        if not isinstance(error, FileNotFoundError) or error.filename == str(root):
+            raise error
+
     total, entries = 0, 0
-    for path in root.rglob("*"):
-        entries += 1
-        if entries > MAX_WORK_ENTRIES:
-            raise RuntimeError("Witness output count exceeded")
-        try:
-            metadata = path.lstat()
-        except FileNotFoundError:
-            # Atomic compiler publication can remove a temporary regular file.
-            continue
-        if stat.S_ISDIR(metadata.st_mode):
-            continue
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError(f"Witness output is not a regular file: {path}")
-        total += metadata.st_size
-        if total > MAX_WORK_BYTES:
-            raise RuntimeError("Witness outputs exceed the 64 MiB local ceiling")
+    for directory, directories, files in os.walk(root, onerror=scan_error, followlinks=False):
+        for name in directories + files:
+            path = Path(directory) / name
+            entries += 1
+            if entries > MAX_WORK_ENTRIES:
+                raise RuntimeError("Witness output count exceeded")
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(metadata.st_mode):
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise RuntimeError(f"Witness output is not a regular file: {path}")
+            total += metadata.st_size
+            if total > MAX_WORK_BYTES:
+                raise RuntimeError("Witness outputs exceed the 64 MiB local ceiling")
     return {"bytes": total, "entries": entries}
 
 
@@ -268,20 +439,44 @@ def require_old_refusal(result):
         raise RuntimeError(f"Old provider did not explicitly refuse source Core: {result}")
 
 
-def require_budget_refusal(result):
+def source_refusal_diagnostic(result):
     diagnostics = result["diagnostics"]
+    # Current Amblicit preserves the source diagnostic before a CLI summary.
+    # Accept only that exact envelope, never an arbitrary extra diagnostic.
+    if len(diagnostics) == 2 and all(
+            diagnostics[-1].get(name) == value for name, value in {
+                "kind": "ApplicationCompilationFailed", "stage": "cli",
+                "message": "Edict application did not compile to Core"}.items()):
+        diagnostics = diagnostics[:1]
     if result["exitCode"] != 2 or result["artifacts"] or len(diagnostics) != 1:
-        raise RuntimeError(f"Original budget did not produce one explicit refusal: {result}")
-    diagnostic = diagnostics[0]
+        raise RuntimeError(f"Expected one source refusal with no executable artifacts: {result}")
+    return diagnostics[0]
+
+
+def require_budget_refusal(result, *, allocation_only=False):
+    diagnostic = source_refusal_diagnostic(result)
     message = diagnostic.get("message", "")
     boundaries = {
         "ApplicationCompilationFailed": ("InvalidBound", "pure-helper cost",
                                          "exceeds operation budget"),
+        "InvalidBound": ("pure-helper cost", "exceeds operation budget"),
         "ProviderLowererRefused": ("UnsupportedSemantics", "core.source-functions"),
     }
     required = boundaries.get(diagnostic.get("kind"))
-    if required is None or any(detail not in message for detail in required):
+    if (required is None or any(detail not in message for detail in required)
+            or (diagnostic.get("kind") == "InvalidBound"
+                and diagnostic.get("stage") != "typeCheck")):
         raise RuntimeError(f"Unexpected original-budget refusal: {result}")
+    if allocation_only:
+        costs = re.fullmatch(
+            r"pure-helper cost steps=(\d+), allocatedBytes=(\d+), "
+            r"outputBytes=(\d+) exceeds operation budget", message)
+        if diagnostic.get("kind") != "InvalidBound" or costs is None:
+            raise RuntimeError(f"Expected an allocation-specific compiler cost refusal: {result}")
+        steps, allocated, output = map(int, costs.groups())
+        if not (steps <= READ_HELPER_STEPS and allocated > READ_OLD_ALLOCATION
+                and output <= READ_OUTPUT_BYTES):
+            raise RuntimeError(f"Expected allocation to be the only exceeded budget: {result}")
     return diagnostic["kind"]
 
 
@@ -292,7 +487,7 @@ def relative_path(text):
     return path
 
 
-def prepare_application(args, root, source, *, read=False, renamed=False, read_steps=None):
+def prepare_application(args, root, source, *, read=False, renamed=False, read_steps=None, read_allocation=READ_OLD_ALLOCATION):
     root.mkdir()
     original = args.read_application_source if read else args.pure_application_source
     original_application = regular_file(original / "edict.application.json")
@@ -333,8 +528,8 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
     if adapter["coordinate"] != "jedit.text.echo-adapter/v1":
         raise RuntimeError("Unexpected read adapter coordinate")
     budget = adapter["budgets"][READ_BUDGET]
-    if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": 16_777_216,
-                  "maxOutputBytes": 8_388_608}:
+    if budget != {"maxSteps": READ_OLD_STEPS, "maxAllocatedBytes": READ_OLD_ALLOCATION,
+                  "maxOutputBytes": READ_OUTPUT_BYTES}:
         raise RuntimeError("Original read budget differs from the explicit seed")
     configs = [item for item in authored["localResources"] if item["name"] == "echo-config"]
     if (len(configs) != 1 or configs[0]["value"]["programKind"]
@@ -342,11 +537,24 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
         raise RuntimeError("Read seed must already select the bounded-read profile")
     for item in [adapter, *authored["localResources"]]:
         relative_path(item["output"])
-    if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS}:
+    if read_steps not in {READ_OLD_STEPS, READ_HELPER_STEPS, READ_FOLD_STEPS}:
         raise RuntimeError("Unexpected authored budget variant")
-    budget["maxSteps"] = read_steps
+    if read_allocation not in {READ_OLD_ALLOCATION, READ_VARIANT_ALLOCATION, READ_MATCH_ALLOCATION}:
+        raise RuntimeError("Unexpected authored allocation budget")
+    changes = []
+    if root.name.startswith("list-read-nominal"):
+        nominal = {"coordinate": "jedit.text@1.WitnessId",
+                   "definition": "Nominal<Bytes<exact=32>>"}
+        authored["exports"]["types"].append(nominal)
+        changes.append({"path": "/lawpack/exports/types/-", "before": None, "after": nominal})
+    for field, before, after in [("maxSteps", READ_OLD_STEPS, read_steps),
+                                 ("maxAllocatedBytes", READ_OLD_ALLOCATION, read_allocation)]:
+        budget[field] = after
+        if before != after:
+            changes.append({"path": f"/lawpack/targetAdapters/0/budgets/{READ_BUDGET}/{field}",
+                            "before": before, "after": after})
     definition = root / "edict.lawpack.json"
-    if read_steps == READ_OLD_STEPS:
+    if not changes:
         shutil.copyfile(original_lawpack, definition)
     else:
         definition.write_text(json.dumps(lawpack, indent=2) + "\n")
@@ -364,18 +572,16 @@ def prepare_application(args, root, source, *, read=False, renamed=False, read_s
             "outputs": inventory(root / output),
             "upstreamLawpackSha256": sha256(root / "upstream-lawpack.json"),
             "authoredLawpackSha256": sha256(definition),
-            "authoredChanges": [] if read_steps == READ_OLD_STEPS else [{
-                "path": f"/lawpack/targetAdapters/0/budgets/{READ_BUDGET}/maxSteps",
-                "before": READ_OLD_STEPS, "after": read_steps}],
+            "authoredChanges": changes,
             "authoredBeforeImportSha256": hashlib.sha256(source.encode()).hexdigest(),
             "authoredAfterImportSha256": sha256(root / "source.edict")}
 
 
 def run_variant(args, name, source, provider, *, refusal=None, read=False,
-                renamed=False, read_steps=None):
+                renamed=False, read_steps=None, read_allocation=READ_OLD_ALLOCATION):
     root = args.work_root / name
     lawpack = prepare_application(args, root, source, read=read, renamed=renamed,
-                                  read_steps=read_steps)
+                                  read_steps=read_steps, read_allocation=read_allocation)
     shutil.copytree(provider, root / "provider")
     authored_hash = sha256(root / "source.edict")
     result = compiler_build(args, root, "application", "first")
@@ -395,8 +601,48 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     if refusal == "old-publication":
         require_old_refusal(result)
         provenance["refusalBoundary"] = "InvalidProviderInvocation"
-    elif refusal == "original-budget":
-        provenance["refusalBoundary"] = require_budget_refusal(result)
+    elif refusal in {"original-budget", "original-allocation"}:
+        provenance["refusalBoundary"] = require_budget_refusal(
+            result, allocation_only=refusal == "original-allocation")
+    elif refusal in {"u8-provider", "byte-lookup-provider", "variant-provider", "match-provider", "list-provider"}:
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.source-functions" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Original provider did not refuse {refusal} semantics: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal in {"list-bound", "list-element"}:
+        diagnostic = source_refusal_diagnostic(result)
+        expected = "InvalidBound" if refusal == "list-bound" else "TypeMismatch"
+        if diagnostic.get("kind") != expected or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Invalid list did not refuse at its source boundary: {result}")
+        provenance["refusalBoundary"] = expected
+    elif refusal == "fold-provider":
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.required-capabilities" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Original provider did not refuse fold capability: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "byte-lookup-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "UnsupportedSourceShape" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Unsafe lookup did not refuse at type checking: {result}")
+        provenance["refusalBoundary"] = "UnsupportedSourceShape"
+    elif refusal == "u8-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "TypeMismatch" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Overflowing U8 literal did not refuse at type checking: {result}")
+        provenance["refusalBoundary"] = "TypeMismatch"
+    elif refusal == "byte-literal-provider":
+        diagnostic = source_refusal_diagnostic(result)
+        if (diagnostic.get("kind") != "ProviderLowererRefused"
+                or "core.source-functions" not in diagnostic.get("message", "")):
+            raise RuntimeError(f"Byte literal did not stop at the original provider judgment: {result}")
+        provenance["refusalBoundary"] = "ProviderLowererRefused"
+    elif refusal == "byte-literal-bound":
+        diagnostic = source_refusal_diagnostic(result)
+        if diagnostic.get("kind") != "TypeMismatch" or diagnostic.get("stage") != "typeCheck":
+            raise RuntimeError(f"Narrow byte result did not produce a compiler type refusal: {result}")
+        provenance["refusalBoundary"] = "TypeMismatch"
     else:
         require_success(result)
         shutil.rmtree(root / "application-output")
@@ -421,6 +667,12 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     if inventory(root / "provider") != inventory(provider):
         raise RuntimeError("Public compilation changed its provider copy")
     shutil.rmtree(root / "provider")
+    if not read:
+        # Selected vendor inputs remain outside the work root; retain their
+        # manifest hashes, not one disposable tree for every optional variant.
+        if inventory(root / "vendor") != inventory(args.pure_application_source / "vendor"):
+            raise RuntimeError("Public compilation changed its vendor copy")
+        shutil.rmtree(root / "vendor")
     check_work_bound(args.work_root)
     print(json.dumps({"variant": name, **provenance}, sort_keys=True), flush=True)
     return provenance
@@ -467,6 +719,13 @@ def main():
     for name in ("compiler-revision", "old-provider-manifest-sha256", "provider-manifest-sha256",
                  "input-manifest-sha256"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--unsigned-byte-provider-before", type=Path)
+    parser.add_argument("--byte-literal-provider-before", type=Path)
+    parser.add_argument("--byte-lookup-provider-before", type=Path)
+    parser.add_argument("--variant-provider-before", type=Path)
+    parser.add_argument("--match-provider-before", type=Path)
+    parser.add_argument("--fold-provider-before", type=Path)
+    parser.add_argument("--list-provider-before", type=Path)
     args = parser.parse_args()
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("This witness requires the shared guarded Docker worker")
@@ -515,6 +774,103 @@ def main():
             ("read", variants["read"], args.provider,
              {"read": True, "read_steps": READ_HELPER_STEPS}),
         ]
+        if args.unsigned_byte_provider_before is not None:
+            specs.extend([
+                ("u8-identity-before", variants["u8-identity"], args.unsigned_byte_provider_before, {}),
+                ("u8-literal-before", variants["u8-literal"], args.unsigned_byte_provider_before,
+                 {"refusal": "u8-provider"}),
+                ("u8-identity", variants["u8-identity"], args.provider, {}),
+                ("u8-literal", variants["u8-literal"], args.provider, {}),
+                ("u8-invalid-bound", variants["u8-invalid-bound"], args.provider,
+                 {"refusal": "u8-bound"}),
+                ("read-u8-constant", variants["read-u8-constant"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+            ])
+        if args.byte_literal_provider_before is not None:
+            specs.extend([
+                ("pure-before-byte-literals", variants["pure"], args.byte_literal_provider_before, {}),
+                ("byte-literals-before", variants["byte-literals"], args.byte_literal_provider_before,
+                 {"refusal": "byte-literal-provider"}),
+                ("byte-literals", variants["byte-literals"], args.provider, {}),
+                ("byte-literals-invalid-bound", variants["byte-literals-invalid-bound"], args.provider,
+                 {"refusal": "byte-literal-bound"}),
+            ])
+        if args.byte_lookup_provider_before is not None:
+            specs.extend([
+                ("byte-lookup-before", variants["byte-lookup"], args.byte_lookup_provider_before,
+                 {"refusal": "byte-lookup-provider"}),
+                ("byte-lookup", variants["byte-lookup"], args.provider, {}),
+                ("byte-lookup-lazy-or", variants["byte-lookup-lazy-or"], args.provider, {}),
+                ("byte-lookup-nonstrict", variants["byte-lookup-nonstrict"], args.provider,
+                 {"refusal": "byte-lookup-bound"}),
+                ("byte-lookup-unproved", variants["byte-lookup-unproved"], args.provider,
+                 {"refusal": "byte-lookup-bound"}),
+                ("read-byte-lookup", variants["read-byte-lookup"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+                ("read-byte-lookup-constant", variants["read-byte-lookup-constant"], args.provider,
+                 {"read": True, "read_steps": READ_HELPER_STEPS}),
+            ])
+        if args.variant_provider_before is not None:
+            specs.append(("pure-before-variants", variants["pure"], args.variant_provider_before, {}))
+            specs.append(("variant-pure-before", variants["variant-pure-payload"],
+                          args.variant_provider_before, {"refusal": "variant-provider"}))
+            specs.append(("variant-read-original-allocation", variants["variant-read-payload"],
+                          args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                          "refusal": "original-allocation"}))
+            for case in ["empty", "payload"]:
+                specs.append((f"variant-pure-{case}", variants[f"variant-pure-{case}"],
+                              args.provider, {}))
+                specs.append((f"variant-read-{case}", variants[f"variant-read-{case}"],
+                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                              "read_allocation": READ_VARIANT_ALLOCATION
+                                              if case == "payload" else READ_OLD_ALLOCATION}))
+        if args.match_provider_before is not None:
+            specs.append(("variant-pure-before-matches", variants["variant-pure-payload"],
+                          args.match_provider_before, {}))
+            specs.append(("match-pure-before", variants["match-pure-payload"],
+                          args.match_provider_before, {"refusal": "match-provider"}))
+            specs.append(("match-read-before", variants["match-read-payload"],
+                          args.match_provider_before, {"read": True,
+                          "read_steps": READ_HELPER_STEPS,
+                          "read_allocation": READ_MATCH_ALLOCATION,
+                          "refusal": "match-provider"}))
+            specs.append(("match-read-original-allocation", variants["match-read-payload"],
+                          args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                          "refusal": "original-allocation"}))
+            for case in ["empty", "payload"]:
+                specs.append((f"match-pure-{case}", variants[f"match-pure-{case}"],
+                              args.provider, {}))
+                specs.append((f"match-read-{case}", variants[f"match-read-{case}"],
+                              args.provider, {"read": True, "read_steps": READ_HELPER_STEPS,
+                                              "read_allocation": READ_MATCH_ALLOCATION}))
+        if args.fold_provider_before is not None:
+            specs.append(("fold-control-before", variants["fold-control"],
+                          args.fold_provider_before, {}))
+            for bound in [0, 3]:
+                specs.append((f"fold-pure-before-{bound}", variants[f"fold-pure-{bound}"],
+                              args.fold_provider_before, {"refusal": "fold-provider"}))
+            for bound in [0, 1, 2, 3]:
+                specs.append((f"fold-pure-{bound}", variants[f"fold-pure-{bound}"],
+                              args.provider, {}))
+            for bound in [0, 1, 3]:
+                specs.append((f"fold-read-{bound}", variants[f"fold-read-{bound}"],
+                              args.provider, {"read": True, "read_steps": READ_FOLD_STEPS,
+                                              "read_allocation": READ_MATCH_ALLOCATION}))
+        if args.list_provider_before is not None:
+            specs.append(("list-control-before", variants["pure"], args.list_provider_before, {}))
+            specs.append(("list-pure-before", variants["list-pure-nonempty"],
+                          args.list_provider_before, {"refusal": "list-provider"}))
+            for case in ["empty", "nonempty", "nested", "record", "input"]:
+                specs.append((f"list-pure-{case}", variants[f"list-pure-{case}"], args.provider, {}))
+            for case, refusal in [("invalid-bound", "list-bound"), ("invalid-element", "list-element")]:
+                specs.append((f"list-pure-{case}", variants[f"list-pure-{case}"],
+                              args.provider, {"refusal": refusal}))
+            for case in ["empty", "nonempty", "nested", "record", "nominal", "nominal-bare"]:
+                options = {"read": True, "read_steps": READ_FOLD_STEPS,
+                           "read_allocation": READ_MATCH_ALLOCATION}
+                if case == "nominal-bare":
+                    options["refusal"] = "list-element"
+                specs.append((f"list-read-{case}", variants[f"list-read-{case}"], args.provider, options))
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
             retain_evidence(args.work_root, evidence)

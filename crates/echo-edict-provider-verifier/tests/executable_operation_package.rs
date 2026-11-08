@@ -851,6 +851,11 @@ fn pure_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
         ("apiVersion", text("edict.core/v1")),
         ("coordinate", text(names.application)),
         (
+            "requiredCoreCapabilities",
+            CanonicalValueV1::Array(Vec::new()),
+        ),
+        ("types", dynamic_map([])),
+        (
             "intents",
             dynamic_map([(
                 names.intent,

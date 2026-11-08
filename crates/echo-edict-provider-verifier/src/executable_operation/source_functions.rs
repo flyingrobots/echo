@@ -2,8 +2,26 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+mod byte_at;
+#[cfg(test)]
+mod byte_at_tests;
+#[cfg(test)]
+mod byte_literals_tests;
+mod fold;
+#[cfg(test)]
+mod fold_tests;
+mod list_operations;
+#[cfg(test)]
+mod list_tests;
+mod matches;
+mod order;
 mod types;
+#[cfg(test)]
+mod u8_literals_tests;
 mod unsigned_addition;
+#[cfg(test)]
+mod variant_tests;
+mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -91,6 +109,23 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             match string(get(expression, "kind")?)? {
                 "const" | "local" => {}
                 "field" => expressions.push((get(expression, "base")?, depth + 1)),
+                "variant" => {
+                    if let Some(payload) = super::map_field(expression, "payload") {
+                        expressions.push((payload, depth + 1));
+                    }
+                }
+                "match" => {
+                    expressions.push((get(expression, "scrutinee")?, depth + 1));
+                    for arm in sequence(get(expression, "arms")?)? {
+                        types.step(depth + 1)?;
+                        expressions.push((get(arm, "body")?, depth + 1));
+                    }
+                }
+                "list" => {
+                    for value in sequence(get(expression, "values")?)? {
+                        expressions.push((value, depth + 1));
+                    }
+                }
                 "record" => {
                     for (_, value) in members(get(expression, "fields")?)? {
                         expressions.push((value, depth + 1));
@@ -102,6 +137,14 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                     expressions.push((get(expression, "then")?, depth + 1));
                     expressions.push((get(expression, "else")?, depth + 1));
                 }
+                "fold" => {
+                    let callee = string(get(expression, "step")?)?;
+                    if !definition.source || !definitions.get(callee).is_some_and(|f| f.source) {
+                        return Err(());
+                    }
+                    edges.insert(callee);
+                    expressions.push((get(expression, "initial")?, depth + 1));
+                }
                 "call" => {
                     let callee = string(get(expression, "callee")?)?;
                     if let Some(target) = definitions.get(callee) {
@@ -110,12 +153,18 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         }
                         edges.insert(callee);
                     } else if ![
+                        "core.bytes.count",
+                        "core.bytes.at",
                         "core.bytes.isUtf8",
                         "core.bytes.length",
                         "core.bytes.concat",
                         "core.bytes.slice",
                         "core.integer.subtract",
                         "core.integer.add",
+                        "core.list.length",
+                        "core.list.at",
+                        "core.list.append",
+                        "core.list.concat",
                     ]
                     .contains(&callee)
                     {
@@ -148,6 +197,9 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             definitions: &definitions,
             summaries: &summaries,
             proven: Vec::new(),
+            path: Vec::new(),
+            bound: Vec::new(),
+            proven_sum: None,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -172,6 +224,9 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         definitions: &definitions,
         summaries: &summaries,
         proven: Vec::new(),
+        path: Vec::new(),
+        bound: Vec::new(),
+        proven_sum: None,
     };
     if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
         return Ok(());
@@ -282,8 +337,39 @@ struct Checker<'a, 'b> {
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
     proven: Vec<&'a Value>,
+    path: Vec<(&'a Value, bool)>,
+    /// Proven caps of earlier unsigned let bindings in the current body.
+    bound: Vec<(&'a Value, u64)>,
+    /// The refined cap of the addition `expression` last proved, keyed by the
+    /// node's address, so the binding that holds it reuses the proof.
+    proven_sum: Option<(usize, u64)>,
 }
 impl<'a> Checker<'a, '_> {
+    /// An unsigned binding carries its proven cap to later evaluation in the
+    /// same body. Local identities are unique and immutable.
+    fn record_bound(&mut self, local: &'a Value, value: &Value, schema: &Schema) -> Check<()> {
+        let Schema::Word(max) = schema else {
+            return Ok(());
+        };
+        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+            return Ok(());
+        }
+        // `expression` already proved this addition and computed its cap.
+        if let Some((node, cap)) = self.proven_sum.take() {
+            if node == std::ptr::from_ref(value).addr() {
+                if cap < *max {
+                    self.bound.push((local, cap));
+                }
+                return Ok(());
+            }
+        }
+        let cap =
+            unsigned_addition::ceiling_of(value, *max, &self.proven, &self.bound, self.types)?;
+        if cap < *max {
+            self.bound.push((local, cap));
+        }
+        Ok(())
+    }
     fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
         let mut frame = Frame::new(definition.params.iter().chain(declarations), self.types)?;
@@ -304,6 +390,7 @@ impl<'a> Checker<'a, '_> {
             if !declared.encloses(&value.schema) {
                 return Err(());
             }
+            self.record_bound(local, get(binding, "value")?, &declared)?;
             let size = declared.measure()?;
             charge.append(value.charge)?;
             charge.append(Charge {
@@ -341,9 +428,31 @@ impl<'a> Checker<'a, '_> {
         };
         let mut height = 0;
         let schema = match string(get(value, "kind")?)? {
+            "fold" => return self.state_fold(value, frame, depth),
+            "match" => return self.audit_match(value, frame, depth),
+            "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bytes" {
+                    exact(literal, &["kind", "value"])?;
+                    let Value::Bytes(octets) = get(literal, "value")? else {
+                        return Err(());
+                    };
+                    let size = u64::try_from(octets.len()).map_err(|_| ())?;
+                    charge.append(Charge {
+                        ticks: 1,
+                        storage: u128::from(size) + 64,
+                    })?;
+                    return Ok(Expression {
+                        schema: Schema::Blob {
+                            low: size,
+                            high: size,
+                        },
+                        charge,
+                        height: 0,
+                    });
+                }
                 if string(get(literal, "kind")?)? == "bool" {
                     exact(literal, &["kind", "value"])?;
                     if !matches!(get(literal, "value")?, Value::Bool(_)) {
@@ -361,7 +470,8 @@ impl<'a> Checker<'a, '_> {
                 }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
-                if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
+                if string(get(literal, "kind")?)? != "int" || !["U8", "U32", "U64"].contains(&width)
+                {
                     return Err(());
                 }
                 let Schema::Word(max) = self.types.resolve(width, 0)? else {
@@ -396,6 +506,26 @@ impl<'a> Checker<'a, '_> {
                 };
                 fields.remove(string(get(value, "field")?)?).ok_or(())?
             }
+            "list" => {
+                exact(value, &["kind", "values"])?;
+                let values = sequence(get(value, "values")?)?;
+                charge.storage = 64;
+                let mut element: Option<Box<Schema>> = None;
+                for value in values {
+                    let next = self.expression(value, frame, depth + 1)?;
+                    charge.append(next.charge)?;
+                    height = height.max(next.height + 1);
+                    element = Some(Box::new(match element {
+                        Some(previous) => previous.choice(next.schema)?,
+                        None => next.schema,
+                    }));
+                }
+                Schema::Sequence {
+                    element,
+                    bound: u64::try_from(values.len()).map_err(|_| ())?,
+                }
+            }
+
             "record" => {
                 exact(value, &["kind", "fields"])?;
                 charge.storage = 64;
@@ -419,8 +549,13 @@ impl<'a> Checker<'a, '_> {
                 exact(value, &["kind", "predicate", "then", "else"])?;
                 let (predicate, predicate_height) =
                     self.predicate(get(value, "predicate")?, frame, depth + 1)?;
+                let boundary = self.path.len();
+                self.path.push((get(value, "predicate")?, true));
                 let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                self.path.truncate(boundary);
+                self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, frame, depth + 1)?;
+                self.path.truncate(boundary);
                 height = predicate_height.max(yes.height).max(no.height) + 1;
                 charge.append(predicate)?;
                 charge.append(Charge::choice(yes.charge, no.charge))?;
@@ -432,7 +567,7 @@ impl<'a> Checker<'a, '_> {
                 let arguments = sequence(get(value, "args")?)?;
                 let types = sequence(get(value, "typeArgs")?)?;
                 let mut argument_schemas = Vec::new();
-                for argument in arguments {
+                for argument in checked_arguments(name, arguments)? {
                     let argument = self.expression(argument, frame, depth + 1)?;
                     charge.append(argument.charge)?;
                     height = height.max(argument.height + 1);
@@ -464,6 +599,12 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
+                    if list_operations::is_operation(name) {
+                        list_operations::authority(self.types.module, name, types)?;
+                        for operand in &declared {
+                            height = height.max(operand.measure()?.height + 1);
+                        }
+                    }
                     height = height.max(1);
                     let addition_proven = if name == "core.integer.add" {
                         let [Schema::Word(max)] = declared.as_slice() else {
@@ -472,10 +613,50 @@ impl<'a> Checker<'a, '_> {
                         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
                             return Err(());
                         }
-                        unsigned_addition::prove(arguments, *max, &self.proven, self.types)?;
+                        let cap = unsigned_addition::prove(
+                            value,
+                            *max,
+                            &self.proven,
+                            &self.bound,
+                            self.types,
+                        )?;
+                        self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                         true
                     } else {
                         false
+                    };
+                    let order_proven = match name {
+                        "core.list.at" | "core.list.append" => {
+                            self.list_domain(value, &declared)?
+                        }
+                        "core.integer.subtract" => {
+                            let [left, right] = arguments else {
+                                return Err(());
+                            };
+                            order::proven(left, right, &self.proven, self.types)?
+                        }
+                        "core.bytes.at" => {
+                            let ([coordinate], [Schema::Blob { low, .. }]) =
+                                (types, declared.as_slice())
+                            else {
+                                return Err(());
+                            };
+                            byte_at::valid(
+                                coordinate,
+                                arguments,
+                                *low,
+                                &self.proven,
+                                &self.path,
+                                self.types,
+                            )?
+                        }
+                        "core.bytes.slice" => {
+                            let [coordinate] = types else {
+                                return Err(());
+                            };
+                            order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
+                        }
+                        _ => false,
                     };
                     let (schema, intrinsic) = intrinsic(
                         name,
@@ -483,6 +664,7 @@ impl<'a> Checker<'a, '_> {
                         &argument_schemas,
                         &declared,
                         addition_proven,
+                        order_proven,
                     )?;
                     charge.append(intrinsic)?;
                     schema
@@ -507,7 +689,7 @@ impl<'a> Checker<'a, '_> {
     ) -> Check<(Charge, usize)> {
         self.types.step(depth)?;
         match string(get(predicate, "kind")?)? {
-            "all" => {
+            "all" | "any" => {
                 exact(predicate, &["kind", "values"])?;
                 let values = sequence(get(predicate, "values")?)?;
                 if values.is_empty() {
@@ -519,13 +701,19 @@ impl<'a> Checker<'a, '_> {
                 };
                 let mut height = 0;
                 let inherited = self.proven.len();
+                let boundary = self.path.len();
+                let conjunction = string(get(predicate, "kind")?)? == "all";
                 for child in values {
                     let (charge, child_height) = self.predicate(child, frame, depth + 1)?;
                     total.append(charge)?;
                     height = height.max(child_height);
-                    self.proven.push(child);
+                    if conjunction {
+                        self.proven.push(child);
+                    }
+                    self.path.push((child, conjunction));
                 }
                 self.proven.truncate(inherited);
+                self.path.truncate(boundary);
                 return Ok((total, height + 1));
             }
             "not" => {
@@ -563,7 +751,9 @@ impl<'a> Checker<'a, '_> {
             ("==", Schema::Blob { high: a, .. }, Schema::Blob { high: b, .. }) => {
                 u128::from((*a).max(*b))
             }
-            ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => 0,
+            ("==" | "!=" | "<" | "<=" | ">" | ">=", Schema::Word(a), Schema::Word(b)) if a == b => {
+                0
+            }
             _ => return Err(()),
         };
         charge.append(Charge {
@@ -578,6 +768,8 @@ impl<'a> Checker<'a, '_> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.path.clear();
+        self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
@@ -620,6 +812,7 @@ impl<'a> Checker<'a, '_> {
                     if !expected.encloses(&value.schema) {
                         return Err(());
                     }
+                    self.record_bound(local, get(node, "value")?, &expected)?;
                     charge.append(value.charge)?;
                     charge.append(Charge {
                         ticks: expected.measure()?.checks,
@@ -671,13 +864,40 @@ impl<'a> Checker<'a, '_> {
         Ok(())
     }
 }
+/// A count's needle is a Core constant of exactly one byte, checked
+/// structurally and excluded from ordinary expression typing.
+pub(super) fn checked_arguments<'v>(name: &str, arguments: &'v [Value]) -> Check<&'v [Value]> {
+    if name != "core.bytes.count" {
+        return Ok(arguments);
+    }
+    let [operand, needle] = arguments else {
+        return Err(());
+    };
+    exact(needle, &["kind", "value"])?;
+    let literal = get(needle, "value")?;
+    exact(literal, &["kind", "value"])?;
+    if string(get(needle, "kind")?)? != "const" || string(get(literal, "kind")?)? != "bytes" {
+        return Err(());
+    }
+    let Value::Bytes(byte) = get(literal, "value")? else {
+        return Err(());
+    };
+    if byte.len() != 1 {
+        return Err(());
+    }
+    Ok(std::slice::from_ref(operand))
+}
 fn intrinsic(
     name: &str,
     arguments: &[Value],
     actual: &[Schema],
     declared: &[Schema],
     addition_proven: bool,
+    order_proven: bool,
 ) -> Check<(Schema, Charge)> {
+    if list_operations::is_operation(name) {
+        return list_operations::infer(name, actual, declared, order_proven);
+    }
     let literal = |value: &Value| -> Check<u64> {
         if string(get(value, "kind")?)? != "const" {
             return Err(());
@@ -692,6 +912,29 @@ fn intrinsic(
                 Schema::Truth,
                 Charge {
                     ticks: u128::from(*high) + 2,
+                    storage: 64,
+                },
+            ))
+        }
+        ("core.bytes.count", [actual], [expected @ Schema::Blob { high, .. }])
+            if expected == actual =>
+        {
+            // One complete scan plus the materialized one-byte needle.
+            Ok((
+                Schema::Word(u64::MAX),
+                Charge {
+                    ticks: u128::from(*high) + 3,
+                    storage: 128,
+                },
+            ))
+        }
+        ("core.bytes.at", [actual, Schema::Word(index_max)], [expected @ Schema::Blob { .. }])
+            if *index_max == u64::MAX && expected.encloses(actual) && order_proven =>
+        {
+            Ok((
+                Schema::Word(u64::from(u8::MAX)),
+                Charge {
+                    ticks: 3,
                     storage: 64,
                 },
             ))
@@ -739,12 +982,14 @@ fn intrinsic(
                 },
             ))
         }
-        ("core.integer.subtract", [left, right], [expected @ Schema::Word(_)])
-            if expected.encloses(left) && expected.encloses(right) =>
+        ("core.integer.subtract", [left, right], [expected @ Schema::Word(max)])
+            if expected.encloses(left)
+                && expected.encloses(right)
+                && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
         {
-            literal(&arguments[0])?
-                .checked_sub(literal(&arguments[1])?)
-                .ok_or(())?;
+            if !order_proven {
+                return Err(());
+            }
             Ok((
                 expected.clone(),
                 Charge {
@@ -756,19 +1001,24 @@ fn intrinsic(
         (
             "core.bytes.slice",
             [actual, Schema::Word(a), Schema::Word(b)],
-            [expected @ Schema::Blob { low, .. }],
+            [expected @ Schema::Blob { low, high }],
         ) if *a == u64::MAX && *b == u64::MAX && expected.encloses(actual) => {
-            let start = literal(&arguments[1])?;
-            let end = literal(&arguments[2])?;
-            if start > end || end > *low {
-                return Err(());
-            }
-            let high = end - start;
+            // Literal offsets within the guaranteed minimum length need no
+            // fact; any other offsets need start <= end <= len(bytes).
+            let copied = match (literal(&arguments[1]), literal(&arguments[2])) {
+                (Ok(start), Ok(end)) if start <= end && end <= *low => end - start,
+                _ if order_proven => *high,
+                _ => return Err(()),
+            };
+            // As in Edict, a slice keeps its operand's maximum and no minimum.
             Ok((
-                Schema::Blob { low: 0, high },
+                Schema::Blob {
+                    low: 0,
+                    high: *high,
+                },
                 Charge {
-                    ticks: u128::from(high) + 4,
-                    storage: u128::from(high) + 64,
+                    ticks: u128::from(copied) + 4,
+                    storage: u128::from(copied) + 64,
                 },
             ))
         }
@@ -835,7 +1085,7 @@ fn predicate_expressions<'a>(
                 expressions.push((get(predicate, "right")?, depth + 1));
             }
             "not" => pending.push((get(predicate, "value")?, depth + 1)),
-            "all" => {
+            "all" | "any" => {
                 for child in sequence(get(predicate, "values")?)? {
                     pending.push((child, depth + 1));
                 }

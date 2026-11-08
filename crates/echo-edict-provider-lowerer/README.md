@@ -49,8 +49,8 @@ locals, record construction/selection, byte equality, and unsigned equality or
 ordering guards. Failure arms currently require zero-argument application
 obstruction constructors; terminal guards require an empty obstruction payload.
 
-The checked schema and component now publish this read configuration. Selecting
-the ordered contract publication lets unmodified Edict compile the authored
+The checked schema and component publish this read configuration through the
+single current contract publication. Unmodified Amblicit compiles the authored
 single and independent-address paired reads through this component and the
 independent verifier. The original native fixtures retain their diagnostic
 capture provenance; the separate public compiler witness proves package/report
@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 478,042-byte checked lowerer component has SHA-256
-`2a3738e3947529990143e184c0c1f39858e921738e6c6efaaeb4b7da5110626d` and has
+The refreshed 543,117-byte checked lowerer component has SHA-256
+`873dfec859285f26cadff97a7aa602fd91bcbcba3a3d347918c3658c4575afaa` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -202,3 +202,25 @@ Edict Git pins and uses Rust 1.96 for its Echo runtime dependency.
 These bytes implement a provider translation. They do not install a package,
 admit runtime authority, execute an operation, or attest an Echo consequence.
 Those remain explicit Echo runtime crossings.
+
+## Current effect proposal serialization
+
+The native Rust API `effect_publication::encode_effect_publication` serializes
+untrusted proposals using the current `echo.operation-package/v1` and
+`echo.operation-program/v1` effect kind. It preserves the compiler bundle's
+exact bytes, derives embedded Core/Target-IR/exports identities, carries explicit
+limits and graph/footprint data, and requires a declared obstruction coordinate.
+Its requested `authority_profile_identity` is derived only from the
+configuration's required `authorityProfile` label, by the same label digest
+fixed operations use; no caller supplies it.
+It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
+retains the actual lawpack inside the compiled bundle, without a duplicate outer
+lawpack identity.
+
+The witness uses synthetic crate-local inputs and the current runtime decoder
+as a separate native test oracle. Kernel dependencies and their trusted-host
+features are dev dependencies only. The factory does not verify compiler
+correspondence, graph-law semantics or authority. It is not yet called by the
+public lowerer, and it does not change the frozen WIT interface or enable
+installed effect execution. Producer integration and independent verification
+remain unfinished.

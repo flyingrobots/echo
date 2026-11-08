@@ -4,6 +4,7 @@
 import contextlib
 import importlib.util
 import io
+import shutil
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -17,7 +18,104 @@ SPEC.loader.exec_module(publication)
 
 
 class PublicationTests(unittest.TestCase):
-    def repeat(self, emit_repeated):
+    def test_output_bound_survives_removed_transaction_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            transaction = root / "transaction"
+            transaction.mkdir()
+            (transaction / "pending").write_bytes(b"pending")
+            (root / "retained").write_bytes(b"abc")
+            scandir = publication.os.scandir
+
+            def remove_transaction(path):
+                if str(path) == str(transaction) and transaction.exists():
+                    (transaction / "pending").unlink()
+                    transaction.rmdir()
+                return scandir(path)
+
+            with patch.object(publication.os, "scandir", side_effect=remove_transaction):
+                self.assertEqual(publication.check_work_bound(root)["bytes"], 3)
+
+    def test_output_bound_refuses_scan_permission_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(publication.os, "scandir", side_effect=PermissionError("denied")):
+                with self.assertRaises(PermissionError):
+                    publication.check_work_bound(Path(temporary))
+
+    def test_output_bound_rejects_a_missing_root_and_oversized_remaining_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(FileNotFoundError):
+                publication.check_work_bound(root / "absent")
+            (root / "retained").write_bytes(b"abc")
+            with patch.object(publication, "MAX_WORK_BYTES", 2):
+                with self.assertRaisesRegex(RuntimeError, "ceiling"):
+                    publication.check_work_bound(root)
+
+    def budget_refusal(self):
+        return {"exitCode": 2, "artifacts": {}, "diagnostics": [
+            {"kind": "InvalidBound", "stage": "typeCheck",
+             "message": "pure-helper cost steps=1048738, allocatedBytes=12587976, "
+                        "outputBytes=1048585 exceeds operation budget"},
+            {"kind": "ApplicationCompilationFailed", "stage": "cli",
+             "message": "Edict application did not compile to Core"},
+        ]}
+
+    def test_current_compiler_budget_refusal_retains_specific_diagnostic(self):
+        self.assertEqual(publication.require_budget_refusal(self.budget_refusal()), "InvalidBound")
+
+    def test_budget_refusal_does_not_accept_unrelated_second_diagnostic(self):
+        result = self.budget_refusal()
+        result["diagnostics"][1]["message"] = "unrelated failure"
+        with self.assertRaises(RuntimeError):
+            publication.require_budget_refusal(result)
+
+    def test_budget_refusal_does_not_accept_summary_without_cause(self):
+        result = self.budget_refusal()
+        result["diagnostics"].pop(0)
+        with self.assertRaises(RuntimeError):
+            publication.require_budget_refusal(result)
+
+    def test_budget_refusal_cannot_keep_executable_artifacts(self):
+        result = self.budget_refusal()
+        result["artifacts"] = {"executable-operation-package.cbor": "forbidden"}
+        with self.assertRaises(RuntimeError):
+            publication.require_budget_refusal(result)
+
+    def allocation_refusal(self, steps=1_048_774, allocated=16_783_424, output=1_048_585):
+        result = self.budget_refusal()
+        result["diagnostics"][0]["message"] = (
+            f"pure-helper cost steps={steps}, allocatedBytes={allocated}, "
+            f"outputBytes={output} exceeds operation budget")
+        return result
+
+    def test_allocation_refusal_retains_the_exact_cost_diagnostic(self):
+        self.assertEqual(publication.require_budget_refusal(
+            self.allocation_refusal(), allocation_only=True), "InvalidBound")
+
+    def test_allocation_refusal_requires_only_allocation_to_exceed_its_ceiling(self):
+        for steps, allocated, output in [(4_194_305, 16_783_424, 1),
+                                         (1, 16_783_424, 8_388_609),
+                                         (1, 16_777_216, 1)]:
+            with self.subTest(steps=steps, allocated=allocated, output=output):
+                with self.assertRaisesRegex(RuntimeError, "allocation"):
+                    publication.require_budget_refusal(
+                        self.allocation_refusal(steps, allocated, output), allocation_only=True)
+
+    def test_allocation_refusal_rejects_unparseable_costs(self):
+        result = self.allocation_refusal()
+        result["diagnostics"][0]["message"] = "pure-helper cost unknown exceeds operation budget"
+        with self.assertRaisesRegex(RuntimeError, "allocation"):
+            publication.require_budget_refusal(result, allocation_only=True)
+
+    def test_allocation_refusal_does_not_accept_a_generic_provider_refusal(self):
+        result = self.allocation_refusal()
+        result["diagnostics"][0].update(kind="ProviderLowererRefused",
+            message="UnsupportedSemantics core.source-functions")
+        with self.assertRaisesRegex(RuntimeError, "allocation"):
+            publication.require_budget_refusal(result, allocation_only=True)
+
+    def repeat(self, emit_repeated, *, variants=1, vendor_bytes=0, mutate_vendor=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             provider = root / "selected-provider"
@@ -27,18 +125,25 @@ class PublicationTests(unittest.TestCase):
             compiler.write_bytes(b"selected compiler")
             manifest = root / "compiler-manifest"
             manifest.write_text("{}")
+            vendor = root / "vendor"
+            vendor.mkdir()
+            (vendor / "material").write_bytes(b"x" * vendor_bytes)
             work = root / "work"
             work.mkdir()
             args = SimpleNamespace(work_root=work, compiler_revision="selected",
-                compiler=compiler, compiler_manifest=manifest, input_manifest_sha256="selected")
+                compiler=compiler, compiler_manifest=manifest, input_manifest_sha256="selected",
+                pure_application_source=root)
 
             def prepare(args, destination, source, **options):
                 destination.mkdir()
+                shutil.copytree(vendor, destination / "vendor")
                 for name in ["source.edict", "upstream-source.edict", "edict.application.json", "upstream-application.json"]:
                     (destination / name).write_text(source)
                 return {}
 
             def build(args, destination, document, label):
+                if mutate_vendor:
+                    (destination / "vendor/material").write_bytes(b"changed")
                 output = destination / "application-output"
                 if label == "first" or emit_repeated:
                     output.mkdir(exist_ok=True)
@@ -48,7 +153,10 @@ class PublicationTests(unittest.TestCase):
                     "artifacts": publication.inventory(output) if output.exists() else {}}
 
             with patch.object(publication, "prepare_application", prepare), patch.object(publication, "compiler_build", build), contextlib.redirect_stdout(io.StringIO()):
-                return publication.run_variant(args, "repeat", "authored source", provider)
+                for index in range(variants):
+                    result = publication.run_variant(args, f"repeat-{index}", "authored source", provider)
+                self.assertEqual((vendor / "material").read_bytes(), b"x" * vendor_bytes)
+                return result
 
     def test_successful_repeat_without_outputs_cannot_reuse_first_build(self):
         with self.assertRaisesRegex(RuntimeError, "did not emit exactly one package/report pair"):
@@ -58,6 +166,52 @@ class PublicationTests(unittest.TestCase):
         result = self.repeat(True)
         self.assertEqual(result["firstBuild"]["artifacts"], result["repeatedBuild"]["artifacts"])
 
+
+    def test_optional_variants_do_not_accumulate_disposable_vendor_copies(self):
+        # Scale the 64 MiB ceiling and 4.5 MiB vendor copy down by 1024.
+        # Twenty-four non-read variants cover all four optional control groups.
+        with patch.object(publication, "MAX_WORK_BYTES", 64 * 1024):
+            self.repeat(True, variants=24, vendor_bytes=4608)
+
+    def test_changed_vendor_copy_refuses_before_disposal(self):
+        with self.assertRaisesRegex(RuntimeError, "changed its vendor copy"):
+            self.repeat(True, mutate_vendor=True)
+
+    def test_each_optional_provider_tree_changes_the_input_selection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def file(name, data=b"fixture"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                return path
+            pure = root / "pure"
+            read = root / "read"
+            for name in ["pure/edict.application.json", "pure/source.edict", "pure/cases.json",
+                         "pure/vendor/resource", "read/edict.application.json",
+                         "read/edict.lawpack.json", "read/source.edict"]:
+                file(name)
+            providers = {}
+            for name in ["old", "candidate", "literal", "lookup", "unsigned", "variant", "match", "list"]:
+                file(name + "/component.wasm")
+                providers[name] = root / name
+            args = SimpleNamespace(
+                compiler=file("compiler"), compiler_manifest=file("compiler-manifest.json"),
+                pure_application_source=pure, pure_source=pure / "source.edict",
+                pure_cases=pure / "cases.json", read_application_source=read,
+                read_source=read / "source.edict", old_provider=providers["old"],
+                provider=providers["candidate"], byte_literal_provider_before=providers["literal"],
+                byte_lookup_provider_before=providers["lookup"],
+                unsigned_byte_provider_before=providers["unsigned"],
+                variant_provider_before=providers["variant"],
+                match_provider_before=providers["match"],
+                list_provider_before=providers["list"],
+            )
+            for name in ["literal", "lookup", "unsigned", "variant", "match", "list"]:
+                original = publication.selected_inputs(args)
+                component = providers[name] / "component.wasm"
+                component.write_bytes(component.read_bytes() + b"changed")
+                self.assertNotEqual(original, publication.selected_inputs(args), name)
 
     def test_final_usage_includes_final_evidence_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

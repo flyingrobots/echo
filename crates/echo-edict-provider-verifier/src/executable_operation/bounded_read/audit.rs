@@ -38,10 +38,10 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
         fields.push("functions");
     }
     exact(&e.core, &fields)?;
+    super::super::capabilities::validate(&e.core).map_err(|_| ())?;
     super::super::source_functions::validate(&e.core, &e.exports, true).map_err(|_| ())?;
     if text(&e.core, "apiVersion")? != "edict.core/v1"
         || text(&e.core, "coordinate")? != e.request.core.reference.coordinate
-        || !sequence(&e.core, "requiredCoreCapabilities")?.is_empty()
     {
         return Err(());
     }

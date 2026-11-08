@@ -53,8 +53,6 @@ use crate::{
 const PACKAGE_SCHEMA: &str = "echo.operation-package/v1";
 const PROGRAM_SCHEMA: &str = "echo.operation-program/v1";
 const INVOCATION_SCHEMA: &str = "echo.operation-invocation/v1";
-const PROJECTED_CAS_INVOCATION_SCHEMA: &str =
-    "echo.operation-invocation.anchored-node-alpha-cas-projected/v1";
 const PROGRAM_KIND: &str = "anchored-node-attachment-compare-and-set/v1";
 const FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-exact/v1";
 const INPUT_SCHEMA: &str = "echo.operation.input.anchored-node-alpha-cas/v1";
@@ -67,10 +65,6 @@ const OBSTRUCTION_INTERPRETATION: &str =
 const BASIS_SCHEMA: &str = "echo.operation.evaluation-basis/v1";
 const APPLICATION_BASIS_SCHEMA: &str = "echo.operation.basis.anchored-node-alpha/v1";
 const TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-cas/v1";
-const CREATE_INVOCATION_SCHEMA: &str =
-    "echo.operation-invocation.anchored-node-alpha-create-if-absent/v1";
-const PROJECTED_CREATE_INVOCATION_SCHEMA: &str =
-    "echo.operation-invocation.anchored-node-alpha-create-if-absent-projected/v1";
 const CREATE_PROGRAM_KIND: &str = "anchored-node-attachment-create-if-absent/v1";
 const CREATE_FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-create-if-absent-exact/v1";
 const CREATE_INPUT_SCHEMA: &str = "echo.operation.input.anchored-node-alpha-create-if-absent/v1";
@@ -151,7 +145,7 @@ impl EchoOperationEvaluationAuthorityV1 {
         Self(Arc::new(()))
     }
 
-    fn same_owner(&self, other: &Self) -> bool {
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
@@ -166,6 +160,12 @@ impl EchoOperationPackageIdV1 {
     #[must_use]
     pub const fn as_hash(self) -> Hash {
         self.0
+    }
+}
+
+impl From<Hash> for EchoOperationPackageIdV1 {
+    fn from(value: Hash) -> Self {
+        Self(value)
     }
 }
 
@@ -325,7 +325,7 @@ pub fn echo_operation_action_envelope_v1(
     target: IngressTarget,
     canonical_invocation_bytes: Vec<u8>,
 ) -> Result<IngressEnvelope, EchoOperationArtifactErrorV1> {
-    let invocation = EchoOperationInvocationV1::from_canonical_bytes(&canonical_invocation_bytes)?;
+    let invocation = EchoOperationInvocation::from_canonical_bytes(&canonical_invocation_bytes)?;
     if invocation.to_canonical_bytes()? != canonical_invocation_bytes {
         return Err(artifact_error(
             EchoOperationArtifactErrorKindV1::NonCanonical,
@@ -506,7 +506,7 @@ impl EchoOperationBudgetV1 {
             && self.write_bytes <= ceiling.write_bytes
     }
 
-    fn to_value(self) -> CanonicalValueV1 {
+    pub(crate) fn to_value(self) -> CanonicalValueV1 {
         map_value([
             ("read_bytes", uint_value(self.read_bytes)),
             ("steps", uint_value(self.steps)),
@@ -514,7 +514,9 @@ impl EchoOperationBudgetV1 {
         ])
     }
 
-    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_value(
+        value: CanonicalValueV1,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let mut fields = exact_text_map(value, &["read_bytes", "steps", "write_bytes"])?;
         Ok(Self {
             steps: take_u64(&mut fields, "steps")?,
@@ -525,20 +527,20 @@ impl EchoOperationBudgetV1 {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct EchoOperationBudgetMeterV1 {
+pub(crate) struct EchoOperationBudgetMeterV1 {
     delegated: EchoOperationBudgetV1,
     consumed: EchoOperationBudgetV1,
 }
 
 impl EchoOperationBudgetMeterV1 {
-    const fn new(delegated: EchoOperationBudgetV1) -> Self {
+    pub(crate) const fn new(delegated: EchoOperationBudgetV1) -> Self {
         Self {
             delegated,
             consumed: EchoOperationBudgetV1::new(0, 0, 0),
         }
     }
 
-    fn charge(&mut self, steps: u64, read_bytes: u64, write_bytes: u64) -> bool {
+    pub(crate) fn charge(&mut self, steps: u64, read_bytes: u64, write_bytes: u64) -> bool {
         let Some(next_steps) = self.consumed.steps.checked_add(steps) else {
             return false;
         };
@@ -556,7 +558,11 @@ impl EchoOperationBudgetMeterV1 {
         true
     }
 
-    const fn consumed(self) -> EchoOperationBudgetV1 {
+    pub(crate) const fn delegated(self) -> EchoOperationBudgetV1 {
+        self.delegated
+    }
+
+    pub(crate) const fn consumed(self) -> EchoOperationBudgetV1 {
         self.consumed
     }
 }
@@ -570,18 +576,12 @@ pub enum EchoOperationFootprintContractV1 {
     AnchoredNodeAlphaCreateIfAbsentExact,
 }
 
-impl EchoOperationFootprintContractV1 {
-    const fn coordinate(self) -> &'static str {
-        match self {
-            Self::AnchoredNodeAlphaExact => FOOTPRINT_CONTRACT,
-            Self::AnchoredNodeAlphaCreateIfAbsentExact => CREATE_FOOTPRINT_CONTRACT,
-        }
-    }
-}
-
 /// Data-only executable meaning interpreted by Echo.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EchoOperationProgramV1 {
+pub enum EchoOperationProgram {
+    /// An authored program with executable schema, footprint law and resource declarations.
+    EdictEffect(Arc<crate::edict_effects::EffectProgram>),
+
     /// Compare and replace one anchored typed node attachment.
     AnchoredNodeAttachmentCompareAndSet {
         /// Required skeleton node type.
@@ -602,7 +602,29 @@ pub enum EchoOperationProgramV1 {
     },
 }
 
-impl EchoOperationProgramV1 {
+impl EchoOperationProgram {
+    /// Returns the authored-effect payload when this is that program kind.
+    #[must_use]
+    pub fn as_effect_program(&self) -> Option<&crate::edict_effects::EffectProgram> {
+        match self {
+            Self::EdictEffect(program) => Some(program),
+            _ => None,
+        }
+    }
+
+    const fn interpreter_profile(&self) -> &'static str {
+        match self {
+            Self::EdictEffect(_) => "echo.operation-interpreter.edict-effect/v1",
+            _ => INTERPRETER_PROFILE,
+        }
+    }
+    const fn intrinsic_profile(&self) -> &'static str {
+        match self {
+            Self::EdictEffect(_) => "echo.operation-intrinsics.edict-effect/v1",
+            _ => INTRINSIC_PROFILE,
+        }
+    }
+
     /// Creates the first bounded, unique-match operation program.
     #[must_use]
     pub const fn anchored_node_attachment_compare_and_set(
@@ -633,8 +655,7 @@ impl EchoOperationProgramV1 {
 
     /// Returns the exact program identity.
     pub fn identity(&self) -> Result<EchoOperationProgramIdV1, EchoOperationArtifactErrorV1> {
-        Ok(EchoOperationProgramIdV1(domain_hash(
-            PROGRAM_ID_DOMAIN,
+        Ok(EchoOperationProgramIdV1(program_identity_bytes(
             &self.to_canonical_bytes()?,
         )))
     }
@@ -645,19 +666,19 @@ impl EchoOperationProgramV1 {
         encode_canonical_cbor_v1(&self.to_value()).map_err(canonical_error)
     }
 
-    fn footprint_contract(&self) -> EchoOperationFootprintContractV1 {
+    fn footprint_contract_identity(&self) -> Hash {
         match self {
-            Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
-                EchoOperationFootprintContractV1::AnchoredNodeAlphaExact
-            }
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => profile_digest(FOOTPRINT_CONTRACT),
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
-                EchoOperationFootprintContractV1::AnchoredNodeAlphaCreateIfAbsentExact
+                profile_digest(CREATE_FOOTPRINT_CONTRACT)
             }
+            Self::EdictEffect(program) => program.footprint_identity(),
         }
     }
 
     const fn minimum_budget(&self) -> EchoOperationBudgetV1 {
         match self {
+            Self::EdictEffect(_) => EchoOperationBudgetV1::new(1, 0, 0),
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
                 EchoOperationBudgetV1::new(4, 64, 32)
             }
@@ -673,6 +694,7 @@ impl EchoOperationProgramV1 {
 
     const fn input_schema(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation.input.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => INPUT_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_INPUT_SCHEMA,
         }
@@ -680,6 +702,7 @@ impl EchoOperationProgramV1 {
 
     const fn result_schema(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation.result.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => RESULT_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_RESULT_SCHEMA,
         }
@@ -687,6 +710,7 @@ impl EchoOperationProgramV1 {
 
     const fn obstruction_schema(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation.obstruction.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => OBSTRUCTION_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_OBSTRUCTION_SCHEMA,
         }
@@ -694,6 +718,7 @@ impl EchoOperationProgramV1 {
 
     const fn result_interpretation(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation.result-interpretation.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => RESULT_INTERPRETATION,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_RESULT_INTERPRETATION,
         }
@@ -701,6 +726,7 @@ impl EchoOperationProgramV1 {
 
     const fn obstruction_interpretation(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation.obstruction-interpretation.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => OBSTRUCTION_INTERPRETATION,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_OBSTRUCTION_INTERPRETATION,
         }
@@ -708,6 +734,7 @@ impl EchoOperationProgramV1 {
 
     const fn application_basis_schema(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation.basis.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => APPLICATION_BASIS_SCHEMA,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_APPLICATION_BASIS_SCHEMA,
         }
@@ -715,20 +742,31 @@ impl EchoOperationProgramV1 {
 
     const fn target_profile(&self) -> &'static str {
         match self {
+            Self::EdictEffect(_) => "echo.operation-target.edict-effect/v1",
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => TARGET_PROFILE,
             Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_TARGET_PROFILE,
         }
     }
 
-    const fn accepts_invocation_kind(&self, kind: EchoOperationInvocationKindV1) -> bool {
+    const fn accepts_invocation_kind(&self, kind: EchoOperationInvocationKind) -> bool {
+        #[cfg(feature = "trusted_runtime")]
+        if matches!(
+            (self, kind),
+            (
+                Self::EdictEffect(_),
+                EchoOperationInvocationKind::EdictEffect
+            )
+        ) {
+            return true;
+        }
         matches!(
             (self, kind),
             (
                 Self::AnchoredNodeAttachmentCompareAndSet { .. },
-                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet { .. }
+                EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet { .. }
             ) | (
                 Self::AnchoredNodeAttachmentCreateIfAbsent { .. },
-                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent
+                EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent
             )
         )
     }
@@ -746,7 +784,8 @@ impl EchoOperationProgramV1 {
                 EchoOperationArtifactErrorKindV1::UnsupportedProgram,
                 "program replacement bound must be nonzero",
             )),
-            Self::AnchoredNodeAttachmentCompareAndSet { .. }
+            Self::EdictEffect(_)
+            | Self::AnchoredNodeAttachmentCompareAndSet { .. }
             | Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => Ok(()),
         }
     }
@@ -754,6 +793,7 @@ impl EchoOperationProgramV1 {
     fn to_value(&self) -> CanonicalValueV1 {
         let (kind, required_node_type, required_attachment_type, max_replacement_bytes) = match self
         {
+            Self::EdictEffect(program) => return program.to_value(),
             Self::AnchoredNodeAttachmentCompareAndSet {
                 required_node_type,
                 required_attachment_type,
@@ -797,6 +837,11 @@ impl EchoOperationProgramV1 {
 
     fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
+        if text_map(value.clone())?.get("kind") == Some(&text_value("edict-effect-program/v1")) {
+            return crate::edict_effects::EffectProgram::from_value(&value)
+                .map(|program| Self::EdictEffect(Arc::new(program)))
+                .map_err(|_| invalid_structure("invalid authored-effect program"));
+        }
         let mut fields = exact_text_map(
             value,
             &[
@@ -852,18 +897,18 @@ impl EchoOperationProgramV1 {
 /// Echo treats these as opaque substitution evidence. It does not infer source,
 /// Core, Target IR, application schema, or lawpack identity from program bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EchoOperationSemanticClosureV1 {
+pub struct EchoOperationSemanticClosure {
     edict_source_identity: Hash,
     canonical_meaning_identity: Hash,
     core_identity: Hash,
     target_ir_identity: Hash,
     application_schema_coordinate: String,
     application_schema_identity: Hash,
-    lawpack_coordinate: String,
-    lawpack_identity: Hash,
+    lawpack_coordinate: Option<String>,
+    lawpack_identity: Option<Hash>,
 }
 
-impl EchoOperationSemanticClosureV1 {
+impl EchoOperationSemanticClosure {
     /// Creates the exact upstream semantic closure bound by one package.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
@@ -884,8 +929,8 @@ impl EchoOperationSemanticClosureV1 {
             target_ir_identity,
             application_schema_coordinate: application_schema_coordinate.into(),
             application_schema_identity,
-            lawpack_coordinate: lawpack_coordinate.into(),
-            lawpack_identity,
+            lawpack_coordinate: Some(lawpack_coordinate.into()),
+            lawpack_identity: Some(lawpack_identity),
         }
     }
 
@@ -897,12 +942,18 @@ impl EchoOperationSemanticClosureV1 {
 
     /// Returns the application-owned lawpack identity.
     #[must_use]
-    pub const fn lawpack_identity(&self) -> Hash {
+    pub const fn lawpack_identity(&self) -> Option<Hash> {
         self.lawpack_identity
     }
 
     fn validate(&self) -> Result<(), EchoOperationArtifactErrorV1> {
-        if self.application_schema_coordinate.is_empty() || self.lawpack_coordinate.is_empty() {
+        if self.application_schema_coordinate.is_empty()
+            || self
+                .lawpack_coordinate
+                .as_ref()
+                .is_some_and(String::is_empty)
+            || self.lawpack_coordinate.is_some() != self.lawpack_identity.is_some()
+        {
             return Err(invalid_structure(
                 "application schema and lawpack coordinates must not be empty",
             ));
@@ -911,7 +962,7 @@ impl EchoOperationSemanticClosureV1 {
     }
 
     fn to_value(&self) -> CanonicalValueV1 {
-        map_value([
+        let mut fields = vec![
             (
                 "application_schema_coordinate",
                 text_value(&self.application_schema_coordinate),
@@ -929,26 +980,36 @@ impl EchoOperationSemanticClosureV1 {
                 "edict_source_identity",
                 hash_value(self.edict_source_identity),
             ),
-            ("lawpack_coordinate", text_value(&self.lawpack_coordinate)),
-            ("lawpack_identity", hash_value(self.lawpack_identity)),
             ("target_ir_identity", hash_value(self.target_ir_identity)),
-        ])
+        ];
+        if let (Some(coordinate), Some(identity)) =
+            (&self.lawpack_coordinate, self.lawpack_identity)
+        {
+            fields.push(("lawpack_coordinate", text_value(coordinate)));
+            fields.push(("lawpack_identity", hash_value(identity)));
+        }
+        CanonicalValueV1::Map(
+            fields
+                .into_iter()
+                .map(|(key, value)| (text_value(key), value))
+                .collect(),
+        )
     }
 
     fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
-        let mut fields = exact_text_map(
-            value,
-            &[
-                "application_schema_coordinate",
-                "application_schema_identity",
-                "canonical_meaning_identity",
-                "core_identity",
-                "edict_source_identity",
-                "lawpack_coordinate",
-                "lawpack_identity",
-                "target_ir_identity",
-            ],
-        )?;
+        let has_lawpack = text_map(value.clone())?.contains_key("lawpack_coordinate");
+        let mut names = vec![
+            "application_schema_coordinate",
+            "application_schema_identity",
+            "canonical_meaning_identity",
+            "core_identity",
+            "edict_source_identity",
+            "target_ir_identity",
+        ];
+        if has_lawpack {
+            names.extend(["lawpack_coordinate", "lawpack_identity"]);
+        }
+        let mut fields = exact_text_map(value, &names)?;
         let closure = Self {
             edict_source_identity: take_hash(&mut fields, "edict_source_identity")?,
             canonical_meaning_identity: take_hash(&mut fields, "canonical_meaning_identity")?,
@@ -956,8 +1017,16 @@ impl EchoOperationSemanticClosureV1 {
             target_ir_identity: take_hash(&mut fields, "target_ir_identity")?,
             application_schema_coordinate: take_text(&mut fields, "application_schema_coordinate")?,
             application_schema_identity: take_hash(&mut fields, "application_schema_identity")?,
-            lawpack_coordinate: take_text(&mut fields, "lawpack_coordinate")?,
-            lawpack_identity: take_hash(&mut fields, "lawpack_identity")?,
+            lawpack_coordinate: if has_lawpack {
+                Some(take_text(&mut fields, "lawpack_coordinate")?)
+            } else {
+                None
+            },
+            lawpack_identity: if has_lawpack {
+                Some(take_hash(&mut fields, "lawpack_identity")?)
+            } else {
+                None
+            },
         };
         closure.validate()?;
         Ok(closure)
@@ -1322,7 +1391,7 @@ impl EchoOperationApplicationResultProjectionV1 {
         canonical_application_input_bytes: &[u8],
         node: NodeKey,
         replacement_bytes: &[u8],
-        kind: EchoOperationInvocationKindV1,
+        kind: EchoOperationInvocationKind,
     ) -> Result<(), EchoOperationArtifactErrorV1> {
         let application_input =
             decode_canonical_cbor_v1(canonical_application_input_bytes).map_err(canonical_error)?;
@@ -1368,13 +1437,13 @@ impl EchoOperationApplicationResultProjectionV1 {
     fn validate_expected_digest_binding(
         &self,
         application_input: &CanonicalValueV1,
-        kind: EchoOperationInvocationKindV1,
+        kind: EchoOperationInvocationKind,
     ) -> Result<(), EchoOperationArtifactErrorV1> {
         match (&self.application_input_expected_value_digest_path, kind) {
-            (None, EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent) => Ok(()),
+            (None, EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent) => Ok(()),
             (
                 Some(path),
-                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
                     expected_value_digest,
                 },
             ) => {
@@ -1785,10 +1854,12 @@ fn require_field_names(
 
 /// Exact executable-operation publication material and provenance.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExecutableOperationPackageV1 {
+pub struct ExecutableOperationPackage {
     operation_coordinate: String,
-    obstruction_coordinate: String,
-    semantic_closure: EchoOperationSemanticClosureV1,
+    /// Present for fixed-profile programs and absent for authored effect
+    /// programs, whose embedded exports declare every obstruction.
+    obstruction_coordinate: Option<String>,
+    semantic_closure: EchoOperationSemanticClosure,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
     intrinsic_profile_identity: Hash,
@@ -1802,21 +1873,40 @@ pub struct ExecutableOperationPackageV1 {
     evaluation_basis_schema_identity: Hash,
     footprint_contract_identity: Hash,
     budget_ceiling: EchoOperationBudgetV1,
-    program: EchoOperationProgramV1,
+    program: EchoOperationProgram,
     application_result_projection: Option<EchoOperationApplicationResultProjectionV1>,
 }
 
-impl ExecutableOperationPackageV1 {
+impl ExecutableOperationPackage {
+    /// Prepares exact pinned current publication bytes, without admission authority.
+    ///
+    /// This data-only compiler/verifier check is available without trusted-host
+    /// features. It checks the current package and embedded program contract;
+    /// it does not authenticate source-to-Core compilation, select an authorized
+    /// release pin, install a package, or grant invocation rights.
+    /// # Errors
+    /// Refuses a different pin or an unsupported canonical publication contract.
+    pub fn prepare(
+        bytes: &[u8],
+        expected: Hash,
+    ) -> Result<Self, crate::edict_effects::EffectPackageError> {
+        use crate::edict_effects::EffectPackageError;
+        if echo_operation_package_id_v1(bytes).as_hash() != expected {
+            return Err(EffectPackageError::IdentityMismatch);
+        }
+        Self::from_canonical_bytes(bytes).map_err(|_| EffectPackageError::InvalidPackage)
+    }
+
     /// Creates publication material for the supported bounded operation profile.
     #[must_use]
     pub fn new(
         operation_coordinate: impl Into<String>,
         obstruction_coordinate: impl Into<String>,
-        semantic_closure: EchoOperationSemanticClosureV1,
+        semantic_closure: EchoOperationSemanticClosure,
         target_profile_identity: Hash,
         authority_profile_identity: Hash,
         budget_ceiling: EchoOperationBudgetV1,
-        program: EchoOperationProgramV1,
+        program: EchoOperationProgram,
     ) -> Self {
         let input_schema_identity = profile_digest(program.input_schema());
         let result_schema_identity = profile_digest(program.result_schema());
@@ -1827,11 +1917,11 @@ impl ExecutableOperationPackageV1 {
         let application_basis_schema_identity = profile_digest(program.application_basis_schema());
         Self {
             operation_coordinate: operation_coordinate.into(),
-            obstruction_coordinate: obstruction_coordinate.into(),
+            obstruction_coordinate: Some(obstruction_coordinate.into()),
             semantic_closure,
             target_profile_identity,
-            interpreter_profile_identity: profile_digest(INTERPRETER_PROFILE),
-            intrinsic_profile_identity: profile_digest(INTRINSIC_PROFILE),
+            interpreter_profile_identity: profile_digest(program.interpreter_profile()),
+            intrinsic_profile_identity: profile_digest(program.intrinsic_profile()),
             authority_profile_identity,
             input_schema_identity,
             result_schema_identity,
@@ -1840,7 +1930,7 @@ impl ExecutableOperationPackageV1 {
             obstruction_interpretation_identity,
             application_basis_schema_identity,
             evaluation_basis_schema_identity: profile_digest(BASIS_SCHEMA),
-            footprint_contract_identity: profile_digest(program.footprint_contract().coordinate()),
+            footprint_contract_identity: program.footprint_contract_identity(),
             budget_ceiling,
             program,
             application_result_projection: None,
@@ -1955,10 +2045,12 @@ impl ExecutableOperationPackageV1 {
         &self.operation_coordinate
     }
 
-    /// Returns the application-authored obstruction coordinate.
+    /// Returns the application-authored obstruction coordinate of a
+    /// fixed-profile package. An authored effect package has none: its
+    /// embedded exports declare every obstruction its program can return.
     #[must_use]
-    pub fn obstruction_coordinate(&self) -> &str {
-        &self.obstruction_coordinate
+    pub fn obstruction_coordinate(&self) -> Option<&str> {
+        self.obstruction_coordinate.as_deref()
     }
 
     /// Returns the Edict semantic identity bound by this package.
@@ -1969,7 +2061,7 @@ impl ExecutableOperationPackageV1 {
 
     /// Returns the application-owned lawpack identity bound by this package.
     #[must_use]
-    pub const fn lawpack_identity(&self) -> Hash {
+    pub const fn lawpack_identity(&self) -> Option<Hash> {
         self.semantic_closure.lawpack_identity
     }
 
@@ -1993,7 +2085,7 @@ impl ExecutableOperationPackageV1 {
 
     /// Returns the executable program.
     #[must_use]
-    pub const fn program(&self) -> &EchoOperationProgramV1 {
+    pub const fn program(&self) -> &EchoOperationProgram {
         &self.program
     }
 
@@ -2013,12 +2105,7 @@ impl ExecutableOperationPackageV1 {
                 "operation coordinate must not be empty",
             ));
         }
-        if self.obstruction_coordinate.is_empty() {
-            return Err(artifact_error(
-                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
-                "obstruction coordinate must not be empty",
-            ));
-        }
+        self.validate_obstruction_header()?;
         if !self.budget_ceiling.is_nonzero() {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::InvalidBudget,
@@ -2076,10 +2163,6 @@ impl ExecutableOperationPackageV1 {
                 hash_value(self.obstruction_interpretation_identity),
             ),
             (
-                "obstruction_coordinate",
-                text_value(&self.obstruction_coordinate),
-            ),
-            (
                 "operation_coordinate",
                 text_value(&self.operation_coordinate),
             ),
@@ -2099,6 +2182,9 @@ impl ExecutableOperationPackageV1 {
                 hash_value(self.target_profile_identity),
             ),
         ];
+        if let Some(obstruction) = &self.obstruction_coordinate {
+            fields.push(("obstruction_coordinate", text_value(obstruction)));
+        }
         if let Some(projection) = &self.application_result_projection {
             fields.push(("application_result_projection", projection.to_value()));
         }
@@ -2113,12 +2199,14 @@ impl ExecutableOperationPackageV1 {
 
     fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
-        let has_application_result_projection = match &value {
-            CanonicalValueV1::Map(entries) => entries.iter().any(|(key, _)| {
-                key == &CanonicalValueV1::Text("application_result_projection".to_owned())
-            }),
+        let has_key = |name: &str| match &value {
+            CanonicalValueV1::Map(entries) => entries
+                .iter()
+                .any(|(key, _)| key == &CanonicalValueV1::Text(name.to_owned())),
             _ => false,
         };
+        let has_application_result_projection = has_key("application_result_projection");
+        let has_obstruction_coordinate = has_key("obstruction_coordinate");
         let mut expected_fields = vec![
             "authority_profile_identity",
             "application_basis_schema_identity",
@@ -2130,7 +2218,6 @@ impl ExecutableOperationPackageV1 {
             "intrinsic_profile_identity",
             "obstruction_schema_identity",
             "obstruction_interpretation_identity",
-            "obstruction_coordinate",
             "operation_coordinate",
             "program",
             "result_schema_identity",
@@ -2142,6 +2229,9 @@ impl ExecutableOperationPackageV1 {
         if has_application_result_projection {
             expected_fields.push("application_result_projection");
         }
+        if has_obstruction_coordinate {
+            expected_fields.push("obstruction_coordinate");
+        }
         let mut fields = exact_text_map(value, &expected_fields)?;
         require_text(&mut fields, "schema", PACKAGE_SCHEMA)?;
         let operation_coordinate = take_text(&mut fields, "operation_coordinate")?;
@@ -2151,15 +2241,13 @@ impl ExecutableOperationPackageV1 {
                 "operation coordinate must not be empty",
             ));
         }
-        let obstruction_coordinate = take_text(&mut fields, "obstruction_coordinate")?;
-        if obstruction_coordinate.is_empty() {
-            return Err(artifact_error(
-                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
-                "obstruction coordinate must not be empty",
-            ));
-        }
+        let obstruction_coordinate = if has_obstruction_coordinate {
+            Some(take_text(&mut fields, "obstruction_coordinate")?)
+        } else {
+            None
+        };
         let program_bytes = take_bytes(&mut fields, "program")?;
-        let program = EchoOperationProgramV1::from_canonical_bytes(&program_bytes)?;
+        let program = EchoOperationProgram::from_canonical_bytes(&program_bytes)?;
         let application_result_projection = if has_application_result_projection {
             Some(EchoOperationApplicationResultProjectionV1::from_value(
                 take_field(&mut fields, "application_result_projection")?,
@@ -2170,7 +2258,7 @@ impl ExecutableOperationPackageV1 {
         let package = Self {
             operation_coordinate,
             obstruction_coordinate,
-            semantic_closure: EchoOperationSemanticClosureV1::from_value(take_field(
+            semantic_closure: EchoOperationSemanticClosure::from_value(take_field(
                 &mut fields,
                 "semantic_closure",
             )?)?,
@@ -2215,12 +2303,61 @@ impl ExecutableOperationPackageV1 {
         Ok(package)
     }
 
+    /// A fixed-profile package names one nonempty obstruction coordinate; an
+    /// authored effect package names none.
+    fn validate_obstruction_header(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        let effect = matches!(&self.program, EchoOperationProgram::EdictEffect(_));
+        match (&self.obstruction_coordinate, effect) {
+            (Some(coordinate), false) if !coordinate.is_empty() => Ok(()),
+            (None, true) => Ok(()),
+            (Some(_), false) => Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
+                "obstruction coordinate must not be empty",
+            )),
+            (None, false) => Err(invalid_structure(
+                "a fixed-profile package requires its obstruction coordinate",
+            )),
+            (Some(_), true) => Err(invalid_structure(
+                "an authored effect package declares its obstructions in its exports",
+            )),
+        }
+    }
+
     fn self_validate_supported_profile(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        self.validate_obstruction_header()?;
         if !self.budget_ceiling.is_nonzero() {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::InvalidBudget,
                 "package step budget must be nonzero",
             ));
+        }
+        self.semantic_closure.validate()?;
+        let requires_lawpack = !matches!(&self.program, EchoOperationProgram::EdictEffect(_));
+        if requires_lawpack != self.semantic_closure.lawpack_identity.is_some() {
+            return Err(invalid_structure(
+                "lawpack binding does not match the program kind",
+            ));
+        }
+        if let Some(effect) = self.program.as_effect_program() {
+            effect
+                .validate_compiled_binding(
+                    &self.operation_coordinate,
+                    self.semantic_closure.core_identity,
+                    self.semantic_closure.application_schema_identity,
+                )
+                .map_err(|_| {
+                    invalid_structure(
+                        "compiled Core, selected operation and semantic closure disagree",
+                    )
+                })?;
+
+            if self.semantic_closure.target_ir_identity != effect.target_ir_identity()
+                || self.application_result_projection.is_some()
+            {
+                return Err(invalid_structure(
+                    "effect closure, program and projection disagree",
+                ));
+            }
         }
         let expected = [
             (
@@ -2261,7 +2398,7 @@ impl ExecutableOperationPackageV1 {
             (
                 "footprint contract",
                 self.footprint_contract_identity,
-                profile_digest(self.program.footprint_contract().coordinate()),
+                self.program.footprint_contract_identity(),
             ),
         ];
         if let Some((label, _, _)) = expected
@@ -2279,8 +2416,8 @@ impl ExecutableOperationPackageV1 {
                 "unsupported Echo target profile identity",
             ));
         }
-        if self.interpreter_profile_identity != profile_digest(INTERPRETER_PROFILE)
-            || self.intrinsic_profile_identity != profile_digest(INTRINSIC_PROFILE)
+        if self.interpreter_profile_identity != profile_digest(self.program.interpreter_profile())
+            || self.intrinsic_profile_identity != profile_digest(self.program.intrinsic_profile())
         {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::UnsupportedTargetProfile,
@@ -2290,7 +2427,7 @@ impl ExecutableOperationPackageV1 {
         if let Some(projection) = &self.application_result_projection {
             let requires_digest = matches!(
                 self.program,
-                EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. }
+                EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet { .. }
             );
             if projection
                 .application_input_expected_value_digest_path
@@ -2362,18 +2499,18 @@ impl EchoOperationArtifactErrorV1 {
 
 /// Independently pinned policy for the package-admission crossing.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EchoOperationAdmissionPolicyV1 {
-    expected_package_id: EchoOperationPackageIdV1,
+pub struct EchoOperationAdmissionPolicy {
+    expected_package_id: Hash,
     expected_operation_coordinate: String,
     expected_authority_profile_identity: Hash,
     maximum_budget: EchoOperationBudgetV1,
 }
 
-impl EchoOperationAdmissionPolicyV1 {
+impl EchoOperationAdmissionPolicy {
     /// Pins the exact package, public operation, authority profile, and budget ceiling.
     #[must_use]
     pub fn exact(
-        expected_package_id: EchoOperationPackageIdV1,
+        expected_package_id: Hash,
         expected_operation_coordinate: impl Into<String>,
         expected_authority_profile_identity: Hash,
         maximum_budget: EchoOperationBudgetV1,
@@ -2386,17 +2523,46 @@ impl EchoOperationAdmissionPolicyV1 {
         }
     }
 
-    fn identity(&self) -> Hash {
+    /// Identity of the independently selected pins and resource ceiling.
+    #[must_use]
+    pub fn identity(&self) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(b"echo:operation-admission-policy:v1\0");
-        hasher.update(&self.expected_package_id.as_hash());
+        hasher.update(&self.expected_package_id);
         hash_len_bytes(&mut hasher, self.expected_operation_coordinate.as_bytes());
         hasher.update(&self.expected_authority_profile_identity);
         hash_budget(&mut hasher, self.maximum_budget);
         hasher.finalize().into()
     }
 
-    fn to_value(&self) -> CanonicalValueV1 {
+    pub(crate) fn validate_contract(
+        &self,
+        operation_coordinate: &str,
+        authority_profile_identity: Hash,
+        budget: EchoOperationBudgetV1,
+    ) -> Result<(), EchoOperationAdmissionError> {
+        if operation_coordinate != self.expected_operation_coordinate {
+            return Err(admission_error(
+                EchoOperationAdmissionErrorKind::OperationCoordinateMismatch,
+                "package operation coordinate differs from admission policy",
+            ));
+        }
+        if authority_profile_identity != self.expected_authority_profile_identity {
+            return Err(admission_error(
+                EchoOperationAdmissionErrorKind::AuthorityProfileMismatch,
+                "package authority profile differs from admission policy",
+            ));
+        }
+        if !budget.fits_within(self.maximum_budget) {
+            return Err(admission_error(
+                EchoOperationAdmissionErrorKind::BudgetExceedsPolicy,
+                "package budget ceiling exceeds admission policy",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn to_value(&self) -> CanonicalValueV1 {
         map_value([
             (
                 "expected_authority_profile_identity",
@@ -2406,15 +2572,14 @@ impl EchoOperationAdmissionPolicyV1 {
                 "expected_operation_coordinate",
                 text_value(&self.expected_operation_coordinate),
             ),
-            (
-                "expected_package_id",
-                hash_value(self.expected_package_id.as_hash()),
-            ),
+            ("expected_package_id", hash_value(self.expected_package_id)),
             ("maximum_budget", self.maximum_budget.to_value()),
         ])
     }
 
-    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_value(
+        value: CanonicalValueV1,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let mut fields = exact_text_map(
             value,
             &[
@@ -2425,10 +2590,7 @@ impl EchoOperationAdmissionPolicyV1 {
             ],
         )?;
         let policy = Self {
-            expected_package_id: EchoOperationPackageIdV1(take_hash(
-                &mut fields,
-                "expected_package_id",
-            )?),
+            expected_package_id: take_hash(&mut fields, "expected_package_id")?,
             expected_operation_coordinate: take_text(&mut fields, "expected_operation_coordinate")?,
             expected_authority_profile_identity: take_hash(
                 &mut fields,
@@ -2450,7 +2612,7 @@ impl EchoOperationAdmissionPolicyV1 {
 
 /// Stable package-admission refusal categories.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EchoOperationAdmissionErrorKindV1 {
+pub enum EchoOperationAdmissionErrorKind {
     /// Exact package bytes were malformed or unsupported.
     ArtifactInvalid,
     /// Exact package bytes did not match the independently pinned package id.
@@ -2466,16 +2628,16 @@ pub enum EchoOperationAdmissionErrorKindV1 {
 /// One structured package-admission refusal.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error("{kind:?}: {detail}")]
-pub struct EchoOperationAdmissionErrorV1 {
-    kind: EchoOperationAdmissionErrorKindV1,
+pub struct EchoOperationAdmissionError {
+    kind: EchoOperationAdmissionErrorKind,
     detail: String,
     artifact: Option<EchoOperationArtifactErrorV1>,
 }
 
-impl EchoOperationAdmissionErrorV1 {
+impl EchoOperationAdmissionError {
     /// Returns the stable refusal category.
     #[must_use]
-    pub const fn kind(&self) -> EchoOperationAdmissionErrorKindV1 {
+    pub const fn kind(&self) -> EchoOperationAdmissionErrorKind {
         self.kind
     }
 
@@ -2487,26 +2649,65 @@ impl EchoOperationAdmissionErrorV1 {
 }
 
 /// Opaque evidence that Echo admitted exact package bytes under separate policy.
-#[derive(Clone, Debug)]
-pub struct AdmittedExecutableOperationPackageV1 {
-    package: ExecutableOperationPackageV1,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdmittedExecutableOperationPackage {
+    package: ExecutableOperationPackage,
     canonical_package_bytes: Vec<u8>,
     package_id: EchoOperationPackageIdV1,
+    program_id: EchoOperationProgramIdV1,
     admission_policy_id: Hash,
     admission_id: EchoOperationPackageAdmissionIdV1,
-    admission_policy: EchoOperationAdmissionPolicyV1,
+    admission_policy: EchoOperationAdmissionPolicy,
+}
+
+impl AdmittedExecutableOperationPackage {
+    /// Exact publication admitted by the runtime owner.
+    #[must_use]
+    pub const fn package(&self) -> &ExecutableOperationPackage {
+        &self.package
+    }
+    /// Exact canonical publication retained at admission.
+    #[must_use]
+    pub fn canonical_package_bytes(&self) -> &[u8] {
+        &self.canonical_package_bytes
+    }
+    /// Identity of the exact current publication.
+    #[must_use]
+    pub const fn package_identity(&self) -> Hash {
+        self.package_id.as_hash()
+    }
+    /// Identity of the exact current program.
+    #[must_use]
+    pub const fn program_identity(&self) -> Hash {
+        self.program_id.as_hash()
+    }
+    /// The independently selected owner policy.
+    #[must_use]
+    pub const fn admission_policy(&self) -> &EchoOperationAdmissionPolicy {
+        &self.admission_policy
+    }
+    /// Identity of that independent policy.
+    #[must_use]
+    pub const fn admission_policy_identity(&self) -> Hash {
+        self.admission_policy_id
+    }
+    /// Evidence identity under the sole current admission recipe.
+    #[must_use]
+    pub const fn identity(&self) -> Hash {
+        self.admission_id.as_hash()
+    }
 }
 
 /// Installed executable meaning. Installation does not itself authorize an invocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InstalledEchoOperationV1 {
+pub struct InstalledEchoOperation {
     installed_operation_id: InstalledEchoOperationIdV1,
     package_id: EchoOperationPackageIdV1,
     package_admission_id: EchoOperationPackageAdmissionIdV1,
     // Shared, not copied, by every prepared Action (#903).
     operation_coordinate: std::sync::Arc<str>,
     semantic_identity: Hash,
-    lawpack_identity: Hash,
+    lawpack_identity: Option<Hash>,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
     intrinsic_profile_identity: Hash,
@@ -2514,15 +2715,42 @@ pub struct InstalledEchoOperationV1 {
     application_basis_schema_identity: Hash,
     budget_ceiling: EchoOperationBudgetV1,
     program_id: EchoOperationProgramIdV1,
-    program: EchoOperationProgramV1,
+    program: EchoOperationProgram,
     application_result_projection:
         Option<std::sync::Arc<EchoOperationApplicationResultProjectionV1>>,
     canonical_package_bytes: std::sync::Arc<[u8]>,
     admission_policy_id: Hash,
-    admission_policy: std::sync::Arc<EchoOperationAdmissionPolicyV1>,
+    admission_policy: std::sync::Arc<EchoOperationAdmissionPolicy>,
 }
 
-impl InstalledEchoOperationV1 {
+impl InstalledEchoOperation {
+    /// Raw identity of the current installation evidence.
+    #[must_use]
+    pub const fn identity(&self) -> Hash {
+        self.installed_operation_id.as_hash()
+    }
+    /// Raw identity of the exact current publication.
+    #[must_use]
+    pub const fn package_identity(&self) -> Hash {
+        self.package_id.as_hash()
+    }
+    /// Raw identity of the exact current program.
+    #[must_use]
+    pub const fn program_identity(&self) -> Hash {
+        self.program_id.as_hash()
+    }
+    /// Canonical retained evidence; this does not grant invocation authority.
+    /// # Errors
+    /// Refuses invalid canonical material.
+    pub fn retained_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        retain_operation_installation(self)
+    }
+    /// Reconstructs retained evidence without inserting it into a registry.
+    /// # Errors
+    /// Refuses unsupported records, policy substitutions or inconsistent identities.
+    pub fn from_retained_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        recover_operation_installation(bytes)
+    }
     /// Returns Echo's installed-operation identity.
     #[must_use]
     pub const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
@@ -2553,7 +2781,9 @@ impl InstalledEchoOperationV1 {
         self.program_id
     }
 
-    pub(crate) const fn program(&self) -> &EchoOperationProgramV1 {
+    /// Returns the installed current program kind and metadata.
+    #[must_use]
+    pub const fn program(&self) -> &EchoOperationProgram {
         &self.program
     }
 
@@ -2573,14 +2803,14 @@ impl InstalledEchoOperationV1 {
 
     /// Returns the lawpack identity bound by the admitted package.
     #[must_use]
-    pub const fn lawpack_identity(&self) -> Hash {
+    pub const fn lawpack_identity(&self) -> Option<Hash> {
         self.lawpack_identity
     }
 
     /// Returns the admission policy installed with the package. Every
     /// prepared Action shares it with the registry.
     #[must_use]
-    pub fn admission_policy(&self) -> &EchoOperationAdmissionPolicyV1 {
+    pub fn admission_policy(&self) -> &EchoOperationAdmissionPolicy {
         &self.admission_policy
     }
 
@@ -2616,44 +2846,41 @@ impl EchoOperationInstallationErrorV1 {
     }
 }
 
-pub(crate) fn admit_package_v1(
-    policy: &EchoOperationAdmissionPolicyV1,
+pub(crate) fn admit_operation_package(
+    policy: &EchoOperationAdmissionPolicy,
     canonical_package_bytes: Vec<u8>,
-) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionErrorV1> {
+) -> Result<AdmittedExecutableOperationPackage, EchoOperationAdmissionError> {
     let package_id = echo_operation_package_id_v1(&canonical_package_bytes);
-    if package_id != policy.expected_package_id {
+    if package_id.as_hash() != policy.expected_package_id {
         return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::PackageIdentityMismatch,
+            EchoOperationAdmissionErrorKind::PackageIdentityMismatch,
             "exact package bytes differ from the independently pinned package id",
         ));
     }
-    let package = ExecutableOperationPackageV1::from_canonical_bytes(&canonical_package_bytes)
-        .map_err(|artifact| EchoOperationAdmissionErrorV1 {
-            kind: EchoOperationAdmissionErrorKindV1::ArtifactInvalid,
+    let package = ExecutableOperationPackage::from_canonical_bytes(&canonical_package_bytes)
+        .map_err(|artifact| EchoOperationAdmissionError {
+            kind: EchoOperationAdmissionErrorKind::ArtifactInvalid,
             detail: artifact.to_string(),
             artifact: Some(artifact),
         })?;
-    if package.operation_coordinate != policy.expected_operation_coordinate {
-        return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::OperationCoordinateMismatch,
-            "package operation coordinate differs from admission policy",
-        ));
-    }
-    if package.authority_profile_identity != policy.expected_authority_profile_identity {
-        return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::AuthorityProfileMismatch,
-            "package authority profile differs from admission policy",
-        ));
-    }
-    if !package.budget_ceiling.fits_within(policy.maximum_budget) {
-        return Err(admission_error(
-            EchoOperationAdmissionErrorKindV1::BudgetExceedsPolicy,
-            "package budget ceiling exceeds admission policy",
-        ));
-    }
+    policy.validate_contract(
+        &package.operation_coordinate,
+        package.authority_profile_identity,
+        package.budget_ceiling,
+    )?;
+    let program_id =
+        package
+            .program
+            .identity()
+            .map_err(|artifact| EchoOperationAdmissionError {
+                kind: EchoOperationAdmissionErrorKind::ArtifactInvalid,
+                detail: artifact.to_string(),
+                artifact: Some(artifact),
+            })?;
     let admission_policy_id = policy.identity();
-    Ok(AdmittedExecutableOperationPackageV1 {
+    Ok(AdmittedExecutableOperationPackage {
         package,
+        program_id,
         canonical_package_bytes,
         package_id,
         admission_policy_id,
@@ -2663,10 +2890,10 @@ pub(crate) fn admit_package_v1(
 }
 
 pub(crate) fn installed_from_admitted(
-    admitted: AdmittedExecutableOperationPackageV1,
-) -> Result<InstalledEchoOperationV1, EchoOperationArtifactErrorV1> {
+    admitted: AdmittedExecutableOperationPackage,
+) -> InstalledEchoOperation {
     let package = admitted.package;
-    let mut installed = InstalledEchoOperationV1 {
+    let mut installed = InstalledEchoOperation {
         installed_operation_id: InstalledEchoOperationIdV1([0; 32]),
         package_id: admitted.package_id,
         package_admission_id: admitted.admission_id,
@@ -2679,7 +2906,7 @@ pub(crate) fn installed_from_admitted(
         authority_profile_identity: package.authority_profile_identity,
         application_basis_schema_identity: package.application_basis_schema_identity,
         budget_ceiling: package.budget_ceiling,
-        program_id: package.program.identity()?,
+        program_id: admitted.program_id,
         program: package.program,
         application_result_projection: package
             .application_result_projection
@@ -2689,11 +2916,11 @@ pub(crate) fn installed_from_admitted(
         admission_policy: std::sync::Arc::new(admitted.admission_policy),
     };
     installed.installed_operation_id = installed_operation_id(&installed);
-    Ok(installed)
+    installed
 }
 
-pub(crate) fn retain_installation_v1(
-    installed: &InstalledEchoOperationV1,
+pub(crate) fn retain_operation_installation(
+    installed: &InstalledEchoOperation,
 ) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
     encode_canonical_cbor_v1(&map_value([
         ("admission_policy", installed.admission_policy.to_value()),
@@ -2719,9 +2946,9 @@ pub(crate) fn retain_installation_v1(
     .map_err(canonical_error)
 }
 
-pub(crate) fn recover_installation_v1(
+pub(crate) fn recover_operation_installation(
     bytes: &[u8],
-) -> Result<InstalledEchoOperationV1, EchoOperationArtifactErrorV1> {
+) -> Result<InstalledEchoOperation, EchoOperationArtifactErrorV1> {
     let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
     let mut fields = exact_text_map(
         value,
@@ -2744,7 +2971,7 @@ pub(crate) fn recover_installation_v1(
         ));
     }
     let admission_policy =
-        EchoOperationAdmissionPolicyV1::from_value(take_field(&mut fields, "admission_policy")?)?;
+        EchoOperationAdmissionPolicy::from_value(take_field(&mut fields, "admission_policy")?)?;
     let admission_policy_id = take_hash(&mut fields, "admission_policy_id")?;
     if admission_policy.identity() != admission_policy_id {
         return Err(invalid_structure(
@@ -2760,7 +2987,7 @@ pub(crate) fn recover_installation_v1(
         ));
     }
     let admitted =
-        admit_package_v1(&admission_policy, canonical_package_bytes).map_err(|error| {
+        admit_operation_package(&admission_policy, canonical_package_bytes).map_err(|error| {
             invalid_structure(format!(
                 "retained executable-operation package no longer admits: {error}"
             ))
@@ -2770,7 +2997,7 @@ pub(crate) fn recover_installation_v1(
             "retained package-admission evidence does not match re-admission",
         ));
     }
-    let installed = installed_from_admitted(admitted)?;
+    let installed = installed_from_admitted(admitted);
     let retained_installed_operation_id =
         InstalledEchoOperationIdV1(take_hash(&mut fields, "installed_operation_id")?);
     if retained_installed_operation_id != installed.installed_operation_id {
@@ -2778,7 +3005,7 @@ pub(crate) fn recover_installation_v1(
             "retained installed-operation identity does not match exact installation",
         ));
     }
-    if retain_installation_v1(&installed)? != bytes {
+    if retain_operation_installation(&installed)? != bytes {
         return Err(artifact_error(
             EchoOperationArtifactErrorKindV1::NonCanonical,
             "installation did not reproduce the exact retained bytes",
@@ -2787,11 +3014,11 @@ pub(crate) fn recover_installation_v1(
     Ok(installed)
 }
 
-pub(crate) fn install_recovered_v1(
-    packages: &mut BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
+pub(crate) fn restore_operation_catalog_entry(
+    packages: &mut BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperation>,
     operations: &mut BTreeMap<String, EchoOperationPackageIdV1>,
-    installed: InstalledEchoOperationV1,
-) -> Result<InstalledEchoOperationV1, EchoOperationInstallationErrorV1> {
+    installed: InstalledEchoOperation,
+) -> Result<InstalledEchoOperation, EchoOperationInstallationErrorV1> {
     if let Some(existing) = packages.get(&installed.package_id) {
         if existing == &installed {
             return Ok(existing.clone());
@@ -2964,7 +3191,9 @@ impl EchoOperationEvaluationBasisV1 {
         ])
     }
 
-    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_value(
+        value: CanonicalValueV1,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let mut fields = exact_text_map(
             value,
             &[
@@ -3004,8 +3233,12 @@ impl EchoOperationEvaluationBasisV1 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EchoOperationInvocationKindV1 {
-    AnchoredNodeAttachmentCompareAndSet { expected_value_digest: Hash },
+enum EchoOperationInvocationKind {
+    #[cfg(feature = "trusted_runtime")]
+    EdictEffect,
+    AnchoredNodeAttachmentCompareAndSet {
+        expected_value_digest: Hash,
+    },
     AnchoredNodeAttachmentCreateIfAbsent,
 }
 
@@ -3017,20 +3250,20 @@ enum AnchoredNodeOperationModeV1 {
 
 /// Canonical basis-bearing invocation emitted by a generated client/helper.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EchoOperationInvocationV1 {
+pub struct EchoOperationInvocation {
     observation: Option<EchoOperationObservationV1>,
     package_id: EchoOperationPackageIdV1,
     operation_coordinate: String,
     evaluation_basis: EchoOperationEvaluationBasisV1,
     authority_grant_identity: Hash,
     delegated_budget: EchoOperationBudgetV1,
-    node: NodeKey,
-    kind: EchoOperationInvocationKindV1,
+    node: Option<NodeKey>,
+    kind: EchoOperationInvocationKind,
     replacement_bytes: Vec<u8>,
     application_input_bytes: Option<Vec<u8>>,
 }
 
-impl EchoOperationInvocationV1 {
+impl EchoOperationInvocation {
     /// Creates an invocation for the update-only compare-and-set program.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
@@ -3050,8 +3283,8 @@ impl EchoOperationInvocationV1 {
             evaluation_basis,
             authority_grant_identity,
             delegated_budget,
-            node,
-            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+            node: Some(node),
+            kind: EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
                 expected_value_digest,
             },
             replacement_bytes,
@@ -3084,8 +3317,8 @@ impl EchoOperationInvocationV1 {
             evaluation_basis,
             authority_grant_identity,
             delegated_budget,
-            node,
-            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+            node: Some(node),
+            kind: EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
                 expected_value_digest,
             },
             replacement_bytes,
@@ -3112,8 +3345,8 @@ impl EchoOperationInvocationV1 {
             evaluation_basis,
             authority_grant_identity,
             delegated_budget,
-            node,
-            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
+            node: Some(node),
+            kind: EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent,
             replacement_bytes,
             application_input_bytes: None,
             observation: None,
@@ -3140,12 +3373,119 @@ impl EchoOperationInvocationV1 {
             evaluation_basis,
             authority_grant_identity,
             delegated_budget,
-            node,
-            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
+            node: Some(node),
+            kind: EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent,
             replacement_bytes,
             application_input_bytes: Some(canonical_application_input_bytes),
             observation: None,
         }
+    }
+
+    /// The fixed-operation anchor, absent for authored effects.
+    #[must_use]
+    pub const fn anchor_node(&self) -> Option<NodeKey> {
+        self.node
+    }
+    /// Exact canonical application input, when required by the program.
+    #[must_use]
+    pub fn application_input_bytes(&self) -> Option<&[u8]> {
+        self.application_input_bytes.as_deref()
+    }
+    /// Claimed exact parent, corroborated only by owner admission.
+    #[must_use]
+    pub const fn evaluation_basis(&self) -> EchoOperationEvaluationBasisV1 {
+        self.evaluation_basis
+    }
+    /// Claimed grant, corroborated only by owner admission.
+    #[must_use]
+    pub const fn authority_grant_identity(&self) -> Hash {
+        self.authority_grant_identity
+    }
+    /// Requested resource budget.
+    #[must_use]
+    pub const fn delegated_budget(&self) -> EchoOperationBudgetV1 {
+        self.delegated_budget
+    }
+
+    /// Prepares current invocation bytes against the selected publication.
+    /// This establishes static binding only, not a grant or runtime freshness.
+    /// # Errors
+    /// Refuses malformed bytes, inconsistent input or an exceeded package budget.
+    #[cfg(feature = "trusted_runtime")]
+    pub fn prepare(
+        bytes: &[u8],
+        package: &ExecutableOperationPackage,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let invocation = Self::from_canonical_bytes(bytes)?;
+        if invocation.package_id != echo_operation_package_id_v1(&package.to_canonical_bytes()?)
+            || invocation.operation_coordinate != package.operation_coordinate()
+            || !package.program().accepts_invocation_kind(invocation.kind)
+            || !invocation
+                .delegated_budget
+                .fits_within(package.budget_ceiling())
+            || !package
+                .program()
+                .minimum_budget()
+                .fits_within(invocation.delegated_budget)
+        {
+            return Err(invalid_structure(
+                "invocation differs from the selected package contract",
+            ));
+        }
+        invocation.validate_input_contract(
+            package.program(),
+            package.application_result_projection.as_ref(),
+        )?;
+        Ok(invocation)
+    }
+
+    fn validate_input_contract(
+        &self,
+        program: &EchoOperationProgram,
+        projection: Option<&EchoOperationApplicationResultProjectionV1>,
+    ) -> Result<(), EchoOperationArtifactErrorV1> {
+        #[cfg(feature = "trusted_runtime")]
+        if let EchoOperationProgram::EdictEffect(effect) = program {
+            let input = self
+                .application_input_bytes
+                .as_deref()
+                .ok_or_else(|| invalid_structure("effect invocation requires canonical input"))?;
+            if u64::try_from(input.len()).map_err(|_| invalid_structure("input length overflow"))?
+                > effect.max_input_bytes()
+                || self.evaluation_basis.application_basis != self.effect_application_basis()?
+            {
+                return Err(invalid_structure(
+                    "effect input exceeds its package ceiling or differs from its basis",
+                ));
+            }
+            return Ok(());
+        }
+        #[cfg(not(feature = "trusted_runtime"))]
+        let _ = program;
+        match (projection, self.application_input_bytes.as_deref()) {
+            (Some(projection), Some(input)) => projection.validate_application_input_binding(
+                input,
+                self.node
+                    .ok_or_else(|| invalid_structure("projected invocation requires an anchor"))?,
+                &self.replacement_bytes,
+                self.kind,
+            ),
+            (None, None) => Ok(()),
+            _ => Err(invalid_structure(
+                "application input does not match the installed result projection",
+            )),
+        }
+    }
+
+    #[cfg(feature = "trusted_runtime")]
+    fn effect_application_basis(
+        &self,
+    ) -> Result<EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1> {
+        let input = self
+            .application_input_bytes
+            .as_deref()
+            .ok_or_else(|| invalid_structure("effect input is absent"))?;
+        Ok(effect_input_basis(input))
     }
 
     /// Returns the canonical invocation identity.
@@ -3183,67 +3523,74 @@ impl EchoOperationInvocationV1 {
             ]))
             .map_err(canonical_error);
         }
-        let common = |schema| {
-            [
-                (
-                    "authority_grant_identity",
-                    hash_value(self.authority_grant_identity),
-                ),
-                ("delegated_budget", self.delegated_budget.to_value()),
-                ("evaluation_basis", self.evaluation_basis.to_value()),
-                ("node_id", hash_value(self.node.local_id.0)),
-                (
-                    "operation_coordinate",
-                    text_value(&self.operation_coordinate),
-                ),
-                ("package_id", hash_value(self.package_id.as_hash())),
-                (
-                    "replacement_bytes",
-                    CanonicalValueV1::Bytes(self.replacement_bytes.clone()),
-                ),
-                ("schema", text_value(schema)),
-                ("warp_id", hash_value(self.node.warp_id.0)),
-            ]
-        };
-        let value = match self.kind {
-            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
-                expected_value_digest,
-            } => {
-                let schema = if self.application_input_bytes.is_some() {
-                    PROJECTED_CAS_INVOCATION_SCHEMA
-                } else {
-                    INVOCATION_SCHEMA
-                };
-                let mut fields = Vec::from(common(schema));
-                fields.push(("expected_value_digest", hash_value(expected_value_digest)));
-                self.append_application_input(&mut fields)?;
-                CanonicalValueV1::Map(
-                    fields
-                        .into_iter()
-                        .map(|(key, value)| (text_value(key), value))
-                        .collect(),
-                )
+        let mut fields = vec![
+            ("schema", text_value(INVOCATION_SCHEMA)),
+            (
+                "authority_grant_identity",
+                hash_value(self.authority_grant_identity),
+            ),
+            ("delegated_budget", self.delegated_budget.to_value()),
+            ("evaluation_basis", self.evaluation_basis.to_value()),
+            (
+                "operation_coordinate",
+                text_value(&self.operation_coordinate),
+            ),
+            ("package_id", hash_value(self.package_id.as_hash())),
+        ];
+        match self.kind {
+            #[cfg(feature = "trusted_runtime")]
+            EchoOperationInvocationKind::EdictEffect => {
+                if self.node.is_some()
+                    || !self.replacement_bytes.is_empty()
+                    || self.application_input_bytes.is_none()
+                    || self.observation.is_some()
+                {
+                    return Err(invalid_structure(
+                        "effect invocation requires input and has no fixed anchor",
+                    ));
+                }
+                fields.push(("kind", text_value("edict-effect-program/v1")));
             }
-            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent => {
-                let schema = if self.application_input_bytes.is_some() {
-                    PROJECTED_CREATE_INVOCATION_SCHEMA
-                } else {
-                    CREATE_INVOCATION_SCHEMA
-                };
-                let mut fields = Vec::from(common(schema));
-                fields.push((
-                    "absence_precondition",
-                    text_value(CREATE_ABSENCE_PRECONDITION),
-                ));
-                self.append_application_input(&mut fields)?;
-                CanonicalValueV1::Map(
-                    fields
-                        .into_iter()
-                        .map(|(key, value)| (text_value(key), value))
-                        .collect(),
-                )
+            kind => {
+                let node = self
+                    .node
+                    .ok_or_else(|| invalid_structure("fixed invocation requires an anchor"))?;
+                fields.extend([
+                    ("node_id", hash_value(node.local_id.0)),
+                    ("warp_id", hash_value(node.warp_id.0)),
+                    (
+                        "replacement_bytes",
+                        CanonicalValueV1::Bytes(self.replacement_bytes.clone()),
+                    ),
+                ]);
+                match kind {
+                    EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
+                        expected_value_digest,
+                    } => {
+                        fields.push(("kind", text_value(PROGRAM_KIND)));
+                        fields.push(("expected_value_digest", hash_value(expected_value_digest)));
+                    }
+                    EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent => {
+                        fields.push(("kind", text_value(CREATE_PROGRAM_KIND)));
+                        fields.push((
+                            "absence_precondition",
+                            text_value(CREATE_ABSENCE_PRECONDITION),
+                        ));
+                    }
+                    #[cfg(feature = "trusted_runtime")]
+                    EchoOperationInvocationKind::EdictEffect => {
+                        return Err(invalid_structure("effect invocation is not anchored"))
+                    }
+                }
             }
-        };
+        }
+        self.append_application_input(&mut fields)?;
+        let value = CanonicalValueV1::Map(
+            fields
+                .into_iter()
+                .map(|(key, value)| (text_value(key), value))
+                .collect(),
+        );
         encode_canonical_cbor_v1(&value).map_err(canonical_error)
     }
 
@@ -3275,7 +3622,8 @@ impl EchoOperationInvocationV1 {
         Ok(())
     }
 
-    pub(crate) fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+    /// Decodes the sole current invocation format and rejects extra fields.
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
         let schema = match &value {
             CanonicalValueV1::Map(entries) => entries
@@ -3302,6 +3650,11 @@ impl EchoOperationInvocationV1 {
                 }
             }
             let mut invocation = Self::from_canonical_bytes(&inner_bytes)?;
+            if invocation.node.is_none() {
+                return Err(invalid_structure(
+                    "effect observation wrappers are not executable",
+                ));
+            }
             invocation.observation = Some(EchoOperationObservationV1::from_value(take_field(
                 &mut fields,
                 "observation",
@@ -3311,100 +3664,67 @@ impl EchoOperationInvocationV1 {
             }
             return Ok(invocation);
         }
-        let (expected_fields, create_if_absent, projected) = match schema {
-            INVOCATION_SCHEMA => (
-                &[
-                    "authority_grant_identity",
-                    "delegated_budget",
-                    "evaluation_basis",
-                    "expected_value_digest",
-                    "node_id",
-                    "operation_coordinate",
-                    "package_id",
-                    "replacement_bytes",
-                    "schema",
-                    "warp_id",
-                ][..],
-                false,
-                false,
-            ),
-            CREATE_INVOCATION_SCHEMA => (
-                &[
-                    "absence_precondition",
-                    "authority_grant_identity",
-                    "delegated_budget",
-                    "evaluation_basis",
-                    "node_id",
-                    "operation_coordinate",
-                    "package_id",
-                    "replacement_bytes",
-                    "schema",
-                    "warp_id",
-                ][..],
-                true,
-                false,
-            ),
-            PROJECTED_CAS_INVOCATION_SCHEMA => (
-                &[
-                    "application_input_bytes",
-                    "authority_grant_identity",
-                    "delegated_budget",
-                    "evaluation_basis",
-                    "expected_value_digest",
-                    "node_id",
-                    "operation_coordinate",
-                    "package_id",
-                    "replacement_bytes",
-                    "schema",
-                    "warp_id",
-                ][..],
-                false,
-                true,
-            ),
-            PROJECTED_CREATE_INVOCATION_SCHEMA => (
-                &[
-                    "absence_precondition",
-                    "application_input_bytes",
-                    "authority_grant_identity",
-                    "delegated_budget",
-                    "evaluation_basis",
-                    "node_id",
-                    "operation_coordinate",
-                    "package_id",
-                    "replacement_bytes",
-                    "schema",
-                    "warp_id",
-                ][..],
-                true,
-                true,
-            ),
-            _ => return Err(invalid_structure("unsupported invocation schema")),
+        if schema != INVOCATION_SCHEMA {
+            return Err(invalid_structure("unsupported invocation schema"));
+        }
+        let CanonicalValueV1::Map(entries) = &value else {
+            return Err(invalid_structure("invocation must be a map"));
         };
-        let mut fields = exact_text_map(value, expected_fields)?;
-        require_text(
-            &mut fields,
+        let projected = entries
+            .iter()
+            .any(|(key, _)| key == &text_value("application_input_bytes"));
+        let kind_text = entries
+            .iter()
+            .find_map(|(key, value)| (key == &text_value("kind")).then_some(value));
+        let mut expected_fields = vec![
             "schema",
-            if projected && create_if_absent {
-                PROJECTED_CREATE_INVOCATION_SCHEMA
-            } else if projected {
-                PROJECTED_CAS_INVOCATION_SCHEMA
-            } else if create_if_absent {
-                CREATE_INVOCATION_SCHEMA
-            } else {
-                INVOCATION_SCHEMA
-            },
-        )?;
-        let kind = if create_if_absent {
-            require_text(
-                &mut fields,
-                "absence_precondition",
-                CREATE_ABSENCE_PRECONDITION,
-            )?;
-            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent
-        } else {
-            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
-                expected_value_digest: take_hash(&mut fields, "expected_value_digest")?,
+            "kind",
+            "authority_grant_identity",
+            "delegated_budget",
+            "evaluation_basis",
+            "operation_coordinate",
+            "package_id",
+        ];
+        let anchored = match kind_text {
+            Some(CanonicalValueV1::Text(kind)) if kind == PROGRAM_KIND => {
+                expected_fields.push("expected_value_digest");
+                true
             }
+            Some(CanonicalValueV1::Text(kind)) if kind == CREATE_PROGRAM_KIND => {
+                expected_fields.push("absence_precondition");
+                true
+            }
+            #[cfg(feature = "trusted_runtime")]
+            Some(CanonicalValueV1::Text(kind))
+                if kind == "edict-effect-program/v1" && projected =>
+            {
+                false
+            }
+            _ => return Err(invalid_structure("unsupported invocation kind")),
+        };
+        if anchored {
+            expected_fields.extend(["node_id", "warp_id", "replacement_bytes"]);
+        }
+        if projected {
+            expected_fields.push("application_input_bytes");
+        }
+        let mut fields = exact_text_map(value, &expected_fields)?;
+        require_text(&mut fields, "schema", INVOCATION_SCHEMA)?;
+        let kind = match take_text(&mut fields, "kind")?.as_str() {
+            PROGRAM_KIND => EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
+                expected_value_digest: take_hash(&mut fields, "expected_value_digest")?,
+            },
+            CREATE_PROGRAM_KIND => {
+                require_text(
+                    &mut fields,
+                    "absence_precondition",
+                    CREATE_ABSENCE_PRECONDITION,
+                )?;
+                EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent
+            }
+            #[cfg(feature = "trusted_runtime")]
+            "edict-effect-program/v1" => EchoOperationInvocationKind::EdictEffect,
+            _ => return Err(invalid_structure("unsupported invocation kind")),
         };
         let invocation = Self {
             observation: None,
@@ -3419,12 +3739,20 @@ impl EchoOperationInvocationV1 {
                 &mut fields,
                 "delegated_budget",
             )?)?,
-            node: NodeKey {
-                warp_id: crate::WarpId(take_hash(&mut fields, "warp_id")?),
-                local_id: crate::NodeId(take_hash(&mut fields, "node_id")?),
+            node: if anchored {
+                Some(NodeKey {
+                    warp_id: crate::WarpId(take_hash(&mut fields, "warp_id")?),
+                    local_id: crate::NodeId(take_hash(&mut fields, "node_id")?),
+                })
+            } else {
+                None
             },
             kind,
-            replacement_bytes: take_bytes(&mut fields, "replacement_bytes")?,
+            replacement_bytes: if anchored {
+                take_bytes(&mut fields, "replacement_bytes")?
+            } else {
+                Vec::new()
+            },
             application_input_bytes: if projected {
                 Some(take_bytes(&mut fields, "application_input_bytes")?)
             } else {
@@ -3448,13 +3776,13 @@ impl EchoOperationInvocationV1 {
 
 /// Runtime-owner invocation policy, separate from authored invocation bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EchoOperationInvocationAdmissionPolicyV1 {
+pub struct EchoOperationInvocationAdmissionPolicy {
     authority_profile_identity: Hash,
     authority_grant_identity: Hash,
     maximum_delegated_budget: EchoOperationBudgetV1,
 }
 
-impl EchoOperationInvocationAdmissionPolicyV1 {
+impl EchoOperationInvocationAdmissionPolicy {
     /// Creates one independently supplied invocation policy.
     #[must_use]
     pub const fn new(
@@ -3481,11 +3809,13 @@ impl EchoOperationInvocationAdmissionPolicyV1 {
 
 /// Stable invocation-admission refusal categories.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EchoOperationInvocationAdmissionErrorKindV1 {
+pub enum EchoOperationInvocationAdmissionErrorKind {
     /// Invocation bytes were malformed or noncanonical.
     MalformedInvocation,
     /// No admitted executable operation package is installed under the claimed id.
     OperationUnavailable,
+    /// The selected program has no scheduler execution implementation yet.
+    ExecutionUnavailable,
     /// The invocation's public operation coordinate disagrees with the package.
     OperationCoordinateMismatch,
     /// The invocation schema does not match the installed program profile.
@@ -3505,33 +3835,42 @@ pub enum EchoOperationInvocationAdmissionErrorKindV1 {
 /// One structured invocation-admission refusal.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error("{kind:?}: {detail}")]
-pub struct EchoOperationInvocationAdmissionErrorV1 {
-    kind: EchoOperationInvocationAdmissionErrorKindV1,
+pub struct EchoOperationInvocationAdmissionError {
+    kind: EchoOperationInvocationAdmissionErrorKind,
     detail: String,
 }
 
-impl EchoOperationInvocationAdmissionErrorV1 {
+impl EchoOperationInvocationAdmissionError {
     /// Returns the stable refusal category.
     #[must_use]
-    pub const fn kind(&self) -> EchoOperationInvocationAdmissionErrorKindV1 {
+    pub const fn kind(&self) -> EchoOperationInvocationAdmissionErrorKind {
         self.kind
     }
 }
 
 /// Opaque evidence that Echo admitted an installed, basis-bearing invocation.
 #[derive(Clone, Debug)]
-pub struct AdmittedEchoOperationInvocationV1 {
-    invocation: EchoOperationInvocationV1,
+pub struct AdmittedEchoOperationInvocation {
+    invocation: EchoOperationInvocation,
     invocation_id: EchoOperationInvocationIdV1,
     canonical_invocation_bytes: Vec<u8>,
     admission_policy_id: Hash,
     admission_id: EchoOperationInvocationAdmissionIdV1,
     installed_operation_id: InstalledEchoOperationIdV1,
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
-    admission_policy: EchoOperationInvocationAdmissionPolicyV1,
+    admission_policy: EchoOperationInvocationAdmissionPolicy,
 }
 
-impl AdmittedEchoOperationInvocationV1 {
+impl AdmittedEchoOperationInvocation {
+    pub(crate) fn is_owned_by(&self, authority: &EchoOperationEvaluationAuthorityV1) -> bool {
+        self.evaluation_authority.same_owner(authority)
+    }
+    /// The invocation bound to this runtime owner's admission evidence.
+    #[must_use]
+    pub const fn invocation(&self) -> &EchoOperationInvocation {
+        &self.invocation
+    }
+
     pub(crate) const fn package_id(&self) -> EchoOperationPackageIdV1 {
         self.invocation.package_id
     }
@@ -3540,7 +3879,7 @@ impl AdmittedEchoOperationInvocationV1 {
         self.invocation.evaluation_basis
     }
 
-    pub(crate) const fn scope(&self) -> NodeKey {
+    pub(crate) const fn scope(&self) -> Option<NodeKey> {
         self.invocation.node
     }
 
@@ -3554,18 +3893,18 @@ impl AdmittedEchoOperationInvocationV1 {
 }
 
 pub(crate) fn admit_invocation_v1(
-    installed: Option<&InstalledEchoOperationV1>,
-    policy: EchoOperationInvocationAdmissionPolicyV1,
+    installed: Option<&InstalledEchoOperation>,
+    policy: EchoOperationInvocationAdmissionPolicy,
     canonical_invocation_bytes: &[u8],
     current_basis: EchoOperationEvaluationBasisV1,
     current_state: &WorldlineState,
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
-) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+) -> Result<AdmittedEchoOperationInvocation, EchoOperationInvocationAdmissionError> {
     let (invocation, installed) =
         admit_invocation_static_v1(installed, policy, canonical_invocation_bytes)?;
     if invocation.evaluation_basis != current_basis {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            EchoOperationInvocationAdmissionErrorKind::BasisMismatch,
             "invocation does not name the current exact parent basis",
         ));
     }
@@ -3576,7 +3915,7 @@ pub(crate) fn admit_invocation_v1(
         != installed.application_basis_schema_identity
     {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            EchoOperationInvocationAdmissionErrorKind::BasisMismatch,
             "invocation application-basis schema differs from installed package",
         ));
     }
@@ -3584,7 +3923,7 @@ pub(crate) fn admit_invocation_v1(
         current_application_basis(installed, &invocation, current_state)?;
     if invocation.evaluation_basis.application_basis != current_application_basis {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            EchoOperationInvocationAdmissionErrorKind::BasisMismatch,
             "invocation application basis differs from Echo's current graph proposition",
         ));
     }
@@ -3605,13 +3944,19 @@ pub(crate) fn admit_invocation_v1(
 /// earlier basis reach the evaluator and receive a typed `BasisChanged`
 /// obstruction instead of failing the host admission loop.
 pub(crate) fn admit_action_invocation_v1(
-    installed: Option<&InstalledEchoOperationV1>,
-    policy: EchoOperationInvocationAdmissionPolicyV1,
+    installed: Option<&InstalledEchoOperation>,
+    policy: EchoOperationInvocationAdmissionPolicy,
     canonical_invocation_bytes: &[u8],
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
-) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+) -> Result<AdmittedEchoOperationInvocation, EchoOperationInvocationAdmissionError> {
     let (invocation, installed) =
         admit_invocation_static_v1(installed, policy, canonical_invocation_bytes)?;
+    if invocation.node.is_none() {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKind::ExecutionUnavailable,
+            "authored-effect Action execution is not implemented",
+        ));
+    }
     if invocation
         .evaluation_basis
         .application_basis
@@ -3619,7 +3964,7 @@ pub(crate) fn admit_action_invocation_v1(
         != installed.application_basis_schema_identity
     {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            EchoOperationInvocationAdmissionErrorKind::BasisMismatch,
             "invocation application-basis schema differs from installed package",
         ));
     }
@@ -3633,72 +3978,58 @@ pub(crate) fn admit_action_invocation_v1(
 }
 
 fn admit_invocation_static_v1<'a>(
-    installed: Option<&'a InstalledEchoOperationV1>,
-    policy: EchoOperationInvocationAdmissionPolicyV1,
+    installed: Option<&'a InstalledEchoOperation>,
+    policy: EchoOperationInvocationAdmissionPolicy,
     canonical_invocation_bytes: &[u8],
 ) -> Result<
-    (EchoOperationInvocationV1, &'a InstalledEchoOperationV1),
-    EchoOperationInvocationAdmissionErrorV1,
+    (EchoOperationInvocation, &'a InstalledEchoOperation),
+    EchoOperationInvocationAdmissionError,
 > {
-    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+    let invocation = EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes)
         .map_err(|error| {
             invocation_admission_error(
-                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                EchoOperationInvocationAdmissionErrorKind::MalformedInvocation,
                 error.to_string(),
             )
         })?;
     let installed = installed.ok_or_else(|| {
         invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable,
+            EchoOperationInvocationAdmissionErrorKind::OperationUnavailable,
             "claimed executable operation package is not installed",
         )
     })?;
     if invocation.operation_coordinate != *installed.operation_coordinate {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::OperationCoordinateMismatch,
+            EchoOperationInvocationAdmissionErrorKind::OperationCoordinateMismatch,
             "invocation operation coordinate differs from installed package",
         ));
     }
     if !installed.program.accepts_invocation_kind(invocation.kind) {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::OperationProfileMismatch,
+            EchoOperationInvocationAdmissionErrorKind::OperationProfileMismatch,
             "invocation schema differs from the installed program profile",
         ));
     }
-    match (
-        installed.application_result_projection.as_deref(),
-        invocation.application_input_bytes.as_deref(),
-    ) {
-        (Some(projection), Some(application_input_bytes)) => projection
-            .validate_application_input_binding(
-                application_input_bytes,
-                invocation.node,
-                &invocation.replacement_bytes,
-                invocation.kind,
+    invocation
+        .validate_input_contract(
+            &installed.program,
+            installed.application_result_projection.as_deref(),
+        )
+        .map_err(|error| {
+            invocation_admission_error(
+                EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch,
+                error.to_string(),
             )
-            .map_err(|error| {
-                invocation_admission_error(
-                    EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch,
-                    error.to_string(),
-                )
-            })?,
-        (None, None) => {}
-        _ => {
-            return Err(invocation_admission_error(
-                EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch,
-                "projected packages require projected invocations and legacy packages forbid them",
-            ))
-        }
-    }
+        })?;
     if policy.authority_profile_identity != installed.authority_profile_identity {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::AuthorityProfileMismatch,
+            EchoOperationInvocationAdmissionErrorKind::AuthorityProfileMismatch,
             "runtime authority profile differs from installed package",
         ));
     }
     if invocation.authority_grant_identity != policy.authority_grant_identity {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::AuthorityGrantMismatch,
+            EchoOperationInvocationAdmissionErrorKind::AuthorityGrantMismatch,
             "invocation authority grant was not admitted by runtime policy",
         ));
     }
@@ -3714,7 +4045,7 @@ fn admit_invocation_static_v1<'a>(
             .fits_within(invocation.delegated_budget)
     {
         return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+            EchoOperationInvocationAdmissionErrorKind::BudgetExceeded,
             "delegated budget is below the program minimum or exceeds an admitted ceiling",
         ));
     }
@@ -3722,12 +4053,12 @@ fn admit_invocation_static_v1<'a>(
 }
 
 fn build_admitted_invocation_v1(
-    invocation: EchoOperationInvocationV1,
-    installed: &InstalledEchoOperationV1,
-    policy: EchoOperationInvocationAdmissionPolicyV1,
+    invocation: EchoOperationInvocation,
+    installed: &InstalledEchoOperation,
+    policy: EchoOperationInvocationAdmissionPolicy,
     canonical_invocation_bytes: &[u8],
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
-) -> AdmittedEchoOperationInvocationV1 {
+) -> AdmittedEchoOperationInvocation {
     let invocation_id = EchoOperationInvocationIdV1(domain_hash(
         INVOCATION_ID_DOMAIN,
         canonical_invocation_bytes,
@@ -3735,7 +4066,7 @@ fn build_admitted_invocation_v1(
     let admission_policy_id = policy.identity();
     let installed_operation_id = installed.installed_operation_id;
     let evaluation_basis_id = invocation.evaluation_basis.identity();
-    AdmittedEchoOperationInvocationV1 {
+    AdmittedEchoOperationInvocation {
         invocation,
         invocation_id,
         canonical_invocation_bytes: canonical_invocation_bytes.to_vec(),
@@ -3753,26 +4084,38 @@ fn build_admitted_invocation_v1(
 }
 
 fn current_application_basis(
-    installed: &InstalledEchoOperationV1,
-    invocation: &EchoOperationInvocationV1,
+    installed: &InstalledEchoOperation,
+    invocation: &EchoOperationInvocation,
     state: &WorldlineState,
-) -> Result<EchoOperationApplicationBasisV1, EchoOperationInvocationAdmissionErrorV1> {
+) -> Result<EchoOperationApplicationBasisV1, EchoOperationInvocationAdmissionError> {
     let basis_mismatch = |detail| {
         invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            EchoOperationInvocationAdmissionErrorKind::BasisMismatch,
             detail,
         )
     };
     match installed.program {
-        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. } => {
+        #[cfg(feature = "trusted_runtime")]
+        EchoOperationProgram::EdictEffect(_) => invocation
+            .effect_application_basis()
+            .map_err(|_| basis_mismatch("effect application input is absent")),
+        #[cfg(not(feature = "trusted_runtime"))]
+        EchoOperationProgram::EdictEffect(_) => Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKind::ExecutionUnavailable,
+            "effect publication validation grants no invocation authority",
+        )),
+        EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet { .. } => {
+            let node = invocation
+                .node
+                .ok_or_else(|| basis_mismatch("fixed invocation has no anchor"))?;
             let store = state
-                .store(&invocation.node.warp_id)
+                .store(&node.warp_id)
                 .ok_or_else(|| basis_mismatch("application-basis warp is unavailable"))?;
             store
-                .node(&invocation.node.local_id)
+                .node(&node.local_id)
                 .ok_or_else(|| basis_mismatch("application-basis node is unavailable"))?;
             let attachment = store
-                .node_attachment(&invocation.node.local_id)
+                .node_attachment(&node.local_id)
                 .ok_or_else(|| basis_mismatch("application-basis attachment is unavailable"))?;
             let AttachmentValue::Atom(atom) = attachment else {
                 return Err(basis_mismatch(
@@ -3781,39 +4124,41 @@ fn current_application_basis(
             };
             let atom_len = u64::try_from(atom.bytes.len()).map_err(|_| {
                 invocation_admission_error(
-                    EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                    EchoOperationInvocationAdmissionErrorKind::BudgetExceeded,
                     "application-basis attachment length exceeds the v1 budget domain",
                 )
             })?;
             let required_read_bytes = 64_u64.checked_add(atom_len).ok_or_else(|| {
                 invocation_admission_error(
-                    EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                    EchoOperationInvocationAdmissionErrorKind::BudgetExceeded,
                     "application-basis read requirement overflowed",
                 )
             })?;
             if required_read_bytes > invocation.delegated_budget.read_bytes {
                 return Err(invocation_admission_error(
-                    EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                    EchoOperationInvocationAdmissionErrorKind::BudgetExceeded,
                     "application-basis corroboration exceeds the delegated read budget",
                 ));
             }
             Ok(echo_operation_anchored_node_application_basis_v1(
-                invocation.node,
+                node,
                 atom.type_id,
                 &atom.bytes,
             ))
         }
-        EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+        EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+            let node = invocation
+                .node
+                .ok_or_else(|| basis_mismatch("fixed invocation has no anchor"))?;
             let store = state
-                .store(&invocation.node.warp_id)
+                .store(&node.warp_id)
                 .ok_or_else(|| basis_mismatch("application-basis warp is unavailable"))?;
             let occupancy = EchoOperationAnchoredNodeOccupancyV1::from_presence(
-                store.node(&invocation.node.local_id).is_some(),
-                store.node_attachment(&invocation.node.local_id).is_some(),
+                store.node(&node.local_id).is_some(),
+                store.node_attachment(&node.local_id).is_some(),
             );
             Ok(echo_operation_anchored_node_creation_application_basis_v1(
-                invocation.node,
-                occupancy,
+                node, occupancy,
             ))
         }
     }
@@ -3843,22 +4188,25 @@ fn current_application_basis(
 /// Anything else keeps the whole-frontier rule, and the caller obstructs it
 /// with `BasisChanged`. `state` must be the state the Action commits onto.
 pub(crate) fn scoped_action_basis_holds_v1(
-    installed: &InstalledEchoOperationV1,
-    invocation: &EchoOperationInvocationV1,
+    installed: &InstalledEchoOperation,
+    invocation: &EchoOperationInvocation,
     current_head: WriterHeadKey,
     current_tick: WorldlineTick,
     state: &WorldlineState,
 ) -> bool {
+    let Some(node) = invocation.node else {
+        return false;
+    };
     let origin = &invocation.evaluation_basis;
     let supported = matches!(
         installed.program,
-        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. }
-            | EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. }
+        EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet { .. }
+            | EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent { .. }
     );
     supported
         && origin.writer_head == current_head
         && origin.worldline_tick < current_tick
-        && invocation.node.warp_id == state.root().warp_id
+        && node.warp_id == state.root().warp_id
         && invocation.observation.as_ref().is_none_or(|observation| {
             observation.basis().worldline_tick() <= origin.worldline_tick
                 && observation
@@ -3937,7 +4285,7 @@ pub(crate) fn extend_echo_operation_written_slots_v1(
 /// history per Action.
 pub(crate) fn echo_operation_origin_corroborated_v1(
     provenance: &crate::provenance_store::ProvenanceService,
-    invocation: &EchoOperationInvocationV1,
+    invocation: &EchoOperationInvocation,
     written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
 ) -> bool {
     use crate::provenance_store::ProvenanceStore as _;
@@ -3970,7 +4318,7 @@ pub(crate) fn echo_operation_origin_corroborated_v1(
             ))
     };
     retained
-        && untouched(invocation.node)
+        && invocation.node.is_some_and(untouched)
         && invocation
             .observation
             .as_ref()
@@ -3980,7 +4328,7 @@ pub(crate) fn echo_operation_origin_corroborated_v1(
 /// [`echo_operation_origin_corroborated_v1`] for an admitted Action.
 pub(crate) fn admitted_origin_corroborated_v1(
     provenance: &crate::provenance_store::ProvenanceService,
-    admitted: &AdmittedEchoOperationInvocationV1,
+    admitted: &AdmittedEchoOperationInvocation,
     written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
 ) -> bool {
     echo_operation_origin_corroborated_v1(provenance, &admitted.invocation, written)
@@ -3993,20 +4341,20 @@ pub(crate) fn recovered_origin_corroborated_v1(
     canonical_invocation_bytes: &[u8],
     written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
 ) -> bool {
-    EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
+    EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
         |invocation| echo_operation_origin_corroborated_v1(provenance, &invocation, written),
     )
 }
 
 /// [`scoped_action_basis_holds_v1`] for a recovered canonical invocation.
 pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     current_head: WriterHeadKey,
     current_tick: WorldlineTick,
     state: &WorldlineState,
 ) -> bool {
-    EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
+    EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
         |invocation| {
             scoped_action_basis_holds_v1(installed, &invocation, current_head, current_tick, state)
         },
@@ -4014,14 +4362,14 @@ pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
 }
 
 pub(crate) fn action_application_basis_matches_state_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     state: &WorldlineState,
-) -> Result<bool, EchoOperationInvocationAdmissionErrorV1> {
-    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+) -> Result<bool, EchoOperationInvocationAdmissionError> {
+    let invocation = EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes)
         .map_err(|error| {
             invocation_admission_error(
-                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                EchoOperationInvocationAdmissionErrorKind::MalformedInvocation,
                 error.to_string(),
             )
         })?;
@@ -4030,18 +4378,17 @@ pub(crate) fn action_application_basis_matches_state_v1(
 }
 
 pub(crate) fn action_admission_evidence_matches_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
     expected_policy_id: Hash,
     expected_admission_id: EchoOperationInvocationAdmissionIdV1,
 ) -> bool {
-    let Ok(invocation) =
-        EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+    let Ok(invocation) = EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes)
     else {
         return false;
     };
-    let policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let policy = EchoOperationInvocationAdmissionPolicy::new(
         installed.authority_profile_identity,
         invocation.authority_grant_identity,
         maximum_budget,
@@ -4073,7 +4420,7 @@ pub(crate) fn action_preparation_identity_matches_v1(
 }
 
 pub(crate) fn reconstruct_action_evaluation_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
     expected_policy_id: Hash,
@@ -4091,8 +4438,8 @@ pub(crate) fn reconstruct_action_evaluation_v1(
         return None;
     }
     let invocation =
-        EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).ok()?;
-    let policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes).ok()?;
+    let policy = EchoOperationInvocationAdmissionPolicy::new(
         installed.authority_profile_identity,
         invocation.authority_grant_identity,
         maximum_budget,
@@ -4120,7 +4467,7 @@ pub(crate) fn reconstruct_action_evaluation_v1(
 }
 
 pub(crate) fn reconstruct_action_preparation_v1(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
     expected_policy_id: Hash,
@@ -4146,12 +4493,12 @@ pub(crate) fn decode_invocation_route_v1(
     canonical_invocation_bytes: &[u8],
 ) -> Result<
     (EchoOperationPackageIdV1, EchoOperationEvaluationBasisV1),
-    EchoOperationInvocationAdmissionErrorV1,
+    EchoOperationInvocationAdmissionError,
 > {
-    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+    let invocation = EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes)
         .map_err(|error| {
             invocation_admission_error(
-                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                EchoOperationInvocationAdmissionErrorKind::MalformedInvocation,
                 error.to_string(),
             )
         })?;
@@ -4168,17 +4515,22 @@ pub(crate) struct EchoOperationActionInvocationEvidenceV1 {
 
 pub(crate) fn inspect_action_invocation_v1(
     canonical_invocation_bytes: &[u8],
-) -> Result<EchoOperationActionInvocationEvidenceV1, EchoOperationInvocationAdmissionErrorV1> {
-    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+) -> Result<EchoOperationActionInvocationEvidenceV1, EchoOperationInvocationAdmissionError> {
+    let invocation = EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes)
         .map_err(|error| {
             invocation_admission_error(
-                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                EchoOperationInvocationAdmissionErrorKind::MalformedInvocation,
                 error.to_string(),
             )
         })?;
     Ok(EchoOperationActionInvocationEvidenceV1 {
         package_id: invocation.package_id,
-        scope: invocation.node,
+        scope: invocation.node.ok_or_else(|| {
+            invocation_admission_error(
+                EchoOperationInvocationAdmissionErrorKind::ExecutionUnavailable,
+                "authored-effect Action execution is not implemented",
+            )
+        })?,
         evaluation_basis: invocation.evaluation_basis,
         invocation_id: EchoOperationInvocationIdV1(domain_hash(
             INVOCATION_ID_DOMAIN,
@@ -4193,15 +4545,15 @@ pub(crate) fn inspect_action_invocation_v1(
 
 pub(crate) fn invocation_runtime_error(
     detail: impl Into<String>,
-) -> EchoOperationInvocationAdmissionErrorV1 {
+) -> EchoOperationInvocationAdmissionError {
     invocation_admission_error(
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch,
         detail,
     )
 }
 
 pub(crate) fn runtime_basis_obstruction(
-    admitted: AdmittedEchoOperationInvocationV1,
+    admitted: AdmittedEchoOperationInvocation,
 ) -> EchoOperationPreparationV1 {
     EchoOperationPreparationV1::Obstructed(EchoOperationObstructionV1 {
         kind: EchoOperationObstructionKindV1::BasisChanged,
@@ -4946,8 +5298,9 @@ pub enum EchoOperationPreparationV1 {
 /// Complete private evaluation, bound to all substitution and resource evidence.
 #[derive(Clone, Debug)]
 pub struct PreparedEchoOperationV1 {
-    installed: InstalledEchoOperationV1,
-    invocation: EchoOperationInvocationV1,
+    scope: NodeKey,
+    installed: InstalledEchoOperation,
+    invocation: EchoOperationInvocation,
     invocation_id: EchoOperationInvocationIdV1,
     canonical_invocation_bytes: Vec<u8>,
     invocation_admission_policy_id: Hash,
@@ -4971,7 +5324,7 @@ impl PreparedEchoOperationV1 {
     /// Returns the installed operation this preparation evaluated. It shares
     /// the installed package's bytes and projection with the registry.
     #[must_use]
-    pub const fn installed(&self) -> &InstalledEchoOperationV1 {
+    pub const fn installed(&self) -> &InstalledEchoOperation {
         &self.installed
     }
 
@@ -5083,8 +5436,8 @@ impl PreparedEchoOperationV1 {
 }
 
 pub(crate) fn prepare_operation_v1(
-    installed: Option<&InstalledEchoOperationV1>,
-    admitted: AdmittedEchoOperationInvocationV1,
+    installed: Option<&InstalledEchoOperation>,
+    admitted: AdmittedEchoOperationInvocation,
     current_basis: EchoOperationEvaluationBasisV1,
     state: &WorldlineState,
     policy_id: u32,
@@ -5139,12 +5492,12 @@ pub(crate) fn prepare_operation_v1(
     let (required_node_type, required_attachment_type, max_replacement_bytes, mode) =
         match (&installed.program, admitted.invocation.kind) {
             (
-                EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet {
+                EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet {
                     required_node_type,
                     required_attachment_type,
                     max_replacement_bytes,
                 },
-                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
                     expected_value_digest,
                 },
             ) => (
@@ -5156,12 +5509,12 @@ pub(crate) fn prepare_operation_v1(
                 },
             ),
             (
-                EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent {
+                EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent {
                     required_node_type,
                     required_attachment_type,
                     max_replacement_bytes,
                 },
-                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
+                EchoOperationInvocationKind::AnchoredNodeAttachmentCreateIfAbsent,
             ) => (
                 *required_node_type,
                 *required_attachment_type,
@@ -5176,7 +5529,9 @@ pub(crate) fn prepare_operation_v1(
     if replacement_len > max_replacement_bytes {
         return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
     }
-    let node = admitted.invocation.node;
+    let Some(node) = admitted.invocation.node else {
+        return obstruction(EchoOperationObstructionKindV1::OperationUnavailable);
+    };
     let mut actual_footprint = Footprint::default();
     let mut budget_meter = EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
     if let Some(observation) = &admitted.invocation.observation {
@@ -5354,7 +5709,7 @@ pub(crate) fn prepare_operation_v1(
     };
     let result_id = operation_result_id(
         installed,
-        &admitted.invocation,
+        node,
         mode,
         replacement_value_digest,
         patch.digest(),
@@ -5383,6 +5738,7 @@ pub(crate) fn prepare_operation_v1(
     // receipt records that parent in its Tick fields.
     let origin_basis = admitted.invocation.evaluation_basis;
     EchoOperationPreparationV1::Prepared(Box::new(PreparedEchoOperationV1 {
+        scope: node,
         installed: installed.clone(),
         invocation: admitted.invocation,
         invocation_id,
@@ -5426,7 +5782,7 @@ pub struct EchoOperationReceiptV1 {
     installed_operation_id: InstalledEchoOperationIdV1,
     operation_coordinate: String,
     semantic_identity: Hash,
-    lawpack_identity: Hash,
+    lawpack_identity: Option<Hash>,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
     intrinsic_profile_identity: Hash,
@@ -5745,7 +6101,11 @@ impl EchoOperationReceiptV1 {
                 hash_value(self.invocation_bytes_digest),
             ),
             ("invocation_id", hash_value(self.invocation_id.as_hash())),
-            ("lawpack_identity", hash_value(self.lawpack_identity)),
+            (
+                "lawpack_identity",
+                self.lawpack_identity
+                    .map_or(CanonicalValueV1::Null, hash_value),
+            ),
             (
                 "operation_coordinate",
                 text_value(&self.operation_coordinate),
@@ -5939,7 +6299,7 @@ impl EchoOperationReceiptV1 {
             )?),
             operation_coordinate: take_text(&mut fields, "operation_coordinate")?,
             semantic_identity: take_hash(&mut fields, "semantic_identity")?,
-            lawpack_identity: take_hash(&mut fields, "lawpack_identity")?,
+            lawpack_identity: take_optional_hash(&mut fields, "lawpack_identity")?,
             target_profile_identity: take_hash(&mut fields, "target_profile_identity")?,
             interpreter_profile_identity: take_hash(&mut fields, "interpreter_profile_identity")?,
             intrinsic_profile_identity: take_hash(&mut fields, "intrinsic_profile_identity")?,
@@ -6055,7 +6415,7 @@ impl EchoOperationReceiptV1 {
                 "operation receipt invocation-admission identity mismatch",
             ));
         }
-        let retained_invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        let retained_invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
             receipt.authority_profile_identity,
             receipt.authority_grant_identity,
             receipt.invocation_admission_maximum_budget,
@@ -6250,7 +6610,7 @@ pub(crate) fn recover_committed_execution_receipt_v1(
 
 pub(crate) fn validate_receipt_installation_v1(
     receipt: &EchoOperationReceiptV1,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
 ) -> Result<(), EchoOperationArtifactErrorV1> {
     let package_evidence_matches = receipt.package_id == installed.package_id
         && receipt.package_admission_id == installed.package_admission_id
@@ -6305,10 +6665,10 @@ pub(crate) fn validate_receipt_installation_v1(
 
 pub(crate) fn validate_receipt_application_result_v1(
     receipt: &EchoOperationReceiptV1,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     canonical_invocation_bytes: &[u8],
 ) -> Result<(), EchoOperationArtifactErrorV1> {
-    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)?;
+    let invocation = EchoOperationInvocation::from_canonical_bytes(canonical_invocation_bytes)?;
     let result_matches = match (
         installed.application_result_projection.as_deref(),
         receipt.prepared_application_result.as_ref(),
@@ -6955,7 +7315,7 @@ pub(crate) fn commit_prepared_to_state(
         .checked_add(1)
         .ok_or(EchoOperationCommitErrorV1::TransactionCoordinateOverflow)?;
     let tx = TxId::from_raw(tx_raw);
-    let scope = prepared.invocation.node;
+    let scope = prepared.scope;
     let rule_id = prepared.installed.installed_operation_id.as_hash();
     let tick_receipt = TickReceipt::new(
         tx,
@@ -7111,7 +7471,15 @@ fn receipt_digest(receipt: &EchoOperationReceiptV1) -> Hash {
     hasher.update(&receipt.installed_operation_id.as_hash());
     hash_len_bytes(&mut hasher, receipt.operation_coordinate.as_bytes());
     hasher.update(&receipt.semantic_identity);
-    hasher.update(&receipt.lawpack_identity);
+    match receipt.lawpack_identity {
+        Some(identity) => {
+            hasher.update(&[1]);
+            hasher.update(&identity);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
     hasher.update(&receipt.target_profile_identity);
     hasher.update(&receipt.interpreter_profile_identity);
     hasher.update(&receipt.intrinsic_profile_identity);
@@ -7290,7 +7658,7 @@ fn package_admission_id(
     EchoOperationPackageAdmissionIdV1(hasher.finalize().into())
 }
 
-fn installed_operation_id(installed: &InstalledEchoOperationV1) -> InstalledEchoOperationIdV1 {
+fn installed_operation_id(installed: &InstalledEchoOperation) -> InstalledEchoOperationIdV1 {
     let mut hasher = Hasher::new();
     hasher.update(INSTALLATION_ID_DOMAIN);
     hasher.update(&installed.package_id.as_hash());
@@ -7317,8 +7685,8 @@ fn invocation_admission_id(
 }
 
 fn operation_result_id(
-    installed: &InstalledEchoOperationV1,
-    invocation: &EchoOperationInvocationV1,
+    installed: &InstalledEchoOperation,
+    node: NodeKey,
     mode: AnchoredNodeOperationModeV1,
     replacement_value_digest: Hash,
     patch_digest: Hash,
@@ -7334,8 +7702,8 @@ fn operation_result_id(
             hasher.update(RESULT_ID_DOMAIN);
             hasher.update(&installed.installed_operation_id.as_hash());
             hasher.update(&profile_digest(RESULT_SCHEMA));
-            hasher.update(invocation.node.warp_id.as_bytes());
-            hasher.update(invocation.node.local_id.as_bytes());
+            hasher.update(node.warp_id.as_bytes());
+            hasher.update(node.local_id.as_bytes());
             hasher.update(&expected_value_digest);
         }
         AnchoredNodeOperationModeV1::CreateIfAbsent => {
@@ -7346,8 +7714,8 @@ fn operation_result_id(
             });
             hasher.update(&installed.installed_operation_id.as_hash());
             hasher.update(&profile_digest(CREATE_RESULT_SCHEMA));
-            hasher.update(invocation.node.warp_id.as_bytes());
-            hasher.update(invocation.node.local_id.as_bytes());
+            hasher.update(node.warp_id.as_bytes());
+            hasher.update(node.local_id.as_bytes());
             hasher.update(CREATE_RESULT_ABSENCE_PROPOSITION_DOMAIN);
         }
     }
@@ -7658,6 +8026,15 @@ fn hash_port_set<'a>(
     }
 }
 
+pub(crate) fn program_identity_bytes(bytes: &[u8]) -> Hash {
+    domain_hash(PROGRAM_ID_DOMAIN, bytes)
+}
+pub(crate) fn effect_input_basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
+    EchoOperationApplicationBasisV1::new(
+        profile_digest("echo.operation.basis.edict-effect/v1"),
+        domain_hash(b"echo:operation-edict-effect-basis:v1\0", input),
+    )
+}
 fn domain_hash(domain: &[u8], bytes: &[u8]) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(domain);
@@ -7681,7 +8058,7 @@ fn hash_budget(hasher: &mut Hasher, budget: EchoOperationBudgetV1) {
     hasher.update(&budget.write_bytes.to_le_bytes());
 }
 
-fn map_value<const N: usize>(fields: [(&str, CanonicalValueV1); N]) -> CanonicalValueV1 {
+pub(crate) fn map_value<const N: usize>(fields: [(&str, CanonicalValueV1); N]) -> CanonicalValueV1 {
     CanonicalValueV1::Map(
         fields
             .into_iter()
@@ -7836,15 +8213,15 @@ fn artifact_error(
     }
 }
 
-fn invalid_structure(detail: impl Into<String>) -> EchoOperationArtifactErrorV1 {
+pub(crate) fn invalid_structure(detail: impl Into<String>) -> EchoOperationArtifactErrorV1 {
     artifact_error(EchoOperationArtifactErrorKindV1::InvalidStructure, detail)
 }
 
-fn admission_error(
-    kind: EchoOperationAdmissionErrorKindV1,
+pub(crate) fn admission_error(
+    kind: EchoOperationAdmissionErrorKind,
     detail: impl Into<String>,
-) -> EchoOperationAdmissionErrorV1 {
-    EchoOperationAdmissionErrorV1 {
+) -> EchoOperationAdmissionError {
+    EchoOperationAdmissionError {
         kind,
         detail: detail.into(),
         artifact: None,
@@ -7852,16 +8229,16 @@ fn admission_error(
 }
 
 fn invocation_admission_error(
-    kind: EchoOperationInvocationAdmissionErrorKindV1,
+    kind: EchoOperationInvocationAdmissionErrorKind,
     detail: impl Into<String>,
-) -> EchoOperationInvocationAdmissionErrorV1 {
-    EchoOperationInvocationAdmissionErrorV1 {
+) -> EchoOperationInvocationAdmissionError {
+    EchoOperationInvocationAdmissionError {
         kind,
         detail: detail.into(),
     }
 }
 
-fn installation_error(
+pub(crate) fn installation_error(
     kind: EchoOperationInstallationErrorKindV1,
     detail: impl Into<String>,
 ) -> EchoOperationInstallationErrorV1 {
@@ -7908,11 +8285,11 @@ mod tests {
         ])
     }
 
-    fn projection_test_package(operation_coordinate: &str) -> ExecutableOperationPackageV1 {
-        ExecutableOperationPackageV1::new(
+    fn projection_test_package(operation_coordinate: &str) -> ExecutableOperationPackage {
+        ExecutableOperationPackage::new(
             operation_coordinate,
             "echo.fixture.ProjectionBinding.Obstruction/v1",
-            EchoOperationSemanticClosureV1::new(
+            EchoOperationSemanticClosure::new(
                 digest(171),
                 digest(172),
                 digest(173),
@@ -7925,7 +8302,7 @@ mod tests {
             echo_operation_create_if_absent_target_profile_identity_v1(),
             digest(177),
             EchoOperationBudgetV1::new(8, 1_024, 1_024),
-            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            EchoOperationProgram::anchored_node_attachment_create_if_absent(
                 crate::make_type_id("projection-binding-node"),
                 crate::make_type_id("projection-binding-atom"),
                 1_024,
@@ -7985,11 +8362,11 @@ mod tests {
     pub(super) fn projected_create_fixture(
         max_output_bytes: u64,
     ) -> (
-        InstalledEchoOperationV1,
+        InstalledEchoOperation,
         WorldlineState,
         EchoOperationEvaluationBasisV1,
-        EchoOperationInvocationAdmissionPolicyV1,
-        EchoOperationInvocationV1,
+        EchoOperationInvocationAdmissionPolicy,
+        EchoOperationInvocation,
         Vec<u8>,
     ) {
         projected_create_fixture_with_key(max_output_bytes, "fixture-key", None)
@@ -8000,11 +8377,11 @@ mod tests {
         key: &str,
         key_bound: Option<ApplicationInputKeyBound>,
     ) -> (
-        InstalledEchoOperationV1,
+        InstalledEchoOperation,
         WorldlineState,
         EchoOperationEvaluationBasisV1,
-        EchoOperationInvocationAdmissionPolicyV1,
-        EchoOperationInvocationV1,
+        EchoOperationInvocationAdmissionPolicy,
+        EchoOperationInvocation,
         Vec<u8>,
     ) {
         let operation_coordinate = "echo.fixture.ProjectedCreate.v1";
@@ -8053,10 +8430,10 @@ mod tests {
         let runtime_expression_bytes =
             encode_canonical_cbor_v1(&runtime_expression).expect("runtime expression encodes");
         let authority_profile = digest(201);
-        let mut package = ExecutableOperationPackageV1::new(
+        let mut package = ExecutableOperationPackage::new(
             operation_coordinate,
             "echo.fixture.ProjectedCreate.Obstruction/v1",
-            EchoOperationSemanticClosureV1::new(
+            EchoOperationSemanticClosure::new(
                 digest(202),
                 digest(203),
                 digest(204),
@@ -8069,7 +8446,7 @@ mod tests {
             echo_operation_create_if_absent_target_profile_identity_v1(),
             authority_profile,
             EchoOperationBudgetV1::new(8, 1_024, 1_024),
-            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            EchoOperationProgram::anchored_node_attachment_create_if_absent(
                 crate::make_type_id("projected-created-node"),
                 crate::make_type_id("projected-created-atom"),
                 1_024,
@@ -8091,9 +8468,9 @@ mod tests {
         let package_bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
-            admit_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    package_id,
+            admit_operation_package(
+                &EchoOperationAdmissionPolicy::exact(
+                    package_id.as_hash(),
                     operation_coordinate,
                     authority_profile,
                     EchoOperationBudgetV1::new(8, 1_024, 1_024),
@@ -8101,8 +8478,7 @@ mod tests {
                 package_bytes,
             )
             .expect("package admits"),
-        )
-        .expect("package installs");
+        );
 
         let warp_id = crate::make_warp_id("projected-create-warp");
         let root_node = crate::make_node_id("projected-create-root");
@@ -8153,7 +8529,7 @@ mod tests {
         );
         let authority_grant = digest(211);
         let invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
                 package_id,
                 operation_coordinate,
                 basis,
@@ -8163,7 +8539,7 @@ mod tests {
                 b"fixture-message".to_vec(),
                 application_input_bytes.clone(),
             );
-        let policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        let policy = EchoOperationInvocationAdmissionPolicy::new(
             authority_profile,
             authority_grant,
             EchoOperationBudgetV1::new(8, 1_024, 1_024),
@@ -8182,18 +8558,21 @@ mod tests {
     fn package_admission_rejects_projection_digest_binding_for_the_wrong_program() {
         let (installed, _, _, _, _, _) = projected_create_fixture(1_024);
         let create =
-            ExecutableOperationPackageV1::from_canonical_bytes(installed.canonical_package_bytes())
+            ExecutableOperationPackage::from_canonical_bytes(installed.canonical_package_bytes())
                 .expect("valid create package");
         for cas in [false, true] {
             let mut package = if cas {
-                ExecutableOperationPackageV1::new(
+                ExecutableOperationPackage::new(
                     create.operation_coordinate.clone(),
-                    create.obstruction_coordinate.clone(),
+                    create
+                        .obstruction_coordinate()
+                        .expect("a fixed-profile package names its obstruction")
+                        .to_owned(),
                     create.semantic_closure.clone(),
                     echo_operation_target_profile_identity_v1(),
                     create.authority_profile_identity,
                     create.budget_ceiling,
-                    EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                    EchoOperationProgram::anchored_node_attachment_compare_and_set(
                         crate::make_type_id("projected-created-node"),
                         crate::make_type_id("projected-created-atom"),
                         1_024,
@@ -8211,14 +8590,14 @@ mod tests {
             package.application_result_projection = Some(projection);
             let valid = package.to_canonical_bytes().expect("valid package encodes");
             let policy_for = |bytes: &[u8]| {
-                EchoOperationAdmissionPolicyV1::exact(
-                    echo_operation_package_id_v1(bytes),
+                EchoOperationAdmissionPolicy::exact(
+                    echo_operation_package_id_v1(bytes).as_hash(),
                     package.operation_coordinate.clone(),
                     package.authority_profile_identity,
                     package.budget_ceiling,
                 )
             };
-            admit_package_v1(&policy_for(&valid), valid.clone())
+            admit_operation_package(&policy_for(&valid), valid.clone())
                 .expect("matching projection admits");
             let CanonicalValueV1::Map(mut fields) =
                 decode_canonical_cbor_v1(&valid).expect("package")
@@ -8240,11 +8619,11 @@ mod tests {
             }
             let invalid = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
                 .expect("invalid package encodes");
-            let error = admit_package_v1(&policy_for(&invalid), invalid)
+            let error = admit_operation_package(&policy_for(&invalid), invalid)
                 .expect_err("program-incompatible projection must refuse before installation");
             assert_eq!(
                 error.kind(),
-                EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+                EchoOperationAdmissionErrorKind::ArtifactInvalid
             );
             assert_eq!(
                 error.artifact().expect("artifact failure").kind(),
@@ -8257,16 +8636,19 @@ mod tests {
     fn package_admission_rejects_empty_or_overlapping_expected_digest_paths() {
         let (installed, _, _, _, _, _) = projected_create_fixture(1_024);
         let create =
-            ExecutableOperationPackageV1::from_canonical_bytes(installed.canonical_package_bytes())
+            ExecutableOperationPackage::from_canonical_bytes(installed.canonical_package_bytes())
                 .expect("valid create package");
-        let mut package = ExecutableOperationPackageV1::new(
+        let mut package = ExecutableOperationPackage::new(
             create.operation_coordinate.clone(),
-            create.obstruction_coordinate.clone(),
+            create
+                .obstruction_coordinate()
+                .expect("a fixed-profile package names its obstruction")
+                .to_owned(),
             create.semantic_closure.clone(),
             echo_operation_target_profile_identity_v1(),
             create.authority_profile_identity,
             create.budget_ceiling,
-            EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+            EchoOperationProgram::anchored_node_attachment_compare_and_set(
                 crate::make_type_id("projected-created-node"),
                 crate::make_type_id("projected-created-atom"),
                 1_024,
@@ -8279,14 +8661,15 @@ mod tests {
         package.application_result_projection = Some(projection);
         let valid = package.to_canonical_bytes().expect("valid package encodes");
         let policy_for = |bytes: &[u8]| {
-            EchoOperationAdmissionPolicyV1::exact(
-                echo_operation_package_id_v1(bytes),
+            EchoOperationAdmissionPolicy::exact(
+                echo_operation_package_id_v1(bytes).as_hash(),
                 package.operation_coordinate.clone(),
                 package.authority_profile_identity,
                 package.budget_ceiling,
             )
         };
-        admit_package_v1(&policy_for(&valid), valid.clone()).expect("disjoint digest path admits");
+        admit_operation_package(&policy_for(&valid), valid.clone())
+            .expect("disjoint digest path admits");
         let inside = |path: &[String]| {
             let mut extended = path.to_vec();
             extended.push("inner".to_owned());
@@ -8313,11 +8696,11 @@ mod tests {
             }
             let invalid = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
                 .expect("invalid package encodes");
-            let error = admit_package_v1(&policy_for(&invalid), invalid)
+            let error = admit_operation_package(&policy_for(&invalid), invalid)
                 .expect_err("an unusable digest path must refuse before installation");
             assert_eq!(
                 error.kind(),
-                EchoOperationAdmissionErrorKindV1::ArtifactInvalid,
+                EchoOperationAdmissionErrorKind::ArtifactInvalid,
                 "{path:?}"
             );
             assert_eq!(
@@ -8331,12 +8714,12 @@ mod tests {
     fn projected_cas_admission_requires_an_expected_digest_binding() {
         let (mut installed, _, _, policy, mut invocation, _) = projected_create_fixture(1_024);
         invocation.delegated_budget = EchoOperationBudgetV1::new(8, 1_024, 1_024);
-        installed.program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        installed.program = EchoOperationProgram::anchored_node_attachment_compare_and_set(
             crate::make_type_id("projected-created-node"),
             crate::make_type_id("projected-created-atom"),
             1_024,
         );
-        invocation.kind = EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+        invocation.kind = EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
             expected_value_digest: digest(212),
         };
         let bytes = invocation.to_canonical_bytes().expect("CAS encodes");
@@ -8344,7 +8727,7 @@ mod tests {
             .expect_err("projected CAS must bind its expected digest");
         assert_eq!(
             error.kind(),
-            EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+            EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
         );
     }
 
@@ -8352,7 +8735,7 @@ mod tests {
     fn projected_cas_admission_rejects_substituted_expected_digest() {
         let (mut installed, _, _, policy, mut invocation, _) = projected_create_fixture(1_024);
         invocation.delegated_budget = EchoOperationBudgetV1::new(8, 1_024, 1_024);
-        installed.program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        installed.program = EchoOperationProgram::anchored_node_attachment_compare_and_set(
             crate::make_type_id("projected-created-node"),
             crate::make_type_id("projected-created-atom"),
             1_024,
@@ -8381,7 +8764,7 @@ mod tests {
             ]))
             .expect("input encodes"),
         );
-        invocation.kind = EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+        invocation.kind = EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
             expected_value_digest: digest(212),
         };
         admit_invocation_static_v1(
@@ -8390,7 +8773,7 @@ mod tests {
             &invocation.to_canonical_bytes().expect("CAS encodes"),
         )
         .expect("exact expected digest admits at the static boundary");
-        invocation.kind = EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+        invocation.kind = EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
             expected_value_digest: digest(213),
         };
         let error = admit_invocation_static_v1(
@@ -8401,21 +8784,21 @@ mod tests {
         .expect_err("substituted expected digest refuses");
         assert_eq!(
             error.kind(),
-            EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+            EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
         );
     }
 
     #[test]
     fn projected_cas_invocation_preserves_application_input_and_identity() {
         let (_, _, _, _, mut invocation, application_input) = projected_create_fixture(1_024);
-        invocation.kind = EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+        invocation.kind = EchoOperationInvocationKind::AnchoredNodeAttachmentCompareAndSet {
             expected_value_digest: digest(212),
         };
         let encoded = invocation
             .to_canonical_bytes()
             .expect("projected CAS encodes");
-        let decoded = EchoOperationInvocationV1::from_canonical_bytes(&encoded)
-            .expect("projected CAS decodes");
+        let decoded =
+            EchoOperationInvocation::from_canonical_bytes(&encoded).expect("projected CAS decodes");
         assert_eq!(decoded.application_input_bytes, Some(application_input));
         assert_eq!(decoded.kind, invocation.kind);
         let projected_id = invocation.identity().expect("projected identity");
@@ -8429,13 +8812,13 @@ mod tests {
     #[test]
     fn projected_invocation_rejects_missing_or_rebound_application_input() {
         let (installed, state, basis, policy, invocation, _) = projected_create_fixture(1_024);
-        let legacy = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        let legacy = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
             invocation.package_id,
             invocation.operation_coordinate.clone(),
             basis,
             invocation.authority_grant_identity,
             invocation.delegated_budget,
-            invocation.node,
+            invocation.node.expect("anchored fixture"),
             invocation.replacement_bytes.clone(),
         );
         let authority = EchoOperationEvaluationAuthorityV1::new();
@@ -8452,7 +8835,7 @@ mod tests {
         .expect_err("a projected package must reject an invocation without application input");
         assert_eq!(
             error.kind(),
-            EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+            EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
         );
 
         let rebound_input = encode_canonical_cbor_v1(&map_value([
@@ -8461,13 +8844,13 @@ mod tests {
         ]))
         .expect("rebound input encodes");
         let rebound =
-            EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
                 invocation.package_id,
                 invocation.operation_coordinate,
                 basis,
                 invocation.authority_grant_identity,
                 invocation.delegated_budget,
-                invocation.node,
+                invocation.node.expect("anchored fixture"),
                 invocation.replacement_bytes,
                 rebound_input,
             );
@@ -8484,7 +8867,7 @@ mod tests {
         .expect_err("application input cannot retarget the graph consequence");
         assert_eq!(
             error.kind(),
-            EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+            EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
         );
     }
 
@@ -8940,10 +9323,10 @@ mod tests {
 
         let operation_coordinate = "echo.fixture.DescendedCreateIfAbsent.v1";
         let authority_profile = digest(40);
-        let package = ExecutableOperationPackageV1::new(
+        let package = ExecutableOperationPackage::new(
             operation_coordinate,
             "echo.fixture.DescendedCreateIfAbsent.AlreadyExists/v1",
-            EchoOperationSemanticClosureV1::new(
+            EchoOperationSemanticClosure::new(
                 digest(41),
                 digest(42),
                 digest(43),
@@ -8956,7 +9339,7 @@ mod tests {
             echo_operation_create_if_absent_target_profile_identity_v1(),
             authority_profile,
             EchoOperationBudgetV1::new(16, 4_096, 4_096),
-            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            EchoOperationProgram::anchored_node_attachment_create_if_absent(
                 crate::make_type_id("operation-descended-created-node"),
                 crate::make_type_id("operation-descended-created-atom"),
                 1_024,
@@ -8965,9 +9348,9 @@ mod tests {
         let package_bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
-            admit_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    package_id,
+            admit_operation_package(
+                &EchoOperationAdmissionPolicy::exact(
+                    package_id.as_hash(),
                     operation_coordinate,
                     authority_profile,
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -8975,8 +9358,7 @@ mod tests {
                 package_bytes,
             )
             .expect("package admits"),
-        )
-        .expect("package installs");
+        );
 
         let writer_head = WriterHeadKey {
             worldline_id: crate::WorldlineId::from_bytes(digest(47)),
@@ -8991,7 +9373,7 @@ mod tests {
             echo_operation_anchored_node_absent_application_basis_v1(target),
         );
         let authority_grant = digest(50);
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
             installed.package_id,
             operation_coordinate,
             evaluation_basis,
@@ -9011,7 +9393,7 @@ mod tests {
             &state,
         ));
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
-        let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
             authority_profile,
             authority_grant,
             EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -9081,7 +9463,7 @@ mod tests {
             echo_operation_anchored_node_absent_application_basis_v1(target),
         );
         let budget_limited_invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+            EchoOperationInvocation::anchored_node_attachment_create_if_absent(
                 installed.package_id,
                 operation_coordinate,
                 budget_limited_basis,
@@ -9092,7 +9474,7 @@ mod tests {
             );
         let admitted = admit_invocation_v1(
             Some(&installed),
-            EchoOperationInvocationAdmissionPolicyV1::new(
+            EchoOperationInvocationAdmissionPolicy::new(
                 authority_profile,
                 authority_grant,
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -9125,7 +9507,7 @@ mod tests {
 
     #[test]
     fn public_artifact_encoders_refuse_values_their_decoders_refuse() {
-        let invalid_program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        let invalid_program = EchoOperationProgram::anchored_node_attachment_compare_and_set(
             crate::make_type_id("invalid-program-node"),
             crate::make_type_id("invalid-program-atom"),
             0,
@@ -9153,17 +9535,16 @@ mod tests {
             digest(14),
             EchoOperationApplicationBasisV1::new(digest(15), digest(16)),
         );
-        let invalid_invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
-                EchoOperationPackageIdV1(digest(17)),
-                "echo.fixture.InvalidBudget.v1",
-                basis,
-                digest(18),
-                EchoOperationBudgetV1::new(0, 64, 32),
-                node,
-                digest(19),
-                Vec::new(),
-            );
+        let invalid_invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
+            EchoOperationPackageIdV1(digest(17)),
+            "echo.fixture.InvalidBudget.v1",
+            basis,
+            digest(18),
+            EchoOperationBudgetV1::new(0, 64, 32),
+            node,
+            digest(19),
+            Vec::new(),
+        );
         let error = invalid_invocation
             .to_canonical_bytes()
             .expect_err("a zero-step budget must not produce invocation bytes");
@@ -9176,11 +9557,11 @@ mod tests {
             .expect_err("an invalid invocation must not mint a stable identity");
     }
 
-    fn retained_fixture_installation() -> InstalledEchoOperationV1 {
-        let package = ExecutableOperationPackageV1::new(
+    fn retained_fixture_installation() -> InstalledEchoOperation {
+        let package = ExecutableOperationPackage::new(
             "echo.fixture.Retention.v1",
             "echo.fixture.Retention.Obstruction/v1",
-            EchoOperationSemanticClosureV1::new(
+            EchoOperationSemanticClosure::new(
                 digest(1),
                 digest(2),
                 digest(3),
@@ -9193,7 +9574,7 @@ mod tests {
             echo_operation_target_profile_identity_v1(),
             digest(7),
             EchoOperationBudgetV1::new(8, 512, 512),
-            EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+            EchoOperationProgram::anchored_node_attachment_compare_and_set(
                 crate::make_type_id("retention-node"),
                 crate::make_type_id("retention-atom"),
                 128,
@@ -9201,14 +9582,13 @@ mod tests {
         );
         let bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&bytes);
-        let policy = EchoOperationAdmissionPolicyV1::exact(
-            package_id,
+        let policy = EchoOperationAdmissionPolicy::exact(
+            package_id.as_hash(),
             "echo.fixture.Retention.v1",
             digest(7),
             EchoOperationBudgetV1::new(8, 512, 512),
         );
-        installed_from_admitted(admit_package_v1(&policy, bytes).expect("package admits"))
-            .expect("an admitted program remains canonically encodable")
+        installed_from_admitted(admit_operation_package(&policy, bytes).expect("package admits"))
     }
 
     fn replace_map_field(bytes: &[u8], field_name: &str, replacement: CanonicalValueV1) -> Vec<u8> {
@@ -9269,7 +9649,7 @@ mod tests {
     #[test]
     fn retained_installation_rejects_identity_substitution() {
         let installed = retained_fixture_installation();
-        let bytes = retain_installation_v1(&installed).expect("installation retains");
+        let bytes = retain_operation_installation(&installed).expect("installation retains");
         for field_name in [
             "admission_policy_id",
             "package_id",
@@ -9281,7 +9661,7 @@ mod tests {
                 field_name,
                 CanonicalValueV1::Bytes(digest(99).to_vec()),
             );
-            let error = recover_installation_v1(&substituted)
+            let error = recover_operation_installation(&substituted)
                 .expect_err("retained installation identities cannot be substituted");
             assert_eq!(
                 error.kind(),
@@ -9289,15 +9669,15 @@ mod tests {
                 "field {field_name}"
             );
         }
-        let substituted_policy = EchoOperationAdmissionPolicyV1::exact(
-            installed.package_id,
+        let substituted_policy = EchoOperationAdmissionPolicy::exact(
+            installed.package_id.as_hash(),
             installed.operation_coordinate.to_string(),
             installed.authority_profile_identity,
             EchoOperationBudgetV1::new(9, 512, 512),
         );
         let substituted =
             replace_map_field(&bytes, "admission_policy", substituted_policy.to_value());
-        let error = recover_installation_v1(&substituted)
+        let error = recover_operation_installation(&substituted)
             .expect_err("recovery must revalidate retained package-admission policy material");
         assert_eq!(
             error.kind(),
@@ -9324,7 +9704,7 @@ mod tests {
         );
         let invocation_id = EchoOperationInvocationIdV1(digest(14));
         let invocation_admission_maximum_budget = EchoOperationBudgetV1::new(8, 512, 512);
-        let invocation_admission_policy_id = EchoOperationInvocationAdmissionPolicyV1::new(
+        let invocation_admission_policy_id = EchoOperationInvocationAdmissionPolicy::new(
             installed.authority_profile_identity,
             digest(19),
             invocation_admission_maximum_budget,
@@ -9415,6 +9795,26 @@ mod tests {
         receipt.receipt_digest = receipt_digest(&receipt);
         validate_receipt_installation_v1(&receipt, &installed)
             .expect("the retained receipt fixture matches its installation");
+        let mut absent_lawpack = receipt.clone();
+        absent_lawpack.lawpack_identity = None;
+        absent_lawpack.receipt_digest = receipt_digest(&absent_lawpack);
+        let mut zero_lawpack = receipt.clone();
+        zero_lawpack.lawpack_identity = Some([0; 32]);
+        assert_ne!(
+            receipt_digest(&absent_lawpack),
+            receipt_digest(&zero_lawpack)
+        );
+        let absent_bytes = absent_lawpack
+            .to_canonical_bytes()
+            .expect("nullable lawpack record");
+        let decoded_absence = recover_committed_execution_receipt_v1(&absent_bytes)
+            .expect("nullable evidence is structurally valid");
+        assert_eq!(decoded_absence.lawpack_identity, None);
+        assert!(
+            validate_receipt_installation_v1(&decoded_absence, &installed).is_err(),
+            "a self-consistent absent claim cannot replace the installed fixed lawpack"
+        );
+
         let mut mismatched_policy_receipt = receipt.clone();
         mismatched_policy_receipt.invocation_admission_maximum_budget =
             EchoOperationBudgetV1::new(9, 512, 512);
@@ -9555,7 +9955,7 @@ mod tests {
         // layout: a raw 32-byte previous digest with no variant tag.
         let installed = retained_fixture_installation();
         let node = node_key_from_bytes([20; 64]);
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             EchoOperationEvaluationBasisV1::new(
@@ -9583,8 +9983,20 @@ mod tests {
         expected.update(RESULT_ID_DOMAIN);
         expected.update(&installed.installed_operation_id.as_hash());
         expected.update(&profile_digest(RESULT_SCHEMA));
-        expected.update(invocation.node.warp_id.as_bytes());
-        expected.update(invocation.node.local_id.as_bytes());
+        expected.update(
+            invocation
+                .node
+                .expect("anchored fixture")
+                .warp_id
+                .as_bytes(),
+        );
+        expected.update(
+            invocation
+                .node
+                .expect("anchored fixture")
+                .local_id
+                .as_bytes(),
+        );
         expected.update(&previous);
         expected.update(&replacement_value_digest);
         expected.update(&patch_digest);
@@ -9593,7 +10005,7 @@ mod tests {
         assert_eq!(
             operation_result_id(
                 &installed,
-                &invocation,
+                invocation.node.expect("anchored fixture"),
                 AnchoredNodeOperationModeV1::CompareAndSet {
                     expected_value_digest: previous,
                 },
@@ -9607,10 +10019,10 @@ mod tests {
     }
 
     #[test]
-    fn legacy_compare_and_set_program_and_invocation_bytes_remain_fixed() {
+    fn current_compare_and_set_invocation_requires_its_program_kind() {
         let required_node_type = TypeId(digest(31));
         let required_attachment_type = TypeId(digest(32));
-        let program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        let program = EchoOperationProgram::anchored_node_attachment_compare_and_set(
             required_node_type,
             required_attachment_type,
             1_024,
@@ -9662,7 +10074,7 @@ mod tests {
             digest(37),
             EchoOperationApplicationBasisV1::new(digest(38), digest(39)),
         );
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             EchoOperationPackageIdV1(digest(40)),
             "echo.fixture.LegacyCompareAndSet.v1",
             basis,
@@ -9673,6 +10085,7 @@ mod tests {
             b"after".to_vec(),
         );
         let expected_invocation = encode_canonical_cbor_v1(&map_value([
+            ("kind", text_value(PROGRAM_KIND)),
             ("authority_grant_identity", hash_value(digest(41))),
             (
                 "delegated_budget",
@@ -9697,9 +10110,21 @@ mod tests {
         assert_eq!(
             invocation.to_canonical_bytes().expect("invocation encodes"),
             expected_invocation,
-            "the legacy update invocation bytes are a compatibility fixture"
+            "the current invocation carries its explicit program kind"
         );
 
+        let mut historical = decode_canonical_cbor_v1(&expected_invocation).expect("fixture");
+        let CanonicalValueV1::Map(ref mut entries) = historical else {
+            panic!("map");
+        };
+        entries.retain(|(key, _)| key != &text_value("kind"));
+        assert!(
+            EchoOperationInvocation::from_canonical_bytes(
+                &encode_canonical_cbor_v1(&historical).expect("old bytes")
+            )
+            .is_err(),
+            "an old invocation cannot enter the current runtime"
+        );
         let mut widened_value =
             decode_canonical_cbor_v1(&expected_invocation).expect("fixture decodes");
         let CanonicalValueV1::Map(fields) = &mut widened_value else {
@@ -9713,7 +10138,7 @@ mod tests {
         let widened_bytes =
             encode_canonical_cbor_v1(&widened_value).expect("mutated fixture re-encodes");
         assert!(
-            EchoOperationInvocationV1::from_canonical_bytes(&widened_bytes).is_err(),
+            EchoOperationInvocation::from_canonical_bytes(&widened_bytes).is_err(),
             "null must never gain creation meaning under the legacy invocation schema"
         );
     }
@@ -9728,7 +10153,8 @@ mod tests {
             "🦀".repeat(65),
         ] {
             let mut invocation = original.clone();
-            invocation.node.local_id = crate::NodeId(Sha256::digest(key.as_bytes()).into());
+            invocation.node.as_mut().expect("anchored fixture").local_id =
+                crate::NodeId(Sha256::digest(key.as_bytes()).into());
             invocation.application_input_bytes = Some(
                 encode_canonical_cbor_v1(&map_value([
                     ("key", text_value(&key)),
@@ -9774,7 +10200,7 @@ mod tests {
             ("🦀".repeat(65), false),
             (String::new(), false),
         ] {
-            let mut node = invocation.node;
+            let mut node = invocation.node.expect("anchored fixture");
             node.local_id = crate::NodeId(Sha256::digest(key.as_bytes()).into());
             let input = encode_canonical_cbor_v1(&map_value([
                 ("key", text_value(&key)),
@@ -9878,9 +10304,9 @@ mod tests {
             let initial_root = state.state_root();
             let initial_tick = state.current_tick();
             assert!(state
-                .store(&invocation.node.warp_id)
+                .store(&invocation.node.expect("anchored fixture").warp_id)
                 .expect("store exists")
-                .node(&invocation.node.local_id)
+                .node(&invocation.node.expect("anchored fixture").local_id)
                 .is_none());
             let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
             let authority = EchoOperationEvaluationAuthorityV1::new();
@@ -9897,13 +10323,19 @@ mod tests {
                     admitted
                         .expect_err("out-of-bounds key refuses at admission")
                         .kind(),
-                    EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+                    EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
                 );
                 assert_eq!(state.state_root(), initial_root);
                 assert_eq!(state.current_tick(), initial_tick);
-                let store = state.store(&invocation.node.warp_id).expect("store exists");
-                assert!(store.node(&invocation.node.local_id).is_none());
-                assert!(store.node_attachment(&invocation.node.local_id).is_none());
+                let store = state
+                    .store(&invocation.node.expect("anchored fixture").warp_id)
+                    .expect("store exists");
+                assert!(store
+                    .node(&invocation.node.expect("anchored fixture").local_id)
+                    .is_none());
+                assert!(store
+                    .node_attachment(&invocation.node.expect("anchored fixture").local_id)
+                    .is_none());
                 continue;
             }
             let EchoOperationPreparationV1::Prepared(prepared) = prepare_operation_v1(
@@ -9927,17 +10359,17 @@ mod tests {
                     .expect("boundary key commits");
             assert_eq!(state.current_tick().as_u64(), initial_tick.as_u64() + 1);
             let store = state
-                .store(&invocation.node.warp_id)
+                .store(&invocation.node.expect("anchored fixture").warp_id)
                 .expect("committed store exists");
             assert_eq!(
                 store
-                    .node(&invocation.node.local_id)
+                    .node(&invocation.node.expect("anchored fixture").local_id)
                     .expect("node created")
                     .ty,
                 crate::make_type_id("projected-created-node")
             );
             let Some(AttachmentValue::Atom(atom)) =
-                store.node_attachment(&invocation.node.local_id)
+                store.node_attachment(&invocation.node.expect("anchored fixture").local_id)
             else {
                 panic!("created attachment is an atom");
             };
@@ -10003,12 +10435,18 @@ mod tests {
             .expect_err("malformed or substituted input refuses");
             assert_eq!(
                 error.kind(),
-                EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+                EchoOperationInvocationAdmissionErrorKind::ApplicationInputMismatch
             );
             assert_eq!(state.current_tick(), WorldlineTick::ZERO);
-            let store = state.store(&invocation.node.warp_id).expect("store exists");
-            assert!(store.node(&invocation.node.local_id).is_none());
-            assert!(store.node_attachment(&invocation.node.local_id).is_none());
+            let store = state
+                .store(&invocation.node.expect("anchored fixture").warp_id)
+                .expect("store exists");
+            assert!(store
+                .node(&invocation.node.expect("anchored fixture").local_id)
+                .is_none());
+            assert!(store
+                .node_attachment(&invocation.node.expect("anchored fixture").local_id)
+                .is_none());
         }
     }
 
@@ -10058,12 +10496,18 @@ mod tests {
         .expect_err("wire decoder rejects invalid UTF8");
         assert_eq!(
             error.kind(),
-            EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation
+            EchoOperationInvocationAdmissionErrorKind::MalformedInvocation
         );
         assert_eq!(state.current_tick(), WorldlineTick::ZERO);
-        let store = state.store(&invocation.node.warp_id).expect("store exists");
-        assert!(store.node(&invocation.node.local_id).is_none());
-        assert!(store.node_attachment(&invocation.node.local_id).is_none());
+        let store = state
+            .store(&invocation.node.expect("anchored fixture").warp_id)
+            .expect("store exists");
+        assert!(store
+            .node(&invocation.node.expect("anchored fixture").local_id)
+            .is_none());
+        assert!(store
+            .node_attachment(&invocation.node.expect("anchored fixture").local_id)
+            .is_none());
     }
 
     #[test]

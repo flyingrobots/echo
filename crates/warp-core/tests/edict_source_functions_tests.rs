@@ -272,7 +272,7 @@ fn source_functions_named_int_alias_executes_in_a_helper_signature() {
         insert(
             field_mut(core, "types"),
             "Count",
-            record([("kind", text("Int")), ("width", text("U64"))]),
+            record([("kind", text("U64"))]),
         );
         let parameter = local("arg.0", "Count");
         insert(
@@ -319,7 +319,7 @@ fn source_functions_named_int_alias_executes_in_a_helper_signature() {
         &concat::input(b"ab", b"cd"),
         concat::limits(),
     )
-    .expect("named Int parameter/result must decode and execute");
+    .expect("current canonical unsigned alias must decode and execute");
     assert_eq!(
         decode(&result.output).unwrap(),
         record([("bytes", Value::Bytes(b"abcd".to_vec()))])

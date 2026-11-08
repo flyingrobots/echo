@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 485,983 bytes with SHA-256
-`cd81874f971f290f74987b39479ef89ddb5060e56df54044d2359e6e89b2430c`.
+The checked component is 543,117 bytes with SHA-256
+`873dfec859285f26cadff97a7aa602fd91bcbcba3a3d347918c3658c4575afaa`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 504,431 bytes
+`wit-component` version recorded above. Its checked component is 582,107 bytes
 with SHA-256
-`3451e95a7d084d4874c30833f90f5c21012e8341f35ed0f0888d4d268a768b11`.
+`c9cc4a669a87f13d5b306357e8685cd4443871a14647b393bdc93b5fb1dd6f80`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -47,7 +47,22 @@ or ambient capability imports.
 
 In the designated immutable `linux/amd64` builder above, install Rust 1.96.0
 for the outer `xtask` driver while retaining the authenticated Rust 1.90.0 inner
-compiler and Cargo. Rebuild and check the artifact without rewriting it:
+compiler and Cargo.
+
+The outer driver resolves its source root with `git rev-parse --show-toplevel`.
+Use an isolated Git checkout and verify that this root is the intended source
+directory and that `git rev-parse HEAD` names the selected commit before
+building. A nested source archive without its own Git metadata can resolve to
+an ancestor checkout and build different sources. Retain the root, commit and
+clean-tree checks with the component evidence.
+
+The bounded-list operation component pair was independently reproduced by the
+two G4 candidate jobs in [CI run 41390189265](https://github.com/flyingrobots/echo/actions/runs/41390189265)
+at source commit `1154d4c47fc06ed7c12ee828f8a1e3cdc102c219`. Both copies of
+each component matched byte-for-byte before promotion. Component publication,
+runtime interpretation, and public compiler witnesses are separate checks.
+
+Rebuild and check the artifact without rewriting it:
 
 ```sh
 cargo +1.96.0 xtask provider-lowerer-component check \
@@ -98,3 +113,9 @@ refuses its checked repository path, so a refresh must cross the promotion
 boundary. Neither command infers how the two files were produced. G4's two
 separately provisioned designated container jobs and exact source checkouts—or
 equivalent explicit operator evidence—establish independent build provenance.
+
+After regenerating the checked package and packaged assets, refresh their exact
+identity goldens in `provider_package.rs` and `provider_package_corpus.rs` and
+the component identities in both provider READMEs. Run
+`cargo test --locked -p echo-wesley-gen` in the guarded Docker worker; generator
+`--check` commands alone do not exercise package corroboration and corpus pins.

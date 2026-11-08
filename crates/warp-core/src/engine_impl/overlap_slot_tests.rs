@@ -375,6 +375,12 @@ fn an_errored_commit_closes_its_transaction() {
         engine.commit_with_receipt(failed_tx),
         Err(EngineError::InternalCorruption(_))
     ));
+    // Closing the transaction keeps the failed attempt's evidence readable:
+    // it is a failure artifact, never history.
+    assert!(
+        !engine.last_aborted_execution_footprints().is_empty(),
+        "a failed commit keeps its attempt's evidence readable"
+    );
     assert!(matches!(
         engine.apply(failed_tx, RETRY_RULE, &retry_target()),
         Err(EngineError::UnknownTx)

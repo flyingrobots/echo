@@ -93,7 +93,8 @@ fn footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     footprint.b_in.insert(warp_id, port_of(scope));
     footprint.b_out.insert(warp_id, port_of(scope));
     // Only read (a port) and only written (an edge and a range), so the
-    // read-only and write-only sides of each slot kind are exercised too.
+    // read-only side of ports and the write-only side of edges and ranges
+    // are exercised too.
     footprint
         .b_in
         .insert(warp_id, port_of(scope) + IN_ONLY_PORT_OFFSET);
@@ -249,10 +250,11 @@ fn retry_rule() -> RewriteRule {
     }
 }
 
-/// A commit whose rule panics closes its transaction. Applying to it or
-/// committing it again is refused with `UnknownTx`, and a new transaction is
-/// judged only on its own reservations: the failed attempt leaves neither
-/// conflicts nor slots behind.
+/// A commit whose rule panics closes its transaction: applying to it or
+/// committing it again is refused with `UnknownTx`. A new transaction then
+/// commits with only its own slots. (Conflict sets belong to one transaction,
+/// so that last check holds on `main` too; what this test adds is the
+/// refusal.)
 #[test]
 fn a_failed_commit_closes_its_transaction() {
     let mut store = GraphStore::default();
@@ -329,6 +331,8 @@ fn erroring_rule() -> RewriteRule {
         matcher: |_, _| true,
         executor: RuleExecutor::legacy(|view, _, delta| {
             let warp_id = view.warp_id();
+            // An op that applies before the failing one, so the failure is
+            // mid-apply; what it leaves in the state is #957, not tested here.
             delta.push(WarpOp::UpsertNode {
                 node: NodeKey {
                     warp_id,
@@ -373,7 +377,9 @@ fn an_errored_commit_closes_its_transaction() {
     ));
     assert!(matches!(
         engine.commit_with_receipt(failed_tx),
-        Err(EngineError::InternalCorruption(_))
+        Err(EngineError::InternalCorruption(
+            "apply_reserved_rewrites: failed to apply ops"
+        ))
     ));
     // Closing the transaction keeps the failed attempt's evidence readable:
     // it is a failure artifact, never history.
@@ -398,4 +404,45 @@ fn an_errored_commit_closes_its_transaction() {
     engine
         .commit_with_receipt(tx)
         .expect("a new transaction commits after an errored one");
+}
+
+/// Counts the scheduler's summary events.
+#[derive(Default)]
+struct SummaryCount(std::sync::atomic::AtomicUsize);
+
+impl crate::telemetry::TelemetrySink for SummaryCount {
+    fn on_summary(&self, _tx: TxId, _reserved: u64, _conflicts: u64) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Closing a failed commit finalizes its scheduler state, which reports the
+/// transaction's summary once, as a committed transaction's does.
+#[test]
+fn a_failed_commit_reports_its_scheduler_summary() {
+    let mut store = GraphStore::default();
+    let ty = make_type_id("test/overlap-node");
+    store.insert_node(retry_target(), NodeRecord { ty });
+    let summaries = std::sync::Arc::new(SummaryCount::default());
+    let mut engine = Engine::with_telemetry(
+        store,
+        retry_target(),
+        SchedulerKind::Radix,
+        0,
+        summaries.clone(),
+    );
+    engine
+        .register_rule(erroring_rule())
+        .expect("rule registers");
+    let tx = engine.begin();
+    assert!(matches!(
+        engine.apply(tx, ERROR_RULE, &retry_target()),
+        Ok(ApplyResult::Applied)
+    ));
+    assert!(engine.commit_with_receipt(tx).is_err());
+    assert_eq!(
+        summaries.0.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "a failed commit reports its summary once"
+    );
 }

@@ -116,6 +116,13 @@
 
 ### Fixed
 
+- The Markdown tooling dependency is updated to pulldown-cmark 0.13.6, which
+  fixes RUSTSEC-2026-0433 (quadratic parsing of nested image wikilinks).
+  `cargo xtask lint-dead-refs` parses with `Options::all()`, which enables
+  wikilinks. The provider generator's source bundle carries the new lockfile,
+  and its provenance and package digests are refreshed through the supported
+  asset, artifact and package commands. No advisory exceptions are added.
+
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.
 

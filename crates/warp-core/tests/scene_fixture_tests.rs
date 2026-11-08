@@ -248,39 +248,171 @@ fn f5_rejects_missing_or_failed_application_root_parity() {
     }
 }
 
+/// The scaled F6 scenes the hosted conformance test runs.
+const SMALL_SCENES: [game::Scene; 3] = [
+    game::ARENA.scaled(1, 8, 30),
+    game::PILE.scaled(1, 16, 110),
+    game::BULLETS.scaled(1, 8, 70),
+];
+
+/// Pinned live roots of the small scenes at seed 6, as `hex32`. Regenerate
+/// (the failure message prints the observed root) whenever the game, the
+/// graph layout or `FIXTURE_VERSION` changes.
+const SMALL_SCENE_ROOTS: [&str; 3] = [
+    "76a94d9c932dd31433f9e06636ee13f1a36d8cee3390c99da2e4d91d3bed632a",
+    "51b539864ad690800c02fcdafc5935197bfd501a2689eb60719f624a5720627f",
+    "5395d6af41ae131d9088db24c242e60eea10eb207097cf653e94ab71a4619cec",
+];
+
+/// Pinned blake3 digests of each full-size scene's generated initial world at
+/// seed 6: the concatenated encodings of its bodies in id order. Regenerate
+/// (the failure message prints the observed digest) whenever the generator
+/// changes.
+const INITIAL_WORLD_DIGESTS: [&str; 3] = [
+    "4a0074099f7e3ee1d2eef31fddf3482f36e42ac8516ff9eb09dc080bb5d71e09",
+    "a872542db06f4284e9c231358ff5207edbb2e7afa801d7b4b896f0f4331c6ed1",
+    "e1b3f46bfe2d54dd01520141f604f198fbb731dc57ad6b4dd7feda5318f6dda0",
+];
+
 /// Small F6 scenes run validly in a debug build, where footprint enforcement
 /// checks that the step declares every read and write it makes. The pile runs
-/// long enough to land and pile up, so contact edges are added and removed;
-/// the bullets run past a projectile lifetime, so bodies despawn.
+/// long enough to land and pile up, so contact edges are added (the hand
+/// scenes below check removal); the bullets run past a projectile lifetime,
+/// so bodies despawn. Each scene runs once; its live root must match the pin.
 #[test]
 fn f6_small_scenes_run_validly() {
-    for scene in [
-        game::ARENA.scaled(1, 8, 30),
-        game::PILE.scaled(1, 16, 110),
-        game::BULLETS.scaled(1, 8, 70),
-    ] {
+    let mut observations = std::collections::BTreeMap::new();
+    let mut moved = Vec::new();
+    for (scene, pinned) in SMALL_SCENES.into_iter().zip(SMALL_SCENE_ROOTS) {
         let obs = game::run(scene, 6);
         assert_eq!(
-            game::validate(scene, &obs),
+            game::validate(scene, &game::expectation(scene), &obs),
             ResultClass::Valid,
             "{}",
             scene.name
         );
         assert!(obs.rendered > 0, "{} rendered nothing", scene.name);
+        let root = hex32(&obs.live_root);
+        if root != pinned {
+            moved.push(format!("{}: live root is {root}", scene.name));
+        }
+        observations.insert(scene.name, obs);
     }
-    let pile = game::PILE.scaled(1, 16, 110);
-    let obs = game::run(pile, 6);
-    assert!(obs.peak_contacts > 0, "the pile never made contact");
-    let bullets = game::BULLETS.scaled(1, 8, 70);
-    let obs = game::run(bullets, 6);
     assert!(
-        obs.reference_world.next_id as usize > obs.reference_world.bodies.len(),
+        moved.is_empty(),
+        "live roots moved; repin if the change is intended:\n{}",
+        moved.join("\n")
+    );
+    assert!(
+        observations["pile"].peak_contacts > 0,
+        "the pile never made contact"
+    );
+    let bullets = &observations["bullets"].reference_world;
+    assert!(
+        bullets.next_id as usize > bullets.bodies.len(),
         "no projectile despawned"
     );
 }
 
+/// Each full-size scene's generated initial world matches its pinned digest,
+/// so a generator change cannot pass unnoticed.
+#[test]
+fn f6_initial_worlds_match_their_pinned_digests() {
+    let mut moved = Vec::new();
+    for (scene, pinned) in game::SCENES.into_iter().zip(INITIAL_WORLD_DIGESTS) {
+        let world = game::initial_world(scene, 6);
+        let mut hasher = blake3::Hasher::new();
+        for body in world.bodies.values() {
+            hasher.update(&body.encode());
+        }
+        let digest: [u8; 32] = hasher.finalize().into();
+        let digest = hex32(&digest);
+        if digest != pinned {
+            moved.push(format!("{}: initial world digest is {digest}", scene.name));
+        }
+    }
+    assert!(
+        moved.is_empty(),
+        "initial worlds moved; repin if the change is intended:\n{}",
+        moved.join("\n")
+    );
+}
+
+/// Every scene's cell is at least twice its radius, the rule the broadphase
+/// relies on to find every touching pair in a 3x3 neighbourhood.
+#[test]
+fn f6_scenes_satisfy_the_cell_rule() {
+    for scene in game::SCENES.into_iter().chain([HAND]) {
+        assert!(
+            scene.cell >= 2 * scene.radius,
+            "{}: cell {} is smaller than twice the radius {}",
+            scene.name,
+            scene.cell,
+            scene.radius
+        );
+    }
+}
+
+/// The step intent's variables round-trip: `parse` reads back exactly what
+/// `vars` packed, for every scene, so adding a field cannot silently skew the
+/// hand-computed offsets.
+#[test]
+fn f6_step_vars_round_trip() {
+    for scene in game::SCENES.into_iter().chain([HAND]) {
+        let (parsed, seed, frame, input) =
+            game::parse(&game::vars(scene, 6, 17, [3, -5])).expect("vars parse");
+        assert_eq!((seed, frame, input), (6, 17, [3, -5]), "{}", scene.name);
+        // The name is resolved from the index, so a hand scene parses back
+        // with the indexed scene's name; every dimension must round-trip.
+        let expected = game::Scene {
+            name: parsed.name,
+            ..scene
+        };
+        assert_eq!(
+            format!("{parsed:?}"),
+            format!("{expected:?}"),
+            "{}",
+            scene.name
+        );
+    }
+}
+
+/// Every full-size F6 scene places its bodies without overlap. The lattice
+/// comment in `initial_world` is load-bearing for the pile, whose 2,048
+/// bodies once overflowed a 512-unit world onto the floor, so it is checked
+/// at the real dimensions rather than the scaled ones the hosted test uses.
+#[test]
+fn f6_full_size_initial_worlds_do_not_overlap() {
+    for scene in game::SCENES {
+        let world = game::initial_world(scene, 6);
+        let bodies: Vec<_> = world.bodies.values().collect();
+        assert_eq!(
+            bodies.len(),
+            (scene.bodies + scene.emitters) as usize,
+            "{}",
+            scene.name
+        );
+        for (i, a) in bodies.iter().enumerate() {
+            for b in &bodies[i + 1..] {
+                let dx = i128::from(b.pos[0] - a.pos[0]);
+                let dy = i128::from(b.pos[1] - a.pos[1]);
+                let reach = i128::from(a.radius + b.radius);
+                assert!(
+                    dx * dx + dy * dy >= reach * reach,
+                    "{}: bodies {} and {} overlap at the start",
+                    scene.name,
+                    a.id,
+                    b.id
+                );
+            }
+        }
+    }
+}
+
 /// A 64-unit box with 16-unit cells, no gravity, fully elastic, no player
-/// and no emitters: the dimensions of the hand-computed F6 scenes below.
+/// and no emitters: the dimensions of the hand-computed F6 scenes below. It
+/// shares ARENA's index: `parse` names a scene by index, and every dimension
+/// that matters travels in the intent.
 const HAND: game::Scene = game::Scene {
     name: "hand",
     index: 0,
@@ -338,9 +470,9 @@ fn check_hand_scene(start: &game::World, expected: &[game::World]) {
             frames: frame as u64 + 1,
             ..HAND
         };
-        let obs = game::run_from(scene, 0, start.clone());
+        let obs = game::run_from_world(scene, 0, start.clone());
         assert_eq!(
-            game::validate(scene, &obs),
+            game::validate(scene, &game::expectation(scene), &obs),
             ResultClass::Valid,
             "frame {}",
             frame + 1

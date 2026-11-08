@@ -15,10 +15,10 @@
 //! [`step`] function drives both the Echo rule and the in-memory reference
 //! the fixture validates against. A valid run therefore shows that hosted
 //! execution stored, and the graph gave back, exactly what the reference path
-//! computed. It does not show that [`step`] is correct physics: a bug in
-//! [`step`] occurs on both sides and still validates. Small hand-computed
-//! scenes in the tests check collision, despawn and contact edges
-//! independently of [`step`].
+//! computed: bodies, contacts and cell membership. It does not show that
+//! [`step`] is correct physics: a bug in [`step`] occurs on both sides and
+//! still validates. Small hand-computed scenes in the tests check collision,
+//! despawn and contact edges independently of [`step`].
 //!
 //! **The graph.** A root links a world node, which links one node per grid
 //! cell. Each body is a node with its state as an attachment, and an edge
@@ -33,6 +33,11 @@
 //! same step to find them. Splitting the world into per-cell rewrites would
 //! let workers share a frame, but neighbouring cells overlap, and Echo
 //! rejects a conflicting rewrite outright; that variant is not built here.
+//!
+//! **Sections.** The game (constants, [`Kind`], [`Body`], [`Scene`] and the
+//! three scenes, the workload and expectation identities, [`World`],
+//! [`initial_world`], [`input`], [`step`]); graph identities; reading the
+//! world from the graph; the rule; running a scene and validating it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -52,9 +57,11 @@ use warp_core::{
     WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
 
-use super::manifest::{Construction, EvidenceClass, WorkloadSpec};
+use super::manifest::{Construction, EvidenceClass, Expectation, WorkloadSpec};
 use super::outcome::{Accounting, Checks, ResultClass};
 use super::prng::SplitMix64;
+
+// --- The game ---
 
 /// Bumped whenever this generator's logic changes.
 pub const FIXTURE_VERSION: u32 = 1;
@@ -80,7 +87,8 @@ pub enum Kind {
     Dynamic = 0,
     /// A dynamic body steered by input.
     Player = 1,
-    /// Spawned by an emitter; ignores gravity and other projectiles; expires.
+    /// Spawned by an emitter at half the scene radius; ignores gravity and
+    /// other projectiles; expires.
     Projectile = 2,
     /// Fixed; spawns projectiles; does not collide.
     Emitter = 3,
@@ -122,7 +130,8 @@ pub struct Body {
 const BODY_BYTES: usize = 4 + 1 + 8 * 5 + 4;
 
 impl Body {
-    fn encode(&self) -> Vec<u8> {
+    /// The body's 49-byte attachment encoding.
+    pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(BODY_BYTES);
         out.extend_from_slice(&self.id.to_le_bytes());
         out.push(self.kind as u8);
@@ -170,8 +179,10 @@ pub struct Scene {
     pub radius: i64,
     /// World width and height, whole units.
     pub world: i64,
-    /// Grid cell size, whole units. At least twice the largest radius plus
-    /// the largest per-frame speed, so contacts are found in neighbour cells.
+    /// Grid cell size, whole units. At least twice the largest radius: the
+    /// grid is rebuilt after integration and pairs are searched in the 3x3
+    /// neighbourhood, so touching bodies always share a cell or a neighbour.
+    /// Speed does not enter.
     pub cell: i64,
     /// Gravity per frame, Q16.16.
     pub gravity: i64,
@@ -202,8 +213,9 @@ impl Scene {
         u32::try_from(self.grid() * self.grid()).expect("cell count fits u32")
     }
 
-    /// The scene with `frames` frames and its body and spawn counts scaled by
-    /// `numer / denom`, for quick tests.
+    /// The scene with `frames` frames and its body and emitter counts scaled
+    /// by `numer / denom` (keeping at least one emitter if it had any), for
+    /// quick tests. Spawns per emitter and projectile lifetime are unchanged.
     pub const fn scaled(mut self, numer: u32, denom: u32, frames: u64) -> Self {
         self.bodies = self.bodies * numer / denom;
         self.emitters = if self.emitters == 0 {
@@ -246,7 +258,7 @@ pub const PILE: Scene = Scene {
     index: 1,
     bodies: 2_048,
     radius: 4,
-    world: 512,
+    world: 576,
     cell: 16,
     gravity: ONE / 8,
     restitution: 64,
@@ -295,9 +307,24 @@ pub fn workload(scene: Scene, seed: u64) -> WorkloadSpec {
             ("bodies", u64::from(scene.bodies)),
             ("world_units", u64::try_from(scene.world).unwrap_or(0)),
             ("cell_units", u64::try_from(scene.cell).unwrap_or(0)),
+            ("radius_units", u64::try_from(scene.radius).unwrap_or(0)),
+            ("gravity_q16", u64::try_from(scene.gravity).unwrap_or(0)),
+            (
+                "restitution_q8",
+                u64::try_from(scene.restitution).unwrap_or(0),
+            ),
+            (
+                "initial_speed_q16",
+                u64::try_from(scene.initial_speed).unwrap_or(0),
+            ),
+            ("player", u64::from(scene.player)),
             ("emitters", u64::from(scene.emitters)),
             ("spawn_per_emitter", u64::from(scene.spawn_per_emitter)),
             ("projectile_ttl", u64::from(scene.projectile_ttl)),
+            (
+                "projectile_speed_q16",
+                u64::try_from(scene.projectile_speed).unwrap_or(0),
+            ),
             ("frames", scene.frames),
             ("writer_heads", 1),
         ],
@@ -312,6 +339,22 @@ pub fn workload(scene: Scene, seed: u64) -> WorkloadSpec {
             "frames-admitted-operations",
             "replay-apply-retained-patches",
         ],
+    }
+}
+
+/// Declared outcomes for a scene. Expected counts come from the scene, not
+/// from Echo; the hand-computed worlds in the conformance tests are the
+/// physics goldens, and the pinned digests there are the scene goldens.
+pub fn expectation(scene: Scene) -> Expectation {
+    Expectation {
+        assertions: vec![
+            ("committed", scene.frames.to_string()),
+            ("refused", "0".to_owned()),
+            ("one_tick_per_frame", "true".to_owned()),
+            ("graph_world_equals_reference", "true".to_owned()),
+            ("replay_root_equals_live_root", "true".to_owned()),
+        ],
+        output_formats: vec![("state_root", 1), ("f6_body", 1)],
     }
 }
 
@@ -333,9 +376,23 @@ pub fn initial_world(scene: Scene, seed: u64) -> World {
     let mut rng = SplitMix64::new(seed ^ (u64::from(scene.index) << 56));
     let mut world = World::default();
     let radius = scene.radius * ONE;
-    // Bodies start on a jittered lattice, so none overlap.
+    // Bodies start on a jittered lattice, so none overlap: centres are three
+    // radii apart and jitter moves each by less than half a radius. A scene
+    // that cannot place every body above the floor is refused here rather
+    // than folded onto it; a workload is never shrunk silently to fit.
     let spacing = scene.radius * 3;
     let per_row = (scene.world / spacing).max(1);
+    let rows = (i64::from(scene.bodies) + per_row - 1) / per_row;
+    assert!(
+        rows * spacing + spacing <= scene.world,
+        "{}: {} bodies need {} rows {} units apart, which do not fit above the \
+         floor of a {}-unit world",
+        scene.name,
+        scene.bodies,
+        rows,
+        spacing,
+        scene.world
+    );
     for n in 0..scene.bodies {
         let row = i64::from(n) / per_row;
         let col = i64::from(n) % per_row;
@@ -365,7 +422,7 @@ pub fn initial_world(scene: Scene, seed: u64) -> World {
             Body {
                 id,
                 kind,
-                pos: [x, y.max(radius)],
+                pos: [x, y],
                 vel,
                 radius,
                 ttl: 0,
@@ -682,15 +739,17 @@ fn read_world(reader: &mut impl WorldReader, scene: Scene) -> Option<World> {
     let next_id = u32::from_le_bytes(meta.get(8..12)?.try_into().ok()?);
     let mut bodies = BTreeMap::new();
     let mut contacts = BTreeSet::new();
-    let mut nodes = Vec::new();
+    // Every body, emitters included, is reached through exactly one member
+    // edge, and that edge must leave the cell its position maps to. A stale,
+    // misplaced or duplicated member edge makes the world unreadable rather
+    // than silently acceptable.
     for cell in 0..scene.cells() {
-        nodes.extend(reader.targets(&cell_node(cell), member_type()));
-    }
-    // Emitters do not collide but still sit in a cell, so every body is
-    // reached through its cell.
-    for node in nodes {
-        let body = Body::decode(&reader.attachment_bytes(&node)?)?;
-        bodies.insert(body.id, body);
+        for node in reader.targets(&cell_node(cell), member_type()) {
+            let body = Body::decode(&reader.attachment_bytes(&node)?)?;
+            if cell_of(scene, body.pos) != cell || bodies.insert(body.id, body).is_some() {
+                return None;
+            }
+        }
     }
     let by_node: BTreeMap<NodeId, u32> = bodies.keys().map(|&id| (body_node(id), id)).collect();
     for &id in bodies.keys() {
@@ -811,7 +870,9 @@ fn member_upsert(warp_id: warp_core::WarpId, id: u32, cell: u32) -> WarpOp {
 /// the seed as well as the frame and its input, so the installed rule needs
 /// no state outside the graph and the intent: Echo's crates admit no global
 /// state, and scaled test scenes share their full scene's index.
-fn vars(scene: Scene, seed: u64, frame: u64, input: [i64; 2]) -> Vec<u8> {
+/// The step intent's variables: scene index, player flag, frame, seed and
+/// every scene dimension, so the rule needs no table but the scene names.
+pub fn vars(scene: Scene, seed: u64, frame: u64, input: [i64; 2]) -> Vec<u8> {
     let mut out = Vec::with_capacity(VARS_BYTES);
     out.push(scene.index);
     out.push(u8::from(scene.player));
@@ -846,7 +907,8 @@ const VARS_BYTES: usize = 2 + 8 * 3 + 4 * 4 + 8 * 9;
 
 /// Parses a step intent's variables: the scene, the seed, the frame and its
 /// input.
-fn parse(vars: &[u8]) -> Option<(Scene, u64, u64, [i64; 2])> {
+/// Parses what [`vars`] packed, or `None` if the bytes are malformed.
+pub fn parse(vars: &[u8]) -> Option<(Scene, u64, u64, [i64; 2])> {
     if vars.len() != VARS_BYTES {
         return None;
     }
@@ -897,6 +959,10 @@ fn execute(view: &mut ExecutionGraphView<'_, '_>, scope: &NodeId, delta: &mut Ti
     else {
         return;
     };
+    // A request the rule cannot parse, a world it cannot read (including one
+    // with a stale or misplaced member edge), or a frame it did not expect
+    // commits an empty delta. `validate` then reports the graph world as
+    // differing from the reference.
     let Some(before) = read_world(view, scene) else {
         return;
     };
@@ -955,6 +1021,9 @@ fn footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
                 footprint.n_write.insert_with_warp(warp_id, record.from);
                 footprint.e_write.insert_with_warp(warp_id, record.id);
             }
+            // Deleting an edge also removes its beta attachment, which
+            // enforcement records as an attachment write; the game never
+            // sets edge attachments, so an upsert writes none.
             WarpOp::DeleteEdge {
                 warp_id,
                 from,
@@ -1141,7 +1210,7 @@ pub fn initial_state(scene: Scene, world: &World) -> WorldlineState {
 pub struct Observation {
     /// Work accounting: one step intent per frame.
     pub accounting: Accounting,
-    /// Frames that committed exactly one tick.
+    /// Frames whose single tick admitted exactly one intent.
     pub one_tick_frames: u64,
     /// The world read back from the live graph at the end.
     pub final_world: Option<World>,
@@ -1155,9 +1224,9 @@ pub struct Observation {
     pub replay_root: Option<[u8; 32]>,
     /// Bodies seen by the per-frame render read, summed over frames.
     pub rendered: u64,
-    /// Peak live bodies and contacts in the reference.
+    /// Peak live bodies in the reference run, not read from the graph.
     pub peak_bodies: usize,
-    /// Peak contacts in the reference.
+    /// Peak contacts in the reference run, not read from the graph.
     pub peak_contacts: usize,
     /// Measured durations.
     pub timings: Timings,
@@ -1168,7 +1237,8 @@ pub struct Observation {
 pub struct Timings {
     /// Host, runtime and package set-up plus initial scene construction.
     pub startup: Duration,
-    /// Per frame: submit, admit, tick, and the render read.
+    /// Per frame: build and pack the envelope, submit, admit, tick, and the
+    /// render read.
     pub frames: Vec<Duration>,
     /// Per frame: the render read alone.
     pub render: Vec<Duration>,
@@ -1176,7 +1246,7 @@ pub struct Timings {
     pub teardown: Duration,
     /// Per frame: the reference step alone, timed outside Echo, before the
     /// hosted run.
-    pub physics: Vec<Duration>,
+    pub reference_step: Vec<Duration>,
     /// Replay of the whole run by applying retained patches.
     pub replay: Duration,
 }
@@ -1187,8 +1257,10 @@ pub fn run(scene: Scene, seed: u64) -> Observation {
 }
 
 /// Runs `scene` from `start` instead of the scene's generated world, under
-/// the legacy commitment profile. Tests use it for hand-built worlds.
-pub fn run_from(scene: Scene, seed: u64, start: World) -> Observation {
+/// the legacy commitment profile. Tests use it for hand-built worlds. (F5's
+/// `run_from` starts from a worldline state; this one starts from a game
+/// world.)
+pub fn run_from_world(scene: Scene, seed: u64, start: World) -> Observation {
     run_scene(scene, seed, start, |state| state)
 }
 
@@ -1218,7 +1290,7 @@ fn run_scene(
     for frame_input in &inputs {
         let started = Instant::now();
         reference = step(scene, seed, &reference, *frame_input);
-        obs.timings.physics.push(started.elapsed());
+        obs.timings.reference_step.push(started.elapsed());
         obs.peak_bodies = obs.peak_bodies.max(reference.bodies.len());
         obs.peak_contacts = obs.peak_contacts.max(reference.contacts.len());
     }
@@ -1352,8 +1424,10 @@ fn run_scene(
     obs
 }
 
-/// Validates an observation. Expected counts come from the scene.
-pub fn validate(scene: Scene, obs: &Observation) -> ResultClass {
+/// Validates an observation against the declared expectation. Every
+/// declared assertion must be observed with the declared value; the observed
+/// values come from the run, the declared ones from the scene.
+pub fn validate(scene: Scene, expect: &Expectation, obs: &Observation) -> ResultClass {
     if obs.accounting.committed + obs.accounting.refused < scene.frames {
         return ResultClass::Incomplete(format!(
             "{} of {} frames finished",
@@ -1361,29 +1435,31 @@ pub fn validate(scene: Scene, obs: &Observation) -> ResultClass {
             scene.frames
         ));
     }
+    let observed: BTreeMap<&str, String> = [
+        ("committed", obs.accounting.committed.to_string()),
+        ("refused", obs.accounting.refused.to_string()),
+        (
+            "one_tick_per_frame",
+            (obs.one_tick_frames == scene.frames).to_string(),
+        ),
+        (
+            "graph_world_equals_reference",
+            (obs.final_world.as_ref() == Some(&obs.reference_world)).to_string(),
+        ),
+        (
+            "replay_root_equals_live_root",
+            (obs.replay_root == Some(obs.live_root)).to_string(),
+        ),
+    ]
+    .into_iter()
+    .collect();
     let mut checks = Checks::default();
-    checks.check(
-        obs.accounting.committed == scene.frames,
-        format!(
-            "committed {} of {} frames",
-            obs.accounting.committed, scene.frames
-        ),
-    );
-    checks.check(obs.accounting.refused == 0, "a frame was refused");
-    checks.check(
-        obs.one_tick_frames == scene.frames,
-        format!(
-            "{} of {} frames committed exactly one tick",
-            obs.one_tick_frames, scene.frames
-        ),
-    );
-    checks.check(
-        obs.final_world.as_ref() == Some(&obs.reference_world),
-        "the world in the graph differs from the reference simulation",
-    );
-    checks.check(
-        obs.replay_root == Some(obs.live_root),
-        "replay by applying retained patches did not reproduce the live root",
-    );
+    for (name, want) in &expect.assertions {
+        match observed.get(name) {
+            Some(got) if got == want => {}
+            Some(got) => checks.check(false, format!("{name}: expected {want}, observed {got}")),
+            None => checks.check(false, format!("{name}: declared but not observed")),
+        }
+    }
     checks.class()
 }

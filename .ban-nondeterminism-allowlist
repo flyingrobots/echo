@@ -48,7 +48,7 @@ time-instant crates/warp-core/benches/support/action_scene.rs benchmark driver m
 std-env crates/warp-core/benches/support/action_scene.rs benchmark driver reads its settings from the environment; it is not linked into the runtime.
 std-fs crates/warp-core/benches/support/action_scene.rs benchmark driver creates and removes its own log directory; it is not linked into the runtime.
 time-instant crates/warp-core/benches/support/fixtures/think_append.rs benchmark fixture measures elapsed time outside the runtime; the timings decide no history and are excluded from validation.
-time-instant crates/warp-core/benches/support/fixtures/game.rs benchmark fixture measures per-frame, start-up, replay and teardown elapsed time outside the runtime; the timings decide no history and are excluded from validation.
+time-instant crates/warp-core/benches/support/fixtures/game.rs benchmark fixture measures per-frame, render-read, reference-step, start-up, replay and teardown elapsed time outside the runtime; the timings decide no history and are excluded from validation.
 hand-hashed-table crates/warp-core/src/snapshot.rs state-root membership accelerator in private mod membership, whose only operations are begin and insert (no iterator, slice accessor or lookup, enforced by the compiler); exact key equality, no seed; its contents, capacity, probe counts, generation and fallback cannot affect the state root, which is independent of scratch history (tested against the ordered reference).
 
 std-fs crates/warp-core/tests/edict_effect_admission_tests/installation.rs owned filesystem WAL fixture directory creation and cleanup only; paths never enter program, policy, installation or receipt identities.

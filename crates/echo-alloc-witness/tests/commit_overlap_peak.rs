@@ -4,8 +4,9 @@
 //! overlapping footprints.
 //!
 //! Reservation reads the tick's `in_slots` and `out_slots` back from the
-//! scheduler's conflict sets, and the patch digest gathers its whole input
-//! before hashing it. Both add temporary memory. Here every rewrite reads
+//! scheduler's conflict sets, and the patch digest is hashed through a stage
+//! of at most 16 KiB (`DIGEST_STAGE_BYTES`). The read-back adds temporary
+//! memory; the stage is bounded. Here every rewrite reads
 //! the same `SHARED` nodes and their attachments, so the footprints overlap
 //! as densely as they are allowed to (reads may overlap; writes may not).
 //! A slot collection that kept one entry per footprint claim would grow with

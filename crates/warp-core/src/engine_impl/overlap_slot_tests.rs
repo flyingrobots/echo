@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::expect_used, clippy::panic)] // Test assertions may abort the witness; one rule panics on purpose.
 //! Reservation reads a tick's slots back from the scheduler's conflict sets.
 //! This witness commits rewrites whose footprints overlap, both across
 //! rewrites (shared reads) and within one footprint (a slot that is read and
 //! written), and checks that the committed patch carries exactly the sorted,
 //! repeat-free union that the former per-footprint `BTreeSet` collection
 //! produced.
+//!
+//! It also witnesses that a commit which fails after reservation, whether a
+//! rule panics or the commit returns an error, closes its transaction: the
+//! transaction is refused afterwards, and a new one is judged only on its own
+//! reservations.
+#![allow(clippy::expect_used, clippy::panic)] // Test assertions may abort the witness; one rule panics on purpose.
 use std::collections::BTreeSet;
 
 use super::*;
@@ -271,4 +276,90 @@ fn a_failed_commit_closes_its_transaction() {
     ];
     assert_eq!(patch.in_slots(), expected.as_slice());
     assert_eq!(patch.out_slots(), expected.as_slice());
+}
+
+const ERROR_RULE: &str = "test/overlap-errors";
+
+fn missing_node() -> NodeId {
+    make_node_id("test/overlap-missing")
+}
+
+fn fresh_node() -> NodeId {
+    make_node_id("test/overlap-fresh")
+}
+
+/// A rule whose ops cannot be applied: it deletes a node that does not
+/// exist. The footprint declares the node, so the footprint guard passes and
+/// commit reaches the error exit after reservation, not a panic.
+fn erroring_rule() -> RewriteRule {
+    RewriteRule {
+        id: [10; 32],
+        name: ERROR_RULE,
+        left: PatternGraph { nodes: vec![] },
+        matcher: |_, _| true,
+        executor: RuleExecutor::legacy(|view, _, delta| {
+            let warp_id = view.warp_id();
+            delta.push(WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: fresh_node(),
+                },
+                record: NodeRecord {
+                    ty: make_type_id("test/overlap-node"),
+                },
+            });
+            delta.push(WarpOp::DeleteNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: missing_node(),
+                },
+            });
+        }),
+        compute_footprint: |view, _| writes(view, &[fresh_node(), missing_node()]),
+        factor_mask: 0,
+        conflict_policy: ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
+/// The error path of a failed commit, as distinct from the panic path above:
+/// commit returns `InternalCorruption` after reservation, the transaction is
+/// closed, and a new transaction commits.
+#[test]
+fn an_errored_commit_closes_its_transaction() {
+    let mut store = GraphStore::default();
+    let ty = make_type_id("test/overlap-node");
+    store.insert_node(retry_target(), NodeRecord { ty });
+    let mut engine = Engine::new(store, retry_target());
+    engine
+        .register_rule(erroring_rule())
+        .expect("rule registers");
+    engine.register_rule(retry_rule()).expect("rule registers");
+
+    let failed_tx = engine.begin();
+    assert!(matches!(
+        engine.apply(failed_tx, ERROR_RULE, &retry_target()),
+        Ok(ApplyResult::Applied)
+    ));
+    assert!(matches!(
+        engine.commit_with_receipt(failed_tx),
+        Err(EngineError::InternalCorruption(_))
+    ));
+    assert!(matches!(
+        engine.apply(failed_tx, RETRY_RULE, &retry_target()),
+        Err(EngineError::UnknownTx)
+    ));
+    assert!(matches!(
+        engine.commit_with_receipt(failed_tx),
+        Err(EngineError::UnknownTx)
+    ));
+
+    let tx = engine.begin();
+    assert!(matches!(
+        engine.apply(tx, RETRY_RULE, &retry_target()),
+        Ok(ApplyResult::Applied)
+    ));
+    engine
+        .commit_with_receipt(tx)
+        .expect("a new transaction commits after an errored one");
 }

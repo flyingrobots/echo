@@ -123,12 +123,13 @@
 ### Fixed
 
 - A commit that fails, by returning an error or because a rule panics, now
-  closes its transaction as an abort does: applying to it or committing it
-  again returns `EngineError::UnknownTx`, its reservations are released, and
-  the failed attempt's pending emissions, footprint evidence and cached
-  results are cleared. Before, the transaction stayed open with the failed
-  attempt's reservations still held, so committing it again rejected any
-  rewrite that overlapped them and failed with
+  closes its transaction: applying to it or committing it again returns
+  `EngineError::UnknownTx`, and its reservations are released. The failed
+  attempt's footprint evidence stays readable through
+  `Engine::last_aborted_execution_footprints`, as before. Before, the
+  transaction stayed open with the failed attempt's reservations still
+  held, so committing it again rejected any rewrite that overlapped them
+  and failed with
   `InternalCorruption("scheduler rejected rewrite but no blockers were
   found")`. Reusing a transaction after a failed commit is unsupported, so
   it is now refused.

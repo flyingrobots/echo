@@ -132,8 +132,9 @@
   transaction stayed open with the failed attempt's reservations still
   held, so committing it again failed with
   `InternalCorruption("scheduler rejected rewrite but no blockers were
-  found")` whenever one of its rewrites conflicted only with them. Reusing a transaction after a failed commit is unsupported, so
-  it is now refused. A failed commit now also emits the scheduler's
+  found")` whenever one of its rewrites conflicted only with them. Reusing
+  a transaction after a failed commit is unsupported, so it is now refused.
+  A failed commit now also emits the scheduler's
   `TelemetrySink::on_summary` for its transaction, as a committed one does.
   Ops applied before an error mid-apply still remain in engine state, as
   before (#957).

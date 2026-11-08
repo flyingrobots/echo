@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Echo-owned order proofs for slicing/subtraction and strict byte lookup.
+//! Echo-owned order proofs for slicing/subtraction and strict byte lookup,
+//! and constant upper limits for unsigned addition from the same facts.
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
 //! constants, or a dominating fact: an earlier conjunct of an enclosing
-//! `all`, or a pure intent's input constraint. Conditional predicates,
-//! negations and later conjuncts prove nothing for this order judgment.
+//! `all`, or an intent's input constraint (pure or effect). Conditional
+//! predicates, negations and later conjuncts prove nothing for this order
+//! judgment, and a `require` adds no fact for the nodes after it.
 //! The separate strict lookup judgment below also uses signed conditional and
 //! lazy-prefix truths. Neither judgment trusts annotations in the artifact.
 use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1 as Value};
@@ -39,9 +41,11 @@ pub(crate) fn proven(
     Ok(false)
 }
 
-/// The smallest constant upper bound a dominating fact gives `term`, as in
-/// Edict: `term <= c`, `term == c` or `c >= term` give `c`, and the strict forms
-/// give `c - 1` (saturating). Conjunctions contribute every conjunct.
+/// The smallest constant upper bound a dominating fact gives `term`:
+/// `term <= c`, `term == c` or `c == term` give `c`. Conjunctions contribute
+/// every conjunct. Edict also reads the strict and reversed forms (`<`, `>`,
+/// `>=`); Echo admits exactly what the checked lowerer and verifier admit, so
+/// those forms are added to all three judgments together, not here first.
 pub(crate) fn upper_limit(
     term: &Value,
     facts: &[&Value],
@@ -78,23 +82,17 @@ fn limit_from(
             let op = text_field(fact, "op")?;
             let left = field(fact, "left")?;
             let right = field(fact, "right")?;
-            let strict = matches!(op, "<" | ">");
             let mut bound = |value: u64| {
-                let value = if strict {
-                    value.saturating_sub(1)
-                } else {
-                    value
-                };
                 *limit = Some(limit.map_or(value, |current| current.min(value)));
             };
-            if matches!(op, "<=" | "<" | "==") {
+            if matches!(op, "<=" | "==") {
                 if let Some(value) = constant(right) {
                     if key(left, parser)? == term {
                         bound(value);
                     }
                 }
             }
-            if matches!(op, ">=" | ">" | "==") {
+            if op == "==" {
                 if let Some(value) = constant(left) {
                     if key(right, parser)? == term {
                         bound(value);

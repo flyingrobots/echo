@@ -57,7 +57,7 @@ knowledge_base:
     scope: "auto"
 
 issue_enrichment:
-  # Issues carry issue-dag/1 frontmatter, and maintainers own their labels.
+  # Issues carry issue-dag frontmatter, and maintainers own their labels.
   # CodeRabbit must not add labels to issues, rewrite issue bodies, or plan them.
   auto_enrich:
     enabled: false

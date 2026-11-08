@@ -5,9 +5,7 @@
 
 use anyhow::{bail, Context, Result};
 use echo_wesley_gen::provider_artifacts::generate_provider_primary_artifacts_v1;
-use echo_wesley_gen::provider_contract_pack::{
-    admit_provider_contract_pack_for_publication_v1, ProviderContractPublicationV1,
-};
+use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
 use echo_wesley_gen::provider_corpus::checked_provider_generator_source_bundle_v1;
 use echo_wesley_gen::provider_generation::build_provider_generation_input_v1;
 use echo_wesley_gen::provider_package::{
@@ -30,12 +28,9 @@ fn main() -> Result<()> {
     if arguments.next().is_some() || output.exists() {
         bail!("expected exactly one new output directory");
     }
-    let contracts = admit_provider_contract_pack_for_publication_v1(
-        ProviderContractPublicationV1::OrderedInstructions,
-        include_bytes!(
-            "../assets/v1/edict-provider/contracts/ordered/edict-provider-contracts.cddl"
-        ),
-        include_bytes!("../assets/v1/edict-provider/contracts/ordered/manifest.json"),
+    let contracts = admit_provider_contract_pack_v1(
+        include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl"),
+        include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json"),
     )?;
     let input = build_provider_generation_input_v1(
         include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json"),

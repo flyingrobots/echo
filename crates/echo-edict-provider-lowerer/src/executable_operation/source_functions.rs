@@ -2,7 +2,25 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+mod byte_at;
+#[cfg(test)]
+mod byte_at_tests;
+#[cfg(test)]
+mod byte_literals_tests;
+mod fold;
+#[cfg(test)]
+mod fold_tests;
+mod list_operations;
+#[cfg(test)]
+mod list_tests;
+mod matches;
+mod order;
+#[cfg(test)]
+mod u8_literals_tests;
 mod unsigned_addition;
+#[cfg(test)]
+mod variant_tests;
+mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,8 +33,13 @@ enum Ty {
     Bool,
     Word(u64),
     Bytes(u64, u64),
+    List(Option<Box<Ty>>, u64),
     Record(BTreeMap<String, Ty>),
     Nominal(String, Box<Ty>),
+    Variant {
+        identity: String,
+        cases: BTreeMap<String, Option<Ty>>,
+    },
 }
 impl Ty {
     fn representation(&self) -> &Self {
@@ -66,6 +89,12 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    path: Vec<(&'a Value, bool)>,
+    /// Proven caps of earlier unsigned let bindings in the current body.
+    bound: Vec<(&'a Value, u64)>,
+    /// The refined cap of the addition `expression` last proved, keyed by the
+    /// node's address, so the binding that holds it reuses the proof.
+    proven_sum: Option<(usize, u64)>,
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
@@ -160,6 +189,9 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        path: Vec::new(),
+        bound: Vec::new(),
+        proven_sum: None,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -173,6 +205,51 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     Ok(())
 }
 impl<'a> Judgment<'a> {
+    /// An unsigned binding carries its proven cap to later evaluation in the
+    /// same body. Local identities are unique and immutable.
+    fn record_bound(&mut self, local: &'a Value, value: &Value, ty: &Ty) -> Check<()> {
+        let Ty::Word(max) = ty else { return Ok(()) };
+        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+            return Ok(());
+        }
+        // `expression` already proved this addition and computed its cap.
+        let proven = self.proven_sum.take();
+        if let Some((node, cap)) = proven {
+            if node == std::ptr::from_ref(value).addr() {
+                if cap < *max {
+                    self.bound.push((local, cap));
+                }
+                return Ok(());
+            }
+        }
+        let counts = self.count_maxima(std::slice::from_ref(value))?;
+        let facts = unsigned_addition::Facts {
+            predicates: &self.proven,
+            locals: &self.bound,
+            counts: &counts,
+        };
+        let cap = unsigned_addition::ceiling(value, *max, &facts, &mut self.work)?;
+        if cap < *max {
+            self.bound.push((local, cap));
+        }
+        Ok(())
+    }
+    /// The byte maximum of every counted operand an addition proof can reach,
+    /// resolved through this module's type table so named byte types count.
+    fn count_maxima(&mut self, exprs: &[Value]) -> Check<Vec<(String, u64)>> {
+        let mut found = Vec::new();
+        for expr in exprs {
+            unsigned_addition::counted_coordinates(expr, &mut found, 0)?;
+        }
+        let mut counts = Vec::with_capacity(found.len());
+        for coordinate in found {
+            let Ty::Bytes(_, max) = self.ty(coordinate, 0)? else {
+                return Err(());
+            };
+            counts.push((coordinate.to_owned(), max));
+        }
+        Ok(counts)
+    }
     fn charge(&mut self, depth: usize) -> Check<()> {
         self.work = self.work.checked_sub(1).ok_or(())?;
         if depth > DEPTH {
@@ -217,6 +294,24 @@ impl<'a> Judgment<'a> {
             }
             return Err(());
         }
+        if let Some(spec) = name.strip_prefix("List<").and_then(|s| s.strip_suffix('>')) {
+            let (item, max) = spec.rsplit_once(",max=").ok_or(())?;
+            return Ok(Ty::List(
+                Some(Box::new(self.ty(item, depth + 1)?)),
+                decimal(max)?,
+            ));
+        }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.work = self.work.checked_sub(spec.len()).ok_or(())?;
+            let mut fields = BTreeMap::new();
+            for (field, coordinate) in super::record_type::fields(spec)? {
+                fields.insert(field.to_owned(), self.ty(coordinate, depth + 1)?);
+            }
+            return Ok(Ty::Record(fields));
+        }
         let prefix = format!("{}.", string(get(self.core, "coordinate")?)?);
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.core, "types")?, key)?;
@@ -243,6 +338,15 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(Ty::Bytes(min, max))
             }
+            "List" => {
+                exact(definition, &["kind", "item", "max"])?;
+                Ok(Ty::List(
+                    Some(Box::new(
+                        self.ty(string(get(definition, "item")?)?, depth + 1)?,
+                    )),
+                    number(get(definition, "max")?)?,
+                ))
+            }
             "Record" => {
                 let mut fields = BTreeMap::new();
                 for (key, value) in members(get(definition, "fields")?)? {
@@ -255,6 +359,7 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(Ty::Record(fields))
             }
+            "Variant" => self.variant_type(definition, key, &prefix, depth),
             _ => Err(()),
         }
     }
@@ -279,15 +384,19 @@ impl<'a> Judgment<'a> {
             }
             self.work = self
                 .work
-                .checked_sub(usize::try_from(shape(&fact.ty)?.0.steps).map_err(|_| ())?)
+                .checked_sub(variants::type_nodes(&fact.ty)?)
                 .ok_or(())?;
             return Ok(fact.clone());
         }
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_path = std::mem::take(&mut self.path);
+        let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.path = caller_path;
+        self.bound = caller_bounds;
         self.active.remove(name);
         result
     }
@@ -323,6 +432,7 @@ impl<'a> Judgment<'a> {
             if !includes(&expected, &fact.ty) {
                 return Err(());
             }
+            self.record_bound(local, get(binding, "value")?, &expected)?;
             let (_, validations, _, ty_depth) = shape(&expected)?;
             cost = cost.plus(fact.cost)?.plus(Cost {
                 steps: validations,
@@ -369,6 +479,9 @@ impl<'a> Judgment<'a> {
         let mut cost = Cost { steps: 1, bytes: 0 };
         let mut depth = 0;
         let ty = match string(get(value, "kind")?)? {
+            "fold" => return self.state_fold(value, scope, source, prefix),
+            "match" => return self.variant_match(value, scope, source, prefix),
+            "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {
                 exact(value, &["kind", "ref"])?;
                 let local = get(value, "ref")?;
@@ -377,16 +490,28 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
                 let copied = shape(ty)?.0;
-                self.work = self
-                    .work
-                    .checked_sub(usize::try_from(copied.steps).map_err(|_| ())?)
-                    .ok_or(())?;
+                self.work = self.work.checked_sub(variants::type_nodes(ty)?).ok_or(())?;
                 cost = cost.plus(copied)?;
                 ty.clone()
             }
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bytes" {
+                    exact(literal, &["kind", "value"])?;
+                    let Value::Bytes(bytes) = get(literal, "value")? else {
+                        return Err(());
+                    };
+                    let length = u64::try_from(bytes.len()).map_err(|_| ())?;
+                    return Ok(Fact {
+                        ty: Ty::Bytes(length, length),
+                        cost: cost.plus(Cost {
+                            steps: 1,
+                            bytes: length.checked_add(64).ok_or(())?,
+                        })?,
+                        depth: 0,
+                    });
+                }
                 if string(get(literal, "kind")?)? == "bool" {
                     exact(literal, &["kind", "value"])?;
                     if !matches!(get(literal, "value")?, Value::Bool(_)) {
@@ -403,7 +528,8 @@ impl<'a> Judgment<'a> {
                 }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
-                if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
+                if string(get(literal, "kind")?)? != "int" || !["U8", "U32", "U64"].contains(&width)
+                {
                     return Err(());
                 }
                 let ty = self.ty(width, 0)?;
@@ -429,6 +555,22 @@ impl<'a> Judgment<'a> {
                 };
                 fields.remove(string(get(value, "field")?)?).ok_or(())?
             }
+            "list" => {
+                exact(value, &["kind", "values"])?;
+                let values = list(get(value, "values")?)?;
+                let mut item: Option<Box<Ty>> = None;
+                cost.bytes = 64;
+                for value in values {
+                    let fact = self.expression(value, scope, source, prefix + 1)?;
+                    cost = cost.plus(fact.cost)?;
+                    depth = depth.max(fact.depth + 1);
+                    item = Some(Box::new(match item {
+                        None => fact.ty,
+                        Some(previous) => union(*previous, fact.ty)?,
+                    }));
+                }
+                Ty::List(item, u64::try_from(values.len()).map_err(|_| ())?)
+            }
             "record" => {
                 exact(value, &["kind", "fields"])?;
                 cost.bytes = 64;
@@ -451,8 +593,13 @@ impl<'a> Judgment<'a> {
                 exact(value, &["kind", "predicate", "then", "else"])?;
                 let predicate =
                     self.predicate(get(value, "predicate")?, scope, source, prefix + 1)?;
+                let checkpoint = self.path.len();
+                self.path.push((get(value, "predicate")?, true));
                 let yes = self.expression(get(value, "then")?, scope, source, prefix + 1)?;
+                self.path.truncate(checkpoint);
+                self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, scope, source, prefix + 1)?;
+                self.path.truncate(checkpoint);
                 cost = cost.plus(predicate.0)?.plus(yes.cost.maximum(no.cost))?;
                 depth = predicate.1.max(yes.depth).max(no.depth) + 1;
                 union(yes.ty, no.ty)?
@@ -463,7 +610,7 @@ impl<'a> Judgment<'a> {
                 let arguments = list(get(value, "args")?)?;
                 let types = list(get(value, "typeArgs")?)?;
                 let mut actual = Vec::new();
-                for argument in arguments {
+                for argument in checked_arguments(name, arguments)? {
                     let fact = self.expression(argument, scope, source, prefix + 1)?;
                     cost = cost.plus(fact.cost)?;
                     depth = depth.max(fact.depth + 1);
@@ -499,6 +646,12 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, declared) if list_operations::is_operation(name) => {
+                            let result = self.list_operation(value, actual, declared)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
                         ("core.bytes.isUtf8", [actual], [expected @ Ty::Bytes(_, max)])
                             if expected == actual =>
                         {
@@ -507,6 +660,37 @@ impl<'a> Judgment<'a> {
                                 bytes: 64,
                             })?;
                             Ty::Bool
+                        }
+                        ("core.bytes.count", [actual], [expected @ Ty::Bytes(_, max)])
+                            if expected == actual =>
+                        {
+                            // One complete scan plus the materialized one-byte needle.
+                            cost = cost.plus(Cost {
+                                steps: max.checked_add(3).ok_or(())?,
+                                bytes: 128,
+                            })?;
+                            Ty::Word(u64::MAX)
+                        }
+                        (
+                            "core.bytes.at",
+                            [actual, Ty::Word(index_max)],
+                            [expected @ Ty::Bytes(min, _)],
+                        ) if includes(expected, actual) && *index_max == u64::MAX => {
+                            if !byte_at::valid(
+                                &types[0],
+                                arguments,
+                                *min,
+                                &self.proven,
+                                &self.path,
+                                &mut self.work,
+                            )? {
+                                return Err(());
+                            }
+                            cost = cost.plus(Cost {
+                                steps: 3,
+                                bytes: 64,
+                            })?;
+                            Ty::Word(u64::from(u8::MAX))
                         }
                         ("core.bytes.length", [actual], [expected @ Ty::Bytes(_, _)])
                             if includes(expected, actual) =>
@@ -535,24 +719,34 @@ impl<'a> Judgment<'a> {
                                 && right == expected
                                 && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            unsigned_addition::prove(
-                                arguments,
-                                *max,
-                                &self.proven,
-                                &mut self.work,
-                            )?;
+                            let counts = self.count_maxima(arguments)?;
+                            let facts = unsigned_addition::Facts {
+                                predicates: &self.proven,
+                                locals: &self.bound,
+                                counts: &counts,
+                            };
+                            let cap =
+                                unsigned_addition::prove(value, *max, &facts, &mut self.work)?;
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                             cost = cost.plus(Cost {
                                 steps: 3,
                                 bytes: 64,
                             })?;
                             expected.clone()
                         }
-                        ("core.integer.subtract", [left, right], [expected @ Ty::Word(_)])
-                            if includes(expected, left) && includes(expected, right) =>
+                        ("core.integer.subtract", [left, right], [expected @ Ty::Word(max)])
+                            if includes(expected, left)
+                                && includes(expected, right)
+                                && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            literal(&arguments[0])?
-                                .checked_sub(literal(&arguments[1])?)
-                                .ok_or(())?;
+                            if !order::proven(
+                                &arguments[0],
+                                &arguments[1],
+                                &self.proven,
+                                &mut self.work,
+                            )? {
+                                return Err(());
+                            }
                             cost = cost.plus(Cost {
                                 steps: 3,
                                 bytes: 64,
@@ -562,19 +756,36 @@ impl<'a> Judgment<'a> {
                         (
                             "core.bytes.slice",
                             [actual, Ty::Word(a), Ty::Word(b)],
-                            [expected @ Ty::Bytes(min, _)],
+                            [expected @ Ty::Bytes(min, max)],
                         ) if *a == u64::MAX && *b == u64::MAX && includes(expected, actual) => {
-                            let start = literal(&arguments[1])?;
-                            let end = literal(&arguments[2])?;
-                            if start > end || end > *min {
-                                return Err(());
-                            }
-                            let count = end - start;
+                            // Literal offsets within the guaranteed minimum length need
+                            // no fact; any other offsets need start <= end <= len(bytes).
+                            let copied = match (literal(&arguments[1]), literal(&arguments[2])) {
+                                (Ok(start), Ok(end)) if start <= end && end <= *min => end - start,
+                                _ => {
+                                    let length = order::length_of(&types[0], &arguments[0]);
+                                    if !order::proven(
+                                        &arguments[2],
+                                        &arguments[1],
+                                        &self.proven,
+                                        &mut self.work,
+                                    )? || !order::proven(
+                                        &length,
+                                        &arguments[2],
+                                        &self.proven,
+                                        &mut self.work,
+                                    )? {
+                                        return Err(());
+                                    }
+                                    *max
+                                }
+                            };
                             cost = cost.plus(Cost {
-                                steps: count.checked_add(4).ok_or(())?,
-                                bytes: count.checked_add(64).ok_or(())?,
+                                steps: copied.checked_add(4).ok_or(())?,
+                                bytes: copied.checked_add(64).ok_or(())?,
                             })?;
-                            Ty::Bytes(0, count)
+                            // As in Edict, a slice keeps its operand's maximum and no minimum.
+                            Ty::Bytes(0, *max)
                         }
                         _ => return Err(()),
                     }
@@ -602,7 +813,7 @@ impl<'a> Judgment<'a> {
                     self.predicate(get(value, "value")?, scope, source, prefix + 1)?;
                 return Ok((cost.plus(Cost { steps: 1, bytes: 0 })?, height + 1));
             }
-            "all" => {
+            "all" | "any" => {
                 exact(value, &["kind", "values"])?;
                 let values = list(get(value, "values")?)?;
                 if values.is_empty() {
@@ -611,13 +822,19 @@ impl<'a> Judgment<'a> {
                 let mut cost = Cost { steps: 1, bytes: 0 };
                 let mut height = 0;
                 let inherited = self.proven.len();
+                let path_start = self.path.len();
+                let conjunction = string(get(value, "kind")?)? == "all";
                 for value in values {
                     let (child, depth) = self.predicate(value, scope, source, prefix + 1)?;
                     cost = cost.plus(child)?;
                     height = height.max(depth);
-                    self.proven.push(value);
+                    if conjunction {
+                        self.proven.push(value);
+                    }
+                    self.path.push((value, conjunction));
                 }
                 self.proven.truncate(inherited);
+                self.path.truncate(path_start);
                 return Ok((cost, height + 1));
             }
             _ => {}
@@ -639,7 +856,7 @@ impl<'a> Judgment<'a> {
         ) {
             ("==", Ty::Bool, Ty::Bool) => 0,
             ("==", Ty::Bytes(_, a), Ty::Bytes(_, b)) => (*a).max(*b),
-            ("==" | "<=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
+            ("==" | "!=" | "<" | "<=" | ">" | ">=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
             _ => return Err(()),
         };
         Ok((
@@ -652,6 +869,8 @@ impl<'a> Judgment<'a> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.path.clear();
+        self.bound.clear();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut pending = BTreeMap::new();
@@ -712,6 +931,7 @@ impl<'a> Judgment<'a> {
                     if !includes(&ty, &fact.ty) {
                         return Err(());
                     }
+                    self.record_bound(get(node, "binding")?, get(node, "value")?, &ty)?;
                     cost = cost.plus(fact.cost)?.plus(Cost {
                         steps: shape(&ty)?.1,
                         bytes: 0,
@@ -765,6 +985,7 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
     match ty {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
+        Ty::Variant { identity, cases } => variants::shape(identity, cases),
         Ty::Bool => Ok((
             Cost {
                 steps: 1,
@@ -792,6 +1013,46 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
             max.checked_add(9).ok_or(())?,
             0,
         )),
+        Ty::List(item, max) => {
+            let Some(item) = item else {
+                if *max != 0 {
+                    return Err(());
+                }
+                return Ok((
+                    Cost {
+                        steps: 1,
+                        bytes: 64,
+                    },
+                    1,
+                    9,
+                    0,
+                ));
+            };
+            let (copy, validations, encoded, height) = shape(item)?;
+            Ok((
+                Cost {
+                    steps: copy
+                        .steps
+                        .checked_mul(*max)
+                        .and_then(|v| v.checked_add(1))
+                        .ok_or(())?,
+                    bytes: copy
+                        .bytes
+                        .checked_mul(*max)
+                        .and_then(|v| v.checked_add(64))
+                        .ok_or(())?,
+                },
+                validations
+                    .checked_mul(*max)
+                    .and_then(|v| v.checked_add(1))
+                    .ok_or(())?,
+                encoded
+                    .checked_mul(*max)
+                    .and_then(|v| v.checked_add(9))
+                    .ok_or(())?,
+                if *max == 0 { 0 } else { height + 1 },
+            ))
+        }
         Ty::Record(fields) => {
             let mut cost = Cost {
                 steps: 1,
@@ -821,6 +1082,14 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
 fn includes(expected: &Ty, actual: &Ty) -> bool {
     match (expected, actual) {
         (Ty::Bytes(a, b), Ty::Bytes(c, d)) => a <= c && d <= b,
+        (Ty::List(a, max), Ty::List(b, count)) => {
+            count <= max
+                && match (a, b) {
+                    (_, None) => *count == 0,
+                    (Some(a), Some(b)) => includes(a, b),
+                    (None, Some(_)) => false,
+                }
+        }
         (Ty::Record(a), Ty::Record(b)) => {
             a.len() == b.len()
                 && a.iter()
@@ -832,6 +1101,21 @@ fn includes(expected: &Ty, actual: &Ty) -> bool {
 fn union(left: Ty, right: Ty) -> Check<Ty> {
     match (left, right) {
         (Ty::Bytes(a, b), Ty::Bytes(c, d)) => Ok(Ty::Bytes(a.min(c), b.max(d))),
+        (Ty::List(a, n), Ty::List(b, m)) => Ok(Ty::List(
+            match (a, b) {
+                (Some(a), Some(b)) => Some(Box::new(union(*a, *b)?)),
+                (a, b) => a.or(b),
+            },
+            n.max(m),
+        )),
+        (Ty::Record(a), Ty::Record(mut b)) if a.keys().eq(b.keys()) => {
+            let mut fields = BTreeMap::new();
+            for (key, value) in a {
+                let other = b.remove(&key).ok_or(())?;
+                fields.insert(key, union(value, other)?);
+            }
+            Ok(Ty::Record(fields))
+        }
         (a, b) if a == b => Ok(a),
         _ => Err(()),
     }
@@ -882,6 +1166,29 @@ fn decimal(value: &str) -> Check<u64> {
         return Err(());
     }
     Ok(parsed)
+}
+/// A count's needle is a Core constant of exactly one byte, checked
+/// structurally and excluded from ordinary expression typing.
+pub(super) fn checked_arguments<'a>(name: &str, arguments: &'a [Value]) -> Check<&'a [Value]> {
+    if name != "core.bytes.count" {
+        return Ok(arguments);
+    }
+    let [operand, needle] = arguments else {
+        return Err(());
+    };
+    exact(needle, &["kind", "value"])?;
+    let literal = get(needle, "value")?;
+    exact(literal, &["kind", "value"])?;
+    if string(get(needle, "kind")?)? != "const" || string(get(literal, "kind")?)? != "bytes" {
+        return Err(());
+    }
+    let Value::Bytes(byte) = get(literal, "value")? else {
+        return Err(());
+    };
+    if byte.len() != 1 {
+        return Err(());
+    }
+    Ok(std::slice::from_ref(operand))
 }
 fn literal(value: &Value) -> Check<u64> {
     if string(get(value, "kind")?)? != "const" {

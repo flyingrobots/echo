@@ -290,12 +290,42 @@ Boolean substitutes. Predicates support Boolean equality, not ordering.
 The native pure interpreter's implementation does not by itself establish
 provider component support or a public compiler/provider/runtime witness.
 
+The generic `core.bytes.count<OperandType>(bytes, needle)` operation counts the
+occurrences of one byte in a bounded raw-byte value and returns U64. The needle
+must be a Core byte constant of exactly one byte; the parser, the lowerer and
+the verifier each check that shape structurally, and refuse empty, multi-byte,
+integer and non-constant needles. It counts raw bytes, including NUL, 0xFF and
+invalid UTF-8, without decoding or normalization. It charges one work unit per
+actual operand byte for the scan, plus ordinary operand evaluation, bound
+validation and result storage. The result never exceeds the operand's byte
+maximum, which the addition proofs use.
+
 Negation uses the closed `not` predicate shape with exactly one `value` child.
 The interpreter validates the entire child before execution, evaluates it once,
 and inverts its Boolean result. A negation wrapper costs one predicate step;
 child errors and budget refusals propagate unchanged. Negation participates in
 the same syntax-node and combined expression/helper depth limits as conjunction.
-It adds no proof assumptions or byte-normalization behavior.
+Negation does not normalize bytes. Dominating truths can use negation to
+prove a byte lookup domain, as described below.
+
+The generic `core.bytes.at<OperandType>(bytes, index)` operation returns one raw
+byte as U8. Its index is exactly U64 and must be strictly below the exact
+operand's length. A constant below a guaranteed minimum length is sufficient;
+a byte maximum, equality to length or a bound on a different operand is not.
+Accepted guards include `index < length` and `length > index`, or the false
+arms of `index >= length` and `length <= index`. Negation reverses the truth
+required of its child. Non-strict upper bounds do not prove lookup safety.
+Both providers independently prove this domain, including when the optional
+source-function table is absent. Helper frames do not borrow caller facts.
+Conditional arms and lazy Boolean operands carry only their dominating truths:
+a later conjunction operand sees earlier operands true, while a later
+disjunction operand sees them false. These lookup facts do not escape their arm.
+The shared pure/read interpreter checks actual byte bounds before indexing,
+preserves NUL and non-UTF-8 octets, and charges operand evaluation, two value
+validations and one scalar result copy. The lookup expression itself is one
+work unit; its result occupies one 64-byte value cell. Package-size and decode
+limits bound validation work before execution. Native support does not promote
+checked component carriers or prove an application operation.
 
 The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
 raw bytes in the half-open range `[start, end)`. It validates the operand's byte
@@ -375,8 +405,127 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
+Native refers to direct execution of the Rust lowerer, verifier, and runtime.
+These implementations support the first-order
+`fold(initial, step, bound)` expression. `step` is a named source-owned helper
+with exactly one parameter and the same declared return type; `stateType` must
+match that invariant signature. The initial value is checked in the caller's
+lexical scope. The complete helper closure remains checked at bound zero,
+including cycle rejection and helper authority. Opaque imported helpers and
+callback values cannot become iteration steps.
+
+Evaluation computes the initial state once and moves each result into a fresh
+step frame. Iterations do not accumulate native stack depth. The existing depth
+limit applies to expression nesting and helper dependencies. Static judgments
+multiply the complete step and argument-validation charges by the bound with
+checked arithmetic; the runtime meters each executed iteration, copies and
+validation. Zero iterations still validate and return the initial state. The
+capability is `core.fold/v1`; unknown and duplicate capabilities refuse.
+
+The checked provider components include these judgments and were reproduced
+by two independent CI builds. The public compiler witnesses below consume
+those components. Native synthetic tests alone do not establish public compiler
+provenance, persistent-rope semantics, or operation admission/WAL/recovery evidence.
+
 The native source-function target subset supports Boolean values, unsigned words,
-bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
+bounded bytes, lists, records and nominal types, with Boolean, U8/U32/U64 and raw byte
+literals. The U8 domain is exactly 0 through 255; malformed values, overflow,
+negative values and cross-width helper returns refuse. U8 constants retain
+ordinary scalar work/storage charges. Arithmetic remains U32/U64: both
+providers refuse U8 subtraction, matching runtime parsing. The checked lowerer
+and verifier components include these U8 judgments; their independent build
+and promotion boundary is documented in the
+[component owner](../../schemas/edict-provider/components/v1/README.md).
+
+The native lowerer, independent verifier and runtime helper admission
+require byte constants to carry exactly `kind` and a raw-byte `value`; empty bytes, NUL and non-UTF-8 octets
+remain bytes. The inferred byte type has equal minimum and maximum bounds at the
+actual length, so a narrower result type still refuses. Materialization charges
+one value cell plus its payload length through the existing runtime meter. The
+checked lowerer and verifier components include this rule; source-function and
+source-module consumers use the same current schema publication.
+
+List judgments accept finite `List<Item,max=N>` references and named
+Core `List` definitions, plus empty, homogeneous and nested list literals.
+Empty literals have no inferred element and fit any declared element type;
+nonempty elements must admit a common type without erasing nominal identity.
+The separate ordered-read relation and audit also judge list arguments and
+results, including conditional and exhaustive-match joins. Record elements
+must have the same field names; compatible bounded fields join recursively in
+the provider judgments and runtime helper inference, including record-valued
+conditional and match branches. Named lists and inline list references are
+structural types; nominal identity comes from their nominal elements.
+The lowerer's ordered-read judgment now charges one proof-work unit per
+expression visit, as the verifier already did. Programs near that limit may
+therefore refuse where they previously passed. For Cores without a function
+table, capability discovery now scans the whole Core with a 65,536-value cap.
+A `List<` text reference or `kind: "List"` definition activates whole-intent
+checking even when no list literal appears; exhausting discovery refuses.
+The lowerer and independent verifier multiply element copy, validation and
+encoding bounds with checked arithmetic, including intents without helpers.
+Runtime construction charges the array cell and each evaluated element;
+validation checks every element and the actual length. The checked Wasm
+provider components include these list-value judgments, reproduced independently
+and promoted together with their digest-bound package copies. Public
+compiler-to-runtime witnesses execute empty, nonempty, nested, record and
+nominal-element lists through the exact emitted package/report pairs, including
+the ordered-read route. They check repeated artifacts, exact and one-unit-short
+resource limits, invalid inputs, package identity and nominal refusal. The
+[publication driver](../../scripts/consumer-witnesses/source-functions-publication.py)
+and [runtime witness](../../xtask/examples/source_functions_public_runtime.rs)
+retain the distinction between compilation, provider verification and execution.
+
+The lowerer, verifier and runtime additionally implement
+`core.list.length`, `core.list.at`, `core.list.append` and `core.list.concat`
+under `core.list/v1`. Access requires an exact-operand strict index/length
+proof; append requires room under the declared capacity and retains that
+capacity. Append and concatenation require declared operand types to equal
+their independently reconstructed types, including capacity and nominal identity;
+structurally equivalent record types remain equal. Concatenation checks identical
+item coordinates and the checked sum of the operand maxima. Both provider
+judgments charge operand validation and bounded result copies. Runtime
+evaluation checks actual lengths and elements and charges
+result storage before reserving it. The ordered-read type judgments admit the
+same operations after whole-intent validation, including forward, reversed and
+negated strict bounds on equal-width words (`<`, `>`, and false `>=`/`<=`).
+
+Structural joins may produce inline `Record<field:Type,...>` coordinates inside
+lists. Each provider and the runtime parses these under its existing depth and
+work bounds, charging the scanned bytes. Fields must have unique, lexically
+ordered names. Runtime types normalize that spelling to canonical CBOR field
+order so named and inline records compare structurally without erasing nominal
+field identities.
+
+Both provider judgments and runtime preparation include list operand validation
+in the combined helper-call depth bound. Capability discovery uses the canonical artifact nesting ceiling;
+wire wrappers do not count as evaluator expression frames.
+Its node budget also follows each separately decoded Core/export artifact;
+the parser's shared program-work limit remains independent.
+
+Each list-domain proof rescan traverses an already validated ancestor predicate
+with its own depth counter and the shared work budget. Disjoint guard and body
+branches do not consume a single combined expression-depth allowance.
+
+These operation paths have synthetic provider and runtime tests in
+[`list_operations.rs`](../../crates/echo-edict-provider-verifier/tests/source_functions/list_operations.rs)
+and [`list_operations_tests.rs`](../../crates/warp-core/src/edict_pure/list_operations_tests.rs),
+including strict-guard, capability, coherently widened operand refusals, bounds
+and exact/one-unit-short resource refusals. The checked Wasm component pair
+includes the operations and was promoted from two matching independent builds.
+The TypeScript [worklist publication driver](../../scripts/consumer-witnesses/list-worklist-publication.ts)
+compiles authored source through those components, repeats accepted builds and
+retains the exact package/report pairs. Its [runtime witness](../../xtask/examples/source_functions_public_runtime/worklists.rs)
+checks non-idempotent folds at bounds 0/1/2/3/5 against closed-form contents and
+index results, structural alias concatenation, and stored-read worklists at
+bounds 0/1/3 and reversed/negated guards at bound 5. Nominal-element acceptance
+and bare-representation refusal, invalid
+typed inputs, package identity, exact/one-unit-short budgets and old-provider
+refusals are separate controls. Witness usage and selected-input requirements
+are in the [consumer witness guide](../../scripts/consumer-witnesses/README.md).
+This establishes bounded list operations; persistent-rope algorithms and
+collection membership semantics remain separate contracts.
+
+Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
@@ -386,18 +535,22 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
-receive provider refusal. Native lowerer and independent verifier judgments
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String and effectful helper forms
+receive provider refusal. Native closed-variant checks and runtime realization
+are described below. Native lowerer and independent verifier judgments
 check bounded UTF-8 byte calls with exact operand types, Boolean equality and
-closed nonempty conjunction/negation trees. Their static cost includes the
+closed nonempty conjunction/disjunction/negation trees and same-width unsigned
+comparisons. Their static cost includes the
 full declared scan aperture; conjunction cost bounds every child even though
-execution may stop early. The verifier dependency census traverses nested
+execution may stop early. Disjunction also bounds all children while executing
+only until one is true. The verifier dependency census traverses nested
 predicates before checking helper call order and cycles.
-For modules containing source functions, partial subtraction and slicing need
-literal evidence sufficient for totality: ordered unsigned operands, or ordered
-U64 slice offsets within the operand's guaranteed minimum length. Caller
-`where` constraints are not inherited into helper frames. Function-free legacy
-fixtures retain their existing admission and runtime behavior.
+Partial subtraction, slicing and lookup require evidence sufficient for their
+respective domains, as described above; bounded addition requires a proven
+result ceiling. Caller `where` constraints are not inherited into helper frames.
+Function-free modules also enter the totality judgment when they contain
+addition, subtraction, slicing, lookup or byte counting. Absence of a helper
+table does not exempt these operations from their domain checks.
 
 Source-function admission derives conservative bounds for the whole operation:
 input validation and materialization, every argument and call occurrence,
@@ -424,6 +577,181 @@ These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
 
+#### Closed variants in provider judgments and the runtime
+
+The native lowerer and independent verifier additionally judge acyclic named
+Core variant types and constructor expressions in source-function bodies,
+including unused helpers. A constructor retains the resolved union identity,
+exact case and optional payload. Case membership, payload presence, widths,
+byte bounds and nominal payload identity are checked independently. An equally
+shaped different union cannot replace the declared union, including through a
+helper call. Module-relative and fully qualified references resolve to the
+same local union; imported type-table identities remain original coordinates.
+The existing same-prefix imported-key limitation described above still applies.
+
+Native provider judgments also check exhaustive matches, including coverage,
+payload binder types, arm-local scope and calls in unselected arms. Runtime
+source-helper preparation repeats those type and scope checks. Intent-level
+bindings and results instead use the expression parser: it rejects duplicate
+case tags and empty arm lists, but relies on the provider judgments for typed
+coverage and binder scope. Evaluation checks each resulting binding and the
+intent result against its declared type; selecting a missing arm refuses.
+These runtime checks do not replace provider verification or the caller's
+selection of the verified package digest. The parser boundary witnesses in
+`edict_pure/variant_tests.rs` are synthetic and establish no public compiler
+package provenance.
+
+An arm may omit its binder and discard the payload. A binder cannot reuse an
+already available local's ID. It may reuse a pending or currently being defined
+local's ID, but each reference in the arm must match the binder's complete
+declaration. This temporary scope does not expose the pending outer value.
+Dispatch charges one step for every inspected arm, so arm order affects cost.
+A selected payload-binding arm copies the entire available frame, including
+locals its body does not reference; the payload itself moves into that frame.
+Both providers include these copies in the worst-arm bound. Matching requires
+a variant type; a nominal wrapper does not grant variant-match semantics.
+
+The separate bounded-read relation judgments retain the full union identity and
+bounded alternative graph for variant-valued helper results and local bindings.
+They charge every case during type expansion, including payloadless cases, and
+refuse empty, malformed or recursive graphs. Variant values do not acquire record
+field access to their metadata. Constructor expressions in source-function
+bodies remain subject to the independent source-function judgments above. Direct
+constructor expressions remain unsupported in the read relation itself; a helper
+result or local can supply a match scrutinee. Direct raw-byte constants are also
+outside that relation's expression profile. A source helper may return such a
+constant, including an empty fallback passed to a match helper; its body is
+checked by the independent source-function judgments. Both read judgments
+preserve outer declarations and cumulative proof work across temporary arm scopes.
+
+The generic pure and bounded-read Rust provider entry points independently admit
+`core.variant/v1` and `core.fold/v1`, each at most once. Every variant declaration
+requires its capability, including unused declarations. Every fold requires its
+capability and a source-owned step, even at bound zero. Known capabilities are
+also permitted when unused. Unknown, duplicate, malformed
+or missing capability metadata refuses. Pure Core must include the capability
+inventory and type table, even when empty. The bounded-read lowerer retains its
+exact-field schema refusal for an absent inventory. The bounded-read verifier
+returns a rejected report for a well-bound candidate that fails this audit;
+the pure verifier returns a provider refusal. Legacy fixed DPO admission is
+unchanged.
+
+Payload expressions remain in the ordinary lexical, dependency, cycle, depth
+and partial-intrinsic totality checks. Case entries have exactly an optional
+payload type reference; empty alternatives, duplicate cases, unknown fields,
+recursive or missing payload types and overflow refuse. Every alternative
+consumes proof work, including payloadless cases. A type clone retains all
+alternatives, so its proof-work charge counts the complete type graph rather
+than only the maximum runtime payload. Each nominal wrapper also consumes one
+proof-work unit in addition to its representation; this tightens admission for
+existing nominal-typed flows near the limit. The limits remain 65,536 proof-work
+units and 64 levels. Proof work bounds admission traversals and type copies;
+execution steps and allocated bytes are separate, cumulative runtime budgets.
+The runtime parser separately bounds syntax/type expansion to 65,536 nodes.
+
+Static value bounds reserve a container with `type` and `case` text metadata
+and an optional payload. They include six 64-byte metadata cells, 15 key bytes,
+the resolved type identity, case label and maximum bounded payload; the absent
+payload has a conservative cell reservation. The lowerer bounds metadata and
+payload maxima separately; the verifier derives each alternative's bounds and
+takes their maximum. Copy, validation and encoding scratch participate in
+whole-operation budgets with checked arithmetic. These are conservative
+logical storage bounds; complete operation admission also checks the target
+relation and result projection.
+
+The runtime separately resolves the closed type graph and checks constructors,
+payload types, scope, helper dependencies and combined depth before execution.
+Malformed, empty, duplicate, recursive, oversized or storage-overflowing variant
+graphs refuse under the existing decode apertures. Variant expressions retain
+their exact type identity and case, and evaluate a present payload once in the
+current frame. Passing a value to a helper moves it into the fresh parameter
+frame; a later parameter read incurs the ordinary value-copy charges.
+
+A realized variant is a canonical map with `type` and `case` text values and
+an optional `payload` value. `type` is the resolved original union coordinate;
+the selected case determines payload presence and type. Absent payload is
+omitted, never replaced by null or a numeric tag. Exact fields, identity, case
+and payload are validated at typed boundaries. This representation does not
+make variants records in the static type system or grant field-projection
+access to their metadata.
+
+Native type judgments and the evaluator can represent variant-typed pure input
+and result values with this map. Synthetic fixtures exercise typed validation
+and result encoding. The public compiler witnesses here return bytes; they do
+not establish a compiler-emitted variant result path. Complete operation
+admission still requires its target relation and result projection. Required
+capability inventories are enforced by the provider entry points; the evaluator
+does not repeat that verification. Its caller must select the expected package
+digest through the verified admission path.
+
+Construction charges the expression and two text-value steps. Its metadata
+reservation is charged before materialization:
+
+| Constructor | Metadata cells (64 bytes each) | Key bytes | Execution steps |
+| --- | ---: | ---: | ---: |
+| Payloadless | 5 | 8 | 3 |
+| Payload-bearing | 6 | 15 | 3 plus payload expression |
+
+Both rows also charge the identity and case text lengths; the payload expression
+has its own storage charges. The static type bound reserves the payload-bearing
+metadata and a maximum payload with a 64-byte floor even for absent payloads.
+Copying uses the existing recursive value charges; validation charges the variant, both metadata values
+and a present typed payload. Budgets remain cumulative and architecture
+independent. Neither the representation nor these logical units imply measured
+allocator sizes or a compiler result-encoding capability.
+
+The mirrored input corpus in each provider's `source_functions/variant_tests.rs`
+checks construction, exhaustive matches, named/imported/nominal identities,
+malformed metadata, hidden payload dependencies and captures, partial calls,
+recursive/deep/wide graphs, arithmetic overflow and underfunded whole-operation
+bounds. Production judgments share no implementation. Native checks alone establish neither
+component reproduction nor compiler-emitted package provenance.
+The runtime's `edict_pure/variant_tests.rs` separately exercises preparation,
+value validation, constructor and copy charges, nested/called payloads, fresh
+frames, imported/nominal identities, graph apertures and step/allocation/output
+limits. Those synthetic runtime fixtures establish no compiler provenance.
+The `match_populated_frame_accounting` tests in all three crates share only the
+inputs in `testdata/edict-match-frame.rs`; each implementation owns its judgment.
+The frame contains an integer, exact-length bytes, a record and a variant.
+Independent cell arithmetic pins its copy at 12 work units and 819 storage bytes.
+Both arm orders and binder omission are checked, including exact runtime limits
+and one-unit shortfalls. Provider worst-arm costs bound each concrete execution of this fixture.
+Optional `ECHO_MATCH_FRAME_REPORT` files bind measured costs to the canonical
+fixture digest for comparison by a guarded runner. This is expression-level
+accounting evidence. Companion tests locate each provider's whole-intent work
+and storage boundary, accept the exact limits and refuse one-unit shortfalls;
+adding payload binders raises those limits by the same frame-copy cost. These
+synthetic cost judgments establish neither public package admission nor compiler
+provenance.
+The public read constructor witness explicitly authors a 32 MiB allocation
+lawpack budget; the matched-read witnesses use a bounded 64 MiB allocation
+budget. Each records the change with source and manifest hashes. Paired
+16 MiB allocation controls must refuse at compiler type checking with allocation
+as the only exceeded cost dimension; runtime resource ceilings remain
+independently checked. These are authored operation
+budgets, separate from the witness runner's storage limits.
+
+The public source-function publication/runtime witness separately compiles empty
+and payload-bearing helpers, including consumed matches, in pure and bounded-read
+operations. It retains
+`core.variant/v1`, exact repeated package/report bytes, old-provider refusals,
+and the original-allocation refusal. Runtime consumption checks unchanged byte
+results, increasing constructor/payload charges, repeated outcomes, resource
+ceilings and package identity. The checked component pair is reproduced by two
+matching CI builds and promoted. Regenerating with
+`cargo run --locked -p echo-wesley-gen --example source_functions_publication_witness -- <output>`
+uses those checked components without a candidate override. Under the single
+current publication, all 25 generated files equal the committed `package/v1`
+files byte for byte. Historical candidate comparisons describe their recorded
+producer snapshots, not additional supported publication selections. The PR review receipts retain the CI
+run, source commit and comparison inventory. This evidence covers helper-local
+construction and exhaustive matching. Public compiler variant result encoding,
+recursive variants and the application's persistent-rope cutover remain outside
+this proof. The optional `--variant-provider-before` and `--match-provider-before`
+controls are described below.
+
+#### Pure and read witness fixtures
+
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).
 It consumes retained exact external compiler output, checks both authored
@@ -444,7 +772,7 @@ judgment tests provide separate evidence. It does not establish a persistent rop
 a decided Tick, atomic effects, recovery or final pinned integration.
 
 The companion fixture in `crates/warp-core/tests/fixtures/edict-pure-utf8-helper`
-selects the explicit source-function publication using the guarded Docker publisher
+uses the current publication through the guarded Docker publisher
 with copied read-only sources. The public compiler then invokes both promoted
 components and retains their unchanged accepted package/report. A byte-parameter
 helper exercises UTF-8 validation, Boolean equality, conjunction, negation and
@@ -453,7 +781,92 @@ full 1 MiB inputs, an over-bound input and insufficient scan work. Publication,
 component and package identities are recorded in its provenance. These are private
 computation witnesses and confer no mutation or causal-history authority.
 
-The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by a caller-supplied SHA-256. The guarded launcher computes that digest after compilation; it binds consumption to the retained evidence, not to an independently approved digest fixed before the run. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+
+The optional `--byte-lookup-provider-before` control selects the previous
+matching U8 publication. That publication must refuse the guarded lookup,
+while the candidate accepts the same source and a lazy-OR boundary predicate.
+Missing or non-strict bounds must remain compiler refusals with no artifacts.
+The runtime consumer checks raw byte values, authored out-of-range fallback,
+repeat-identical accounting, invalid inputs, package identity and resource limits.
+Its read variant evaluates a lookup on an additional raw-byte input probe while
+retaining the original immutable read result and explicit read-limit refusals.
+A constant-marker control retains the same probe input and must incur fewer
+steps and allocated bytes than the lookup variant. These checks do not prove
+implicit access to a nominal read payload's representation. The public missing-
+and non-strict-bound controls stop at compiler refusal; the corresponding
+provider defenses are exercised separately by the provider unit tests.
+
+The optional `--fold-provider-before` control selects the preceding publication.
+It must accept the unchanged pure helper and refuse folds at bounds zero and
+three. The candidate compiles a non-idempotent U8 step at bounds 0/1/2/3 and a
+byte-preserving step over an immutable read result at bounds 0/1/3. Both package
+and verifier-report bytes must repeat exactly. The runtime consumer checks four
+U8 inputs per bound, iteration parity, exact resource ceilings, one-under
+refusals, and input and package identity for pure folds. Read folds check the
+retained bytes, basis, aperture, unchanged state, repeated accounting and five
+explicit resource refusals; their cost check is monotonic, not an exact-count
+oracle. The pure cost oracle adds independently counted per-iteration work to
+the observed zero-bound wrapper cost; it does not claim an independent absolute
+wrapper-cost oracle.
+
+The read-fold witness uses Amblicit `fbb0b93d87eda0e44e678247ca4102599be41a4d`
+(merged in [Amblicit #286](https://github.com/flyingrobots/amblicit/pull/286)),
+which meters nullary effect obstruction annotations separately from pure helper
+calls. This compiler repair is separate from the unchanged upstream schema and
+host-contract pin below. The witnesses establish bounded iteration through the
+public compiler and generic runtime, while authored rope mutation, Tick, WAL,
+receipts and recovery remain separate obligations.
+
+The optional `--variant-provider-before` control selects the preceding matching
+publication. It requires that publication to accept an unchanged pure helper and
+refuse a variant-returning helper. The candidate must accept empty and
+payload-bearing helper results in both pure and bounded-read operations, with
+repeat-identical package/report bytes. The runtime consumer requires the exact
+`core.variant/v1` inventory and the authored variant declaration to remain in
+the embedded compiler Core. It checks the twelve original pure cases, repeated
+execution, one-under resource ceilings and package substitution. Empty
+constructors must incur more work/storage than the unchanged control, and
+payload constructors more than empty constructors; immutable reads retain their
+result and state checks. These constructor controls do not establish public
+compiler variant result encoding, recursive types or the authored rope cutover.
+
+The optional `--match-provider-before` control selects a constructor-capable
+publication and requires it to refuse consumed matches in pure and bounded-read
+operations. Current-provider controls compile both alternatives and repeat the
+same package/report bytes. The payload arm returns its bound bytes with an empty
+fallback, so substituting the fallback changes the retained byte-output cases.
+The read-payload witness authors its empty fallback in a source helper. The runtime consumer
+also requires the authored `match` body in embedded Core, exercises all twelve
+pure cases for each alternative, checks one-under step, allocation and output
+refusals, and consumes bounded-read packages with unchanged read and state
+assertions. Exact-limit acceptance is covered separately by the native frame
+tests above.
+The original-allocation read control must fail specifically on allocation.
+
+The public compiler witness accepts `--unsigned-byte-provider-before` to retain
+an old matching source-function publication as a control. It must accept a U8
+identity helper and refuse a U8 literal helper; the selected candidate must
+accept both and emit identical package/report bytes on repeat. A 256u8 literal
+must refuse at compiler type checking. An additional bounded-read case includes
+an ordinary U8 constant binding. The runtime consumer checks unsigned-byte
+results, deterministic accounting, input domains, resource limits and package
+identity. Its read controls explicitly exercise count, byte, step, allocation
+and output ceilings while preserving state; the U8 read binding must incur
+additional dynamic work/storage. These are private computation/read witnesses,
+not installation or causal-history evidence.
+
+The paired compiler witness accepts `--byte-literal-provider-before` to compare
+an older matching source-function publication with an explicitly rebuilt
+candidate. A pure helper control must pass on the older matching publication;
+the raw-byte helper must reach its provider judgment and refuse there. The
+candidate must emit a separately accepted package/report pair with identical
+bytes on repeat, while a narrower authored helper return bound must refuse at
+compiler type checking. The runtime consumer checks empty and non-UTF-8 literal
+results from those unchanged emitted bytes, deterministic accounting, and host
+step/allocation/output, input-bound and package-identity refusals. Explicit
+candidate selection does not promote the checked provider distribution or
+replace its independent build and review gates.
 
 The paired nominal-ID and variable-payload equality witnesses in
 [`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)
@@ -655,19 +1068,16 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
-Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
-publications. The original `admit_provider_contract_pack_v1` entry point remains
-bound to its pure-binding publication. The opt-in
-`admit_provider_contract_pack_for_publication_v1` entry point additionally admits
-the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md),
-the source-function publication, and the explicit `SourceModules` publication
-from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
-The latter adds a `source-closure` contract and `edict.source-closure/v1` domain
-while retaining the exact bytes and inventories of earlier selections. Its
-CDDL validates the closed envelope, 1–64 module entries and typed SHA-256
-digests. Source import authentication, root membership, reachability and
-aggregate byte/depth budgets remain Edict semantic obligations; structural
-admission does not prove them. See the [publication boundary](../../schemas/edict-provider/contracts/source-modules-v1/README.md).
+Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
+
+The current schema includes the authenticated source closure, bounded fold
+expressions and structured Target IR, with phased-domain collision refusals.
+Structural acceptance does not establish source authentication, helper typing,
+capability support, costs or execution. The checked components include the
+independent `core.fold/v1` judgments described above. The generator uses one
+current semantic declaration and the
+package validator requires its exact 32-binding inventory.
+
 The native lowerer and independent verifier accept exactly one source artifact
 in their existing invocation closure: the legacy `edict-source` byte string
 under `edict.source/v1`, or an `edict-source-closure` envelope under
@@ -679,26 +1089,27 @@ bounded-read decoder applies the same bounded envelope checks and rechecks the
 closure identity under the selected source domain before any reading. Pure
 execution continues to require its independently supplied exact package pin.
 
-The explicit module semantic variant adds one source input alternative and
-schema binding. Generation refuses it with a legacy contract pack that lacks
-`source-closure`. Existing generation inputs keep their exact legacy inventory;
-raw package admission accepts only that inventory or the closed extension.
+The current semantic declaration includes the source-module input alternative
+and its schema binding. Generation and raw package admission use the same
+current 32-binding inventory, including `source-closure`.
 
-The closed selector fixes both byte identities and the input size ceiling before
-parsing; mixed publications reject. This is structural schema authority only.
-It does not prove instruction ordering, select an executable profile, or confer
-support for graph reads or writes. The existing provider generation path still
-selects the original publication.
+Contract-pack admission fixes both byte identities and the input size ceiling
+before parsing; historical and mixed publications reject. This is structural
+schema authority only. It does not prove instruction ordering, select an
+executable profile, or confer support for graph reads or writes.
 
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
-pure packages as effectful programs. Its expression subset includes typed
-source/imported helper calls, Boolean and U32/U64 constants, lazy conditionals,
-byte length, UTF-8 validation and concatenation, locals, record construction/selection,
-byte/Boolean equality, unsigned equality or ordering guards, and closed
-conjunction/negation trees. The source-function totality and resource
-rules above also apply to this route. Reads select opaque atom bytes by
+pure packages as effectful programs. Read intent bodies admit typed
+source/imported helper calls, Boolean and U8/U32/U64 constants, lazy conditionals,
+byte length, slicing, counting, UTF-8 validation and concatenation, locals,
+record construction/selection, byte/Boolean equality, unsigned `==` and `<=`
+guards, and closed conjunction/negation trees. Raw byte literals, byte lookup,
+disjunction and the other unsigned comparison operators are available inside
+source helpers; direct use in read intent bodies is refused by the separate
+read relation and audit. The source-function totality and resource rules above
+also apply to these helpers. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,
 and result, with exact imported read signatures and scoped local identities.
@@ -715,12 +1126,11 @@ rejected reports bind the exact package, Target IR, and projection; response
 ceilings include their artifact bytes, role/domain strings, and diagnostics.
 
 The checked schema and reproducibly promoted components now support this read
-configuration. The explicit ordered-contract publication compiles the authored
-single and independent-address paired read/guard programs through unmodified
-Edict, including both Wasm components and exact accepted verifier reports.
-Repeated builds reproduce the package/report bytes. The original contract
-publication remains selected by the default generator; callers must explicitly
-select the ordered publication for these ordered read programs.
+configuration. The ordered-read witness compiles the authored single and
+independent-address paired read/guard programs through unmodified Edict,
+including both Wasm components and exact accepted verifier reports. Repeated
+builds reproduce the package/report bytes. These programs use the same current
+publication as the default generator; there is no publication selector.
 
 The [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
 preserves the authored source and also proves the old provider's schema refusal.
@@ -772,9 +1182,9 @@ retention, a receipt, or an admitted reading. Integration and release evidence a
 [#740](https://github.com/flyingrobots/echo/issues/740).
 
 Primary artifact generation also compares the supplied pack's exact schema and
-manifest with the source materials bound into its generation input. Admission
-of each pack separately does not establish this relation: crossed publications
-return `ContractPackInputMismatch` before constructing any output or provenance.
+manifest with the source materials bound into its generation input. This
+defensive identity check returns `ContractPackInputMismatch` on disagreement;
+the public admission API constructs only the single current pinned publication.
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
@@ -834,8 +1244,8 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-contract pack introduced in Edict PR #162 and extended with the
-generic pure-binding contracts in Edict PR #201. Echo admits its exact CDDL,
+current Amblicit contract pack from PR #285 (revision
+`2269d81f257f7794b44270cf3f7ca330966a0784`). Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact
@@ -847,7 +1257,7 @@ install a package, admit an operation, or authorize a runtime consequence.
 The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
 not a hash of the completed JSON manifest. It binds the manifest role and
 coordinate, exact API and provider ABI, ten sorted semantic/component routes,
-31 sorted schema bindings—nine compatibility invocation domains, the generated
+32 sorted schema bindings—ten current invocation domains, the generated
 artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains—and raw exact-byte hashes for all 24
 non-manifest members. The derived manifest carries that root and has its own
@@ -867,8 +1277,8 @@ corpus. Its check mode inventories the exact tree through retained no-follow
 directory capabilities and reports drift without repair. This distribution
 copy is a release occurrence, not a second semantic authority.
 
-Native readiness is a later, independent crossing pinned to Edict revision
-`2e3f52f9e6d615f96eb594a40126e223a9253d98`. The exact manifest constructs the
+Native readiness is a later, independent crossing pinned to Amblicit revision
+`2269d81f257f7794b44270cf3f7ca330966a0784`. The exact manifest constructs the
 immutable schema registry; all five canonical primaries and 14 generated
 resources validate under their owning roots; every lawpack/target-profile field
 is bound to the expected coordinate and independently recomputed domain-framed
@@ -878,7 +1288,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 46-file package-local carrier tree
+The publishable Rust crate uses a separate 39-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

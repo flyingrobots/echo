@@ -14,8 +14,8 @@ use crate::contract_registry::{
 };
 use crate::contract_registry::{InstalledContractPackageId, InstalledContractPackageRecord};
 use crate::echo_operation::{
-    install_recovered_v1, EchoOperationInstallationErrorV1, EchoOperationPackageIdV1,
-    InstalledEchoOperationV1,
+    restore_operation_catalog_entry, EchoOperationInstallationErrorV1, EchoOperationPackageIdV1,
+    InstalledEchoOperation,
 };
 use crate::execution_evidence::ExecutionFootprintEvidence;
 use crate::graph::GraphStore;
@@ -455,7 +455,7 @@ pub struct Engine {
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     installed_contract_packages:
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
-    installed_echo_operation_packages: BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
+    installed_echo_operation_packages: BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperation>,
     #[cfg_attr(
         not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
         allow(dead_code)
@@ -1433,10 +1433,10 @@ impl Engine {
 
     /// Returns one installed executable operation package by exact package id.
     #[must_use]
-    pub fn installed_echo_operation_package_v1(
+    pub fn installed_echo_operation_package(
         &self,
         package_id: EchoOperationPackageIdV1,
-    ) -> Option<&InstalledEchoOperationV1> {
+    ) -> Option<&InstalledEchoOperation> {
         self.installed_echo_operation_packages.get(&package_id)
     }
 
@@ -1444,14 +1444,14 @@ impl Engine {
         not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
         allow(dead_code)
     )]
-    pub(crate) fn preflight_recovered_echo_operation_packages_v1(
+    pub(crate) fn preflight_recovered_echo_operation_packages(
         &self,
-        recovered: &[InstalledEchoOperationV1],
+        recovered: &[InstalledEchoOperation],
     ) -> Result<(), EchoOperationInstallationErrorV1> {
         let mut packages = self.installed_echo_operation_packages.clone();
         let mut operations = self.installed_echo_operations_by_coordinate.clone();
         for installed in recovered {
-            install_recovered_v1(&mut packages, &mut operations, installed.clone())?;
+            restore_operation_catalog_entry(&mut packages, &mut operations, installed.clone())?;
         }
         Ok(())
     }
@@ -1460,14 +1460,14 @@ impl Engine {
         not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
         allow(dead_code)
     )]
-    pub(crate) fn restore_recovered_echo_operation_packages_v1(
+    pub(crate) fn restore_recovered_echo_operation_packages(
         &mut self,
-        recovered: &[InstalledEchoOperationV1],
+        recovered: &[InstalledEchoOperation],
     ) -> Result<(), EchoOperationInstallationErrorV1> {
         let mut packages = self.installed_echo_operation_packages.clone();
         let mut operations = self.installed_echo_operations_by_coordinate.clone();
         for installed in recovered {
-            install_recovered_v1(&mut packages, &mut operations, installed.clone())?;
+            restore_operation_catalog_entry(&mut packages, &mut operations, installed.clone())?;
         }
         self.installed_echo_operation_packages = packages;
         self.installed_echo_operations_by_coordinate = operations;
@@ -1478,9 +1478,9 @@ impl Engine {
         not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
         allow(dead_code)
     )]
-    pub(crate) fn installed_echo_operation_packages_v1(
+    pub(crate) fn installed_echo_operation_packages(
         &self,
-    ) -> impl Iterator<Item = &InstalledEchoOperationV1> {
+    ) -> impl Iterator<Item = &InstalledEchoOperation> {
         self.installed_echo_operation_packages.values()
     }
 

@@ -65,7 +65,7 @@ const SEMANTIC_DIGEST: &str =
 const RELEASE_DIGEST: &str =
     "sha256:c39449495281b51f978468d08c21e93bcfa423176063b41675da61e4674b0066";
 const PACKAGE_ARTIFACT_SHA256: &str =
-    "36ce20c612c8c46bbe450c93e6fb2235f38e4ec2b14f04f128eee91805cdb26a";
+    "65efe89bbf858c3def13804e5fe74fb40eb09a4a01c3bf0d57a34728933ad2ed";
 const OTHER_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
@@ -309,7 +309,7 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
     assert_eq!(package.members().len(), 24);
     assert_eq!(package.files().len(), 25);
     assert_eq!(package.manifest().artifacts.len(), 10);
-    assert_eq!(package.manifest().schema_bindings.len(), 31);
+    assert_eq!(package.manifest().schema_bindings.len(), 32);
     assert_eq!(
         package
             .manifest()
@@ -992,6 +992,18 @@ fn manifest_contract_source_and_schema_mutations_fail_before_root_comparison() {
     });
     let error = admit_provider_package_v1(files, package.provider_reference())
         .expect_err("wrong existing schema route must fail as a schema disagreement");
+    assert_eq!(
+        error.kind(),
+        ProviderPackageErrorKind::SchemaBindingMismatch
+    );
+
+    let files = replace_manifest(&package, |manifest| {
+        manifest
+            .schema_bindings
+            .retain(|binding| binding.domain != "edict.source-closure/v1");
+    });
+    let error = admit_provider_package_v1(files, package.provider_reference())
+        .expect_err("historical 31-binding inventory must not be admitted");
     assert_eq!(
         error.kind(),
         ProviderPackageErrorKind::SchemaBindingMismatch

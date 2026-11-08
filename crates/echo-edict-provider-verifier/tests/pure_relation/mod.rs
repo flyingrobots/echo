@@ -255,3 +255,149 @@ fn assert_projection_mutation_refused(mutate: impl FnOnce(&mut CanonicalValueV1)
         }
     }
 }
+
+/// Jim's compiler-produced leaf slice: a runtime slice proven only by its two
+/// input constraints, `startByte <= endByte` and `endByte <= len(blobBytes)`.
+fn slice_leaf_fixture() -> (FixtureNames<'static>, RawFixture, Vec<u8>) {
+    let (pure, base, _) = compiler_fixture();
+    let names = FixtureNames {
+        intent: "sliceLeaf",
+        ..pure
+    };
+    let hex = include_str!(
+        "../../../warp-core/tests/fixtures/edict-byte-slice/executable-operation-package.cbor.hex"
+    )
+    .trim();
+    let package: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).expect("retained hex"))
+        .collect();
+    let decoded = decode_canonical_cbor_v1(&package).expect("retained package");
+    let program =
+        decode_canonical_cbor_v1(&bytes_field(&decoded, "program")).expect("retained program");
+    let fixture = RawFixture {
+        core: bytes_field(&program, "core_artifact"),
+        target_ir: bytes_field(&program, "target_ir_artifact"),
+        exports: bytes_field(&program, "lawpack_exports_artifact"),
+        result_projection: bytes_field(&program, "result_projection_artifact"),
+        source: canonical_bytes(&CanonicalValueV1::Bytes(
+            include_bytes!("../../../warp-core/tests/fixtures/edict-byte-slice/LeafSlice.edict")
+                .to_vec(),
+        )),
+        ..base
+    };
+    (names, fixture, package)
+}
+
+/// Edits both intents, then rebinds Target's source Core reference.
+fn edited_slice_leaf(edit: impl Fn(&mut CanonicalValueV1)) -> (FixtureNames<'static>, RawFixture) {
+    let (names, mut fixture, _) = slice_leaf_fixture();
+    let mut core = decode_canonical_cbor_v1(&fixture.core).expect("Core");
+    let mut target = decode_canonical_cbor_v1(&fixture.target_ir).expect("Target");
+    edit(map_field_mut(
+        map_field_mut(&mut core, "intents"),
+        "sliceLeaf",
+    ));
+    edit(map_field_mut(
+        map_field_mut(&mut target, "intents"),
+        "sliceLeaf",
+    ));
+    fixture.core = canonical_bytes(&core);
+    let core_reference = raw_ref(names.application, "edict.core.module/v1", &fixture.core);
+    *map_field_mut(map_field_mut(&mut target, "semanticClosure"), "sourceCore") = map([
+        ("id", text(names.application)),
+        (
+            "digest",
+            CanonicalValueV1::Array(vec![
+                text("sha256"),
+                CanonicalValueV1::Bytes(core_reference.digest),
+            ]),
+        ),
+    ]);
+    fixture.target_ir = canonical_bytes(&target);
+    (names, fixture)
+}
+
+/// Echo's worst-case charge for this program is a slice of the whole 1 MiB
+/// operand plus input validation, slightly above the 1 MiB step budget the
+/// retained package declares. These tests grant 2 MiB.
+fn with_step_budget(intent: &mut CanonicalValueV1) {
+    *map_field_mut(map_field_mut(intent, "coreEvaluationBudget"), "maxSteps") =
+        CanonicalValueV1::Integer(2_097_152);
+}
+
+#[test]
+fn compiler_produced_runtime_slice_is_proven_by_its_input_constraints() {
+    let (names, fixture) = edited_slice_leaf(with_step_budget);
+    let package = lower_package(names, &fixture);
+    let accepted = verifier::verify(verification_request(names, &fixture, package))
+        .expect("valid compiler relation");
+    let report = decode_canonical_cbor_v1(&accepted.outputs[0].artifact.bytes).expect("report");
+    assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+}
+
+#[test]
+fn compiler_produced_runtime_slice_without_its_length_constraint_is_refused() {
+    let (names, fixture) = edited_slice_leaf(|intent| {
+        with_step_budget(intent);
+        let CanonicalValueV1::Array(constraints) = map_field_mut(intent, "inputConstraints") else {
+            panic!("input constraints")
+        };
+        assert_eq!(constraints.len(), 2);
+        constraints.truncate(1);
+    });
+    assert!(
+        lowerer::lower(lowering_request(names, &fixture)).is_err(),
+        "the lowerer must refuse an unproven runtime slice"
+    );
+    // Rebind the accepted package's carriers to the unconstrained Core and
+    // Target without asking the lowerer to endorse them.
+    let (_, proven) = edited_slice_leaf(with_step_budget);
+    let package = decode_canonical_cbor_v1(&lower_package(names, &proven)).expect("package");
+    // Control: the same rebinding of the constrained program is accepted.
+    let control = rebound_package(package.clone(), names, &proven);
+    let accepted = verifier::verify(verification_request(names, &proven, control))
+        .expect("rebound control relation");
+    let report = decode_canonical_cbor_v1(&accepted.outputs[0].artifact.bytes).expect("report");
+    assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+    let package = rebound_package(package, names, &fixture);
+    let refused = verifier::verify(verification_request(names, &fixture, package));
+    assert!(
+        !refused.is_ok_and(|success| {
+            let report =
+                decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes).expect("report");
+            text_field(&report, "outcome") == Some("accepted")
+        }),
+        "the verifier must independently refuse an unproven runtime slice"
+    );
+}
+
+fn rebound_package(
+    mut package: CanonicalValueV1,
+    names: FixtureNames<'_>,
+    fixture: &RawFixture,
+) -> Vec<u8> {
+    let CanonicalValueV1::Bytes(bytes) = map_field(&package, "program") else {
+        panic!("program")
+    };
+    let mut program = decode_canonical_cbor_v1(bytes).expect("program");
+    for (name, bytes) in [
+        ("core_artifact", &fixture.core),
+        ("target_ir_artifact", &fixture.target_ir),
+    ] {
+        *map_field_mut(&mut program, name) = CanonicalValueV1::Bytes(bytes.clone());
+    }
+    *map_field_mut(&mut package, "program") = CanonicalValueV1::Bytes(canonical_bytes(&program));
+    let core = raw_ref(names.application, "edict.core.module/v1", &fixture.core).digest;
+    let target = raw_ref(
+        "echo.span-ir/v1",
+        "edict.target-ir.artifact/v1",
+        &fixture.target_ir,
+    )
+    .digest;
+    let closure = map_field_mut(&mut package, "semantic_closure");
+    *map_field_mut(closure, "canonical_meaning_identity") = CanonicalValueV1::Bytes(core.clone());
+    *map_field_mut(closure, "core_identity") = CanonicalValueV1::Bytes(core);
+    *map_field_mut(closure, "target_ir_identity") = CanonicalValueV1::Bytes(target);
+    canonical_bytes(&package)
+}

@@ -14,6 +14,50 @@ pub(crate) struct Parser<'a> {
     pub remaining: usize,
 }
 
+/// Runtime-owned grammar; byte work is charged by the caller before scanning.
+fn record_fields(spec: &str) -> Result<Vec<(&str, &str)>, Error> {
+    let mut boundaries = Vec::new();
+    let mut depth = 0_usize;
+    for (index, byte) in spec.bytes().enumerate() {
+        match byte {
+            b'<' => {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return Err(Error::UnsupportedProgram);
+                }
+            }
+            b'>' => depth = depth.checked_sub(1).ok_or(Error::InvalidArtifact)?,
+            b',' if depth == 0 => boundaries.push(index),
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return Err(Error::InvalidArtifact);
+    }
+    if spec.is_empty() {
+        return Ok(Vec::new());
+    }
+    boundaries.push(spec.len());
+    let mut start = 0;
+    let mut fields = Vec::new();
+    for end in boundaries {
+        let (name, ty) = spec[start..end]
+            .split_once(':')
+            .ok_or(Error::InvalidArtifact)?;
+        let valid = name
+            .as_bytes()
+            .first()
+            .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
+            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        if !valid || ty.is_empty() || fields.last().is_some_and(|(prior, _)| *prior >= name) {
+            return Err(Error::InvalidArtifact);
+        }
+        fields.push((name, ty));
+        start = end + 1;
+    }
+    Ok(fields)
+}
+
 impl Parser<'_> {
     pub(crate) fn enter(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
@@ -43,6 +87,34 @@ impl Parser<'_> {
         if name.starts_with("Bytes<") {
             return bounded_bytes(name);
         }
+        if let Some(spec) = name.strip_prefix("List<").and_then(|s| s.strip_suffix('>')) {
+            let (item, digits) = spec.rsplit_once(",max=").ok_or(Error::InvalidArtifact)?;
+            let max: u64 = digits.parse().map_err(|_| Error::InvalidArtifact)?;
+            if max.to_string() != digits {
+                return Err(Error::InvalidArtifact);
+            }
+            return Ok(RuntimeType::List {
+                item: Some(Box::new(self.ty(item, depth + 1)?)),
+                max,
+            });
+        }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.remaining = self
+                .remaining
+                .checked_sub(spec.len())
+                .ok_or(Error::UnsupportedProgram)?;
+            let mut fields = Vec::new();
+            for (field, ty) in record_fields(spec)? {
+                fields.push((field.to_owned(), self.ty(ty, depth + 1)?));
+            }
+            // Named records arrive in canonical CBOR text-key order. Structural
+            // coordinates spell fields lexically; normalize for exact type equality.
+            fields.sort_by(|(a, _), (b, _)| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+            return Ok(RuntimeType::Record(fields));
+        }
         let name = name
             .strip_prefix(self.coordinate)
             .and_then(|name| name.strip_prefix('.'))
@@ -50,8 +122,21 @@ impl Parser<'_> {
         let definition = field(self.types, name)?;
         match text_field(definition, "kind")? {
             "Bool" => Ok(RuntimeType::Bool),
-            "Int" => self.ty(text_field(definition, "width")?, depth + 1),
-            "Nominal" => self.ty(text_field(definition, "representation")?, depth + 1),
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                exact_fields(definition, &["kind"])?;
+                self.ty(kind, depth + 1)
+            }
+            "Nominal" => {
+                exact_fields(definition, &["kind", "contract", "representation"])?;
+                let contract = text_field(definition, "contract")?;
+                if contract != name {
+                    return Err(Error::InvalidArtifact);
+                }
+                Ok(RuntimeType::Nominal(
+                    contract.to_owned(),
+                    Box::new(self.ty(text_field(definition, "representation")?, depth + 1)?),
+                ))
+            }
             "Bytes" => {
                 let min = field(definition, "min").map_or(Ok(0), number)?;
                 let max = number(field(definition, "max")?)?;
@@ -59,6 +144,16 @@ impl Parser<'_> {
                     return Err(Error::InvalidArtifact);
                 }
                 Ok(RuntimeType::Bytes { min, max })
+            }
+            "Variant" => self.variant_type(definition, name, depth),
+            "List" => {
+                exact_fields(definition, &["kind", "item", "max"])?;
+                Ok(RuntimeType::List {
+                    item: Some(Box::new(
+                        self.ty(text_field(definition, "item")?, depth + 1)?,
+                    )),
+                    max: number(field(definition, "max")?)?,
+                })
             }
             "Record" => {
                 let mut fields = Vec::new();
@@ -74,6 +169,8 @@ impl Parser<'_> {
     pub fn expr(&mut self, value: &Value, depth: usize) -> Result<Expr, Error> {
         self.enter(depth)?;
         match text_field(value, "kind")? {
+            "match" => self.match_expression(value, depth),
+            "variant" => self.variant_expression(value, depth),
             "local" => {
                 exact_fields(value, &["kind", "ref"])?;
                 Ok(Expr::Local(
@@ -91,6 +188,19 @@ impl Parser<'_> {
                 exact_fields(value, &["kind", "value"])?;
                 constant(field(value, "value")?)
             }
+            "list" => {
+                exact_fields(value, &["kind", "values"])?;
+                let values = array(field(value, "values")?)?;
+                if values.len() > self.remaining {
+                    return Err(Error::UnsupportedProgram);
+                }
+                Ok(Expr::List(
+                    values
+                        .iter()
+                        .map(|value| self.expr(value, depth + 1))
+                        .collect::<Result<_, _>>()?,
+                ))
+            }
             "record" => {
                 exact_fields(value, &["kind", "fields"])?;
                 let mut fields = Vec::new();
@@ -107,6 +217,15 @@ impl Parser<'_> {
                     Box::new(self.expr(field(value, "else")?, depth + 1)?),
                 ))
             }
+            "fold" => {
+                exact_fields(value, &["kind", "initial", "step", "bound", "stateType"])?;
+                Ok(Expr::Fold {
+                    initial: Box::new(self.expr(field(value, "initial")?, depth + 1)?),
+                    step: text_field(value, "step")?.to_owned(),
+                    bound: number(field(value, "bound")?)?,
+                    state: self.ty(text_field(value, "stateType")?, 0)?,
+                })
+            }
             "call" => self.call(value, depth),
             _ => Err(Error::UnsupportedProgram),
         }
@@ -117,6 +236,9 @@ impl Parser<'_> {
         let callee = text_field(value, "callee")?;
         let args = array(field(value, "args")?)?;
         let types = array(field(value, "typeArgs")?)?;
+        if super::list_operations::is_operation(callee) {
+            return super::list_operations::parse(self, callee, args, types, depth);
+        }
         if callee == "core.bytes.isUtf8" {
             let ([value], [coordinate]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);
@@ -128,6 +250,34 @@ impl Parser<'_> {
                 min,
                 max,
                 value: Box::new(self.expr(value, depth + 1)?),
+            });
+        }
+        if callee == "core.bytes.count" {
+            let ([value, needle], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteCount {
+                min,
+                max,
+                needle: count_needle(needle)?,
+                value: Box::new(self.expr(value, depth + 1)?),
+            });
+        }
+        if callee == "core.bytes.at" {
+            let ([value, index], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteAt {
+                min,
+                max,
+                value: Box::new(self.expr(value, depth + 1)?),
+                index: Box::new(self.expr(index, depth + 1)?),
             });
         }
         if callee == "core.bytes.length" {
@@ -223,7 +373,7 @@ impl Parser<'_> {
                 self.predicate(field(value, "value")?, depth + 1)?,
             )));
         }
-        if text_field(value, "kind")? == "all" {
+        if matches!(text_field(value, "kind")?, "all" | "any") {
             exact_fields(value, &["kind", "values"])?;
             let values = array(field(value, "values")?)?;
             if values.is_empty() {
@@ -232,12 +382,15 @@ impl Parser<'_> {
             if values.len() > self.remaining {
                 return Err(Error::UnsupportedProgram);
             }
-            return Ok(Predicate::All(
-                values
-                    .iter()
-                    .map(|value| self.predicate(value, depth + 1))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ));
+            let parsed = values
+                .iter()
+                .map(|value| self.predicate(value, depth + 1))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(if text_field(value, "kind")? == "all" {
+                Predicate::All(parsed)
+            } else {
+                Predicate::Any(parsed)
+            });
         }
         exact_fields(value, &["kind", "op", "left", "right"])?;
         if text_field(value, "kind")? != "compare" {
@@ -246,6 +399,10 @@ impl Parser<'_> {
         let op = match text_field(value, "op")? {
             "==" => Comparison::Equal,
             "<=" => Comparison::LessOrEqual,
+            "<" => Comparison::Less,
+            ">" => Comparison::Greater,
+            ">=" => Comparison::GreaterOrEqual,
+            "!=" => Comparison::NotEqual,
             _ => return Err(Error::UnsupportedProgram),
         };
         Ok(Predicate::Compare {
@@ -321,6 +478,7 @@ fn constant(literal: &Value) -> Result<Expr, Error> {
     }
     let number = number(field(literal, "value")?)?;
     match text_field(literal, "width")? {
+        "U8" if u8::try_from(number).is_ok() => {}
         "U32" if u32::try_from(number).is_ok() => {}
         "U64" => {}
         _ => return Err(Error::UnsupportedProgram),
@@ -362,9 +520,106 @@ fn byte_bound(value: &str) -> Result<u64, Error> {
     Ok(bound)
 }
 
+/// The counted byte is a Core constant of exactly one byte. Its shape is
+/// checked structurally, never inferred from a type.
+pub(crate) fn count_needle(needle: &Value) -> Result<u8, Error> {
+    exact_fields(needle, &["kind", "value"])?;
+    if text_field(needle, "kind")? != "const" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let literal = field(needle, "value")?;
+    exact_fields(literal, &["kind", "value"])?;
+    if text_field(literal, "kind")? != "bytes" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let [byte] = bytes(field(literal, "value")?)? else {
+        return Err(Error::UnsupportedProgram);
+    };
+    Ok(*byte)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{constant, Error, Value};
+    use crate::edict_pure::{
+        evaluate::{expression, Meter},
+        EvaluationLimits,
+    };
+    use std::collections::BTreeMap;
+
+    fn integer(value: Value) -> Value {
+        Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("int".into())),
+            (Value::Text("width".into()), Value::Text("U8".into())),
+            (Value::Text("value".into()), value),
+        ])
+    }
+
+    #[test]
+    fn source_u8_literals_decode_and_materialize_with_existing_scalar_cost() -> Result<(), Error> {
+        let limits = EvaluationLimits {
+            max_package_bytes: 4096,
+            max_input_bytes: 4096,
+            max_steps: 2,
+            max_allocated_bytes: 64,
+            max_output_bytes: 1024,
+        };
+        for value in [0_i128, 128, 255] {
+            let expr = constant(&integer(Value::Integer(value)))?;
+            let mut meter = Meter::new(limits);
+            assert_eq!(
+                expression(&expr, &BTreeMap::new(), &BTreeMap::new(), &mut meter, 0),
+                Ok(Value::Integer(value))
+            );
+            assert_eq!(meter.usage(), (2, 64));
+            for (limits, expected) in [
+                (
+                    EvaluationLimits {
+                        max_steps: 1,
+                        ..limits
+                    },
+                    Error::StepBudgetExceeded,
+                ),
+                (
+                    EvaluationLimits {
+                        max_allocated_bytes: 63,
+                        ..limits
+                    },
+                    Error::AllocationBudgetExceeded,
+                ),
+            ] {
+                assert_eq!(
+                    expression(
+                        &expr,
+                        &BTreeMap::new(),
+                        &BTreeMap::new(),
+                        &mut Meter::new(limits),
+                        0
+                    ),
+                    Err(expected)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn source_u8_literals_reject_overflow_negative_and_wrong_payloads() {
+        for (value, expected) in [
+            (Value::Integer(256), Error::UnsupportedProgram),
+            (Value::Integer(-1), Error::InvalidArtifact),
+            (Value::Bool(true), Error::InvalidArtifact),
+            (Value::Bytes(vec![255]), Error::InvalidArtifact),
+        ] {
+            assert!(matches!(constant(&integer(value)), Err(actual) if actual == expected));
+        }
+        let mut extra = integer(Value::Integer(255));
+        let Value::Map(fields) = &mut extra else {
+            unreachable!()
+        };
+        fields.push((Value::Text("extra".into()), Value::Bool(true)));
+        assert!(matches!(constant(&extra), Err(Error::InvalidArtifact)));
+    }
 
     #[test]
     fn byte_constants_reject_text_payloads_and_extra_integer_fields() {

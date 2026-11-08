@@ -22,14 +22,14 @@ use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget, Wa
 use warp_core::EchoOperationCommitErrorV1;
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
-    EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKindV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationAnchoredNodeOccupancyV1,
-    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
-    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
-    EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
-    EngineBuilder, ExecutableOperationPackageV1, GraphStore, HeadEligibility, InboxPolicy,
-    IngressTarget, InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
+    EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKind, EchoOperationAdmissionPolicy,
+    EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationBasisV1,
+    EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1, EchoOperationInvocation,
+    EchoOperationInvocationAdmissionErrorKind, EchoOperationInvocationAdmissionPolicy,
+    EchoOperationObstructionKindV1, EchoOperationPreparationV1, EchoOperationProgram,
+    EchoOperationSemanticClosure, EchoOperationTerminalPostureV1, EngineBuilder,
+    ExecutableOperationPackage, GraphStore, HeadEligibility, InboxPolicy, IngressTarget,
+    InstalledEchoOperation, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
     RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
     WriterHead, WriterHeadKey, ACTION_BATCH_CANDIDATE_LIMIT_V1,
@@ -125,11 +125,32 @@ fn fixture_host_with_independent_nodes_and_state(
     node_count: usize,
     configure: impl FnOnce(WorldlineState) -> WorldlineState,
 ) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
+    fixture_host_with_attachment_and_state(
+        node_count,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"before"),
+        ))),
+        configure,
+    )
+}
+
+fn fixture_host_with_attachment(
+    node_count: usize,
+    attachment: Option<AttachmentValue>,
+) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
+    fixture_host_with_attachment_and_state(node_count, attachment, |state| state)
+}
+
+fn fixture_host_with_attachment_and_state(
+    node_count: usize,
+    attachment: Option<AttachmentValue>,
+    configure: impl FnOnce(WorldlineState) -> WorldlineState,
+) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
     assert!(node_count > 0, "the fixture must retain one root node");
     let warp_id = make_warp_id("operation-fixture");
     let root_id = make_node_id("operation-fixture-root");
     let node_type = make_type_id("operation-fixture-node");
-    let attachment_type = make_type_id("operation-fixture-atom");
     let nodes = (0..node_count)
         .map(|index| NodeKey {
             warp_id,
@@ -143,18 +164,17 @@ fn fixture_host_with_independent_nodes_and_state(
     let mut store = GraphStore::new(warp_id);
     for node in &nodes {
         store.insert_node(node.local_id, NodeRecord { ty: node_type });
-        store.set_node_attachment(
-            node.local_id,
-            Some(AttachmentValue::Atom(AtomPayload::new(
-                attachment_type,
-                Bytes::from_static(b"before"),
-            ))),
-        );
+        store.set_node_attachment(node.local_id, attachment.clone());
     }
     let state = configure(
         WorldlineState::from_root_store(store, root_id)
             .expect("the fixture state has one lawful root"),
     );
+    let (host, head_key) = fixture_runtime_host(state);
+    (host, head_key, nodes)
+}
+
+fn fixture_runtime_host(state: WorldlineState) -> (TrustedRuntimeHost, WriterHeadKey) {
     let worldline_id = WorldlineId::from_bytes(digest("operation-fixture-worldline"));
     let head_key = WriterHeadKey {
         worldline_id,
@@ -188,7 +208,7 @@ fn fixture_host_with_independent_nodes_and_state(
         .build();
     let host = TrustedRuntimeHost::new(runtime, engine)
         .expect("the trusted Echo runtime host initializes");
-    (host, head_key, nodes)
+    (host, head_key)
 }
 
 fn fixture_host_with_two_worldlines() -> (TrustedRuntimeHost, WriterHeadKey, WriterHeadKey, NodeKey)
@@ -433,8 +453,8 @@ fn fixture_host_with_orphan_attachment(
     (host, head_key, node, orphan_node)
 }
 
-fn semantic_closure() -> EchoOperationSemanticClosureV1 {
-    EchoOperationSemanticClosureV1::new(
+fn semantic_closure() -> EchoOperationSemanticClosure {
+    EchoOperationSemanticClosure::new(
         digest("fixture-edict-source"),
         digest("edict-semantic-identity"),
         digest("fixture-edict-core"),
@@ -449,7 +469,7 @@ fn semantic_closure() -> EchoOperationSemanticClosureV1 {
 fn operation_package(
     node_type: warp_core::TypeId,
     attachment_type: warp_core::TypeId,
-) -> ExecutableOperationPackageV1 {
+) -> ExecutableOperationPackage {
     operation_package_at(OPERATION_COORDINATE, node_type, attachment_type)
 }
 
@@ -457,15 +477,15 @@ fn operation_package_at(
     operation_coordinate: &str,
     node_type: warp_core::TypeId,
     attachment_type: warp_core::TypeId,
-) -> ExecutableOperationPackageV1 {
-    ExecutableOperationPackageV1::new(
+) -> ExecutableOperationPackage {
+    ExecutableOperationPackage::new(
         operation_coordinate,
         "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         warp_core::echo_operation_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             node_type,
             attachment_type,
             1_024,
@@ -476,15 +496,15 @@ fn operation_package_at(
 fn creation_operation_package(
     node_type: warp_core::TypeId,
     attachment_type: warp_core::TypeId,
-) -> ExecutableOperationPackageV1 {
-    ExecutableOperationPackageV1::new(
+) -> ExecutableOperationPackage {
+    ExecutableOperationPackage::new(
         CREATE_OPERATION_COORDINATE,
         "echo.fixture.AlreadyExists/v1",
         semantic_closure(),
         warp_core::echo_operation_create_if_absent_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
-        EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+        EchoOperationProgram::anchored_node_attachment_create_if_absent(
             node_type,
             attachment_type,
             1_024,
@@ -492,14 +512,14 @@ fn creation_operation_package(
     )
 }
 
-fn install_fixture_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperationV1 {
+fn install_fixture_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     install_fixture_operation_at(host, OPERATION_COORDINATE)
 }
 
 fn install_fixture_operation_at(
     host: &mut TrustedRuntimeHost,
     operation_coordinate: &str,
-) -> InstalledEchoOperationV1 {
+) -> InstalledEchoOperation {
     let package_bytes = operation_package_at(
         operation_coordinate,
         make_type_id("operation-fixture-node"),
@@ -509,9 +529,9 @@ fn install_fixture_operation_at(
     .expect("fixture package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 operation_coordinate,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -519,11 +539,11 @@ fn install_fixture_operation_at(
             package_bytes,
         )
         .expect("the exact fixture package is admitted");
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .expect("the admitted fixture package installs")
 }
 
-fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperationV1 {
+fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     let package_bytes = creation_operation_package(
         make_type_id("operation-fixture-node"),
         make_type_id("operation-fixture-atom"),
@@ -532,9 +552,9 @@ fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> Installe
     .expect("fixture creation package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 CREATE_OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -542,7 +562,7 @@ fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> Installe
             package_bytes,
         )
         .expect("the exact fixture creation package is admitted");
-    host.install_admitted_echo_operation_package_v1(admitted)
+    host.install_admitted_echo_operation_package(admitted)
         .expect("the admitted fixture creation package installs")
 }
 
@@ -557,8 +577,8 @@ fn application_basis() -> EchoOperationApplicationBasisV1 {
     )
 }
 
-fn invocation_policy() -> EchoOperationInvocationAdmissionPolicyV1 {
-    EchoOperationInvocationAdmissionPolicyV1::new(
+fn invocation_policy() -> EchoOperationInvocationAdmissionPolicy {
+    EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -566,14 +586,14 @@ fn invocation_policy() -> EchoOperationInvocationAdmissionPolicyV1 {
 }
 
 fn canonical_invocation(
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     basis: warp_core::EchoOperationEvaluationBasisV1,
     node: NodeKey,
     expected_value_digest: [u8; 32],
     replacement: Vec<u8>,
     budget: EchoOperationBudgetV1,
 ) -> Vec<u8> {
-    EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         basis,
@@ -589,7 +609,7 @@ fn canonical_invocation(
 
 fn action_invocation(
     host: &TrustedRuntimeHost,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     head_key: WriterHeadKey,
     node: NodeKey,
     current: &[u8],
@@ -659,24 +679,24 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
         .to_canonical_bytes()
         .expect("package has one canonical Edict encoding");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
-    let package_policy = EchoOperationAdmissionPolicyV1::exact(
-        package_id,
+    let package_policy = EchoOperationAdmissionPolicy::exact(
+        package_id.as_hash(),
         OPERATION_COORDINATE,
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_package = host
-        .admit_echo_operation_package_v1(&package_policy, package_bytes)
+        .admit_echo_operation_package(&package_policy, package_bytes)
         .expect("the independently pinned package is admitted");
     let installed = host
-        .install_admitted_echo_operation_package_v1(admitted_package)
+        .install_admitted_echo_operation_package(admitted_package)
         .expect("admitted executable meaning installs without callbacks");
 
     let application_basis = application_basis();
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -692,13 +712,13 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the generated-style invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo independently admits the installed operation invocation");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Prepared(prepared) = preparation else {
@@ -843,9 +863,9 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         .expect("package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted_package = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -854,7 +874,7 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         )
         .expect("the exact package is admitted");
     let installed = host
-        .install_admitted_echo_operation_package_v1(admitted_package)
+        .install_admitted_echo_operation_package(admitted_package)
         .expect("the exact package installs");
     let application_basis = application_basis();
 
@@ -862,7 +882,7 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         let basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the current basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             basis,
@@ -874,8 +894,8 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         );
         let bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -943,7 +963,7 @@ fn a_prepared_program_cannot_substitute_for_installation_authority() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted = evaluating_host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &bytes)
         .expect("the installed operation invocation is admitted");
     let EchoOperationPreparationV1::Prepared(prepared) =
         evaluating_host.prepare_echo_operation_v1(admitted)
@@ -1014,7 +1034,7 @@ fn identical_program_bytes_do_not_merge_admitted_operation_identities() {
     );
 
     let execute =
-        |host: &mut TrustedRuntimeHost, installed: &InstalledEchoOperationV1, head, node| {
+        |host: &mut TrustedRuntimeHost, installed: &InstalledEchoOperation, head, node| {
             let basis = host
                 .echo_operation_evaluation_basis_v1(head, application_basis())
                 .expect("Echo resolves the exact package-specific basis");
@@ -1030,7 +1050,7 @@ fn identical_program_bytes_do_not_merge_admitted_operation_identities() {
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
             );
             let admitted = host
-                .admit_echo_operation_invocation_v1(&invocation_policy(), &invocation)
+                .admit_echo_operation_invocation(&invocation_policy(), &invocation)
                 .expect("the exact package-specific invocation is admitted");
             let EchoOperationPreparationV1::Prepared(prepared) =
                 host.prepare_echo_operation_v1(admitted)
@@ -1083,9 +1103,9 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
 
     let digest_mismatch = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(b"different package bytes"),
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(b"different package bytes").as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1095,14 +1115,14 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("a package digest cannot confer a match on different bytes");
     assert_eq!(
         digest_mismatch.kind(),
-        EchoOperationAdmissionErrorKindV1::PackageIdentityMismatch
+        EchoOperationAdmissionErrorKind::PackageIdentityMismatch
     );
 
     let malformed_bytes = vec![0xff];
     let malformed = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&malformed_bytes),
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&malformed_bytes).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1112,17 +1132,17 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("malformed canonical bytes fail before installation");
     assert_eq!(
         malformed.kind(),
-        EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+        EchoOperationAdmissionErrorKind::ArtifactInvalid
     );
 
-    let unsupported_target_bytes = ExecutableOperationPackageV1::new(
+    let unsupported_target_bytes = ExecutableOperationPackage::new(
         OPERATION_COORDINATE,
         "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         digest("unsupported-target-profile"),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             make_type_id("operation-fixture-node"),
             make_type_id("operation-fixture-atom"),
             1_024,
@@ -1131,9 +1151,9 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     .to_canonical_bytes()
     .expect("unsupported target package still has canonical source bytes");
     let unsupported_target = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&unsupported_target_bytes),
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&unsupported_target_bytes).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1161,9 +1181,9 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         CanonicalValueV1::Bytes(unsupported_program_bytes),
     );
     let unsupported_program = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&unsupported_program_package),
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&unsupported_program_package).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1185,9 +1205,9 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         CanonicalValueV1::Bytes(digest("unsupported-input-schema").to_vec()),
     );
     let unsupported_schema = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                warp_core::echo_operation_package_id_v1(&unsupported_schema_bytes),
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                warp_core::echo_operation_package_id_v1(&unsupported_schema_bytes).as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1204,9 +1224,9 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     );
 
     let authority_mismatch = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 OPERATION_COORDINATE,
                 digest("different-authority-profile"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1216,13 +1236,13 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("package identity cannot substitute for authority policy");
     assert_eq!(
         authority_mismatch.kind(),
-        EchoOperationAdmissionErrorKindV1::AuthorityProfileMismatch
+        EchoOperationAdmissionErrorKind::AuthorityProfileMismatch
     );
 
     let over_budget = host
-        .admit_echo_operation_package_v1(
-            &EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+        .admit_echo_operation_package(
+            &EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 OPERATION_COORDINATE,
                 digest("fixture-authority-profile"),
                 EchoOperationBudgetV1::new(15, 4_096, 4_096),
@@ -1232,17 +1252,17 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         .expect_err("a package cannot widen the runtime-owned budget ceiling");
     assert_eq!(
         over_budget.kind(),
-        EchoOperationAdmissionErrorKindV1::BudgetExceedsPolicy
+        EchoOperationAdmissionErrorKind::BudgetExceedsPolicy
     );
 
-    let impossible_package = ExecutableOperationPackageV1::new(
+    let impossible_package = ExecutableOperationPackage::new(
         OPERATION_COORDINATE,
         "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         warp_core::echo_operation_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(1, 1, 1),
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             make_type_id("operation-fixture-node"),
             make_type_id("operation-fixture-atom"),
             1_024,
@@ -1276,16 +1296,16 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
     );
 
     let malformed = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &[0xff])
+        .admit_echo_operation_invocation(&invocation_policy(), &[0xff])
         .expect_err("malformed invocation bytes fail before routing");
     assert_eq!(
         malformed.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation
+        EchoOperationInvocationAdmissionErrorKind::MalformedInvocation
     );
 
     let wrong_profile = host
-        .admit_echo_operation_invocation_v1(
-            &EchoOperationInvocationAdmissionPolicyV1::new(
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
                 digest("wrong-authority-profile"),
                 digest("fixture-authority-grant"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1295,12 +1315,12 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         .expect_err("runtime authority policy remains independent of package identity");
     assert_eq!(
         wrong_profile.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::AuthorityProfileMismatch
+        EchoOperationInvocationAdmissionErrorKind::AuthorityProfileMismatch
     );
 
     let wrong_grant = host
-        .admit_echo_operation_invocation_v1(
-            &EchoOperationInvocationAdmissionPolicyV1::new(
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
                 digest("fixture-authority-profile"),
                 digest("wrong-authority-grant"),
                 EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1310,7 +1330,7 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         .expect_err("the operation package does not confer an invocation grant");
     assert_eq!(
         wrong_grant.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::AuthorityGrantMismatch
+        EchoOperationInvocationAdmissionErrorKind::AuthorityGrantMismatch
     );
 
     let over_budget_bytes = canonical_invocation(
@@ -1325,11 +1345,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(17, 4_096, 4_096),
     );
     let over_budget = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &over_budget_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &over_budget_bytes)
         .expect_err("delegation cannot exceed package or runtime policy");
     assert_eq!(
         over_budget.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded
+        EchoOperationInvocationAdmissionErrorKind::BudgetExceeded
     );
 
     let below_minimum_bytes = canonical_invocation(
@@ -1344,11 +1364,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(1, 1, 1),
     );
     let below_minimum = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &below_minimum_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &below_minimum_bytes)
         .expect_err("delegation below the program minimum fails during admission");
     assert_eq!(
         below_minimum.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded
+        EchoOperationInvocationAdmissionErrorKind::BudgetExceeded
     );
 
     let unbounded_basis_read_bytes = canonical_invocation(
@@ -1363,14 +1383,14 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(4, 64, 32),
     );
     let unbounded_basis_read = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &unbounded_basis_read_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &unbounded_basis_read_bytes)
         .expect_err("basis corroboration must fit inside the delegated read budget");
     assert_eq!(
         unbounded_basis_read.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded
+        EchoOperationInvocationAdmissionErrorKind::BudgetExceeded
     );
 
-    let wrong_operation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let wrong_operation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         "echo.fixture.DifferentOperation.v1",
         basis,
@@ -1386,11 +1406,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
     .to_canonical_bytes()
     .expect("the structurally valid wrong operation invocation encodes");
     let wrong_operation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &wrong_operation)
+        .admit_echo_operation_invocation(&invocation_policy(), &wrong_operation)
         .expect_err("a package digest does not confer another operation coordinate");
     assert_eq!(
         wrong_operation.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::OperationCoordinateMismatch
+        EchoOperationInvocationAdmissionErrorKind::OperationCoordinateMismatch
     );
 
     let uncorroborated_basis = host
@@ -1414,11 +1434,11 @@ fn invocation_admission_keeps_contract_authority_budget_and_basis_separate() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let uncorroborated_basis = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &uncorroborated_basis_bytes)
+        .admit_echo_operation_invocation(&invocation_policy(), &uncorroborated_basis_bytes)
         .expect_err("Echo must corroborate the application basis from current graph state");
     assert_eq!(
         uncorroborated_basis.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 }
 
@@ -1476,7 +1496,7 @@ fn private_evaluation_returns_typed_obstructions_without_parent_mutation() {
 
     for (invocation_bytes, expected_kind) in cases {
         let admitted = host
-            .admit_echo_operation_invocation_v1(&invocation_policy(), &invocation_bytes)
+            .admit_echo_operation_invocation(&invocation_policy(), &invocation_bytes)
             .expect("structurally lawful input reaches private evaluation");
         let EchoOperationPreparationV1::Obstructed(obstruction) =
             host.prepare_echo_operation_v1(admitted)
@@ -1498,11 +1518,11 @@ fn private_evaluation_returns_typed_obstructions_without_parent_mutation() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let error = host
-        .admit_echo_operation_invocation_v1(&invocation_policy(), &unresolved_basis)
+        .admit_echo_operation_invocation(&invocation_policy(), &unresolved_basis)
         .expect_err("Echo must independently resolve the claimed application basis");
     assert_eq!(
         error.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 
     let state = host
@@ -1539,21 +1559,21 @@ fn obstruction_identity_binds_the_exact_invocation_admission() {
         b"after".to_vec(),
         EchoOperationBudgetV1::new(8, 512, 512),
     );
-    let first_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let first_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
-    let second_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let second_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(32, 8_192, 8_192),
     );
 
     let obstruct = |host: &mut TrustedRuntimeHost,
-                    policy: &EchoOperationInvocationAdmissionPolicyV1| {
+                    policy: &EchoOperationInvocationAdmissionPolicy| {
         let admitted = host
-            .admit_echo_operation_invocation_v1(policy, &invocation_bytes)
+            .admit_echo_operation_invocation(policy, &invocation_bytes)
             .expect("both runtime policies admit the same invocation bytes");
         let EchoOperationPreparationV1::Obstructed(obstruction) =
             host.prepare_echo_operation_v1(admitted)
@@ -1604,7 +1624,7 @@ fn identical_admitted_basis_and_inputs_produce_identical_consequences() {
             EchoOperationBudgetV1::new(16, 4_096, 4_096),
         );
         let admitted = host
-            .admit_echo_operation_invocation_v1(&invocation_policy(), &bytes)
+            .admit_echo_operation_invocation(&invocation_policy(), &bytes)
             .expect("the exact invocation is admitted");
         let EchoOperationPreparationV1::Prepared(prepared) =
             host.prepare_echo_operation_v1(admitted)
@@ -1811,9 +1831,9 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
             .expect("the fresh filesystem WAL opens");
         let admitted_package = host
-            .admit_echo_operation_package_v1(
-                &EchoOperationAdmissionPolicyV1::exact(
-                    package_id,
+            .admit_echo_operation_package(
+                &EchoOperationAdmissionPolicy::exact(
+                    package_id.as_hash(),
                     OPERATION_COORDINATE,
                     digest("fixture-authority-profile"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1822,12 +1842,12 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             )
             .expect("the package is admitted");
         let installed = host
-            .install_admitted_echo_operation_package_v1(admitted_package)
+            .install_admitted_echo_operation_package(admitted_package)
             .expect("installation enters the WAL before the live catalog");
         let evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the exact basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             evaluation_basis,
@@ -1839,8 +1859,8 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         );
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1866,7 +1886,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         let second_evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, second_application_basis)
             .expect("Echo resolves the retained non-genesis parent basis");
-        let second_invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let second_invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
             installed.package_id(),
             installed.operation_coordinate(),
             second_evaluation_basis,
@@ -1880,8 +1900,8 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             .to_canonical_bytes()
             .expect("the second invocation encodes");
         let second_admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -1935,7 +1955,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         .expect("a fresh host recovers without executing application callbacks");
     assert!(recovered
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_some());
     let state = recovered
         .runtime()
@@ -1988,7 +2008,7 @@ fn create_from_absence_commits_one_new_node_and_attachment_patch() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2000,13 +2020,13 @@ fn create_from_absence_commits_one_new_node_and_attachment_patch() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo independently admits the create-from-absence invocation");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Prepared(prepared) = preparation else {
@@ -2069,7 +2089,7 @@ fn create_from_absence_refuses_when_the_node_already_exists() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2081,13 +2101,13 @@ fn create_from_absence_refuses_when_the_node_already_exists() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo independently admits the invocation");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2137,7 +2157,7 @@ fn update_precondition_still_refuses_when_the_node_is_absent() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2150,17 +2170,17 @@ fn update_precondition_still_refuses_when_the_node_is_absent() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the update invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let error = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect_err("the update profile must reject a missing node at admission");
     assert_eq!(
         error.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 }
 
@@ -2189,7 +2209,7 @@ fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2201,13 +2221,13 @@ fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo admits the invocation -- node type is not an admission-time check");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2239,7 +2259,7 @@ fn create_from_absence_refuses_when_the_node_exists_without_its_attachment() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2251,13 +2271,13 @@ fn create_from_absence_refuses_when_the_node_exists_without_its_attachment() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo admits the invocation -- a bare node still corroborates as absent");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2289,7 +2309,7 @@ fn create_from_absence_cannot_commit_after_its_parent_basis_changes() {
         let basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the current basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
             installed.package_id(),
             installed.operation_coordinate(),
             basis,
@@ -2300,8 +2320,8 @@ fn create_from_absence_cannot_commit_after_its_parent_basis_changes() {
         );
         let bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -2377,7 +2397,7 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
         let evaluation_basis = host
             .echo_operation_evaluation_basis_v1(head_key, application_basis)
             .expect("Echo resolves the exact current parent basis");
-        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
             installed.package_id(),
             installed.operation_coordinate(),
             evaluation_basis,
@@ -2388,8 +2408,8 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
         );
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let admitted = host
-            .admit_echo_operation_invocation_v1(
-                &EchoOperationInvocationAdmissionPolicyV1::new(
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(
                     digest("fixture-authority-profile"),
                     digest("fixture-authority-grant"),
                     EchoOperationBudgetV1::new(16, 4_096, 4_096),
@@ -2446,7 +2466,7 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
         recovery
             .installed_echo_operations
             .iter()
-            .map(InstalledEchoOperationV1::package_id)
+            .map(InstalledEchoOperation::package_id)
             .collect::<Vec<_>>(),
         vec![installed_package_id],
         "the exact creation package installation must recover"
@@ -2483,7 +2503,7 @@ fn create_from_absence_refuses_when_the_attachment_exists_without_its_node() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2495,13 +2515,13 @@ fn create_from_absence_refuses_when_the_attachment_exists_without_its_node() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect(
             "Echo admits the invocation -- the orphaned attachment honestly \
              corroborates as present, matching this invocation's claimed basis",
@@ -2551,7 +2571,7 @@ fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attac
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, claimed_absent_basis)
         .expect("Echo resolves a basis for the claimed proposition");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2563,17 +2583,17 @@ fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attac
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let error = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect_err("a dishonest absence claim against a real orphaned attachment must refuse");
     assert_eq!(
         error.kind(),
-        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+        EchoOperationInvocationAdmissionErrorKind::BasisMismatch
     );
 }
 
@@ -2602,7 +2622,7 @@ fn create_from_absence_charges_the_node_record_against_the_write_budget() {
     // 64 (node type + attachment type) + replacement.len() = 71: the correct
     // requirement. This budget sits strictly between the two.
     let insufficient_for_node_record = EchoOperationBudgetV1::new(3, 64, 70);
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2614,13 +2634,13 @@ fn create_from_absence_charges_the_node_record_against_the_write_budget() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the create-from-absence invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("admission's coarser check does not itself meter the write charge");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -2659,7 +2679,7 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis)
         .expect("Echo resolves the exact current parent basis");
-    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+    let invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -2672,13 +2692,13 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
     let invocation_bytes = invocation
         .to_canonical_bytes()
         .expect("the update invocation is canonical");
-    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+    let invocation_policy = EchoOperationInvocationAdmissionPolicy::new(
         digest("fixture-authority-profile"),
         digest("fixture-authority-grant"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_invocation = host
-        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .admit_echo_operation_invocation(&invocation_policy, &invocation_bytes)
         .expect("Echo admits the invocation -- node type is not an admission-time check");
     let preparation = host.prepare_echo_operation_v1(admitted_invocation);
     let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
@@ -3092,7 +3112,7 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         .expect("a fresh host recovers the composite Action Tick");
     assert!(recovered
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_some());
     assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 0);
     for submission_id in [first_submission_id, second_submission_id] {
@@ -3264,7 +3284,7 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
         .expect("the accepted pre-Tick Action recovers");
     assert!(recovered
         .engine()
-        .installed_echo_operation_package_v1(package_id)
+        .installed_echo_operation_package(package_id)
         .is_some());
     assert!(matches!(
         recovered.runtime().observe_intent_outcome(&submission_id),
@@ -3368,7 +3388,7 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
                     )
                     .expect("the exact absent-node basis resolves");
                 let invocation =
-                    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                    EchoOperationInvocation::anchored_node_attachment_create_if_absent(
                         installed.package_id(),
                         installed.operation_coordinate(),
                         basis,
@@ -3409,7 +3429,7 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
                         )
                         .expect("the delayed basis resolves");
                     stale_invocation = Some(
-                        EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                        EchoOperationInvocation::anchored_node_attachment_create_if_absent(
                             installed.package_id(),
                             installed.operation_coordinate(),
                             basis,
@@ -3747,7 +3767,7 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
             .echo_operation_evaluation_basis_v1(head_key, application_basis())
             .expect("Echo resolves the current exact parent basis");
         let unavailable_invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            EchoOperationInvocation::anchored_node_attachment_compare_and_set(
                 unavailable_package_id,
                 "echo.fixture.Unavailable.v1",
                 evaluation_basis,
@@ -3798,7 +3818,7 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
         ));
         assert_eq!(
             host.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
-            Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+            Some(EchoOperationInvocationAdmissionErrorKind::OperationUnavailable)
         );
         assert!(host
             .echo_operation_action_outcome_v1(&unavailable_submission_id)
@@ -3825,7 +3845,7 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
     assert!(steps.is_empty());
     assert_eq!(
         recovered.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
-        Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+        Some(EchoOperationInvocationAdmissionErrorKind::OperationUnavailable)
     );
     assert!(recovered
         .tick_once()
@@ -3868,7 +3888,7 @@ fn run_until_idle_continues_after_admission_only_progress() {
     let mut unavailable_envelopes = Vec::new();
     for ordinal in 0..4096_u32 {
         let unavailable_invocation =
-            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            EchoOperationInvocation::anchored_node_attachment_compare_and_set(
                 unavailable_package_id,
                 "echo.fixture.BoundedUnavailable.v1",
                 evaluation_basis,
@@ -3943,22 +3963,21 @@ fn action_outcome_attribution_ignores_application_controlled_scope_collisions() 
     let evaluation_basis = host
         .echo_operation_evaluation_basis_v1(head_key, application_basis())
         .expect("Echo resolves the current exact parent basis");
-    let obstructed_invocation =
-        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
-            installed.package_id(),
-            installed.operation_coordinate(),
-            evaluation_basis,
-            digest("fixture-authority-grant"),
-            EchoOperationBudgetV1::new(16, 4_096, 4_096),
-            colliding_scope,
-            warp_core::echo_operation_atom_value_digest_v1(
-                make_type_id("operation-fixture-atom"),
-                b"before",
-            ),
-            b"must-not-appear".to_vec(),
-        )
-        .to_canonical_bytes()
-        .expect("the scope-collision invocation is canonical");
+    let obstructed_invocation = EchoOperationInvocation::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        colliding_scope,
+        warp_core::echo_operation_atom_value_digest_v1(
+            make_type_id("operation-fixture-atom"),
+            b"before",
+        ),
+        b"must-not-appear".to_vec(),
+    )
+    .to_canonical_bytes()
+    .expect("the scope-collision invocation is canonical");
     let obstructed_envelope = warp_core::echo_operation_action_envelope_v1(
         IngressTarget::ExactHead { key: head_key },
         obstructed_invocation,
@@ -4580,7 +4599,7 @@ fn submit_action(
 
 fn creation_action_invocation(
     host: &TrustedRuntimeHost,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
     head_key: WriterHeadKey,
     node: NodeKey,
     payload: &[u8],
@@ -4591,7 +4610,7 @@ fn creation_action_invocation(
             warp_core::echo_operation_anchored_node_absent_application_basis_v1(node),
         )
         .expect("Echo resolves the creation basis");
-    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    EchoOperationInvocation::anchored_node_attachment_create_if_absent(
         installed.package_id(),
         installed.operation_coordinate(),
         evaluation_basis,
@@ -4944,6 +4963,1860 @@ fn an_action_with_a_forged_origin_keeps_the_whole_frontier_rule() {
     );
 }
 
+// These exercise a runtime-selected frame, not an admitted effect profile.
+fn effect_frame_limits() -> warp_core::edict_pure::EvaluationLimits {
+    warp_core::edict_pure::EvaluationLimits {
+        max_package_bytes: 32768,
+        max_input_bytes: 1024,
+        max_output_bytes: 1024,
+        max_steps: 10000,
+        max_allocated_bytes: 16777216,
+    }
+}
+
+#[test]
+fn effect_frame_binds_the_runtime_parent_before_reading() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("actual basis");
+    let edge_type = make_type_id("effect-frame-range");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[edge_type],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits(),
+        )
+        .expect("exact runtime parent");
+    assert_eq!(frame.evaluation_basis(), Some(basis));
+    assert_eq!(
+        frame
+            .read_range(warp_core::OutgoingEdgeRange {
+                source: node,
+                edge_type
+            })
+            .expect("actual root range"),
+        Some(vec![])
+    );
+    assert!(matches!(
+        frame.readings().get(&warp_core::SlotId::Node(node)),
+        Some(warp_core::SlotReading::Node(Some(_)))
+    ));
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(1, 64, 0));
+    let package = hex::decode(
+        include_str!("fixtures/edict-byte-concat/executable-operation-package.cbor.hex").trim(),
+    )
+    .expect("retained compiler package");
+    let pin = hex::decode("ed480a332a9d5f84f7425e46ab0b08cca886c8a040e048145b88fba1e6e0415f")
+        .expect("pin")
+        .try_into()
+        .expect("digest");
+    let input = encode_canonical_cbor_v1(&CanonicalValueV1::Map(vec![
+        (
+            CanonicalValueV1::Text("firstFragment".into()),
+            CanonicalValueV1::Bytes(b"a".to_vec()),
+        ),
+        (
+            CanonicalValueV1::Text("secondFragment".into()),
+            CanonicalValueV1::Bytes(b"b".to_vec()),
+        ),
+    ]))
+    .expect("input");
+    let expected = encode_canonical_cbor_v1(&CanonicalValueV1::Map(vec![(
+        CanonicalValueV1::Text("bytes".into()),
+        CanonicalValueV1::Bytes(b"ab".to_vec()),
+    )]))
+    .expect("independent output");
+    assert_eq!(
+        frame
+            .evaluate_pure(&package, pin, &input)
+            .expect("real compiler computation"),
+        expected
+    );
+    assert_eq!(frame.evaluation_basis(), Some(basis));
+    assert!(
+        frame.consumed().steps() > 1,
+        "read and computation share the meter"
+    );
+    assert_eq!(
+        host.echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("unchanged basis"),
+        basis
+    );
+}
+
+fn effect_frame_host_after_round_trip(intermediate: &[u8]) -> (TrustedRuntimeHost, WriterHeadKey) {
+    let (mut host, head, node) = fixture_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("WAL");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    for (before, after) in [
+        (b"before".as_slice(), intermediate),
+        (intermediate, b"before".as_slice()),
+    ] {
+        let invocation = action_invocation(&host, &installed, head, node, before, after);
+        let id = submit_action(&mut host, head, invocation);
+        host.tick_once().expect("decided runtime tick");
+        assert!(outcome_is_committed(&host, &id));
+    }
+    (host, head)
+}
+
+#[test]
+fn effect_frame_refuses_equal_reading_coordinates_from_another_commit_history() {
+    let (first, head) = effect_frame_host_after_round_trip(b"first-intermediate");
+    let (second, second_head) = effect_frame_host_after_round_trip(b"second-intermediate");
+    assert_eq!(head, second_head);
+    let expected = first
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("first basis");
+    let actual = second
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("second basis");
+    assert_eq!(expected.state_root(), actual.state_root());
+    assert_eq!(expected.worldline_tick(), actual.worldline_tick());
+    assert_eq!(expected.commit_global_tick(), actual.commit_global_tick());
+    assert_ne!(expected.commit_id(), actual.commit_id());
+    assert!(matches!(
+        second.effect_evaluation_frame_v1(
+            expected,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits()
+        ),
+        Err(TrustedRuntimeHostError::EffectFrameSetup(
+            warp_core::edict_effects::EffectFrameSetupError::BasisMismatch
+        ))
+    ));
+    let frame = second
+        .effect_evaluation_frame_v1(
+            actual,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits(),
+        )
+        .expect("current exact history succeeds");
+    assert_eq!(frame.evaluation_basis(), Some(actual));
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+    assert!(frame.readings().is_empty());
+}
+
+#[test]
+fn effect_frame_rejects_a_parent_for_an_unregistered_writer() {
+    let (foreign, first, _, _) = fixture_host_with_two_worldlines();
+    let basis = foreign
+        .echo_operation_evaluation_basis_v1(first, application_basis())
+        .expect("foreign registered writer");
+    let (host, _, _) = fixture_host();
+    assert!(matches!(host.effect_evaluation_frame_v1(
+        basis, &[], 0, EchoOperationBudgetV1::new(10000, 1024, 0), effect_frame_limits()
+    ), Err(TrustedRuntimeHostError::Runtime(error)) if matches!(*error, RuntimeError::UnknownHead(key) if key == first)));
+}
+
+#[test]
+fn effect_frame_refuses_a_stale_parent_after_a_decided_tick() {
+    let (mut host, head, node) = fixture_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("WAL");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let stale = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("original parent");
+    let invocation = action_invocation(&host, &installed, head, node, b"before", b"after");
+    let id = submit_action(&mut host, head, invocation);
+    host.tick_once().expect("decided tick");
+    assert!(outcome_is_committed(&host, &id));
+    assert!(matches!(
+        host.effect_evaluation_frame_v1(
+            stale,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits()
+        ),
+        Err(TrustedRuntimeHostError::EffectFrameSetup(
+            warp_core::edict_effects::EffectFrameSetupError::BasisMismatch
+        ))
+    ));
+}
+
+#[test]
+fn effect_frame_bound_parent_retains_the_resource_ceiling() {
+    let (host, head, _) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("actual parent");
+    assert!(matches!(
+        host.effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(1048577, 1024, 0),
+            effect_frame_limits()
+        ),
+        Err(TrustedRuntimeHostError::EffectFrameSetup(
+            warp_core::edict_effects::EffectFrameSetupError::ResourceCeilingExceeded
+        ))
+    ));
+    assert_eq!(
+        host.echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("unchanged parent"),
+        basis
+    );
+}
+
+fn recorded_read_package() -> (Vec<u8>, [u8; 32]) {
+    let raw = hex::decode(
+        include_str!("fixtures/edict-node-read/single-executable-operation-package.hex").trim(),
+    )
+    .expect("retained compiler package");
+    let pin = hex::decode("a2ae35d39ae74a26da916544464529bc6c7af32a76b6e6f354ef79c5063ab109")
+        .expect("pin")
+        .try_into()
+        .expect("digest");
+    (raw, pin)
+}
+fn recorded_read_input(node: NodeKey, expected: &[u8]) -> Vec<u8> {
+    encode_canonical_cbor_v1(&CanonicalValueV1::Map(vec![
+        (
+            CanonicalValueV1::Text("address".into()),
+            CanonicalValueV1::Map(vec![
+                (
+                    CanonicalValueV1::Text("warpId".into()),
+                    CanonicalValueV1::Bytes(node.warp_id.0.to_vec()),
+                ),
+                (
+                    CanonicalValueV1::Text("nodeId".into()),
+                    CanonicalValueV1::Bytes(node.local_id.0.to_vec()),
+                ),
+                (
+                    CanonicalValueV1::Text("typeId".into()),
+                    CanonicalValueV1::Bytes(make_type_id("operation-fixture-atom").0.to_vec()),
+                ),
+            ]),
+        ),
+        (
+            CanonicalValueV1::Text("expected".into()),
+            CanonicalValueV1::Bytes(expected.to_vec()),
+        ),
+    ]))
+    .expect("canonical input")
+}
+fn recorded_read_limits() -> warp_core::edict_read::ReadLimits {
+    warp_core::edict_read::ReadLimits {
+        evaluation: effect_frame_limits(),
+        max_reads: 64,
+        max_read_bytes: 1048576,
+    }
+}
+
+#[test]
+fn recorded_effect_frame_interprets_actual_atom_reads_and_retains_dependencies() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    let aperture = [node];
+    let plain = warp_core::edict_read::ReadView::at(frontier, &aperture).expect("plain control");
+    let (package, pin) = recorded_read_package();
+    let input = recorded_read_input(node, b"before");
+    let control =
+        warp_core::edict_read::evaluate(&package, pin, &input, &plain, recorded_read_limits())
+            .expect("standalone control");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    let output = frame
+        .evaluate_read(&package, pin, &input, &aperture, recorded_read_limits())
+        .expect("interpreted read");
+    assert_eq!(
+        output,
+        encode_canonical_cbor_v1(&CanonicalValueV1::Bytes(b"before".to_vec()))
+            .expect("literal output")
+    );
+    assert_eq!(output, control.output);
+    assert_eq!(frame.readings().len(), 2);
+    assert!(matches!(
+        frame.readings().get(&warp_core::SlotId::Node(node)),
+        Some(warp_core::SlotReading::Node(Some(_)))
+    ));
+    let attachment = warp_core::AttachmentKey::node_alpha(node);
+    assert_eq!(
+        frame
+            .readings()
+            .get(&warp_core::SlotId::Attachment(attachment)),
+        Some(&warp_core::SlotReading::Attachment(Some(
+            AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"before")
+            ))
+        )))
+    );
+    assert!(frame.footprint().n_read.iter().any(|key| *key == node));
+    assert!(frame
+        .footprint()
+        .a_read
+        .iter()
+        .any(|key| *key == attachment));
+    assert_eq!(frame.consumed().read_bytes(), 134);
+    assert_eq!(frame.consumed().steps(), control.steps + 2);
+    assert_eq!(frame.allocated_bytes(), control.allocated_bytes + 262);
+    assert_eq!(frame.evaluation_basis(), Some(basis));
+}
+
+#[test]
+fn recorded_effect_frame_retains_absence_and_stops_after_an_authored_obstruction() {
+    let (host, head, root) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let missing = NodeKey {
+        local_id: make_node_id("recorded-absent"),
+        ..root
+    };
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert!(matches!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(missing, b""),
+            &[missing],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::Obstructed {
+                cause: warp_core::edict_read::ReadObstruction::Missing,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(
+        frame.readings().get(&warp_core::SlotId::Node(missing)),
+        Some(&warp_core::SlotReading::Node(None))
+    );
+    assert_eq!(frame.readings().len(), 1);
+    assert!(frame.footprint().n_read.iter().any(|key| *key == missing));
+    let consumed = frame.consumed();
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(root, b"before"),
+            &[root],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::Terminated)
+    );
+    assert_eq!(frame.consumed(), consumed);
+}
+
+#[test]
+fn recorded_effect_frame_refuses_outside_aperture_without_graph_observations() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::OutsideAperture(node)
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed().read_bytes(), 0);
+}
+
+#[test]
+fn recorded_effect_frame_keeps_the_resolved_prefix_on_read_budget_failure() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 64, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[node],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::Read(
+            warp_core::edict_effects::EffectRangeReadError::BudgetExceeded
+        ))
+    );
+    assert_eq!(frame.consumed().read_bytes(), 64);
+    assert_eq!(frame.readings().len(), 1);
+    assert!(matches!(
+        frame.readings().get(&warp_core::SlotId::Node(node)),
+        Some(warp_core::SlotReading::Node(Some(_)))
+    ));
+}
+
+#[test]
+fn recorded_effect_frame_cannot_reset_work_between_compiler_packages() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let input = recorded_read_input(node, b"before");
+    let mut control = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("control");
+    control
+        .evaluate_read(&package, pin, &input, &[node], recorded_read_limits())
+        .expect("control succeeds");
+    let steps = control.consumed().steps();
+    let limits = warp_core::edict_pure::EvaluationLimits {
+        max_steps: 2 * steps - 1,
+        ..effect_frame_limits()
+    };
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(limits.max_steps, 4096, 0),
+            limits,
+        )
+        .expect("bounded frame");
+    frame
+        .evaluate_read(&package, pin, &input, &[node], recorded_read_limits())
+        .expect("first package fits");
+    assert!(matches!(
+        frame.evaluate_read(&package, pin, &input, &[node], recorded_read_limits()),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::Evaluation(
+                warp_core::edict_pure::EvaluationError::StepBudgetExceeded
+            )
+        ))
+    ));
+}
+
+#[test]
+fn recorded_effect_frame_keeps_atom_failures_and_their_resolved_slots() {
+    use warp_core::edict_read::{ReadError, ReadObstruction};
+    for (attachment, cause) in [
+        (None, ReadObstruction::Missing),
+        (
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("wrong-atom-type"),
+                Bytes::from_static(b"before"),
+            ))),
+            ReadObstruction::TypeMismatch,
+        ),
+        (
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from(vec![0; 1048577]),
+            ))),
+            ReadObstruction::AtomTooLarge,
+        ),
+    ] {
+        let (host, head, nodes) = fixture_host_with_attachment(1, attachment.clone());
+        let node = nodes[0];
+        let basis = host
+            .echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("parent");
+        let (package, pin) = recorded_read_package();
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 2097152, 0),
+                effect_frame_limits(),
+            )
+            .expect("bound frame");
+        assert_eq!(
+            frame.evaluate_read(
+                &package,
+                pin,
+                &recorded_read_input(node, b""),
+                &[node],
+                recorded_read_limits()
+            ),
+            Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+                ReadError::Obstructed {
+                    coordinate: if cause == ReadObstruction::Missing {
+                        "text.FactMissing"
+                    } else {
+                        "text.FactMalformed"
+                    }
+                    .into(),
+                    cause,
+                }
+            ))
+        );
+        assert_eq!(frame.readings().len(), 2);
+        assert_eq!(
+            frame.readings().get(&warp_core::SlotId::Attachment(
+                warp_core::AttachmentKey::node_alpha(node)
+            )),
+            Some(&warp_core::SlotReading::Attachment(attachment))
+        );
+    }
+}
+
+#[test]
+fn recorded_effect_frame_keeps_actual_values_when_the_authored_guard_refuses() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"different"),
+            &[node],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::Obstructed {
+                coordinate: "text.BasisNotCanonical".into(),
+                cause: warp_core::edict_read::ReadObstruction::Guard,
+            }
+        ))
+    );
+    assert_eq!(frame.readings().len(), 2);
+    assert_eq!(
+        frame.readings().get(&warp_core::SlotId::Attachment(
+            warp_core::AttachmentKey::node_alpha(node)
+        )),
+        Some(&warp_core::SlotReading::Attachment(Some(
+            AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"before")
+            ))
+        )))
+    );
+}
+
+#[test]
+fn recorded_effect_frame_cannot_widen_frame_decode_and_output_limits() {
+    use warp_core::edict_pure::EvaluationError;
+    for (limits, error, observations) in [
+        (
+            warp_core::edict_pure::EvaluationLimits {
+                max_package_bytes: 1,
+                ..effect_frame_limits()
+            },
+            EvaluationError::PackageTooLarge,
+            0,
+        ),
+        (
+            warp_core::edict_pure::EvaluationLimits {
+                max_input_bytes: 1,
+                ..effect_frame_limits()
+            },
+            EvaluationError::InputTooLarge,
+            0,
+        ),
+        (
+            warp_core::edict_pure::EvaluationLimits {
+                max_output_bytes: 1,
+                ..effect_frame_limits()
+            },
+            EvaluationError::OutputBudgetExceeded,
+            2,
+        ),
+    ] {
+        let (host, head, node) = fixture_host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("parent");
+        let (package, pin) = recorded_read_package();
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, 0),
+                limits,
+            )
+            .expect("bound frame");
+        assert_eq!(
+            frame.evaluate_read(
+                &package,
+                pin,
+                &recorded_read_input(node, b"before"),
+                &[node],
+                recorded_read_limits()
+            ),
+            Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+                warp_core::edict_read::ReadError::Evaluation(error)
+            ))
+        );
+        assert_eq!(frame.readings().len(), observations);
+    }
+}
+
+#[test]
+fn recorded_effect_frame_refuses_invalid_apertures_before_reading() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[node, node],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::InvalidAperture
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+}
+
+// Typed-law witnesses use real runtime-owned frontiers and the retained compiler package.
+fn effect_law_value(
+    nodes: &[warp_core::TypeId],
+    atoms: &[warp_core::TypeId],
+    portals: &[warp_core::TypeId],
+    max_reads: u64,
+) -> CanonicalValueV1 {
+    use CanonicalValueV1 as V;
+    let mut fields = Vec::new();
+    for (name, ids) in [
+        ("read_node_types", nodes),
+        ("write_node_types", &[][..]),
+        ("atom_types", atoms),
+        ("range_edge_types", &[][..]),
+        ("write_edge_types", &[][..]),
+        ("portal_owner_types", portals),
+    ] {
+        let mut ids = ids.to_vec();
+        ids.sort_unstable();
+        fields.push((
+            V::Text(name.into()),
+            V::Array(ids.iter().map(|id| V::Bytes(id.0.to_vec())).collect()),
+        ));
+    }
+    for (name, count) in [
+        ("max_reads", max_reads),
+        ("max_writes", 0),
+        ("max_range_edges", 0),
+    ] {
+        fields.push((V::Text(name.into()), V::Integer(i128::from(count))));
+    }
+    V::Map(fields)
+}
+
+fn typed_effect_frame(
+    host: &TrustedRuntimeHost,
+    head: WriterHeadKey,
+    law: CanonicalValueV1,
+) -> warp_core::edict_effects::EffectEvaluationFrame<'_> {
+    let law = warp_core::edict_effects::EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&law).expect("law bytes"),
+    )
+    .expect("valid law");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    host.effect_evaluation_frame_v1(
+        basis,
+        &[],
+        65536,
+        EchoOperationBudgetV1::new(100000, 16777216, 0),
+        effect_frame_limits(),
+    )
+    .expect("bound frame")
+    .with_footprint_law(law)
+    .expect("unused law-bound frame")
+}
+
+#[test]
+fn typed_effect_node_reads_authorize_actual_types_and_keep_named_absence_distinct() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let (host, head, root) = fixture_host();
+    let actual = make_type_id("operation-fixture-node");
+    let a = make_type_id("absent-a");
+    let b = make_type_id("absent-b");
+    let c = make_type_id("absent-c");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[actual], &[], &[], 1));
+    assert_eq!(
+        frame.read_typed_node(root, a).expect("actual type wins"),
+        Some(NodeRecord { ty: actual })
+    );
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(root), actual)));
+    let mut denied = typed_effect_frame(&host, head, effect_law_value(&[a], &[], &[], 1));
+    assert_eq!(
+        denied.read_typed_node(root, a),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(denied.readings().is_empty());
+    assert_eq!(
+        denied.read_typed_node(root, actual),
+        Err(EffectFrameError::Terminated)
+    );
+
+    let mut zero = typed_effect_frame(&host, head, effect_law_value(&[actual], &[], &[], 0));
+    assert_eq!(
+        zero.read_typed_node(root, actual),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(zero.readings().is_empty());
+
+    let absent = NodeKey {
+        local_id: make_node_id("typed-missing"),
+        ..root
+    };
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[a, b, c], &[], &[], 2));
+    for ty in [a, a, b] {
+        assert_eq!(frame.read_typed_node(absent, ty), Ok(None));
+    }
+    assert_eq!(frame.authorized_reads().len(), 2);
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(absent), a)));
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(absent), b)));
+    assert_eq!(
+        frame.read_typed_node(absent, c),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert_eq!(frame.authorized_reads().len(), 2);
+}
+
+#[test]
+fn typed_effect_compiled_reads_check_actual_atom_type_and_reject_untyped_bypass() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, TypedNodeRead};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let atom_type = make_type_id("operation-fixture-atom");
+    let aperture = [TypedNodeRead {
+        node: root,
+        absent_node_type: make_type_id("irrelevant-when-present"),
+    }];
+    let (package, pin) = recorded_read_package();
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[node_type], &[atom_type], &[], 2),
+    );
+    assert_eq!(
+        frame
+            .evaluate_typed_read(
+                &package,
+                pin,
+                &recorded_read_input(root, b"before"),
+                &aperture,
+                recorded_read_limits()
+            )
+            .expect("compiled read"),
+        encode_canonical_cbor_v1(&CanonicalValueV1::Bytes(b"before".to_vec()))
+            .expect("typed-law fixture and independently encoded witness")
+    );
+    assert_eq!(frame.authorized_reads().len(), 2);
+    let mut denied = typed_effect_frame(&host, head, effect_law_value(&[node_type], &[], &[], 2));
+    assert_eq!(
+        denied.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(root, b"before"),
+            &aperture,
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert_eq!(
+        denied.readings().len(),
+        1,
+        "the unauthorized atom is never retained"
+    );
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[node_type], &[atom_type], &[], 2),
+    );
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(root, b"before"),
+            &[root],
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+}
+
+#[test]
+fn typed_effect_unreachable_warp_is_refused_before_target_resolution() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[node_type], &[], &[], 4));
+    assert_eq!(
+        frame.read_typed_node(
+            NodeKey {
+                warp_id: make_warp_id("unregistered"),
+                ..root
+            },
+            node_type
+        ),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::UnreachableWarp
+        ))
+    );
+    assert!(frame.readings().is_empty());
+}
+
+#[test]
+fn typed_effect_law_refuses_noncanonical_sets_shapes_and_oversized_counts() {
+    use warp_core::edict_effects::{EffectFootprintLaw, EffectLawError};
+    use CanonicalValueV1 as V;
+    let base = effect_law_value(&[], &[], &[], 0);
+    let V::Map(fields) = base else { unreachable!() };
+    for (name, invalid) in [
+        ("max_reads", V::Integer(4097)),
+        ("max_writes", V::Integer(257)),
+        ("max_range_edges", V::Integer(65537)),
+        ("max_reads", V::Integer(-1)),
+        (
+            "read_node_types",
+            V::Array(vec![V::Bytes(vec![2; 32]), V::Bytes(vec![1; 32])]),
+        ),
+        (
+            "atom_types",
+            V::Array(vec![V::Bytes(vec![1; 32]), V::Bytes(vec![1; 32])]),
+        ),
+        ("portal_owner_types", V::Array(vec![V::Bytes(vec![1; 31])])),
+    ] {
+        let mut bad = fields.clone();
+        bad.iter_mut()
+            .find(|(key, _)| *key == V::Text(name.into()))
+            .expect("typed-law fixture and independently encoded witness")
+            .1 = invalid;
+        assert_eq!(
+            EffectFootprintLaw::from_canonical_bytes(
+                &encode_canonical_cbor_v1(&V::Map(bad))
+                    .expect("typed-law fixture and independently encoded witness")
+            ),
+            Err(EffectLawError::InvalidLaw),
+            "{name}"
+        );
+    }
+    let mut missing = fields.clone();
+    missing.pop();
+    assert_eq!(
+        EffectFootprintLaw::from_canonical_bytes(
+            &encode_canonical_cbor_v1(&V::Map(missing))
+                .expect("typed-law fixture and independently encoded witness")
+        ),
+        Err(EffectLawError::InvalidLaw)
+    );
+    let mut extra = fields;
+    extra.push((V::Text("extra".into()), V::Integer(0)));
+    assert_eq!(
+        EffectFootprintLaw::from_canonical_bytes(
+            &encode_canonical_cbor_v1(&V::Map(extra))
+                .expect("typed-law fixture and independently encoded witness")
+        ),
+        Err(EffectLawError::InvalidLaw)
+    );
+    assert_eq!(
+        EffectFootprintLaw::from_canonical_bytes(&[0xbf, 0xff]),
+        Err(EffectLawError::InvalidLaw)
+    );
+}
+
+fn typed_portal_fixture(
+    beta: bool,
+    depth: usize,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, Vec<NodeKey>) {
+    use warp_core::{
+        AttachmentKey, EdgeRecord, PortalInit, TickCommitStatus, WarpOp, WarpTickPatchV1,
+    };
+    let (host, head, root) = fixture_host();
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("typed-law fixture and independently encoded witness")
+        .state()
+        .warp_state()
+        .clone();
+    let mut owner = root;
+    let mut owners = Vec::new();
+    for index in 0..depth {
+        owners.push(owner);
+        let child = NodeKey {
+            warp_id: make_warp_id(&format!("typed-child-{index}")),
+            local_id: make_node_id("child-root"),
+        };
+        let mut ops = Vec::new();
+        let portal = if beta {
+            let edge = warp_core::EdgeKey {
+                warp_id: owner.warp_id,
+                local_id: warp_core::make_edge_id("beta-portal-edge"),
+            };
+            state
+                .store_mut(&owner.warp_id)
+                .expect("typed-law fixture and independently encoded witness")
+                .insert_edge(
+                    owner.local_id,
+                    EdgeRecord {
+                        id: edge.local_id,
+                        from: owner.local_id,
+                        to: owner.local_id,
+                        ty: make_type_id("beta-edge"),
+                    },
+                );
+            AttachmentKey::edge_beta(edge)
+        } else {
+            AttachmentKey::node_alpha(owner)
+        };
+        ops.push(WarpOp::OpenPortal {
+            key: portal,
+            child_warp: child.warp_id,
+            child_root: child.local_id,
+            init: PortalInit::Empty {
+                root_record: NodeRecord {
+                    ty: make_type_id("operation-child-node"),
+                },
+            },
+        });
+        WarpTickPatchV1::new(0, [0; 32], TickCommitStatus::Committed, vec![], vec![], ops)
+            .apply_to_state(&mut state)
+            .expect("lawful portal");
+        state
+            .store_mut(&child.warp_id)
+            .expect("typed-law fixture and independently encoded witness")
+            .set_node_attachment(
+                child.local_id,
+                Some(AttachmentValue::Atom(AtomPayload::new(
+                    make_type_id("operation-fixture-atom"),
+                    Bytes::from_static(b"before"),
+                ))),
+            );
+        owner = child;
+    }
+    let (host, head) =
+        fixture_runtime_host(WorldlineState::new(state, root).expect("portal state"));
+    (host, head, owner, owners)
+}
+
+#[test]
+fn typed_effect_portal_chain_is_witnessed_root_first_and_reused_at_the_same_parent() {
+    use warp_core::edict_effects::TypedNodeRead;
+    use warp_core::{AttachmentKey, SlotId};
+    let (host, head, target, owners) = typed_portal_fixture(false, 2);
+    let child_type = make_type_id("operation-child-node");
+    let law = effect_law_value(
+        &[child_type],
+        &[make_type_id("operation-fixture-atom")],
+        &[make_type_id("operation-fixture-node"), child_type],
+        6,
+    );
+    let mut frame = typed_effect_frame(&host, head, law);
+    let (package, pin) = recorded_read_package();
+    assert_eq!(
+        frame
+            .evaluate_typed_read(
+                &package,
+                pin,
+                &recorded_read_input(target, b"before"),
+                &[TypedNodeRead {
+                    node: target,
+                    absent_node_type: child_type
+                }],
+                recorded_read_limits()
+            )
+            .expect("descended compiled read"),
+        encode_canonical_cbor_v1(&CanonicalValueV1::Bytes(b"before".to_vec()))
+            .expect("typed-law fixture and independently encoded witness")
+    );
+    for owner in owners {
+        assert!(frame.readings().contains_key(&SlotId::Node(owner)));
+        assert_eq!(
+            frame
+                .readings()
+                .get(&SlotId::Attachment(AttachmentKey::node_alpha(owner))),
+            Some(&warp_core::SlotReading::Attachment(Some(
+                AttachmentValue::Descend(if owner.warp_id == make_warp_id("operation-fixture") {
+                    make_warp_id("typed-child-0")
+                } else {
+                    target.warp_id
+                })
+            )))
+        );
+    }
+    assert_eq!(frame.authorized_reads().len(), 6);
+    let before = frame.consumed();
+    assert_eq!(
+        frame.read_typed_node(target, child_type),
+        Ok(Some(NodeRecord { ty: child_type }))
+    );
+    assert_eq!(
+        frame.consumed().steps() - before.steps(),
+        1,
+        "validated immutable portals are reused"
+    );
+    assert_eq!(frame.consumed().read_bytes() - before.read_bytes(), 64);
+}
+
+#[test]
+fn typed_effect_portal_permissions_precede_descended_data_and_beta_owner_reads() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let child_type = make_type_id("operation-child-node");
+    for beta in [false, true] {
+        let (host, head, target, _) = typed_portal_fixture(beta, 1);
+        let portal_types = if beta {
+            vec![make_type_id("operation-fixture-node")]
+        } else {
+            vec![]
+        };
+        let mut frame = typed_effect_frame(
+            &host,
+            head,
+            effect_law_value(&[child_type], &[], &portal_types, 4),
+        );
+        assert_eq!(
+            frame.read_typed_node(target, child_type),
+            Err(EffectFrameError::Read(
+                EffectRangeReadError::FootprintLawViolation
+            ))
+        );
+        assert!(
+            frame.readings().is_empty(),
+            "neither the unauthorized owner nor the target is retained"
+        );
+    }
+}
+
+fn typed_range_frame(
+    host: &TrustedRuntimeHost,
+    head: WriterHeadKey,
+    node_type: warp_core::TypeId,
+    edge_type: warp_core::TypeId,
+    max_edges: u64,
+) -> warp_core::edict_effects::EffectEvaluationFrame<'_> {
+    use CanonicalValueV1 as V;
+    let V::Map(mut fields) = effect_law_value(&[node_type], &[], &[], 2) else {
+        unreachable!()
+    };
+    for (name, value) in [
+        (
+            "range_edge_types",
+            V::Array(vec![V::Bytes(edge_type.0.to_vec())]),
+        ),
+        ("max_range_edges", V::Integer(i128::from(max_edges))),
+    ] {
+        fields
+            .iter_mut()
+            .find(|(key, _)| *key == V::Text(name.into()))
+            .expect("typed-law fixture and independently encoded witness")
+            .1 = value;
+    }
+    let law = warp_core::edict_effects::EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&V::Map(fields))
+            .expect("typed-law fixture and independently encoded witness"),
+    )
+    .expect("typed-law fixture and independently encoded witness");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("typed-law fixture and independently encoded witness");
+    host.effect_evaluation_frame_v1(
+        basis,
+        &[edge_type],
+        65536,
+        EchoOperationBudgetV1::new(100000, 16777216, 0),
+        effect_frame_limits(),
+    )
+    .expect("typed-law fixture and independently encoded witness")
+    .with_footprint_law(law)
+    .expect("typed-law fixture and independently encoded witness")
+}
+
+#[test]
+fn typed_effect_ranges_enforce_source_types_whole_bucket_limits_and_no_untyped_bypass() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    use warp_core::{OutgoingEdgeRange, SlotId, TypeId};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let edge_type = make_type_id("typed-range");
+    let range = OutgoingEdgeRange {
+        source: root,
+        edge_type,
+    };
+    let mut frame = typed_range_frame(&host, head, node_type, edge_type, 3);
+    assert_eq!(
+        frame.read_typed_range(range, make_type_id("unused-if-present")),
+        Ok(Some(vec![]))
+    );
+    assert!(frame
+        .authorized_reads()
+        .contains(&(SlotId::OutgoingEdges(range), TypeId([0; 32]))));
+    let mut denied = typed_range_frame(&host, head, make_type_id("wrong-owner-type"), edge_type, 3);
+    assert_eq!(
+        denied.read_typed_range(range, node_type),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(denied.readings().is_empty());
+    let mut denied = typed_range_frame(&host, head, node_type, edge_type, 3);
+    assert_eq!(
+        denied.read_range(range),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert_eq!(denied.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("typed-law fixture and independently encoded witness")
+        .state()
+        .warp_state()
+        .clone();
+    for (index, ty) in [
+        edge_type,
+        make_type_id("distractor"),
+        make_type_id("distractor"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        state
+            .store_mut(&root.warp_id)
+            .expect("typed-law fixture and independently encoded witness")
+            .insert_edge(
+                root.local_id,
+                warp_core::EdgeRecord {
+                    id: warp_core::make_edge_id(&format!("typed-range-{index}")),
+                    from: root.local_id,
+                    to: root.local_id,
+                    ty,
+                },
+            );
+    }
+    let (host, head) = fixture_runtime_host(
+        WorldlineState::new(state, root)
+            .expect("typed-law fixture and independently encoded witness"),
+    );
+    let mut frame = typed_range_frame(&host, head, node_type, edge_type, 1);
+    assert_eq!(
+        frame.read_typed_range(range, node_type),
+        Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+    );
+    assert_eq!(
+        frame.readings().len(),
+        1,
+        "the whole bucket refuses before any edge observation"
+    );
+    let mut frame = typed_range_frame(&host, head, node_type, edge_type, 3);
+    assert_eq!(
+        frame
+            .read_typed_range(range, node_type)
+            .expect("typed-law fixture and independently encoded witness")
+            .expect("typed-law fixture and independently encoded witness")
+            .len(),
+        1
+    );
+    assert_eq!(
+        frame.consumed(),
+        EchoOperationBudgetV1::new(4, 256, 0),
+        "nonmatching edges count"
+    );
+}
+
+#[test]
+fn typed_effect_atom_absence_uses_named_type_and_present_mismatch_uses_actual_type() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, TypedNodeRead};
+    use warp_core::edict_read::{ReadError, ReadObstruction};
+    use warp_core::{AttachmentKey, SlotId};
+    let node_type = make_type_id("operation-fixture-node");
+    let atom_type = make_type_id("operation-fixture-atom");
+    let (package, pin) = recorded_read_package();
+    for allow in [true, false] {
+        let (host, head, nodes) = fixture_host_with_attachment(1, None);
+        let node = nodes[0];
+        let atom_types = if allow { vec![atom_type] } else { vec![] };
+        let mut frame = typed_effect_frame(
+            &host,
+            head,
+            effect_law_value(&[node_type], &atom_types, &[], 2),
+        );
+        let error = frame.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b""),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: node_type,
+            }],
+            recorded_read_limits(),
+        );
+        if allow {
+            assert!(matches!(
+                error,
+                Err(EffectFrameError::BoundedRead(ReadError::Obstructed {
+                    cause: ReadObstruction::Missing,
+                    ..
+                }))
+            ));
+            assert!(frame.authorized_reads().contains(&(
+                SlotId::Attachment(AttachmentKey::node_alpha(node)),
+                atom_type
+            )));
+            assert_eq!(
+                frame
+                    .readings()
+                    .get(&SlotId::Attachment(AttachmentKey::node_alpha(node))),
+                Some(&warp_core::SlotReading::Attachment(None))
+            );
+        } else {
+            assert_eq!(
+                error,
+                Err(EffectFrameError::Read(
+                    EffectRangeReadError::FootprintLawViolation
+                ))
+            );
+            assert_eq!(frame.readings().len(), 1);
+        }
+    }
+    let (host, head, node) = fixture_host();
+    let mut input = decode_canonical_cbor_v1(&recorded_read_input(node, b"before"))
+        .expect("typed-law fixture and independently encoded witness");
+    let CanonicalValueV1::Map(fields) = &mut input else {
+        unreachable!()
+    };
+    let (_, CanonicalValueV1::Map(address)) = fields
+        .iter_mut()
+        .find(|(key, _)| *key == CanonicalValueV1::Text("address".into()))
+        .expect("typed-law fixture and independently encoded witness")
+    else {
+        unreachable!()
+    };
+    address
+        .iter_mut()
+        .find(|(key, _)| *key == CanonicalValueV1::Text("typeId".into()))
+        .expect("typed-law fixture and independently encoded witness")
+        .1 = CanonicalValueV1::Bytes(make_type_id("unadmitted-requested-type").0.to_vec());
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[node_type], &[atom_type], &[], 2),
+    );
+    assert!(matches!(
+        frame.evaluate_typed_read(
+            &package,
+            pin,
+            &encode_canonical_cbor_v1(&input)
+                .expect("typed-law fixture and independently encoded witness"),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: node_type
+            }],
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::BoundedRead(ReadError::Obstructed {
+            cause: ReadObstruction::TypeMismatch,
+            ..
+        }))
+    ));
+    assert!(frame.authorized_reads().contains(&(
+        SlotId::Attachment(AttachmentKey::node_alpha(node)),
+        atom_type
+    )));
+}
+
+#[test]
+fn typed_effect_portal_authorization_does_not_grant_ordinary_node_read_permission() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError};
+    let (host, head, target, owners) = typed_portal_fixture(false, 1);
+    let parent_type = make_type_id("operation-fixture-node");
+    let child_type = make_type_id("operation-child-node");
+    let mut frame = typed_effect_frame(
+        &host,
+        head,
+        effect_law_value(&[child_type], &[], &[parent_type], 3),
+    );
+    assert_eq!(
+        frame.read_typed_node(target, child_type),
+        Ok(Some(NodeRecord { ty: child_type }))
+    );
+    assert!(frame
+        .authorized_reads()
+        .contains(&(warp_core::SlotId::Node(owners[0]), parent_type)));
+    assert_eq!(
+        frame.read_typed_node(owners[0], parent_type),
+        Err(EffectFrameError::Read(
+            EffectRangeReadError::FootprintLawViolation
+        )),
+        "deduplication must not bypass the permission role"
+    );
+}
+
+#[test]
+fn typed_effect_portal_resolutions_keep_atomic_budget_and_storage_prefixes() {
+    use warp_core::edict_effects::{EffectFootprintLaw, EffectFrameError, EffectRangeReadError};
+    let (host, head, target, owners) = typed_portal_fixture(false, 1);
+    let parent_type = make_type_id("operation-fixture-node");
+    let child_type = make_type_id("operation-child-node");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("typed-law fixture and independently encoded witness");
+    for (steps, bytes, storage, want_steps, want_bytes, want_storage) in [
+        (1, 1024, 16777216, 1, 64, 256),
+        (10, 128, 16777216, 2, 128, 448),
+        (10, 1024, 512, 2, 128, 448),
+    ] {
+        let law = EffectFootprintLaw::from_canonical_bytes(
+            &encode_canonical_cbor_v1(&effect_law_value(&[child_type], &[], &[parent_type], 4))
+                .expect("typed-law fixture and independently encoded witness"),
+        )
+        .expect("typed-law fixture and independently encoded witness");
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(steps, bytes, 0),
+                warp_core::edict_pure::EvaluationLimits {
+                    max_allocated_bytes: storage,
+                    ..effect_frame_limits()
+                },
+            )
+            .expect("typed-law fixture and independently encoded witness")
+            .with_footprint_law(law)
+            .expect("typed-law fixture and independently encoded witness");
+        assert_eq!(
+            frame.read_typed_node(target, child_type),
+            Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+        );
+        assert_eq!(
+            frame.consumed(),
+            EchoOperationBudgetV1::new(want_steps, want_bytes, 0)
+        );
+        assert_eq!(frame.allocated_bytes(), want_storage);
+        assert!(!frame
+            .readings()
+            .contains_key(&warp_core::SlotId::Node(target)));
+        if want_steps == 2 {
+            assert!(frame
+                .readings()
+                .contains_key(&warp_core::SlotId::Node(owners[0])));
+        }
+        assert_eq!(
+            frame.read_typed_node(target, child_type),
+            Err(EffectFrameError::Terminated)
+        );
+    }
+}
+
+#[test]
+fn typed_effect_law_cannot_be_installed_after_work_or_on_an_unbound_frame() {
+    use warp_core::edict_effects::{EffectFootprintLaw, EffectFrameSetupError};
+    let (host, head, root) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let bytes = encode_canonical_cbor_v1(&effect_law_value(&[node_type], &[], &[], 1))
+        .expect("typed-law fixture and independently encoded witness");
+    let law = || {
+        EffectFootprintLaw::from_canonical_bytes(&bytes)
+            .expect("typed-law fixture and independently encoded witness")
+    };
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[node_type], &[], &[], 1));
+    frame
+        .read_typed_node(root, node_type)
+        .expect("typed-law fixture and independently encoded witness");
+    assert!(matches!(
+        frame.with_footprint_law(law()),
+        Err(EffectFrameSetupError::InvalidLawBinding)
+    ));
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("typed-law fixture and independently encoded witness");
+    let reads = warp_core::edict_effects::EffectRangeReadSession::new(
+        frontier,
+        &[],
+        0,
+        EchoOperationBudgetV1::new(100, 1000, 0),
+    );
+    let frame = warp_core::edict_effects::EffectEvaluationFrame::new(reads, effect_frame_limits())
+        .expect("typed-law fixture and independently encoded witness");
+    assert!(matches!(
+        frame.with_footprint_law(law()),
+        Err(EffectFrameSetupError::InvalidLawBinding)
+    ));
+}
+
+#[test]
+fn typed_effect_direct_portal_atom_probe_requires_portal_owner_permission() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, TypedNodeRead};
+    use warp_core::edict_read::{ReadError, ReadObstruction};
+    let (host, head, _, owners) = typed_portal_fixture(false, 1);
+    let owner = owners[0];
+    let ty = make_type_id("operation-fixture-node");
+    let (package, pin) = recorded_read_package();
+    for allow in [true, false] {
+        let (nodes, portals) = if allow {
+            (vec![], vec![ty])
+        } else {
+            (vec![ty], vec![])
+        };
+        let mut frame = typed_effect_frame(&host, head, effect_law_value(&nodes, &[], &portals, 2));
+        let result = frame.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(owner, b""),
+            &[TypedNodeRead {
+                node: owner,
+                absent_node_type: ty,
+            }],
+            recorded_read_limits(),
+        );
+        if allow {
+            assert!(matches!(
+                result,
+                Err(EffectFrameError::BoundedRead(ReadError::Obstructed {
+                    cause: ReadObstruction::AtomRequired,
+                    ..
+                }))
+            ));
+            assert_eq!(frame.authorized_reads().len(), 2);
+            assert!(frame.authorized_reads().contains(&(
+                warp_core::SlotId::Attachment(warp_core::AttachmentKey::node_alpha(owner)),
+                ty
+            )));
+        } else {
+            assert_eq!(
+                result,
+                Err(EffectFrameError::Read(
+                    EffectRangeReadError::FootprintLawViolation
+                ))
+            );
+            assert!(frame.readings().is_empty());
+        }
+    }
+}
+
+#[test]
+fn typed_effect_compiled_apertures_refuse_duplicate_and_unordered_declarations_before_work() {
+    use warp_core::edict_effects::{EffectFrameError, TypedNodeRead};
+    let (host, head, root) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let node = TypedNodeRead {
+        node: root,
+        absent_node_type: ty,
+    };
+    let other = TypedNodeRead {
+        node: NodeKey {
+            local_id: make_node_id("another-declaration"),
+            ..root
+        },
+        absent_node_type: ty,
+    };
+    let mut descending = vec![node, other];
+    descending.sort_by_key(|declaration| std::cmp::Reverse(declaration.node));
+    let (package, pin) = recorded_read_package();
+    for aperture in [vec![node, node], descending, vec![node; 65537]] {
+        let mut frame = typed_effect_frame(&host, head, effect_law_value(&[ty], &[], &[], 4));
+        assert_eq!(
+            frame.evaluate_typed_read(
+                &package,
+                pin,
+                &recorded_read_input(root, b"before"),
+                &aperture,
+                recorded_read_limits()
+            ),
+            Err(EffectFrameError::BoundedRead(
+                warp_core::edict_read::ReadError::InvalidAperture
+            ))
+        );
+        assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+        assert!(frame.readings().is_empty());
+    }
+}
+
+#[test]
+fn typed_read_image_keeps_exact_node_bytes_digest_and_runtime_parent() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (host, head, node) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[ty], &[], &[], 1));
+    frame.read_typed_node(node, ty).expect("node resolution");
+    let image = frame.into_read_set_image(4096).expect("bounded image");
+    assert_eq!(image.evaluation_basis(), basis);
+    assert_eq!(image.consumed(), EchoOperationBudgetV1::new(1, 64, 0));
+    assert_eq!(
+        image.allocated_bytes(),
+        192,
+        "export preserves evaluation accounting without refunding it"
+    );
+    let mut want = vec![0_u8; 208];
+    want[0..8].copy_from_slice(&1_u64.to_le_bytes());
+    want[16..48].copy_from_slice(&node.warp_id.0);
+    want[48..80].copy_from_slice(&node.local_id.0);
+    want[120..152].copy_from_slice(&ty.0);
+    let digest = blake3::hash(&[b"echo.bridge.node-value.v1\0".as_slice(), &ty.0].concat());
+    want[152..184].copy_from_slice(digest.as_bytes());
+    assert_eq!(image.as_bytes(), want);
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical borrowed view");
+    assert_eq!(view.rows().len(), 1);
+    assert!(view.pairs().is_empty());
+    assert_eq!(
+        view.rows().as_ptr().cast::<u8>(),
+        image.as_bytes()[8..].as_ptr(),
+        "rows borrow the image"
+    );
+    let want_digest =
+        blake3::hash(&[b"echo.bridge.read-set.v1\0".as_slice(), want.as_slice()].concat());
+    assert_eq!(image.digest(), *want_digest.as_bytes());
+    assert_eq!(view.digest(), image.digest());
+}
+
+#[test]
+fn typed_read_image_retains_distinct_named_absence_and_refuses_legacy_export() {
+    use warp_core::edict_effects::{EffectReadImageError, EffectReadSetView};
+    let (host, head, root) = fixture_host();
+    let a = make_type_id("image-absent-a");
+    let b = make_type_id("image-absent-b");
+    let node = NodeKey {
+        local_id: make_node_id("image-absent"),
+        ..root
+    };
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[a, b], &[], &[], 2));
+    for ty in [b, a, a] {
+        assert_eq!(frame.read_typed_node(node, ty), Ok(None));
+    }
+    let image = frame.into_read_set_image(4096).expect("absence image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("absence view");
+    let mut types = [a.0, b.0];
+    types.sort_unstable();
+    assert_eq!(view.rows().len(), 2);
+    for (row, ty) in view.rows().iter().zip(types) {
+        assert_eq!(row.outcome, 1);
+        assert_eq!(row.read_type, ty);
+        assert_eq!(row.subject, [0; 32]);
+    }
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("basis");
+    let frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(100, 1000, 0),
+            effect_frame_limits(),
+        )
+        .expect("untyped frame");
+    assert!(matches!(
+        frame.into_read_set_image(4096),
+        Err(EffectReadImageError::MissingTypedParent)
+    ));
+    let frame = typed_effect_frame(&host, head, effect_law_value(&[], &[], &[], 0));
+    assert!(matches!(
+        frame.into_read_set_image(15),
+        Err(EffectReadImageError::ExportLimitExceeded)
+    ));
+}
+
+#[test]
+fn typed_read_image_does_not_turn_a_reserved_unresolved_atom_into_an_observation() {
+    use warp_core::edict_effects::{
+        EffectFootprintLaw, EffectFrameError, EffectRangeReadError, EffectReadSetView,
+        TypedNodeRead,
+    };
+    let (host, head, node) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let atom = make_type_id("operation-fixture-atom");
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("basis");
+    let law = EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&effect_law_value(&[ty], &[atom], &[], 2)).expect("law bytes"),
+    )
+    .expect("law");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 128, 0),
+            effect_frame_limits(),
+        )
+        .expect("frame")
+        .with_footprint_law(law)
+        .expect("typed frame");
+    let (package, pin) = recorded_read_package();
+    assert_eq!(
+        frame.evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: ty
+            }],
+            recorded_read_limits()
+        ),
+        Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+    );
+    assert_eq!(
+        frame.authorized_reads().len(),
+        2,
+        "authorization can precede the failed payload charge"
+    );
+    let image = frame
+        .into_read_set_image(4096)
+        .expect("failed frame evidence");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("completed prefix");
+    assert_eq!(view.rows().len(), 1);
+    assert_eq!(view.rows()[0].slot.class, 0);
+}
+
+#[test]
+fn typed_read_image_witnesses_atom_and_portal_subjects() {
+    use warp_core::edict_effects::{EffectReadSetView, TypedNodeRead};
+    let (host, head, node) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let atom = make_type_id("operation-fixture-atom");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[ty], &[atom], &[], 2));
+    let (package, pin) = recorded_read_package();
+    frame
+        .evaluate_typed_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[TypedNodeRead {
+                node,
+                absent_node_type: ty,
+            }],
+            recorded_read_limits(),
+        )
+        .expect("compiled value");
+    let image = frame.into_read_set_image(4096).expect("atom image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("atom view");
+    let row = &view.rows()[1];
+    assert_eq!(row.slot.class, 1);
+    assert_eq!(row.outcome, 0);
+    assert_eq!(row.read_type, atom.0);
+    let expected = blake3::hash(
+        &[
+            b"echo.bridge.attachment-value.v1\0".as_slice(),
+            &[0],
+            &atom.0,
+            &6_u64.to_le_bytes(),
+            b"before",
+        ]
+        .concat(),
+    );
+    assert_eq!(row.subject, *expected.as_bytes());
+    let (host, head, target, owners) = typed_portal_fixture(false, 1);
+    let child_ty = make_type_id("operation-child-node");
+    let mut frame = typed_effect_frame(&host, head, effect_law_value(&[child_ty], &[], &[ty], 3));
+    frame
+        .read_typed_node(target, child_ty)
+        .expect("descended node");
+    let image = frame.into_read_set_image(4096).expect("portal image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("portal view");
+    assert_eq!(view.rows().len(), 3);
+    let row = &view.rows()[2];
+    assert_eq!(row.slot.class, 1);
+    assert_eq!(row.slot.local_id, owners[0].local_id.0);
+    assert_eq!(row.outcome, 3);
+    assert_eq!(row.read_type, ty.0);
+    let expected = blake3::hash(
+        &[
+            b"echo.bridge.attachment-value.v1\0".as_slice(),
+            &[1],
+            &target.warp_id.0,
+        ]
+        .concat(),
+    );
+    assert_eq!(row.subject, *expected.as_bytes());
+}
+
+#[test]
+fn typed_read_image_packs_actual_matching_edges_and_distinguishes_absent_sources() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (host, head, root) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let edge_ty = make_type_id("image-edge");
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("worldline")
+        .state()
+        .warp_state()
+        .clone();
+    for (id, edge_type) in [
+        (2, edge_ty),
+        (1, edge_ty),
+        (3, make_type_id("nonmatching-image-edge")),
+    ] {
+        state
+            .store_mut(&root.warp_id)
+            .expect("source store")
+            .insert_edge(
+                root.local_id,
+                warp_core::EdgeRecord {
+                    id: warp_core::EdgeId([id; 32]),
+                    from: root.local_id,
+                    to: root.local_id,
+                    ty: edge_type,
+                },
+            );
+    }
+    let (host, head) = fixture_runtime_host(WorldlineState::new(state, root).expect("range state"));
+    let range = warp_core::OutgoingEdgeRange {
+        source: root,
+        edge_type: edge_ty,
+    };
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 3);
+    frame.read_typed_range(range, ty).expect("real range");
+    let image = frame.into_read_set_image(4096).expect("real range image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("range view");
+    assert_eq!(view.rows().len(), 2);
+    assert_eq!(view.rows()[1].outcome, 2);
+    assert_eq!(view.rows()[1].read_type, [0; 32]);
+    assert_eq!(view.rows()[1].pairs.start(), 0);
+    assert_eq!(view.rows()[1].pairs.len(), 2);
+    assert_eq!(
+        view.pairs()
+            .iter()
+            .map(|pair| (pair.edge_local_id, pair.target_local_id))
+            .collect::<Vec<_>>(),
+        vec![([1; 32], root.local_id.0), ([2; 32], root.local_id.0)]
+    );
+    assert_eq!(image.as_bytes().len(), 528);
+    assert_eq!(image.consumed(), EchoOperationBudgetV1::new(4, 256, 0));
+    assert_eq!(image.allocated_bytes(), 1152);
+    let absent = NodeKey {
+        local_id: make_node_id("absent-image-source"),
+        ..root
+    };
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 3);
+    assert_eq!(
+        frame.read_typed_range(
+            warp_core::OutgoingEdgeRange {
+                source: absent,
+                edge_type: edge_ty
+            },
+            ty
+        ),
+        Ok(None)
+    );
+    let absent_image = frame.into_read_set_image(4096).expect("absent range image");
+    let view = EffectReadSetView::parse(absent_image.as_bytes()).expect("absent range view");
+    assert_eq!(view.rows()[0].outcome, 1);
+    assert_eq!(view.rows()[1].outcome, 2);
+    assert!(view.pairs().is_empty());
+    assert_ne!(absent_image.digest(), image.digest());
+}
+
 /// M2: on an application-profile worldline, Actions commit the tagged
 /// application root, the stale-basis exception still corroborates origins
 /// (including the genesis boundary), and recovery agrees.
@@ -5235,5 +7108,375 @@ fn equal_application_records_do_not_decide_a_held_actions_eligibility() {
     assert_eq!(
         target.root_after, target.root_before,
         "an obstruction writes nothing"
+    );
+}
+
+#[test]
+fn recovery_index_binds_retained_sections_and_action_attribution_under_one_recipe() {
+    let wal_dir = TempWalDir::new();
+    let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(2);
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("the WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    for node in nodes {
+        let invocation = action_invocation(&host, &installed, head_key, node, b"before", b"after");
+        submit_action(&mut host, head_key, invocation);
+    }
+    host.tick_once().expect("both Actions commit");
+    let recovery = host
+        .runtime_wal()
+        .expect("WAL")
+        .recover_read_only()
+        .expect("recovery");
+    let root = recovery.certificate.recovered_indexes_root;
+    assert_eq!(recovery.recomputed_indexes_root().expect("index"), root);
+    assert_eq!(recovery.installed_echo_operations.len(), 1);
+    assert_eq!(recovery.echo_operation_action_outcomes.len(), 2);
+
+    let mut missing_installation = recovery.clone();
+    missing_installation.installed_echo_operations.clear();
+    assert_ne!(
+        missing_installation
+            .recomputed_indexes_root()
+            .expect("index"),
+        root
+    );
+    let mut missing_outcomes = recovery.clone();
+    missing_outcomes.echo_operation_action_outcomes.clear();
+    assert_ne!(
+        missing_outcomes.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let mut changed_submission = recovery.clone();
+    changed_submission.echo_operation_action_outcomes[0].0[0] ^= 1;
+    assert_ne!(
+        changed_submission.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let mut changed_ingress = recovery.clone();
+    changed_ingress.echo_operation_action_outcomes[0].1[0] ^= 1;
+    assert_ne!(
+        changed_ingress.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let mut changed_order = recovery.clone();
+    changed_order.echo_operation_action_outcomes.swap(0, 1);
+    assert_ne!(
+        changed_order.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let EchoOperationActionOutcomeV1::Committed(receipt) =
+        &recovery.echo_operation_action_outcomes[0].2
+    else {
+        panic!("the first Action committed");
+    };
+    let mut changed_receipts = recovery.clone();
+    changed_receipts
+        .echo_operation_receipts
+        .push((**receipt).clone());
+    assert_ne!(
+        changed_receipts.recomputed_indexes_root().expect("index"),
+        root
+    );
+
+    drop(host);
+    let (mut fresh, _, _) = fixture_host_with_independent_nodes(2);
+    fresh
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh host restores the original decisions");
+    let reopened = fresh
+        .runtime_wal()
+        .expect("reopened WAL")
+        .recover_read_only()
+        .expect("recovery");
+    assert_eq!(reopened.certificate.recovered_indexes_root, root);
+    assert_eq!(
+        reopened.echo_operation_action_outcomes,
+        recovery.echo_operation_action_outcomes
+    );
+}
+
+#[path = "common/edict_effect_publication.rs"]
+mod current_effect_publication_fixture;
+
+fn install_effect_catalog_fixture(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
+    use current_effect_publication_fixture as publication;
+    let bytes = publication::encoded(&publication::package(&publication::program()));
+    let policy = EchoOperationAdmissionPolicy::exact(
+        warp_core::echo_operation_package_id_v1(&bytes).as_hash(),
+        "app.update@1",
+        [8; 32],
+        EchoOperationBudgetV1::new(1, 0, 0),
+    );
+    let token = host
+        .admit_echo_operation_package(&policy, bytes)
+        .expect("effect policy");
+    host.install_admitted_echo_operation_package(token)
+        .expect("effect installation")
+}
+
+#[test]
+fn shared_catalog_preserves_action_execution_and_recovery_in_both_program_installation_orders() {
+    for effect_first in [false, true] {
+        let wal_dir = TempWalDir::new();
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("WAL");
+        let (fixed, effect) = if effect_first {
+            let effect = install_effect_catalog_fixture(&mut host);
+            (install_fixture_operation(&mut host), effect)
+        } else {
+            let fixed = install_fixture_operation(&mut host);
+            (fixed, install_effect_catalog_fixture(&mut host))
+        };
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        let invocation = action_invocation(&host, &fixed, head_key, node, b"before", b"after");
+        let submission = submit_action(&mut host, head_key, invocation);
+        host.tick_once()
+            .expect("fixed Action commits with both program kinds installed");
+        assert!(outcome_is_committed(&host, &submission));
+        let outcome = host
+            .echo_operation_action_outcome_v1(&submission)
+            .expect("outcome")
+            .clone();
+        let recovery = host
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("recovery");
+        assert_eq!(recovery.installed_echo_operations.len(), 2);
+        assert!(recovery.installed_echo_operations.contains(&fixed));
+        assert!(recovery.installed_echo_operations.contains(&effect));
+        let root = recovery.certificate.recovered_indexes_root;
+        drop(host);
+        let (mut fresh, _, _) = fixture_host();
+        fresh
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("fresh recovery");
+        assert_eq!(
+            fresh.echo_operation_action_outcome_v1(&submission),
+            Some(&outcome)
+        );
+        assert_eq!(
+            fresh
+                .engine()
+                .installed_echo_operation_package(effect.package_id()),
+            Some(&effect)
+        );
+        let recovered = fresh
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("recovery");
+        assert_eq!(recovered.certificate.recovered_indexes_root, root);
+    }
+}
+
+#[test]
+fn current_invocation_admits_effect_grants_without_an_invented_anchor() {
+    use current_effect_publication_fixture as publication;
+    use warp_core::EchoOperationInvocationAdmissionErrorKind as Refusal;
+    use warp_core::{EchoOperationInvocation, EchoOperationInvocationAdmissionPolicy};
+    let (mut host, head, _) = fixture_host();
+    let installed = install_effect_catalog_fixture(&mut host);
+    let input = publication::encoded(&CanonicalValueV1::Integer(42));
+    let app_basis = EchoOperationApplicationBasisV1::new(
+        publication::hash(
+            b"echo:operation-profile:v1\0",
+            b"echo.operation.basis.edict-effect/v1",
+        ),
+        publication::hash(b"echo:operation-edict-effect-basis:v1\0", &input),
+    );
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, app_basis)
+        .expect("actual parent");
+    let basis_value = publication::map([
+        (
+            "worldline_id",
+            CanonicalValueV1::Bytes(head.worldline_id.as_bytes().to_vec()),
+        ),
+        (
+            "head_id",
+            CanonicalValueV1::Bytes(head.head_id.as_bytes().to_vec()),
+        ),
+        (
+            "worldline_tick",
+            CanonicalValueV1::Integer(i128::from(basis.worldline_tick().as_u64())),
+        ),
+        ("commit_global_tick", CanonicalValueV1::Null),
+        (
+            "state_root",
+            CanonicalValueV1::Bytes(basis.state_root().to_vec()),
+        ),
+        (
+            "commit_id",
+            CanonicalValueV1::Bytes(basis.commit_id().to_vec()),
+        ),
+        (
+            "application_basis_schema_identity",
+            CanonicalValueV1::Bytes(app_basis.schema_identity().to_vec()),
+        ),
+        (
+            "application_basis_value_identity",
+            CanonicalValueV1::Bytes(app_basis.value_identity().to_vec()),
+        ),
+    ]);
+    let bytes = publication::encoded(&publication::map([
+        ("schema", publication::text("echo.operation-invocation/v1")),
+        ("kind", publication::text("edict-effect-program/v1")),
+        (
+            "package_id",
+            CanonicalValueV1::Bytes(installed.package_identity().to_vec()),
+        ),
+        (
+            "operation_coordinate",
+            publication::text(installed.operation_coordinate()),
+        ),
+        ("authority_grant_identity", publication::id(9)),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(1)),
+                ("read_bytes", CanonicalValueV1::Integer(0)),
+                ("write_bytes", CanonicalValueV1::Integer(0)),
+            ]),
+        ),
+        ("evaluation_basis", basis_value),
+        ("application_input_bytes", CanonicalValueV1::Bytes(input)),
+    ]));
+    let policy = EchoOperationInvocationAdmissionPolicy::new(
+        [8; 32],
+        [9; 32],
+        EchoOperationBudgetV1::new(1, 0, 0),
+    );
+    let admitted = host
+        .admit_echo_operation_invocation(&policy, &bytes)
+        .expect("independent grant and exact parent");
+    assert_eq!(admitted.invocation().anchor_node(), None);
+    let decoded = EchoOperationInvocation::from_canonical_bytes(&bytes).expect("current codec");
+    assert_eq!(decoded.to_canonical_bytes().expect("canonical"), bytes);
+    let refused = host
+        .admit_echo_operation_invocation(
+            &EchoOperationInvocationAdmissionPolicy::new(
+                [8; 32],
+                [10; 32],
+                EchoOperationBudgetV1::new(1, 0, 0),
+            ),
+            &bytes,
+        )
+        .expect_err("a claimed grant is not an owner admission");
+    assert_eq!(
+        refused.kind(),
+        warp_core::EchoOperationInvocationAdmissionErrorKind::AuthorityGrantMismatch
+    );
+    for (profile, grant, budget, expected) in [
+        (
+            [7; 32],
+            [9; 32],
+            EchoOperationBudgetV1::new(1, 0, 0),
+            Refusal::AuthorityProfileMismatch,
+        ),
+        (
+            [8; 32],
+            [9; 32],
+            EchoOperationBudgetV1::new(0, 0, 0),
+            Refusal::BudgetExceeded,
+        ),
+    ] {
+        let rejected = host
+            .admit_echo_operation_invocation(
+                &EchoOperationInvocationAdmissionPolicy::new(profile, grant, budget),
+                &bytes,
+            )
+            .expect_err("independent owner restriction");
+        assert_eq!(rejected.kind(), expected);
+    }
+    for (key, value, expected) in [
+        (
+            "package_id",
+            publication::id(77),
+            Refusal::OperationUnavailable,
+        ),
+        (
+            "operation_coordinate",
+            publication::text("app.other@1"),
+            Refusal::OperationCoordinateMismatch,
+        ),
+        (
+            "application_input_bytes",
+            CanonicalValueV1::Bytes(publication::encoded(&CanonicalValueV1::Integer(43))),
+            Refusal::ApplicationInputMismatch,
+        ),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(2)),
+                ("read_bytes", CanonicalValueV1::Integer(0)),
+                ("write_bytes", CanonicalValueV1::Integer(0)),
+            ]),
+            Refusal::BudgetExceeded,
+        ),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(1)),
+                ("read_bytes", CanonicalValueV1::Integer(1)),
+                ("write_bytes", CanonicalValueV1::Integer(0)),
+            ]),
+            Refusal::BudgetExceeded,
+        ),
+        (
+            "delegated_budget",
+            publication::map([
+                ("steps", CanonicalValueV1::Integer(1)),
+                ("read_bytes", CanonicalValueV1::Integer(0)),
+                ("write_bytes", CanonicalValueV1::Integer(1)),
+            ]),
+            Refusal::BudgetExceeded,
+        ),
+    ] {
+        let mut altered = decode_canonical_cbor_v1(&bytes).expect("fixture map");
+        publication::set(&mut altered, key, value);
+        let rejected = host
+            .admit_echo_operation_invocation(&policy, &publication::encoded(&altered))
+            .expect_err("substitution refused");
+        assert_eq!(rejected.kind(), expected, "{key}");
+    }
+    for key in [
+        "state_root",
+        "commit_id",
+        "head_id",
+        "application_basis_schema_identity",
+    ] {
+        let mut altered = decode_canonical_cbor_v1(&bytes).expect("fixture map");
+        let CanonicalValueV1::Map(ref mut entries) = altered else {
+            panic!("map")
+        };
+        let parent = &mut entries
+            .iter_mut()
+            .find(|(key, _)| key == &publication::text("evaluation_basis"))
+            .expect("parent")
+            .1;
+        publication::set(parent, key, publication::id(99));
+        assert!(
+            host.admit_echo_operation_invocation(&policy, &publication::encoded(&altered))
+                .is_err(),
+            "forged {key}"
+        );
+    }
+    match host.prepare_echo_operation_v1(admitted) {
+        EchoOperationPreparationV1::Obstructed(obstruction) => assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::OperationUnavailable
+        ),
+        EchoOperationPreparationV1::Prepared(_) => {
+            panic!("grant admission must not manufacture an effect execution")
+        }
+    }
+    assert_eq!(
+        host.echo_operation_evaluation_basis_v1(head, app_basis)
+            .expect("unchanged runtime parent"),
+        basis
     );
 }

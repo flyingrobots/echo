@@ -245,7 +245,7 @@ impl EchoOperationObservationV1 {
     }
 }
 
-impl EchoOperationInvocationV1 {
+impl EchoOperationInvocation {
     pub(crate) fn has_observation(&self, observation: &EchoOperationObservationV1) -> bool {
         self.observation.as_ref() == Some(observation)
     }
@@ -448,7 +448,7 @@ mod tests {
         let mut retry = invocation.clone();
         retry.evaluation_basis.application_basis =
             echo_operation_anchored_node_creation_application_basis_v1(
-                invocation.node,
+                invocation.node.expect("anchored fixture"),
                 EchoOperationAnchoredNodeOccupancyV1::NodeAndAttachment,
             );
         retry.evaluation_basis.worldline_tick = WorldlineTick::from_raw(100);

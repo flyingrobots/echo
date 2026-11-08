@@ -172,10 +172,16 @@ ingress boundary, support provider-native reads, or turn package metadata into
 runtime authority. Echo separately retains the Wesley compatibility path for
 host-constructed `InstalledContractPackage` values.
 
+Current operation invocations use one `EchoOperationInvocation` codec and owner
+admission API across program kinds. Authored-effect invocations bind canonical
+input to an actual exact parent and an independent owner grant, without a fixed
+node anchor. Their compiled instruction execution and Action integration remain
+unfinished and refuse explicitly. See the [current invocation contract](docs/topics/GeneratedRules.md#current-invocation-input-basis-and-owner-grant-admission).
+
 Separately, Echo can now admit and install an exact canonical
-`ExecutableOperationPackageV1`, admit an exact-basis invocation under explicit
+`ExecutableOperationPackage`, admit an exact-basis invocation under explicit
 authority and delegated budget, evaluate its data-only
-`EchoOperationProgramV1` privately during scheduler-owned Tick construction,
+`EchoOperationProgram` privately during scheduler-owned Tick construction,
 and either commit its member consequence or return typed noncommit evidence.
 Two independent, same-basis executable Actions can enter one atomic Tick. The
 initial generic programs perform anchored typed-node alpha-attachment
@@ -256,11 +262,11 @@ Edict source
 The current executable-operation runtime slice is:
 
 ```text
-external compiler-produced ExecutableOperationPackageV1 bytes
+external compiler-produced ExecutableOperationPackage bytes
 -> structurally separate accepted verification report
 -> exact manifest, target-adapter, and target-configuration closure
 -> Echo-owned package and invocation admission
--> installed data-only EchoOperationProgramV1
+-> installed data-only EchoOperationProgram
 -> exact compiler-owned application-result projection
 -> exact canonical application input retained in the invocation
 -> canonical Action submission retained before acknowledgement
@@ -591,10 +597,13 @@ for coincidental text.
 ### How Does Schema Evolution Work?
 
 Contract identity, schema identity, operation ids, and generated helper or
-package identity are explicit in admitted compiler output. A schema change
-produces new contract artifact identity. Old readings name the schema and
-operation identity they used, so multiple contract versions can coexist
-without silently invalidating old receipts.
+package identity are explicit in admitted compiler output. Main crates support
+one current version of each data structure and format. A replacement updates
+the producers and consumers together. Old versions belong only in separate
+upgrade or migration tools, which can convert and validate persisted data
+before the current runtime consumes it. There are no existing saved histories
+to preserve and no implemented migration tool is implied. See the
+[version policy](docs/topics/GeneratedRules.md#one-current-version-and-explicit-migration).
 
 ### Where Should Contributors Start?
 

@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use super::{
     model::{Instruction, Program, ReadInstruction},
-    ReadError, ReadObstruction, ReadResult, ReadView,
+    NodeAtomAccess, ReadError, ReadObstruction, ReadResult, ReadView,
 };
 use crate::edict_pure::{
     evaluate::{expression, predicate, validate, Meter, VALUE_CELL_BYTES},
@@ -18,8 +18,33 @@ pub(super) fn run(
     input: Value,
     view: &ReadView<'_>,
 ) -> Result<ReadResult, ReadError> {
-    let mut meter = Meter::new(program.limits.evaluation);
-    validate(&input, &program.input_type, &mut meter, 0).map_err(|error| {
+    let mut access = view;
+    run_body(
+        program,
+        input,
+        &mut access,
+        &mut Meter::new(program.limits.evaluation),
+    )
+}
+
+pub(super) fn run_with_meter<A: NodeAtomAccess>(
+    program: &Program,
+    input: Value,
+    access: &mut A,
+    meter: &mut Meter,
+) -> Result<ReadResult, A::Error> {
+    meter.with_component(program.limits.evaluation, |meter| {
+        run_body(program, input, access, meter)
+    })
+}
+
+fn run_body<A: NodeAtomAccess>(
+    program: &Program,
+    input: Value,
+    view: &mut A,
+    meter: &mut Meter,
+) -> Result<ReadResult, A::Error> {
+    validate(&input, &program.input_type, meter, 0).map_err(|error| {
         if error == Error::InvalidArtifact {
             Error::InvalidInput
         } else {
@@ -29,12 +54,12 @@ pub(super) fn run(
     meter.charge(&input, 0)?;
     let mut locals = BTreeMap::from([(program.input_id.as_str(), input)]);
     let helpers = &program.helpers;
-    let application_basis = expression(&program.basis, &locals, helpers, &mut meter, 0)?;
+    let application_basis = expression(&program.basis, &locals, helpers, meter, 0)?;
     let application_basis = bytes(&application_basis)?
         .try_into()
         .map_err(|_| Error::InvalidInput)?;
     for (coordinate, constraint) in &program.constraints {
-        if !predicate(constraint, &locals, helpers, &mut meter, 0)? {
+        if !predicate(constraint, &locals, helpers, meter, 0)? {
             return Err(Error::InputConstraintFailed(coordinate.clone()).into());
         }
     }
@@ -44,24 +69,24 @@ pub(super) fn run(
         meter.step(0)?;
         match instruction {
             Instruction::Read(read) => {
-                let address = expression(&read.input, &locals, helpers, &mut meter, 0)?;
+                let address = expression(&read.input, &locals, helpers, meter, 0)?;
                 let (node, expected_type) = address_value(&address)?;
                 if !view.contains(node) {
-                    return Err(ReadError::OutsideAperture(node));
+                    return Err(ReadError::OutsideAperture(node).into());
                 }
                 reads = reads.checked_add(1).ok_or(ReadError::ReadCountExceeded)?;
                 if reads > program.limits.max_reads {
-                    return Err(ReadError::ReadCountExceeded);
+                    return Err(ReadError::ReadCountExceeded.into());
                 }
                 let bytes = view
-                    .atom(node, expected_type, read.max_bytes)
+                    .atom(node, expected_type, read.max_bytes, meter)?
                     .map_err(|cause| obstructed(read, cause))?;
                 let count = bytes.len() as u64;
                 read_bytes = read_bytes
                     .checked_add(count)
                     .ok_or(ReadError::ReadBytesExceeded)?;
                 if read_bytes > program.limits.max_read_bytes {
-                    return Err(ReadError::ReadBytesExceeded);
+                    return Err(ReadError::ReadBytesExceeded.into());
                 }
                 // Charge deterministic I/O work and storage BEFORE copying atom bytes.
                 meter.charge_steps(count)?;
@@ -70,30 +95,31 @@ pub(super) fn run(
                         .checked_add(count)
                         .ok_or(Error::AllocationBudgetExceeded)?,
                 )?;
-                let value = Value::Bytes(bytes.to_vec());
-                validate(&value, &read.ty, &mut meter, 0)?;
+                let value = meter.copy_precharged_read_bytes(bytes)?;
+                validate(&value, &read.ty, meter, 0)?;
                 locals.insert(read.binding.as_str(), value);
             }
             Instruction::Let { binding, ty, value } => {
-                let value = expression(value, &locals, helpers, &mut meter, 0)?;
-                validate(&value, ty, &mut meter, 0)?;
+                let value = expression(value, &locals, helpers, meter, 0)?;
+                validate(&value, ty, meter, 0)?;
                 locals.insert(binding.as_str(), value);
             }
             Instruction::Require {
                 predicate: condition,
                 obstruction,
             } => {
-                if !predicate(condition, &locals, helpers, &mut meter, 0)? {
+                if !predicate(condition, &locals, helpers, meter, 0)? {
                     return Err(ReadError::Obstructed {
                         coordinate: obstruction.clone(),
                         cause: ReadObstruction::Guard,
-                    });
+                    }
+                    .into());
                 }
             }
         }
     }
-    let value = expression(&program.result, &locals, helpers, &mut meter, 0)?;
-    validate(&value, &program.output_type, &mut meter, 0)?;
+    let value = expression(&program.result, &locals, helpers, meter, 0)?;
+    validate(&value, &program.output_type, meter, 0)?;
     meter.charge(&value, 0)?;
     let output = encode(&value).map_err(|_| Error::InvalidArtifact)?;
     if output.len() as u64 > program.limits.evaluation.max_output_bytes {

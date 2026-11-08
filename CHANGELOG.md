@@ -101,11 +101,13 @@
 
 ### Changed
 
-- Committing a tick builds its patch differently, with identical results:
-  the patch digest is hashed in batches of up to 16 KiB rather than field by
-  field, the ops are sorted once instead of being kept in a map, and the
-  tick's slots are read from the scheduler's conflict sets instead of being
-  collected a second time. Patch bytes, digests and ordering are unchanged.
+- Committing a tick builds its patch differently, with identical results.
+  The patch digest's small fields are staged in batches of up to 16 KiB and
+  large payloads go to the hasher directly, instead of every field going to
+  the hasher on its own; the ops are sorted once instead of being kept in a
+  map; and the tick's slots are read from the scheduler's conflict sets
+  instead of being collected a second time. Patch bytes, digests and
+  ordering are unchanged.
 
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
@@ -128,8 +130,8 @@
   attempt's footprint evidence stays readable through
   `Engine::last_aborted_execution_footprints`, as before. Before, the
   transaction stayed open with the failed attempt's reservations still
-  held, so committing it again rejected any rewrite that overlapped them
-  and failed with
+  held, so committing it again rejected any rewrite that conflicted with
+  them, and could fail with
   `InternalCorruption("scheduler rejected rewrite but no blockers were
   found")`. Reusing a transaction after a failed commit is unsupported, so
   it is now refused. A failed commit now also emits the scheduler's

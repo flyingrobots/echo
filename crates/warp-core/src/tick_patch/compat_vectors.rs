@@ -763,7 +763,9 @@ fn key_kind(key: &AttachmentKey) -> &'static str {
 
 /// The vectors exercise every op variant (and each sub-variant the encoding
 /// distinguishes), every slot kind and every attachment owner and plane. A
-/// new variant fails to compile in the matches above until it is covered.
+/// new variant stops this module compiling until the matches above give it
+/// a kind; the expected sets below must then list that kind, and the test
+/// fails until a vector covers it.
 #[test]
 fn patch_vectors_cover_every_op_and_slot_kind() {
     use std::collections::BTreeSet;

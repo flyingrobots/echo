@@ -502,8 +502,9 @@ pub struct Engine {
     /// Canonically ordered per-Action footprints from the latest execution
     /// whose changes merged. Part of the worldline's retained state.
     last_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
-    /// Per-Action footprints from the latest execution attempt that unwound.
-    /// It committed nothing; this is a failure artifact, never history.
+    /// Per-Action footprints from the latest execution attempt that unwound
+    /// or whose commit failed after its changes merged. It committed nothing;
+    /// this is a failure artifact, never history.
     last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
     /// Whether a runtime batch's guard owns the state's touch log. A commit
     /// outside a runtime batch always starts a fresh log, so a log left behind
@@ -543,7 +544,8 @@ struct ReserveOutcome {
     reserved: Vec<PendingRewrite>,
     /// Sorted, each slot once: read back from the scheduler's conflict sets.
     in_slots: Vec<SlotId>,
-    /// Sorted, each slot once: read back from the scheduler's conflict sets.
+    /// The written slots only, sorted, each slot once: read back from the
+    /// scheduler's conflict sets.
     out_slots: Vec<SlotId>,
 }
 
@@ -2074,7 +2076,8 @@ impl Engine {
     /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live
     ///   transaction, including one whose earlier commit failed.
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
-    ///   corrupted (e.g., a reserved rewrite references a missing rule).
+    ///   corrupted (e.g., a reserved rewrite references a missing rule), or if
+    ///   the tick's ops cannot be applied to the state.
     ///
     /// # Panics
     ///
@@ -2088,6 +2091,9 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
+        // Unwind safety is asserted, not inferred: a panic inside the commit
+        // can leave the engine part-way through the tick. The transaction is
+        // closed below either way, and the panic is resumed to the caller.
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.commit_live_tx(tx)));
         match outcome {
@@ -2104,6 +2110,11 @@ impl Engine {
     }
 
     /// Closes a transaction whose commit failed, releasing its reservations.
+    ///
+    /// Unlike [`Self::abort`], it leaves the rest of the engine as the failed
+    /// attempt left it: the attempt's footprint evidence stays readable
+    /// through [`Self::last_aborted_execution_footprints`], and the cached
+    /// materialization results are not cleared.
     fn close_failed_tx(&mut self, tx: TxId) {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
@@ -2870,8 +2881,9 @@ impl Engine {
     }
 
     /// Returns per-Action footprints from the latest execution attempt that
-    /// unwound, for a caller that deliberately catches the ordinary panic and
-    /// needs the exact access that caused it.
+    /// unwound or whose commit failed after its changes merged, for a caller
+    /// that deliberately catches the ordinary panic or the error and needs
+    /// the exact access that caused it.
     ///
     /// The attempt committed nothing. These records are a failure artifact:
     /// they are not part of worldline state, checkpoints or history, and are

@@ -101,11 +101,15 @@
 
 ### Changed
 
-- With one execution worker (the engine default), a tick now runs its rules
-  on the thread that commits it instead of spawning a thread and waiting for
-  it. Results, their order, and panic payloads are unchanged; two or more
-  workers still each get a scoped thread. Native rules run on the caller's
-  stack and must not rely on a fresh thread-local environment per tick.
+- With one execution worker (the engine default, and any tick whose work
+  fits one unit), a tick now runs its rules on the thread that commits it
+  instead of spawning a thread and waiting for it. Until now every worker
+  count got a fresh thread per tick; native rules must therefore not rely on
+  a fresh thread-local environment or a spawned thread's default stack.
+  Results, their order, and panic payloads are unchanged on targets where the
+  old path could spawn (see Fixed); two or more workers, after the per-tick
+  unit-count cap, still each get a scoped thread. A witness records the
+  executing thread and checks it is the committing one (#932).
 
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
@@ -121,6 +125,13 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- On targets without thread support (`wasm32-unknown-unknown` without the
+  `atomics` feature, as `warp-wasm` is built), a commit with at least one work
+  unit previously reached `std::thread::scope` even with one worker, which
+  cannot spawn there. The single worker now runs inline, so such commits do
+  not fail at the spawn. Established by inspection of the spawn path; no wasm
+  runtime witness exists yet (#932).
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

@@ -689,3 +689,69 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
         );
     }
 }
+
+/// With one worker the rule runs on the thread that calls `commit`.
+///
+/// The executor records its own `ThreadId` as the root's attachment; after
+/// the commit it must equal the test thread's. Removing the inline branch in
+/// `execute_work_queue`, so that one worker is spawned like any other, turns
+/// this red, which the invariance witnesses above do not.
+#[test]
+fn single_worker_runs_rules_on_the_committing_thread() {
+    use warp_core::{ApplyResult, AttachmentValue, EngineBuilder, NodeRecord};
+
+    const RULE_NAME: &str = "t16t/record-thread";
+    const MARKER_TYPE: &str = "t16t/thread-id";
+
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16t/root");
+    base_store.insert_node(
+        root,
+        NodeRecord {
+            ty: warp_core::make_type_id("t16t/node"),
+        },
+    );
+
+    // The macro supplies the matcher and footprint; only the executor differs.
+    let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, b"unused");
+    rule.executor = warp_core::RuleExecutor::observed(
+        |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+            let thread_id = format!("{:?}", std::thread::current().id());
+            let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                warp_id: view.warp_id(),
+                local_id: *scope,
+            });
+            let payload = warp_core::AtomPayload::new(
+                warp_core::make_type_id(MARKER_TYPE),
+                bytes::Bytes::from(thread_id.into_bytes()),
+            );
+            delta.push(warp_core::WarpOp::SetAttachment {
+                key,
+                value: Some(AttachmentValue::Atom(payload)),
+            });
+        },
+    );
+
+    let mut engine = EngineBuilder::new(base_store, root).workers(1).build();
+    engine.register_rule(rule).expect("register rule");
+    let tx = engine.begin();
+    assert!(matches!(
+        engine.apply(tx, RULE_NAME, &root),
+        Ok(ApplyResult::Applied)
+    ));
+    engine.commit(tx).expect("commit");
+
+    let expected = format!("{:?}", std::thread::current().id());
+    let recorded = engine
+        .node_attachment(&root)
+        .expect("root is readable")
+        .expect("the rule recorded a thread id");
+    let AttachmentValue::Atom(atom) = recorded else {
+        panic!("the recorded thread id is an atom");
+    };
+    assert_eq!(
+        std::str::from_utf8(&atom.bytes).expect("thread id is utf-8"),
+        expected,
+        "with one worker the rule must run on the committing thread"
+    );
+}

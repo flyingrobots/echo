@@ -126,9 +126,9 @@
   generator's source bundle embeds the workspace lockfile, the generator
   digest, generation evidence and provider package digest change; provider
   component bytes do not. Consumers pinning the provider package digest must
-  update the pin to
-  `sha256:9058a1f5819850372d5406e41d162db8328ae9dca9f421cb54a14e38e2d30785`.
-  No advisory exceptions are added.
+  update the pin to the `digest` in
+  `schemas/edict-provider/package/v1/provider-manifest.echo.json`. No advisory
+  exceptions are added.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

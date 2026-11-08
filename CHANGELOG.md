@@ -7,6 +7,18 @@
 
 ### Added
 
+- Authored effect programs are prepared with Edict's proven-range facts: the
+  intent's input constraints dominate the body, an unsigned `let` proven below
+  its width carries that ceiling to later additions, and a dominating fact
+  comparing a term with a constant (`term <= c`, `term == c` or `c == term`)
+  bounds an addition. A runtime `slice` or `subtract` in an effect program
+  verifies when the facts prove its range, so a program may check
+  `isUtf8(slice(text, 0, at))` under the constraint `at <= len(text)`; a
+  runtime test executes that path. A `require` still proves nothing after it,
+  matching Edict. The provider lowerer and verifier judge the same bodies on
+  the bounded-read route; alignment of their constraint ordering and operator
+  set is tracked in #960 (#934).
+
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation
   under `core.list/v1`. Synthetic tests cover strict domains, capability and
@@ -100,14 +112,6 @@
   Application cutover remains a separate gate.
 
 ### Changed
-
-- Authored effect programs now carry Edict's proven-range facts at
-  preparation. The intent's input constraints dominate the body, an unsigned
-  `let` proven below its width carries that ceiling to later nodes, and an
-  addition bound also uses a dominating fact comparing its term with a
-  constant. A runtime `slice` or `subtract` in an effect program verifies when
-  those facts prove its range, so Jim's `isUtf8(slice(text, 0, at))` can run
-  inside the edit. A `require` still proves nothing after it, matching Edict.
 
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove

@@ -261,19 +261,28 @@ is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
 literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
-fact that compares the term with a constant (`term <= c` or `term == c`). Other
-terms retain their full unsigned width, so zero identity is total and an
-unbounded parameter plus one refuses. Caller constraints do not cross into a
-helper frame.
+fact from its own conjunct prefixes that compares the term with a constant
+(`term <= c`, `term == c` or `c == term`). Other terms retain their full
+unsigned width, so zero identity is total and an unbounded parameter plus one
+refuses. Caller constraints do not cross into a helper frame.
 
-Authored effect programs are judged the same way at preparation. The intent's
-input constraints dominate its whole body, so `at <= len(text)` as an input
-constraint proves `slice(text, 0, at)` in any later node. An unsigned `let`
-proven below its width carries that ceiling to later nodes, from counts,
-literals, sums or a constraint such as `at <= 10`. Earlier conjuncts of one
-`all` prove the later ones. A `require` proves nothing after it, as in Edict:
-its guard ends evaluation on failure but is not a dominating fact. A guard on
-another operand or offset proves nothing.
+Authored effect programs are judged by warp-core at preparation with the same
+facts. A fact dominates a node when it holds at every evaluation of that node.
+The intent's input constraints dominate its whole body, so `at <= len(text)`
+as an input constraint proves `slice(text, 0, at)` in any later node. An
+unsigned `let` proven below its width carries that ceiling to later nodes,
+from counts, literals, sums or a constraint such as `at <= 10`; a carried
+ceiling narrows later additions only, while a slice or subtraction still needs
+an order fact over the same term, compared by canonical encoding, so
+`let at2 = at` followed by `slice(text, 0, at2)` is refused even under
+`at <= len(text)`. Earlier conjuncts of one `all` prove the later ones. A
+`require` proves nothing after it, as in Edict: its guard ends evaluation on
+failure but is not a dominating fact. A guard over a different term proves
+nothing. On the bounded-read route the provider lowerer and verifier judge the
+same bodies independently with input-constraint facts and `let` ceilings; the
+three judgments must agree, and the providers currently check input
+constraints sequentially where Edict and Echo check each alone (#960). The
+graph-effects route has no sibling judgment yet.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and the current pinned publication containing an authored arithmetic helper.
@@ -879,6 +888,10 @@ trigger hidden retries or widen access.
   identity needed to explain execution.
 
 ### Executable graph-schema preparation
+
+What an authored effect program's body may compute, and which range facts
+prove its slices, subtractions and additions, is described under
+[Bounded compiler-package computation](#bounded-compiler-package-computation).
 
 `EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
 the current authored-effect program contract. The root has exactly `node_types` and

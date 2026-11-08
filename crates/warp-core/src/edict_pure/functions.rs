@@ -355,8 +355,9 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
 
 pub(super) type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
-/// dominating order facts (earlier conjuncts of enclosing `all`s), plus
-/// signed branch/lazy-prefix truths used only by the strict lookup judgment.
+/// dominating facts (an intent's input constraints and earlier conjuncts of
+/// enclosing `all`s), plus signed branch/lazy-prefix truths used only by the
+/// strict lookup judgment.
 #[derive(Clone, Copy)]
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
@@ -373,9 +374,11 @@ impl<'c, 'v> Proof<'c, 'v> {
         }
     }
 }
-/// Proven upper bounds of earlier unsigned bindings in the same helper body.
-/// Local identities are unique and immutable, so a cap names exactly the
-/// bound value. Bounds never cross helper results or record fields.
+/// Proven upper bounds of earlier unsigned bindings in the same helper or
+/// effect-program body. Local identities are unique and immutable, so a cap
+/// names exactly the bound value. Bounds never cross helper results, record
+/// fields or helper frames, and they narrow additions only; an order proof
+/// for a slice or subtraction still needs a fact over the same term.
 pub(crate) type Caps<'a> = BTreeMap<&'a str, u64>;
 pub(crate) fn infer<'v>(
     value: &'v Value,
@@ -778,6 +781,8 @@ pub(crate) fn unsigned_ceiling(
         .map_or(structural, |limit| structural.min(limit)))
 }
 
+// `facts` are only forwarded to the nested-addition recursion; the
+// structural ceiling itself comes from caps, counts and widths.
 fn structural_ceiling(
     value: &Value,
     max: u64,

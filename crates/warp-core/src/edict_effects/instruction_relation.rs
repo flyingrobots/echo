@@ -95,6 +95,9 @@ pub(super) fn validate<'a>(
                 scope.carry_ceiling(field(node, "binding")?, field(node, "value")?)?;
                 scope.introduce(field(node, "binding")?)?;
             }
+            // Deliberately pushed to neither `facts` nor `caps`: a require ends
+            // evaluation on failure, but it is not a dominating fact for the
+            // nodes after it (Edict totality).
             "require" => {
                 exact_fields(node, &["kind", "predicate", "onFailure"])?;
                 exact_fields(target, &["id", "predicate", "onFailure"])?;

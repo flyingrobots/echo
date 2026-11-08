@@ -6,6 +6,8 @@
 use super::execution::{host, limits};
 use super::*;
 use warp_core::edict_effects::EffectFrameError;
+use warp_core::edict_pure::EvaluationError;
+use warp_core::edict_read::ReadError;
 use warp_core::EchoOperationBudgetV1;
 
 const BYTES: &str = "Bytes<max=64>";
@@ -109,7 +111,8 @@ enum Node {
     Require(V),
 }
 
-/// A pure effect program over `{ text, other: Bytes<max=64>, at: U64 }`.
+/// An effect program with no graph effects over
+/// `{ text, other: Bytes<max=64>, at: U64 }`, returning a `Bool`.
 fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
     let mut core = compiled_core();
     set(
@@ -248,16 +251,68 @@ fn a_constraint_on_another_operand_proves_nothing() {
 
 #[test]
 fn a_require_guard_does_not_prove_later_nodes() {
-    // Edict's semantics: only input constraints and earlier conjuncts of the
-    // same predicate dominate. A require refuses later work; it is no proof.
+    // Edict's totality rule: only input constraints and earlier conjuncts of
+    // the same predicate are facts. A require refuses later work at runtime,
+    // but the judgment does not assume it.
+    let guarded = |constraints: Vec<V>| {
+        package(
+            constraints,
+            vec![
+                Node::Require(at_most(input("at"), len(input("text")))),
+                Node::Let(ok_binding(), prefix_is_utf8("text", input("at"))),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    refused(&guarded(Vec::new()));
+    // The same shape is accepted once the bound is an input constraint, so the
+    // refusal above is about the missing fact, not the require-then-let shape.
+    prepare(&guarded(vec![at_most(input("at"), len(input("text")))]))
+        .expect("the constraint proves the slice after the require");
+}
+
+#[test]
+fn a_let_alias_does_not_carry_an_order_fact() {
+    // Order facts name terms by canonical encoding: `at2` is a different term
+    // from `input.at`, and let ceilings narrow additions only.
+    let at2 = declared("local.at2", "U64");
     refused(&package(
-        Vec::new(),
+        vec![at_most(input("at"), len(input("text")))],
         vec![
-            Node::Require(at_most(input("at"), len(input("text")))),
-            Node::Let(ok_binding(), prefix_is_utf8("text", input("at"))),
+            Node::Let(at2.clone(), input("at")),
+            Node::Let(ok_binding(), prefix_is_utf8("text", local(&at2))),
         ],
         local(&ok_binding()),
     ));
+}
+
+#[test]
+fn an_input_constraint_proves_a_runtime_subtraction() {
+    let rest = declared("local.rest", "U64");
+    let program = |constraints: Vec<V>| {
+        package(
+            constraints,
+            vec![
+                Node::Let(
+                    rest.clone(),
+                    call(
+                        "core.integer.subtract",
+                        &["U64"],
+                        vec![len(input("text")), input("at")],
+                    ),
+                ),
+                Node::Let(
+                    ok_binding(),
+                    // Reads `rest` without bounding anything.
+                    is_true_value(at_most(local(&rest), local(&rest))),
+                ),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(vec![at_most(input("at"), len(input("text")))]))
+        .expect("the constraint proves len(text) >= at");
+    refused(&program(Vec::new()));
 }
 
 #[test]
@@ -291,6 +346,8 @@ fn a_let_carries_its_proven_ceiling_to_later_additions() {
                 Node::Let(total.clone(), add(local(&count), int(addend))),
                 Node::Let(
                     ok_binding(),
+                    // Every local must be used; this reads `total` without
+                    // bounding anything.
                     is_true_value(at_most(local(&total), local(&total))),
                 ),
             ],
@@ -313,6 +370,8 @@ fn an_input_constraint_bounds_a_let_and_its_later_additions() {
                 Node::Let(total.clone(), add(local(&at), int(addend))),
                 Node::Let(
                     ok_binding(),
+                    // Every local must be used; this reads `total` without
+                    // bounding anything.
                     is_true_value(at_most(local(&total), local(&total))),
                 ),
             ],
@@ -351,8 +410,9 @@ fn is_true_value(predicate: V) -> V {
     ])
 }
 
-/// Jim's character-boundary check: one conjunction whose first conjunct
-/// proves the slice in the second.
+/// A character-boundary check (the shape a text editor needs before cutting
+/// at a byte offset): one conjunction whose first conjunct proves the slice
+/// in the second.
 fn boundary_program() -> V {
     package(
         Vec::new(),
@@ -425,10 +485,12 @@ fn an_input_constraint_proves_a_slice_that_runs() {
     // Past the end and at the U64 maximum the input constraint fails before
     // any node runs, so the slice is never attempted out of range.
     for at in [4, u64::MAX] {
-        let result = run(&constrained_program(), at);
-        assert!(
-            matches!(result, Err(ref err) if format!("{err:?}").contains("InputConstraintFailed")),
-            "offset {at}: {result:?}"
+        assert_eq!(
+            run(&constrained_program(), at),
+            Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
+                EvaluationError::InputConstraintFailed("app.update@1.where.0".to_owned())
+            ))),
+            "offset {at}"
         );
     }
 }
@@ -492,6 +554,8 @@ fn an_equality_constraint_bounds_a_term_from_either_side() {
                 Node::Let(total.clone(), add(input("at"), int(addend))),
                 Node::Let(
                     ok_binding(),
+                    // Every local must be used; this reads `total` without
+                    // bounding anything.
                     is_true_value(at_most(local(&total), local(&total))),
                 ),
             ],
@@ -508,5 +572,16 @@ fn an_equality_constraint_bounds_a_term_from_either_side() {
     ] {
         prepare(&program(constraint.clone(), u64::MAX - 10)).expect("at is at most 10");
         refused(&program(constraint, u64::MAX - 9));
+    }
+    // The strict and reversed forms say the same bound but are not read yet
+    // (#960): each leaves `at` at its full width, so even the smallest
+    // overflowing addend is refused.
+    for constraint in [
+        compare("<", input("at"), int(11)),
+        compare(">", int(11), input("at")),
+        compare(">=", int(10), input("at")),
+        compare("<=", int(0), input("at")),
+    ] {
+        refused(&program(constraint, u64::MAX - 10));
     }
 }

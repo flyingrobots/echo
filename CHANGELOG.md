@@ -7,17 +7,20 @@
 
 ### Added
 
-- Authored effect programs are prepared with Edict's proven-range facts: the
-  intent's input constraints dominate the body, an unsigned `let` proven below
-  its width carries that ceiling to later additions, and a dominating fact
-  comparing a term with a constant (`term <= c`, `term == c` or `c == term`)
-  bounds an addition. A runtime `slice` or `subtract` in an effect program
-  verifies when the facts prove its range, so a program may check
-  `isUtf8(slice(text, 0, at))` under the constraint `at <= len(text)`; a
-  runtime test executes that path. A `require` still proves nothing after it,
-  matching Edict. The provider lowerer and verifier judge the same bodies on
-  the bounded-read route; alignment of their constraint ordering and operator
-  set is tracked in #960 (#934).
+- `warp-core`: authored effect programs are prepared with proven-range facts,
+  so a runtime `slice` or `subtract` verifies when the facts prove its range
+  (#934). For example, under the input constraint `at <= len(text)` a program
+  may compute `isUtf8(slice(text, 0, at))` or `len(text) - at`.
+  - Input constraints hold for the whole body.
+  - An unsigned `let` proven below its width carries that ceiling to later
+    additions.
+  - A dominating `term <= c`, `term == c` or `c == term` bounds an addition,
+    in effect bodies and, newly, in pure helpers' conjunct prefixes.
+  - A `require` still adds no fact, matching Edict's totality rule.
+  - Constraint-heavy programs spend more of the proof budget, since each
+    fact's terms are encoded to compare them.
+  - Differences from the provider lowerer and verifier and from Edict are
+    tracked in #960.
 
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation

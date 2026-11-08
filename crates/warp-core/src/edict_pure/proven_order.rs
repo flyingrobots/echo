@@ -5,7 +5,7 @@
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
 //! constants, or a dominating fact: an earlier conjunct of an enclosing
-//! `all`, or an intent's input constraint (pure or effect). Conditional
+//! `all`, or an authored effect program's input constraint. Conditional
 //! predicates, negations and later conjuncts prove nothing for this order
 //! judgment, and a `require` adds no fact for the nodes after it.
 //! The separate strict lookup judgment below also uses signed conditional and
@@ -44,8 +44,9 @@ pub(crate) fn proven(
 /// The smallest constant upper bound a dominating fact gives `term`:
 /// `term <= c`, `term == c` or `c == term` give `c`. Conjunctions contribute
 /// every conjunct. Edict also reads the strict and reversed forms (`<`, `>`,
-/// `>=`); Echo admits exactly what the checked lowerer and verifier admit, so
-/// those forms are added to all three judgments together, not here first.
+/// `>=`); the checked lowerer and verifier read only these three, so Echo
+/// reads only these too, and the other forms are to be added to all three
+/// judgments together (#960).
 pub(crate) fn upper_limit(
     term: &Value,
     facts: &[&Value],

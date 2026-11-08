@@ -260,29 +260,49 @@ out-of-range `at` and takes the authored path, while a program without the guard
 is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
-literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
-fact from its own conjunct prefixes that compares the term with a constant
-(`term <= c`, `term == c` or `c == term`). Other terms retain their full
+literal, count and nested-sum bounds, carried `let` ceilings, and (new with
+#934) a dominating fact from its own conjunct prefixes that compares the term
+with a constant (`term <= c`, `term == c` or `c == term`). Other terms retain their full
 unsigned width, so zero identity is total and an unbounded parameter plus one
 refuses. Caller constraints do not cross into a helper frame.
 
-Authored effect programs are judged by warp-core at preparation with the same
-facts. A fact dominates a node when it holds at every evaluation of that node.
-The intent's input constraints dominate its whole body, so `at <= len(text)`
-as an input constraint proves `slice(text, 0, at)` in any later node. An
-unsigned `let` proven below its width carries that ceiling to later nodes,
-from counts, literals, sums or a constraint such as `at <= 10`; a carried
-ceiling narrows later additions only, while a slice or subtraction still needs
-an order fact over the same term, compared by canonical encoding, so
-`let at2 = at` followed by `slice(text, 0, at2)` is refused even under
-`at <= len(text)`. Earlier conjuncts of one `all` prove the later ones. A
-`require` proves nothing after it, as in Edict: its guard ends evaluation on
-failure but is not a dominating fact. A guard over a different term proves
-nothing. On the bounded-read route the provider lowerer and verifier judge the
-same bodies independently with input-constraint facts and `let` ceilings; the
-three judgments must agree, and the providers currently check input
-constraints sequentially where Edict and Echo check each alone (#960). The
-graph-effects route has no sibling judgment yet.
+Every authored effect program is judged by warp-core when its package is
+prepared. Besides the helper bounds above, the
+judgment may assume these facts:
+
+- **Input constraints**, for every node of the body. Each constraint is itself
+  checked with no facts. So the constraint `at <= len(text)` lets the body use
+  `slice(text, 0, at)` and `len(text) - at`.
+- **Earlier conjuncts of one `all`**, for the slices, subtractions and
+  additions inside its later conjuncts.
+- **Carried `let` ceilings.** An unsigned `let` proven below its width carries
+  that ceiling, from counts, literals, sums or a constraint such as
+  `at <= 10`. A ceiling narrows later additions only.
+
+A slice or subtraction needs an order fact over the same term, compared by
+canonical encoding. So `let at2 = at` followed by `slice(text, 0, at2)` is
+refused even under `at <= len(text)`; use the constrained term itself. A
+constant bound is read only as `term <= c`, `term == c` or `c == term`; write
+`at < 11` or `11 > at` as `at <= 10`. A guard over a different term proves
+nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.rs`
+in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
+evaluation when it fails, so its predicate does hold at later nodes, but the
+rule does not assume it, and Echo follows the rule. State such a bound as an
+input constraint or inside the same `all`. Edict also assumes an `if`
+predicate inside its `then` branch, and reads the strict and reversed
+comparison forms; all three Echo judgments do not yet (#960). A program
+that needs a fact the judgment lacks is refused when its package is prepared.
+
+On the bounded-read route the provider lowerer
+(`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)
+and verifier
+(`crates/echo-edict-provider-verifier/src/executable_operation/source_functions.rs`)
+judge the same bodies independently with input-constraint facts and `let`
+ceilings, and the three judgments must agree. They differ in one way today:
+the providers let a constraint use the constraints before it, where Edict and
+Echo check each alone, so a package whose later constraint needs an earlier
+one passes the providers and is refused here (#960). The graph-effects route
+has no provider judgment yet.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and the current pinned publication containing an authored arithmetic helper.

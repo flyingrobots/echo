@@ -119,10 +119,11 @@
 - The `xtask` Markdown parser requires pulldown-cmark 0.13.6. That release
   fixes RUSTSEC-2026-0433 (quadratic parsing of nested image wikilinks) and
   keeps the 0.13.5 fix for RUSTSEC-2026-0414 (exponential event growth with
-  wikilinks). `cargo xtask lint-dead-refs`, which `cargo xtask docs-lint` also
-  runs, parses repository Markdown with `Options::all()`; that enables
-  wikilinks, so the RUSTSEC-2026-0433 path was reachable from those lints on
-  0.13.5. Only dev tooling depends on the parser. Because the provider
+  wikilinks). `cargo xtask lint-dead-refs`, which `cargo xtask docs-lint` and
+  `cargo xtask pr-preflight` also run, parses Markdown (the repository's own by
+  default, or any `--file`/`--root` path) with `Options::all()`; that enables
+  wikilinks, so the RUSTSEC-2026-0433 path was reachable from those commands
+  on 0.13.5. Only dev tooling depends on the parser. Because the provider
   generator's source bundle embeds the workspace lockfile, the generator
   digest, generation evidence and provider package digest change; provider
   component bytes do not. Consumers pinning the provider package digest must

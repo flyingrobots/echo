@@ -2112,9 +2112,11 @@ impl Engine {
     /// Closes a transaction whose commit failed, releasing its reservations.
     ///
     /// Unlike [`Self::abort`], it leaves the rest of the engine as the failed
-    /// attempt left it: the attempt's footprint evidence stays readable
-    /// through [`Self::last_aborted_execution_footprints`], and the cached
-    /// materialization results are not cleared.
+    /// attempt left it. The attempt's footprint evidence stays readable
+    /// through [`Self::last_aborted_execution_footprints`]. The materialization
+    /// bus and the cached materialization results are not cleared: they hold
+    /// the previous successful commit's results unless the attempt failed
+    /// after finalizing its own.
     fn close_failed_tx(&mut self, tx: TxId) {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);

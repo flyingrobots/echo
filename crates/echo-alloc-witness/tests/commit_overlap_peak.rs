@@ -102,10 +102,9 @@ const REWRITES: usize = 4_096;
 /// How far the overlapping tick's peak may rise above the control's.
 ///
 /// The overlapping tick claims 131 slots per rewrite (130 reads and one
-/// write) instead of three,
-/// so the receipt and scheduler legitimately need more room: the
-/// former second `BTreeSet` collection peaked at about 3.8 times the
-/// control. Slot lists that kept every repeat and handed their full capacity
+/// write) instead of three, so the receipt and scheduler legitimately need
+/// more room: the former second `BTreeSet` collection peaked at about 3.8
+/// times the control. Slot lists that kept every repeat and handed their full capacity
 /// to the patch peaked at about 11 times.
 const BUDGET_FACTOR: isize = 6;
 

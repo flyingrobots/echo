@@ -1061,9 +1061,10 @@ fn compute_patch_digest_v2(
     out_slots: &[SlotId],
     ops: &[WarpOp],
 ) -> ContentHash {
-    // Measure the encoding first, so the stage is sized to it exactly and a
-    // small patch is hashed in one call. The measuring pass copies and
-    // hashes nothing: it only adds up lengths.
+    // Measure the encoding first, so the stage is never larger than the
+    // input: a fixed 16 KiB stage would allocate that much for every small
+    // patch (see `commit_budget` in echo-alloc-witness). The measuring pass
+    // copies and hashes nothing: it only adds up lengths.
     let mut len = ByteCount(0);
     encode_patch_digest_input_v2(
         &mut len,
@@ -1151,9 +1152,10 @@ impl DigestSink for ByteCount {
 /// gathered into before they go to the hasher. A piece at least this long
 /// goes to the hasher directly instead. Sixteen BLAKE3 chunks of 1 KiB is
 /// the widest batch its SIMD paths compress together (AVX-512; the narrower
-/// paths take 8, 4 or 1 chunks). Flushes rarely land on chunk boundaries,
-/// so a flush does not always fill a batch; that costs only speed, since
-/// the digest does not depend on how the input is split.
+/// paths take 8, 4 or 1 chunks). A flush is usually a little shorter than a
+/// stage and rarely lands on a chunk boundary, so in practice the hasher
+/// compresses narrower batches than sixteen chunks; that costs only speed,
+/// since the digest does not depend on how the input is split.
 const DIGEST_STAGE_BYTES: usize = 16 * 1024;
 
 /// Hashes the digest's input, staging the small fields in a buffer of at

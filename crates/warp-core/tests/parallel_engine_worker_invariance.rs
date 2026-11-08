@@ -603,6 +603,9 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
     use warp_core::{ApplyResult, EngineBuilder, NodeRecord};
 
     const RULE_NAME: &str = "t16p/touch";
+    const MARKER_TYPE: &str = "t16p/marker";
+    const MARKER_BYTES: &[u8] = b"touched-t16p";
+    const POISONED_SCOPE: &str = "t16p/node7";
     const PAYLOAD: &str = "t16p: executor failure on the poisoned scope";
 
     let node_ty = warp_core::make_type_id("t16p/node");
@@ -615,23 +618,27 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
         base_store.insert_node(scope, NodeRecord { ty: node_ty });
         scopes.push(scope);
     }
-    let poisoned = warp_core::make_node_id("t16p/node7");
+    let poisoned = warp_core::make_node_id(POISONED_SCOPE);
 
     let make_rule = || {
-        let mut rule = make_touch_rule!(RULE_NAME, "t16p/marker", b"touched-t16p");
+        // The macro supplies the matcher and footprint; only the executor
+        // differs, and it must be a plain fn so it names the consts directly.
+        let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, MARKER_BYTES);
         rule.executor = warp_core::RuleExecutor::observed(
             |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
-                assert!(
-                    *scope != warp_core::make_node_id("t16p/node7"),
-                    "t16p: executor failure on the poisoned scope"
-                );
+                if *scope == warp_core::make_node_id(POISONED_SCOPE) {
+                    // `panic_any` keeps the `&'static str` payload the test
+                    // downcasts; a formatted `assert!` message would box a
+                    // `String`.
+                    std::panic::panic_any(PAYLOAD);
+                }
                 let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
                     warp_id: view.warp_id(),
                     local_id: *scope,
                 });
                 let payload = warp_core::AtomPayload::new(
-                    warp_core::make_type_id("t16p/marker"),
-                    bytes::Bytes::from_static(b"touched-t16p"),
+                    warp_core::make_type_id(MARKER_TYPE),
+                    bytes::Bytes::from_static(MARKER_BYTES),
                 );
                 delta.push(warp_core::WarpOp::SetAttachment {
                     key,
@@ -642,7 +649,7 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
         rule
     };
 
-    let run = |workers: usize| -> warp_core::Hash {
+    let run = |workers: usize| {
         let mut engine = EngineBuilder::new(base_store.clone(), root)
             .workers(workers)
             .build();
@@ -677,16 +684,13 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
         );
         let after = engine.snapshot().state_root;
         assert_eq!(before, after, "state changed with {workers} workers");
-        after
     };
 
-    let baseline = run(1);
+    // Twenty scopes in one warp give at most twenty work units, and the engine
+    // caps workers at the unit count, so 32 runs with no more threads than 20.
+    // What the sweep must cover is 1 (inline) against 2 or more (scoped).
     for &workers in WORKER_COUNTS {
-        assert_eq!(
-            run(workers),
-            baseline,
-            "outcome differs for {workers} workers"
-        );
+        run(workers);
     }
 }
 

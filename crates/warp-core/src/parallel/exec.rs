@@ -1878,9 +1878,12 @@ mod tests {
     /// A missing store surfaces identically whether the single worker runs
     /// inline on the caller's thread or workers run on scoped threads: exactly
     /// one `MissingStore` naming the unresolvable warp, and every other worker
-    /// an empty success. The engine maps that to `EngineError::UnknownWarp`.
+    /// an empty success. This exercises `execute_work_queue`'s own contract
+    /// at 1, 2, 4 and 8 workers over one unit; the engine pre-validates every
+    /// store before building units and caps workers at the unit count, so it
+    /// never sends this shape itself.
     #[test]
-    fn missing_store_propagates_identically_for_every_worker_count() {
+    fn missing_store_surfaces_once_however_many_workers_share_the_queue() {
         use super::{execute_work_queue, WorkUnit, WorkerResult};
         use crate::make_warp_id;
 

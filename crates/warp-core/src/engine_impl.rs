@@ -2102,10 +2102,12 @@ impl Engine {
         }
     }
 
-    /// Closes a transaction whose commit failed, releasing its reservations.
+    /// Closes a transaction whose commit failed. Like [`Self::abort`], it
+    /// releases the reservations and clears pending emissions, footprint
+    /// evidence and cached results: the failed attempt wrote evidence before
+    /// it failed, and nothing after it may read that as a pending tick.
     fn close_failed_tx(&mut self, tx: TxId) {
-        self.live_txs.remove(&tx.value());
-        self.scheduler.finalize_tx(tx);
+        self.abort(tx);
     }
 
     /// The body of [`Self::commit_with_receipt`] for a transaction known to be live.

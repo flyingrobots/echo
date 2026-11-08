@@ -116,19 +116,10 @@
 
 ### Fixed
 
-- The `xtask` Markdown parser requires pulldown-cmark 0.13.6. That release
-  fixes RUSTSEC-2026-0433 (quadratic parsing of nested image wikilinks) and
-  keeps the 0.13.5 fix for RUSTSEC-2026-0414 (exponential event growth with
-  wikilinks). `cargo xtask lint-dead-refs`, which `cargo xtask docs-lint` and
-  `cargo xtask pr-preflight` also run, parses Markdown with `Options::all()`;
-  that enables wikilinks, so the RUSTSEC-2026-0433 path was reachable from those
-  commands on 0.13.5. Only dev tooling depends on the parser. Because the provider
-  generator's source bundle embeds the workspace lockfile, the generator
-  digest, generation evidence and provider package digest change; provider
-  component bytes do not. Consumers pinning the provider package digest must
-  update the pin to `provider.digest` in
-  `schemas/edict-provider/package/v1/provider-manifest.echo.json`. No advisory
-  exceptions are added.
+- pulldown-cmark is updated to 0.13.6, and `xtask` requires at least that
+  version, fixing RUSTSEC-2026-0433 (quadratic parsing of nested image
+  wikilinks). No advisory exceptions are added. The provider package's
+  `provider.digest` changes; consumers that pin it must update the pin.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.
@@ -173,7 +164,8 @@
 
 - The generator selects the synchronous Wesley kernel without its unused async
   resilience dependencies, removing the affected Tokio/Ninelives chain from
-  the workspace lockfile. No advisory exceptions are added.
+  the workspace lockfile. The Markdown tooling dependency is updated to
+  pulldown-cmark 0.13.5. No advisory exceptions are added.
 
 ### Removed
 

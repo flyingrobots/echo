@@ -1045,15 +1045,19 @@ pub fn build_work_units(
 ///   a rule sets persist on the caller's thread across ticks, and a deeply
 ///   recursive rule uses the caller's stack, which may be larger (the main
 ///   thread) or smaller (a small runtime worker) than a spawned thread's
-///   default. A rule also runs while any `RefCell` or lock borrows the caller
-///   holds across `commit` are live, so a rule must not reach back into
-///   state the caller has borrowed (on a spawned thread it would have seen
-///   fresh thread-locals instead).
+///   default.
+/// - A rule also runs while the caller's own borrows across `commit` are
+///   live, so it must not reach back into them. For a thread-local `RefCell`
+///   this is new: a spawned worker saw a fresh, separate copy, and now the
+///   rule meets the caller's borrowed one and the borrow panics. Re-locking a
+///   lock the caller holds was never safe: a spawned worker blocked while the
+///   caller waited to join it; the same thread re-locking is unspecified
+///   (it may panic or deadlock).
 /// - Results, their order, and panic payloads are the same either way.
 /// - The panic hook runs on the panicking thread for every panic, including
 ///   the ordinary rule panics the per-item `catch_unwind` captures, so with
-///   one worker the default hook now names the caller's thread (for example
-///   `thread 'main' panicked`) where it used to name an unnamed worker.
+///   one worker the default hook now names the caller's thread where it
+///   used to print `<unnamed>` (spawned workers have no name).
 ///   Payloads are unchanged; only the hook's reported thread differs. A panic
 ///   that escapes `catch_unwind` (see Panics) unwinds the caller's thread
 ///   directly instead of being re-raised from a join.
@@ -1093,10 +1097,10 @@ pub fn build_work_units(
 /// # Panics
 ///
 /// Panics if `workers == 0`, or if a worker panics outside the per-item
-/// `catch_unwind` (for example, the footprint-guard `assert!`s that run before
-/// it). With one
-/// worker the panic unwinds directly from the caller's thread; with more it is
-/// re-raised from the join with the same payload.
+/// `catch_unwind`, for example in the footprint-guard `assert!`s that run
+/// before that `catch_unwind`. With one worker the panic unwinds directly from
+/// the caller's thread; with more it is re-raised from the join with the same
+/// payload.
 pub fn execute_work_queue<'state, F>(
     units: &[WorkUnit],
     workers: usize,
@@ -1898,8 +1902,9 @@ mod tests {
     /// inline on the caller's thread or workers run on scoped threads: exactly
     /// one `MissingStore` naming the unresolvable warp (the resolver fails for
     /// every warp, and only the worker that claims the single unit ever calls
-    /// it), and every other worker an empty success. This exercises `execute_work_queue`'s own contract
-    /// at 1, 2, 4 and 8 workers over one unit; the engine pre-validates every
+    /// it), and every other worker an empty success. This exercises
+    /// `execute_work_queue`'s own contract at 1, 2, 4 and 8 workers over one
+    /// unit; the engine pre-validates every
     /// store before building units and caps workers at the unit count, so it
     /// never sends this shape itself.
     #[test]

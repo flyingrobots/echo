@@ -106,7 +106,9 @@
   the engine default, and the per-tick cap also gives one worker to any tick
   whose work fits one unit.
   - Native rules must not rely on a fresh thread-local environment or a
-    spawned thread's default stack per tick.
+    spawned thread's default stack per tick, and must not reach back into
+    state the caller holds borrowed across `commit` (a thread-local
+    `RefCell` borrow now panics instead of seeing a fresh copy).
   - The panic hook now names the committing thread instead of an unnamed
     worker.
   - Results, their order, and panic payloads are unchanged. Two or more
@@ -127,13 +129,14 @@
 
 ### Fixed
 
-- `warp-core` / `warp-wasm`: `warp-wasm` runs one worker on
+- `warp-core` / `warp-wasm`: `WarpKernel::new` runs one worker on
   `wasm32-unknown-unknown`, where `std::thread` cannot spawn (with or without
   `atomics`) and panics abort. A commit with at least one work unit used to
   reach `std::thread::scope` and trap the module. The single worker now runs
-  inline, so no spawn is attempted (#932). This is established by reading
-  the spawn path and std's wasm thread shim; a wasm runtime test is tracked
-  in #959.
+  inline, so no spawn is attempted (#932). An engine passed to
+  `WarpKernel::with_engine` must also use one worker there. This is
+  established by reading the spawn path and std's wasm thread shim; a wasm
+  runtime test is tracked in #959.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

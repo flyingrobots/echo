@@ -399,8 +399,10 @@ fn slot_sources(input: &[SlotId], canonical: &[SlotId]) -> Vec<usize> {
 //
 // Produced by the map-based implementation this module's parent replaced:
 // main at 0faaf58a, which canonicalized ops through a `BTreeMap` and fed
-// `blake3::Hasher` field by field. See the commit that added this module for
-// how each value was captured.
+// `blake3::Hasher` field by field. Captured by commit `1f347bfe` (the
+// procedure is in its message): unmodified `0faaf58a` gave the digests and
+// orders, and a shim recording the bytes passed to the hasher gave the input
+// bytes.
 
 struct Expected {
     name: &'static str,

@@ -1149,7 +1149,10 @@ impl DigestSink for ByteCount {
 
 /// The most bytes the hasher is handed at once: sixteen BLAKE3 chunks of
 /// 1 KiB, the widest batch its SIMD paths compress together (AVX-512; the
-/// narrower paths take 8, 4 or 1 chunks, so a stage feeds any of them whole).
+/// narrower paths take 8, 4 or 1 chunks), so a full stage can fill the widest
+/// batch. The stage does not keep chunk alignment after a piece goes to the
+/// hasher directly; that costs only speed, since the digest does not depend
+/// on how the input is split.
 const DIGEST_STAGE_BYTES: usize = 16 * 1024;
 
 /// Hashes the digest's input in pieces of up to [`DIGEST_STAGE_BYTES`].
@@ -2841,8 +2844,9 @@ mod tests {
     /// The staged hasher must give the digest of the gathered input when
     /// the stage fills and flushes (600 slots), when a piece longer than a
     /// stage bypasses it, when a piece is exactly a stage long, and when
-    /// small pieces are staged again after a direct one (the second large
-    /// op's header follows the first's payload, whichever sorts first).
+    /// small pieces are staged again after a direct one (whichever large op
+    /// sorts first, the other's header is staged after its payload went to
+    /// the hasher directly).
     #[test]
     fn staged_hashing_matches_the_gathered_input_across_stage_boundaries() {
         let warp_id = make_warp_id("stage/warp");
@@ -2850,6 +2854,8 @@ mod tests {
             warp_id,
             local_id: make_node_id(&format!("stage/node/{i}")),
         };
+        // Keyed by length, so the two large ops have distinct sort keys and
+        // both survive last-wins.
         let payload = |label: &str, len: usize| WarpOp::SetAttachment {
             key: AttachmentKey::node_alpha(node(len)),
             value: Some(AttachmentValue::Atom(AtomPayload::new(

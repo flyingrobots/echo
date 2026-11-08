@@ -101,11 +101,11 @@
 
 ### Changed
 
-- The tick patch digest is hashed through a stage of at most 16 KiB, so a
-  large atom payload is no longer copied while the digest is computed or
-  validated, and a tick's slots are read from the scheduler's conflict sets
-  instead of being collected a second time. Patch bytes, digests and ordering
-  are unchanged.
+- Committing a tick builds its patch differently, with identical results:
+  the patch digest is hashed in batches of up to 16 KiB rather than field by
+  field, the ops are sorted once instead of being kept in a map, and the
+  tick's slots are read from the scheduler's conflict sets instead of being
+  collected a second time. Patch bytes, digests and ordering are unchanged.
 
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
@@ -132,7 +132,10 @@
   and failed with
   `InternalCorruption("scheduler rejected rewrite but no blockers were
   found")`. Reusing a transaction after a failed commit is unsupported, so
-  it is now refused.
+  it is now refused. A failed commit now also emits the scheduler's
+  `TelemetrySink::on_summary` for its transaction, as a committed one does.
+  Ops applied before an error mid-apply still remain in engine state, as
+  before (#957).
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

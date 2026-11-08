@@ -78,7 +78,7 @@ impl ActiveFootprints {
     /// These sets already hold exactly the union of the reserved footprints,
     /// once each, so this replaces collecting the same keys a second time.
     /// [`SlotId`] orders by kind (node, edge, attachment, port, outgoing
-    /// edges) and then by key, and each set iterates its keys in order, so
+    /// edges) and then by key (see its `Ord` impl), and each set iterates its keys in order, so
     /// visiting the kinds in that order produces sorted lists directly.
     fn slots(&self) -> (Vec<SlotId>, Vec<SlotId>) {
         let mut in_slots = Vec::new();
@@ -367,7 +367,8 @@ impl RadixScheduler {
     /// [`ActiveFootprints::slots`]).
     ///
     /// Nothing reads the conflict sets after the reservation phase, so they
-    /// are taken here rather than kept until [`Self::finalize_tx`].
+    /// are taken here rather than kept until [`Self::finalize_tx`]. Returns
+    /// empty lists when `tx` reserved nothing.
     pub(crate) fn take_reserved_slots(&mut self, tx: TxId) -> (Vec<SlotId>, Vec<SlotId>) {
         self.active
             .remove(&tx)

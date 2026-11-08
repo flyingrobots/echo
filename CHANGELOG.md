@@ -126,7 +126,7 @@
   generator's source bundle embeds the workspace lockfile, the generator
   digest, generation evidence and provider package digest change; provider
   component bytes do not. Consumers pinning the provider package digest must
-  update the pin to the `digest` in
+  update the pin to `provider.digest` in
   `schemas/edict-provider/package/v1/provider-manifest.echo.json`. No advisory
   exceptions are added.
 

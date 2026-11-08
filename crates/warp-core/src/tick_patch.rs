@@ -1061,10 +1061,12 @@ fn compute_patch_digest_v2(
     out_slots: &[SlotId],
     ops: &[WarpOp],
 ) -> ContentHash {
-    // The encoding is gathered first and hashed in one call. Fed a few bytes
-    // at a time, BLAKE3 compresses one block per call; given the whole
-    // input, it can hash several chunks at once. The digest is the same.
-    let input = patch_digest_input_v2(
+    // Measure the encoding first, so the stage is sized to it exactly and a
+    // small patch is hashed in one call. The measuring pass copies and
+    // hashes nothing: it only adds up lengths.
+    let mut len = ByteCount(0);
+    encode_patch_digest_input_v2(
+        &mut len,
         policy_id,
         rule_pack_id,
         commit_status,
@@ -1072,10 +1074,44 @@ fn compute_patch_digest_v2(
         out_slots,
         ops,
     );
-    blake3::hash(&input).into()
+    let mut h = StagedHasher::for_input_len(len.0);
+    encode_patch_digest_input_v2(
+        &mut h,
+        policy_id,
+        rule_pack_id,
+        commit_status,
+        in_slots,
+        out_slots,
+        ops,
+    );
+    h.finalize()
 }
 
-/// The exact bytes `patch_digest` hashes: the patch's canonical encoding.
+/// Writes the patch's canonical encoding, the exact bytes `patch_digest`
+/// covers, to `h`.
+fn encode_patch_digest_input_v2(
+    h: &mut impl DigestSink,
+    policy_id: u32,
+    rule_pack_id: &ContentHash,
+    commit_status: TickCommitStatus,
+    in_slots: &[SlotId],
+    out_slots: &[SlotId],
+    ops: &[WarpOp],
+) {
+    h.update(domain::PATCH_DIGEST_V1);
+    // Patch format version.
+    h.update(&2u16.to_le_bytes());
+    h.update(&policy_id.to_le_bytes());
+    h.update(rule_pack_id);
+    h.update(&[commit_status.code()]);
+
+    encode_slots(h, in_slots);
+    encode_slots(h, out_slots);
+    encode_ops(h, ops);
+}
+
+/// The exact bytes `patch_digest` hashes, gathered so a test can inspect them.
+#[cfg(test)]
 fn patch_digest_input_v2(
     policy_id: u32,
     rule_pack_id: &ContentHash,
@@ -1084,32 +1120,98 @@ fn patch_digest_input_v2(
     out_slots: &[SlotId],
     ops: &[WarpOp],
 ) -> Vec<u8> {
-    let mut h = DigestBytes(Vec::with_capacity(
-        64 + 72 * (in_slots.len() + out_slots.len()) + 160 * ops.len(),
-    ));
-    h.update(domain::PATCH_DIGEST_V1);
-    // Patch format version.
-    h.update(&2u16.to_le_bytes());
-    h.update(&policy_id.to_le_bytes());
-    h.update(rule_pack_id);
-    h.update(&[commit_status.code()]);
-
-    encode_slots(&mut h, in_slots);
-    encode_slots(&mut h, out_slots);
-    encode_ops(&mut h, ops);
-    h.0
+    let mut gathered = DigestBytes(Vec::new());
+    encode_patch_digest_input_v2(
+        &mut gathered,
+        policy_id,
+        rule_pack_id,
+        commit_status,
+        in_slots,
+        out_slots,
+        ops,
+    );
+    gathered.0
 }
 
-/// The patch digest's input, gathered before it is hashed.
+/// Receives the digest's input one piece at a time, in order.
+trait DigestSink {
+    fn update(&mut self, bytes: &[u8]);
+}
+
+/// Adds up the length of the digest's input without copying it.
+struct ByteCount(usize);
+
+impl DigestSink for ByteCount {
+    fn update(&mut self, bytes: &[u8]) {
+        self.0 += bytes.len();
+    }
+}
+
+/// The most bytes the hasher is handed at once: sixteen BLAKE3 chunks, the
+/// widest batch its SIMD paths compress together.
+const DIGEST_STAGE_BYTES: usize = 16 * 1024;
+
+/// Hashes the digest's input in pieces of up to [`DIGEST_STAGE_BYTES`].
+///
+/// Given a few bytes per call, BLAKE3 can only buffer them; given many
+/// chunks at once, it compresses them side by side. The small fields are
+/// staged into one buffer, sized to the whole input or to one stage,
+/// whichever is smaller, and handed over when it fills. A piece that is
+/// itself at least a stage long, such as an atom payload, goes to the
+/// hasher directly, so the memory held here never grows past a stage. The
+/// digest does not depend on how the input is split.
+struct StagedHasher {
+    hasher: blake3::Hasher,
+    stage: Vec<u8>,
+}
+
+impl StagedHasher {
+    /// A hasher for an input of `input_len` bytes.
+    fn for_input_len(input_len: usize) -> Self {
+        Self {
+            hasher: blake3::Hasher::new(),
+            stage: Vec::with_capacity(input_len.min(DIGEST_STAGE_BYTES)),
+        }
+    }
+
+    fn flush(&mut self) {
+        if !self.stage.is_empty() {
+            self.hasher.update(&self.stage);
+            self.stage.clear();
+        }
+    }
+
+    fn finalize(mut self) -> ContentHash {
+        self.flush();
+        self.hasher.finalize().into()
+    }
+}
+
+impl DigestSink for StagedHasher {
+    fn update(&mut self, bytes: &[u8]) {
+        if self.stage.len() + bytes.len() > DIGEST_STAGE_BYTES {
+            self.flush();
+        }
+        if bytes.len() >= DIGEST_STAGE_BYTES {
+            self.hasher.update(bytes);
+        } else {
+            self.stage.extend_from_slice(bytes);
+        }
+    }
+}
+
+/// Gathers the digest's input instead of hashing it, for inspection.
+#[cfg(test)]
 struct DigestBytes(Vec<u8>);
 
-impl DigestBytes {
+#[cfg(test)]
+impl DigestSink for DigestBytes {
     fn update(&mut self, bytes: &[u8]) {
         self.0.extend_from_slice(bytes);
     }
 }
 
-fn encode_slots(h: &mut DigestBytes, slots: &[SlotId]) {
+fn encode_slots(h: &mut impl DigestSink, slots: &[SlotId]) {
     h.update(&(slots.len() as u64).to_le_bytes());
     for slot in slots {
         match slot {
@@ -1148,7 +1250,7 @@ fn encode_slots(h: &mut DigestBytes, slots: &[SlotId]) {
 /// stable, versioned encoding for hashing (`patch_digest`). They are
 /// intentionally distinct from `WarpOp::sort_key`’s `kind` values, which exist
 /// only to define deterministic replay ordering.
-fn encode_ops(h: &mut DigestBytes, ops: &[WarpOp]) {
+fn encode_ops(h: &mut impl DigestSink, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
         match op {
@@ -1212,7 +1314,7 @@ fn encode_ops(h: &mut DigestBytes, ops: &[WarpOp]) {
     }
 }
 
-fn encode_portal_init(h: &mut DigestBytes, init: &PortalInit) {
+fn encode_portal_init(h: &mut impl DigestSink, init: &PortalInit) {
     match init {
         PortalInit::RequireExisting => {
             h.update(&[0u8]);
@@ -1224,7 +1326,7 @@ fn encode_portal_init(h: &mut DigestBytes, init: &PortalInit) {
     }
 }
 
-fn encode_attachment_key_opt(h: &mut DigestBytes, key: Option<&AttachmentKey>) {
+fn encode_attachment_key_opt(h: &mut impl DigestSink, key: Option<&AttachmentKey>) {
     match key {
         None => {
             h.update(&[0u8]);
@@ -1236,7 +1338,7 @@ fn encode_attachment_key_opt(h: &mut DigestBytes, key: Option<&AttachmentKey>) {
     }
 }
 
-fn encode_attachment_key(h: &mut DigestBytes, key: &AttachmentKey) {
+fn encode_attachment_key(h: &mut impl DigestSink, key: &AttachmentKey) {
     let (owner_tag, plane_tag) = key.tag();
     h.update(&[owner_tag]);
     h.update(&[plane_tag]);
@@ -1252,7 +1354,7 @@ fn encode_attachment_key(h: &mut DigestBytes, key: &AttachmentKey) {
     }
 }
 
-fn encode_attachment_value_opt(h: &mut DigestBytes, value: Option<&AttachmentValue>) {
+fn encode_attachment_value_opt(h: &mut impl DigestSink, value: Option<&AttachmentValue>) {
     match value {
         None => {
             h.update(&[0u8]);
@@ -1264,7 +1366,7 @@ fn encode_attachment_value_opt(h: &mut DigestBytes, value: Option<&AttachmentVal
     }
 }
 
-fn encode_attachment_value(h: &mut DigestBytes, value: &AttachmentValue) {
+fn encode_attachment_value(h: &mut impl DigestSink, value: &AttachmentValue) {
     match value {
         AttachmentValue::Atom(atom) => {
             h.update(&[1u8]);
@@ -1277,7 +1379,7 @@ fn encode_attachment_value(h: &mut DigestBytes, value: &AttachmentValue) {
     }
 }
 
-fn encode_atom_payload(h: &mut DigestBytes, atom: &AtomPayload) {
+fn encode_atom_payload(h: &mut impl DigestSink, atom: &AtomPayload) {
     h.update(&(atom.type_id).0);
     h.update(&(atom.bytes.len() as u64).to_le_bytes());
     h.update(&atom.bytes);
@@ -2732,6 +2834,54 @@ mod tests {
             "the patch keeps room for the {} ops it dropped",
             offered - patch.ops.len()
         );
+    }
+
+    /// The staged hasher must give the digest of the gathered input when
+    /// the stage fills and flushes (600 slots), when a piece longer than a
+    /// stage bypasses it, when a piece is exactly a stage long, and when
+    /// small pieces are staged again after a direct one (the second large
+    /// op's header follows the first's payload, whichever sorts first).
+    #[test]
+    fn staged_hashing_matches_the_gathered_input_across_stage_boundaries() {
+        let warp_id = make_warp_id("stage/warp");
+        let node = |i: usize| NodeKey {
+            warp_id,
+            local_id: make_node_id(&format!("stage/node/{i}")),
+        };
+        let payload = |label: &str, len: usize| WarpOp::SetAttachment {
+            key: AttachmentKey::node_alpha(node(len)),
+            value: Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(label),
+                Bytes::from(vec![7u8; len]),
+            ))),
+        };
+        let in_slots: Vec<SlotId> = (0..600).map(|i| SlotId::Node(node(i))).collect();
+        let patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            in_slots,
+            Vec::new(),
+            vec![
+                payload("stage/exact", DIGEST_STAGE_BYTES),
+                payload("stage/longer", 3 * DIGEST_STAGE_BYTES + 5),
+            ],
+        );
+        let input = patch_digest_input_v2(
+            patch.policy_id(),
+            &patch.rule_pack_id(),
+            patch.commit_status(),
+            patch.in_slots(),
+            patch.out_slots(),
+            patch.ops(),
+        );
+        assert!(
+            input.len() > 6 * DIGEST_STAGE_BYTES,
+            "the input must cross several stage boundaries"
+        );
+        let expected: ContentHash = blake3::hash(&input).into();
+        assert_eq!(patch.digest(), expected);
+        assert!(patch.validate_digest().is_ok());
     }
 }
 

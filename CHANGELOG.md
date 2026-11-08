@@ -125,8 +125,10 @@
   0.13.5. Only dev tooling depends on the parser. Because the provider
   generator's source bundle embeds the workspace lockfile, the generator
   digest, generation evidence and provider package digest change; provider
-  component bytes do not. Consumers pinning the previous provider package
-  digest must update the pin. No advisory exceptions are added.
+  component bytes do not. Consumers pinning the provider package digest must
+  update the pin to
+  `sha256:9058a1f5819850372d5406e41d162db8328ae9dca9f421cb54a14e38e2d30785`.
+  No advisory exceptions are added.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

@@ -275,7 +275,12 @@ fn a_failed_commit_closes_its_transaction() {
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         engine.commit_with_receipt(failed_tx)
     }));
-    assert!(failed.is_err(), "the failing rule must panic out of commit");
+    let payload = failed.expect_err("the failing rule must panic out of commit");
+    assert_eq!(
+        payload.downcast_ref::<&str>(),
+        Some(&"rule fails on purpose"),
+        "commit resumes the rule's own panic"
+    );
 
     assert!(matches!(
         engine.apply(failed_tx, RETRY_RULE, &retry_target()),
@@ -331,8 +336,9 @@ fn erroring_rule() -> RewriteRule {
         matcher: |_, _| true,
         executor: RuleExecutor::legacy(|view, _, delta| {
             let warp_id = view.warp_id();
-            // An op that applies before the failing one, so the failure is
-            // mid-apply; what it leaves in the state is #957, not tested here.
+            // Canonical order puts the failing `DeleteNode` first, so this op
+            // is never applied; the test does not cover an error that leaves
+            // earlier ops applied (#957).
             delta.push(WarpOp::UpsertNode {
                 node: NodeKey {
                     warp_id,
@@ -406,13 +412,15 @@ fn an_errored_commit_closes_its_transaction() {
         .expect("a new transaction commits after an errored one");
 }
 
-/// Counts the scheduler's summary events.
+/// Records the scheduler's summary events.
 #[derive(Default)]
-struct SummaryCount(std::sync::atomic::AtomicUsize);
+struct Summaries(std::sync::Mutex<Vec<(TxId, u64, u64)>>);
 
-impl crate::telemetry::TelemetrySink for SummaryCount {
-    fn on_summary(&self, _tx: TxId, _reserved: u64, _conflicts: u64) {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+impl crate::telemetry::TelemetrySink for Summaries {
+    fn on_summary(&self, tx: TxId, reserved: u64, conflicts: u64) {
+        if let Ok(mut seen) = self.0.lock() {
+            seen.push((tx, reserved, conflicts));
+        }
     }
 }
 
@@ -423,7 +431,7 @@ fn a_failed_commit_reports_its_scheduler_summary() {
     let mut store = GraphStore::default();
     let ty = make_type_id("test/overlap-node");
     store.insert_node(retry_target(), NodeRecord { ty });
-    let summaries = std::sync::Arc::new(SummaryCount::default());
+    let summaries = std::sync::Arc::new(Summaries::default());
     let mut engine = Engine::with_telemetry(
         store,
         retry_target(),
@@ -440,9 +448,54 @@ fn a_failed_commit_reports_its_scheduler_summary() {
         Ok(ApplyResult::Applied)
     ));
     assert!(engine.commit_with_receipt(tx).is_err());
+    let seen = summaries
+        .0
+        .lock()
+        .map(|seen| seen.clone())
+        .unwrap_or_default();
     assert_eq!(
-        summaries.0.load(std::sync::atomic::Ordering::SeqCst),
-        1,
-        "a failed commit reports its summary once"
+        seen,
+        vec![(tx, 1, 0)],
+        "a failed commit reports its own summary once: one reserved, no conflicts"
     );
+}
+
+/// Panics while the scheduler reports a reservation, before the conflict
+/// sets are taken for the patch.
+struct PanicsOnReserve;
+
+impl crate::telemetry::TelemetrySink for PanicsOnReserve {
+    fn on_reserved(&self, _tx: TxId, _rule_id: &Hash) {
+        panic!("telemetry fails on purpose");
+    }
+}
+
+/// A commit that fails during reservation, before the conflict sets are
+/// taken, also closes its transaction.
+#[test]
+fn a_commit_that_fails_during_reservation_closes_its_transaction() {
+    let mut store = GraphStore::default();
+    let ty = make_type_id("test/overlap-node");
+    store.insert_node(retry_target(), NodeRecord { ty });
+    let mut engine = Engine::with_telemetry(
+        store,
+        retry_target(),
+        SchedulerKind::Radix,
+        0,
+        std::sync::Arc::new(PanicsOnReserve),
+    );
+    engine.register_rule(retry_rule()).expect("rule registers");
+    let tx = engine.begin();
+    assert!(matches!(
+        engine.apply(tx, RETRY_RULE, &retry_target()),
+        Ok(ApplyResult::Applied)
+    ));
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        engine.commit_with_receipt(tx)
+    }));
+    assert!(failed.is_err(), "the sink's panic leaves commit");
+    assert!(matches!(
+        engine.apply(tx, RETRY_RULE, &retry_target()),
+        Err(EngineError::UnknownTx)
+    ));
 }

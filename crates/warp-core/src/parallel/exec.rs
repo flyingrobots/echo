@@ -1025,7 +1025,8 @@ pub fn build_work_units(
     units
 }
 
-/// Execute work queue with parallel workers (cross-warp parallelism).
+/// Execute the cross-warp work queue: inline with one worker, on scoped
+/// threads with more.
 ///
 /// This is the **only** place cross-warp execution may spawn; with one worker
 /// it spawns nothing (see Threads). Workers claim units atomically and execute
@@ -1044,8 +1045,10 @@ pub fn build_work_units(
 ///   a rule sets persist on the caller's thread across ticks, and a deeply
 ///   recursive rule uses the caller's stack, which may be larger (the main
 ///   thread) or smaller (a small runtime worker) than a spawned thread's
-///   default. A rule also runs while any borrows the caller holds around
-///   `commit` are live.
+///   default. A rule also runs while any `RefCell` or lock borrows the caller
+///   holds across `commit` are live, so a rule must not reach back into
+///   state the caller has borrowed (on a spawned thread it would have seen
+///   fresh thread-locals instead).
 /// - Results, their order, and panic payloads are the same either way.
 /// - The panic hook runs on the panicking thread for every panic, including
 ///   the ordinary rule panics the per-item `catch_unwind` captures, so with
@@ -1090,7 +1093,8 @@ pub fn build_work_units(
 /// # Panics
 ///
 /// Panics if `workers == 0`, or if a worker panics outside the per-item
-/// `catch_unwind` (for example, the enforcement invariant on guards). With one
+/// `catch_unwind` (for example, the footprint-guard `assert!`s that run before
+/// it). With one
 /// worker the panic unwinds directly from the caller's thread; with more it is
 /// re-raised from the join with the same payload.
 pub fn execute_work_queue<'state, F>(
@@ -1115,7 +1119,7 @@ where
     // while this thread waits to join it. Run it here instead. Rules then run
     // on the caller's thread and stack (see "Threads" above). `warp-wasm`
     // relies on this branch: std cannot spawn on wasm32-unknown-unknown, so
-    // removing it would trap every committing tick there.
+    // removing it would trap every tick with at least one work unit there.
     if workers == 1 {
         return vec![drain_units(units, &next_unit, &resolve_store)];
     }

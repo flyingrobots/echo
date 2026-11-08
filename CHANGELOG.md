@@ -101,19 +101,16 @@
 
 ### Changed
 
-- `warp-core`: with one execution worker (the engine default, and any tick
-  whose work fits one unit), a tick now runs its rules on the thread that
-  commits it instead of spawning a thread and waiting for it. Until now every
-  worker count got a fresh thread per tick; because the single worker now
-  reuses the caller's thread, native rules must not rely on a fresh
-  thread-local environment or a spawned thread's default stack. Results,
-  their order, and panic payloads are unchanged on targets where the old path
-  could spawn (see Fixed); the panic hook, which runs for every rule panic,
-  now names the committing thread rather than an unnamed worker; two or more
-  workers, after the per-tick unit-count cap, still each get a scoped thread.
-  A witness records the executing thread and checks it is the committing one,
-  both for a configured single worker and for a one-unit tick under eight
-  configured workers (#932).
+- `warp-core`: with one execution worker, a tick runs its rules on the
+  thread that commits it instead of on a spawned thread (#932). One worker is
+  the engine default, and the per-tick cap also gives one worker to any tick
+  whose work fits one unit.
+  - Native rules must not rely on a fresh thread-local environment or a
+    spawned thread's default stack per tick.
+  - The panic hook now names the committing thread instead of an unnamed
+    worker.
+  - Results, their order, and panic payloads are unchanged. Two or more
+    workers still each get a scoped thread.
 
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
@@ -130,14 +127,13 @@
 
 ### Fixed
 
-- `warp-core` / `warp-wasm`: on `wasm32-unknown-unknown`, where `std::thread`
-  has no spawn support (with or without the `atomics` target feature) and the
-  target builds with `panic=abort`, a commit with at least one work unit
-  previously reached `std::thread::scope` even with one worker, so the first
-  such commit trapped the module at the failed spawn. The single worker now
-  runs inline and no spawn is attempted. `warp-wasm` is built for this target
-  with `.workers(1)`. Established by reading the spawn path and std's wasm
-  thread shim; no wasm runtime witness exists yet (#959) (#932).
+- `warp-core` / `warp-wasm`: `warp-wasm` runs one worker on
+  `wasm32-unknown-unknown`, where `std::thread` cannot spawn (with or without
+  `atomics`) and panics abort. A commit with at least one work unit used to
+  reach `std::thread::scope` and trap the module. The single worker now runs
+  inline, so no spawn is attempted (#932). This is established by reading
+  the spawn path and std's wasm thread shim; a wasm runtime test is tracked
+  in #959.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

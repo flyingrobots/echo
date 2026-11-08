@@ -2478,8 +2478,9 @@ impl Engine {
         // Cap workers at unit count (no point spawning more threads than work)
         let capped_workers = workers.min(units.len().max(1));
 
-        // Execute all units in parallel across warps (single spawn site)
-        // Views resolved per-unit inside threads, dropped before next unit
+        // Execute all units across warps (the only cross-warp spawn site; one
+        // worker runs inline on this thread). Views are resolved per unit and
+        // dropped before the next unit.
         let worker_results =
             execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id));
 

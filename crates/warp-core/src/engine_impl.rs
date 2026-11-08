@@ -341,10 +341,13 @@ impl<S> EngineBuilder<S> {
     ///
     /// # Notes
     ///
-    /// - Workers are capped at `NUM_SHARDS` (256) internally
+    /// - Workers are clamped to `1..=NUM_SHARDS` (256), then capped per tick at
+    ///   the number of work units (one per occupied warp shard); a tick with one
+    ///   unit always runs one worker
     /// - Values less than 1 are treated as 1
     /// - Use explicit worker counts in benchmarks to compare parallelism levels
-    /// - With one worker (including when the cap leaves one), rules execute on
+    /// - With one worker (configured, or after the per-tick unit-count cap
+    ///   above), rules execute on
     ///   the thread that calls commit, on its stack; no thread is spawned. With
     ///   two or more, each worker runs on its own scoped thread. Native rules
     ///   must not rely on a fresh thread-local environment per tick.
@@ -491,8 +494,8 @@ pub struct Engine {
     policy_id: u32,
     /// Worker count for parallel execution.
     ///
-    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to opt
-    /// into parallel execution.
+    /// Clamped to `1..=NUM_SHARDS`, then capped per tick at the work-unit count.
+    /// Use [`EngineBuilder::workers`] to opt into parallel execution.
     worker_count: usize,
     tx_counter: u64,
     live_txs: BTreeSet<u64>,
@@ -983,7 +986,8 @@ impl Engine {
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     /// - `bus`: Pre-configured materialization bus for dependency injection.
-    /// - `worker_count`: Number of workers for parallel execution (capped at `NUM_SHARDS`).
+    /// - `worker_count`: Number of workers for parallel execution (clamped to
+    ///   `1..=NUM_SHARDS`; capped per tick at the work-unit count).
     pub fn with_telemetry_bus_and_workers(
         store: GraphStore,
         root: NodeId,
@@ -1184,7 +1188,8 @@ impl Engine {
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     /// - `bus`: Pre-configured materialization bus for dependency injection.
-    /// - `worker_count`: Number of workers for parallel execution (capped at `NUM_SHARDS`).
+    /// - `worker_count`: Number of workers for parallel execution (clamped to
+    ///   `1..=NUM_SHARDS`; capped per tick at the work-unit count).
     ///
     /// # Errors
     ///

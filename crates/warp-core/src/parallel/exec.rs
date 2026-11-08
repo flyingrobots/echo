@@ -1030,15 +1030,21 @@ pub fn build_work_units(
 ///
 /// # Threads
 ///
-/// With `workers >= 2`, each worker runs on its own scoped thread. With
-/// `workers == 1` (the engine default) no thread is spawned: the single
-/// worker runs on the caller's thread and stack, and returns before this
-/// function does. Rule executors therefore cannot rely on a fresh thread or
-/// thread-local environment per tick. Thread-local values a rule sets persist
-/// on the caller's thread across ticks (as they already do per worker thread
-/// with two or more workers), and a deeply recursive rule uses the caller's
-/// stack rather than a spawned thread's default stack. Results, their order,
-/// and panic payloads are the same either way.
+/// With `workers >= 2`, each worker runs on its own scoped thread, spawned for
+/// this call and joined before it returns, so nothing a rule leaves in
+/// thread-local storage survives the tick. With `workers == 1` (the engine
+/// default, and any tick the unit-count cap reduces to one worker) no thread
+/// is spawned: the single worker runs on the caller's thread and stack. Rule
+/// executors therefore cannot rely on a fresh thread or thread-local
+/// environment per tick: with one worker, thread-local values a rule sets
+/// persist on the caller's thread across ticks, and a deeply recursive rule
+/// uses the caller's stack, which may be larger (the main thread) or smaller
+/// (a small runtime worker) than a spawned thread's default. Results, their
+/// order, and panic payloads are the same either way. A panic that escapes
+/// the per-item `catch_unwind` runs the panic hook on the thread that
+/// panicked, so with one worker the hook reports the caller's thread rather
+/// than an unnamed worker. The single-warp `execute_parallel*` helpers in
+/// this module still spawn a scoped thread at `workers == 1`.
 ///
 /// # Footprint Enforcement (cfg-gated)
 ///

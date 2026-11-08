@@ -622,14 +622,16 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
 
     let make_rule = || {
         // The macro supplies the matcher and footprint; only the executor
-        // differs, and it must be a plain fn so it names the consts directly.
+        // differs. `ObservedExecuteFn` is a `fn` pointer, so the closure cannot
+        // capture; it reaches the shared values through the consts above.
         let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, MARKER_BYTES);
         rule.executor = warp_core::RuleExecutor::observed(
             |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
                 if *scope == warp_core::make_node_id(POISONED_SCOPE) {
-                    // `panic_any` keeps the `&'static str` payload the test
-                    // downcasts; a formatted `assert!` message would box a
-                    // `String`.
+                    // `panic_any(PAYLOAD)` panics with the shared const as a
+                    // `&'static str`, which the test downcasts. `assert!` takes
+                    // only a literal message (a `&str`, but not shareable) or
+                    // a format string (a `String`).
                     std::panic::panic_any(PAYLOAD);
                 }
                 let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
@@ -694,14 +696,16 @@ fn rule_panic_propagates_identically_for_every_worker_count() {
     }
 }
 
-/// With one worker the rule runs on the thread that calls `commit`.
+/// With one worker, whether configured with `.workers(1)` or reached through
+/// the per-tick unit-count cap (`.workers(8)` over a single-unit tick), the
+/// rule runs on the thread that calls `commit`.
 ///
 /// The executor records its own `ThreadId` as the root's attachment; after
 /// the commit it must equal the test thread's. Removing the inline branch in
 /// `execute_work_queue`, so that one worker is spawned like any other, turns
 /// this red, which the invariance witnesses above do not.
 #[test]
-fn single_worker_runs_rules_on_the_committing_thread() {
+fn single_unit_tick_runs_rules_on_the_committing_thread() {
     use warp_core::{ApplyResult, AttachmentValue, EngineBuilder, NodeRecord};
 
     const RULE_NAME: &str = "t16t/record-thread";
@@ -716,46 +720,56 @@ fn single_worker_runs_rules_on_the_committing_thread() {
         },
     );
 
-    // The macro supplies the matcher and footprint; only the executor differs.
-    let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, b"unused");
-    rule.executor = warp_core::RuleExecutor::observed(
-        |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
-            let thread_id = format!("{:?}", std::thread::current().id());
-            let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
-                warp_id: view.warp_id(),
-                local_id: *scope,
-            });
-            let payload = warp_core::AtomPayload::new(
-                warp_core::make_type_id(MARKER_TYPE),
-                bytes::Bytes::from(thread_id.into_bytes()),
-            );
-            delta.push(warp_core::WarpOp::SetAttachment {
-                key,
-                value: Some(AttachmentValue::Atom(payload)),
-            });
-        },
-    );
-
-    let mut engine = EngineBuilder::new(base_store, root).workers(1).build();
-    engine.register_rule(rule).expect("register rule");
-    let tx = engine.begin();
-    assert!(matches!(
-        engine.apply(tx, RULE_NAME, &root),
-        Ok(ApplyResult::Applied)
-    ));
-    engine.commit(tx).expect("commit");
+    let make_rule = || {
+        // The macro supplies the matcher and footprint; only the executor
+        // differs. `ObservedExecuteFn` is a `fn` pointer, so it cannot capture.
+        let mut rule = make_touch_rule!(RULE_NAME, MARKER_TYPE, b"unused");
+        rule.executor = warp_core::RuleExecutor::observed(
+            |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+                let thread_id = format!("{:?}", std::thread::current().id());
+                let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                let payload = warp_core::AtomPayload::new(
+                    warp_core::make_type_id(MARKER_TYPE),
+                    bytes::Bytes::from(thread_id.into_bytes()),
+                );
+                delta.push(warp_core::WarpOp::SetAttachment {
+                    key,
+                    value: Some(AttachmentValue::Atom(payload)),
+                });
+            },
+        );
+        rule
+    };
 
     let expected = format!("{:?}", std::thread::current().id());
-    let recorded = engine
-        .node_attachment(&root)
-        .expect("root is readable")
-        .expect("the rule recorded a thread id");
-    let AttachmentValue::Atom(atom) = recorded else {
-        panic!("the recorded thread id is an atom");
-    };
-    assert_eq!(
-        std::str::from_utf8(&atom.bytes).expect("thread id is utf-8"),
-        expected,
-        "with one worker the rule must run on the committing thread"
-    );
+    // One scope is one work unit, so eight configured workers are capped to
+    // one and take the same inline path as a configured single worker.
+    for configured in [1_usize, 8] {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(configured)
+            .build();
+        engine.register_rule(make_rule()).expect("register rule");
+        let tx = engine.begin();
+        assert!(matches!(
+            engine.apply(tx, RULE_NAME, &root),
+            Ok(ApplyResult::Applied)
+        ));
+        engine.commit(tx).expect("commit");
+
+        let recorded = engine
+            .node_attachment(&root)
+            .expect("root is readable")
+            .expect("the rule recorded a thread id");
+        let AttachmentValue::Atom(atom) = recorded else {
+            panic!("the recorded thread id is an atom");
+        };
+        assert_eq!(
+            std::str::from_utf8(&atom.bytes).expect("thread id is utf-8"),
+            expected,
+            "one unit with {configured} configured workers must run on the committing thread"
+        );
+    }
 }

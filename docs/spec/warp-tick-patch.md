@@ -43,7 +43,7 @@ Slot tag order is node, edge, attachment, port, outgoing-edge range. Op replay o
 
 ## Decision 5: `patch_digest` commits to the patch core
 
-`patch_digest` is BLAKE3 over patch version, policy id, rule pack id, commit status, sorted `in_slots`, sorted `out_slots`, and sorted ops.
+`patch_digest` is BLAKE3 over the domain prefix `echo:patch_digest:v1\0`, the patch format version (2, little-endian `u16`), policy id, rule pack id, commit status, sorted `in_slots`, sorted `out_slots`, and sorted ops.
 
 ## Slicing contract
 

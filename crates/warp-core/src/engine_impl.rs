@@ -53,6 +53,9 @@ use crate::worldline_state::WorldlineState;
 use crate::ContractInverseHandler;
 
 #[cfg(test)]
+#[path = "engine_impl/overlap_slot_tests.rs"]
+mod overlap_slot_tests;
+#[cfg(test)]
 #[path = "engine_impl/range_tests.rs"]
 mod range_tests;
 use std::sync::Arc;
@@ -499,8 +502,9 @@ pub struct Engine {
     /// Canonically ordered per-Action footprints from the latest execution
     /// whose changes merged. Part of the worldline's retained state.
     last_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
-    /// Per-Action footprints from the latest execution attempt that unwound.
-    /// It committed nothing; this is a failure artifact, never history.
+    /// Per-Action footprints from the latest execution attempt that unwound
+    /// or whose commit failed after its changes merged. It committed nothing;
+    /// this is a failure artifact, never history.
     last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
     /// Whether a runtime batch's guard owns the state's touch log. A commit
     /// outside a runtime batch always starts a fresh log, so a log left behind
@@ -538,8 +542,11 @@ pub struct Engine {
 struct ReserveOutcome {
     receipt: TickReceipt,
     reserved: Vec<PendingRewrite>,
-    in_slots: std::collections::BTreeSet<SlotId>,
-    out_slots: std::collections::BTreeSet<SlotId>,
+    /// Sorted, each slot once: read back from the scheduler's conflict sets.
+    in_slots: Vec<SlotId>,
+    /// The written slots only, sorted, each slot once: read back from the
+    /// scheduler's conflict sets.
+    out_slots: Vec<SlotId>,
 }
 
 enum SavedField<T> {
@@ -2058,15 +2065,25 @@ impl Engine {
     /// This method also produces a delta tick patch (Paper III): a replayable boundary artifact
     /// whose digest is committed into the v2 commit hash.
     ///
+    /// A commit that fails closes its transaction. Whether it returns an error
+    /// or a rule panics out of it, `tx` is no longer live afterwards: applying
+    /// to it or committing it again returns [`EngineError::UnknownTx`], and new
+    /// work needs a new transaction. Committing a transaction again after a
+    /// failed attempt is unsupported, so it is refused rather than judged
+    /// against what the failed attempt left behind.
+    ///
     /// # Errors
-    /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
+    /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live
+    ///   transaction, including one whose earlier commit failed.
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
-    ///   corrupted (e.g., a reserved rewrite references a missing rule).
+    ///   corrupted (e.g., a reserved rewrite references a missing rule), or if
+    ///   the tick's ops cannot be applied to the state.
     ///
     /// # Panics
     ///
     /// Panics if delta validation is enabled and the `SnapshotAccumulator` produces
-    /// a different `state_root` than the legacy computation.
+    /// a different `state_root` than the legacy computation, and propagates a
+    /// panic raised by a rule. Either way the transaction is closed first.
     pub fn commit_with_receipt(
         &mut self,
         tx: TxId,
@@ -2074,6 +2091,42 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
+        // Unwind safety is asserted, not inferred: a panic inside the commit
+        // can leave the engine part-way through the tick. The transaction is
+        // closed below either way, and the panic is resumed to the caller.
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.commit_live_tx(tx)));
+        match outcome {
+            Ok(Ok(committed)) => Ok(committed),
+            Ok(Err(err)) => {
+                self.close_failed_tx(tx);
+                Err(err)
+            }
+            Err(panic) => {
+                self.close_failed_tx(tx);
+                std::panic::resume_unwind(panic)
+            }
+        }
+    }
+
+    /// Closes a transaction whose commit failed, releasing its reservations.
+    ///
+    /// Unlike [`Self::abort`], it leaves the rest of the engine as the failed
+    /// attempt left it. The attempt's footprint evidence stays readable
+    /// through [`Self::last_aborted_execution_footprints`]. The materialization
+    /// bus and the cached materialization results are not cleared: they hold
+    /// the previous successful commit's results unless the attempt failed
+    /// after finalizing its own.
+    fn close_failed_tx(&mut self, tx: TxId) {
+        self.live_txs.remove(&tx.value());
+        self.scheduler.finalize_tx(tx);
+    }
+
+    /// The body of [`Self::commit_with_receipt`] for a transaction known to be live.
+    fn commit_live_tx(
+        &mut self,
+        tx: TxId,
+    ) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), EngineError> {
         self.last_execution_footprints = std::sync::Arc::default();
         self.last_aborted_execution_footprints = std::sync::Arc::default();
         let policy_id = self.policy_id;
@@ -2163,8 +2216,8 @@ impl Engine {
             policy_id,
             rule_pack_id,
             TickCommitStatus::Committed,
-            in_slots.into_iter().collect(),
-            out_slots.into_iter().collect(),
+            in_slots,
+            out_slots,
             ops,
         );
         let patch_digest = patch.digest();
@@ -2289,8 +2342,6 @@ impl Engine {
     ) -> Result<ReserveOutcome, EngineError> {
         // Reserve phase: enforce independence against active frontier.
         let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
-        let mut in_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
-        let mut out_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
         let mut blocked_by: Vec<Vec<u32>> = Vec::with_capacity(drained.len());
         let mut reserved: Vec<PendingRewrite> = Vec::new();
         let mut reserved_entry_indices: Vec<u32> = Vec::new();
@@ -2336,17 +2387,14 @@ impl Engine {
                 },
             });
             if accepted {
-                extend_slots_from_footprint(
-                    &mut in_slots,
-                    &mut out_slots,
-                    &rewrite.scope.warp_id,
-                    &rewrite.footprint,
-                );
                 reserved.push(rewrite);
                 reserved_entry_indices.push(entry_idx_u32);
             }
             blocked_by.push(blockers);
         }
+        // The scheduler's conflict sets already hold the union of the
+        // reserved footprints, once each; the tick's slots are read from them.
+        let (in_slots, out_slots) = self.scheduler.take_reserved_slots(tx);
 
         Ok(ReserveOutcome {
             receipt: TickReceipt::new(tx, receipt_entries, blocked_by),
@@ -2835,8 +2883,9 @@ impl Engine {
     }
 
     /// Returns per-Action footprints from the latest execution attempt that
-    /// unwound, for a caller that deliberately catches the ordinary panic and
-    /// needs the exact access that caused it.
+    /// unwound or whose commit failed after its changes merged, for a caller
+    /// that deliberately catches the ordinary panic or the error and needs
+    /// the exact access that caused it.
     ///
     /// The attempt committed nothing. These records are a failure artifact:
     /// they are not part of worldline state, checkpoints or history, and are
@@ -3423,62 +3472,6 @@ pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
     hasher.update(scope.warp_id.as_bytes());
     hasher.update(scope.local_id.as_bytes());
     hasher.finalize().into()
-}
-
-/// Extends the slot sets with resources from a warp-scoped footprint.
-///
-/// Footprint sets are now warp-scoped: they contain full `NodeKey`, `EdgeKey`,
-/// and `WarpScopedPortKey` values directly. The `_warp_id` parameter is kept
-/// for call-site compatibility but is no longer used (the `warp_id` is embedded
-/// in the footprint keys).
-fn extend_slots_from_footprint(
-    in_slots: &mut std::collections::BTreeSet<SlotId>,
-    out_slots: &mut std::collections::BTreeSet<SlotId>,
-    _warp_id: &WarpId, // Kept for API compat; warp_id is now in the footprint keys
-    fp: &crate::footprint::Footprint,
-) {
-    // Nodes (warp-scoped NodeKey)
-    for key in fp.n_read.iter() {
-        in_slots.insert(SlotId::Node(*key));
-    }
-    for key in fp.n_write.iter() {
-        in_slots.insert(SlotId::Node(*key));
-        out_slots.insert(SlotId::Node(*key));
-    }
-
-    // Edges (warp-scoped EdgeKey)
-    for key in fp.e_read.iter() {
-        in_slots.insert(SlotId::Edge(*key));
-    }
-    for key in fp.e_write.iter() {
-        in_slots.insert(SlotId::Edge(*key));
-        out_slots.insert(SlotId::Edge(*key));
-    }
-    for key in fp.r_read.iter() {
-        in_slots.insert(SlotId::OutgoingEdges(*key));
-    }
-    for key in fp.r_write.iter() {
-        in_slots.insert(SlotId::OutgoingEdges(*key));
-        out_slots.insert(SlotId::OutgoingEdges(*key));
-    }
-
-    // Attachments (already warp-scoped via AttachmentKey)
-    for key in fp.a_read.iter() {
-        in_slots.insert(SlotId::Attachment(*key));
-    }
-    for key in fp.a_write.iter() {
-        in_slots.insert(SlotId::Attachment(*key));
-        out_slots.insert(SlotId::Attachment(*key));
-    }
-
-    // Ports (warp-scoped: (WarpId, PortKey))
-    for port_key in fp.b_in.keys() {
-        in_slots.insert(SlotId::Port(*port_key));
-    }
-    for port_key in fp.b_out.keys() {
-        in_slots.insert(SlotId::Port(*port_key));
-        out_slots.insert(SlotId::Port(*port_key));
-    }
 }
 
 fn runtime_ingress_kind_node_id(intent_kind: &IntentKind) -> NodeId {

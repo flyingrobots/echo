@@ -101,6 +101,14 @@
 
 ### Changed
 
+- Committing a tick builds its patch differently, with identical results.
+  The patch digest's small fields are staged in batches of up to 16 KiB and
+  large payloads go to the hasher directly, instead of every field going to
+  the hasher on its own; the ops are sorted once instead of being kept in a
+  map; and the tick's slots are read from the scheduler's conflict sets
+  instead of being collected a second time. Patch bytes, digests and
+  ordering are unchanged.
+
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
   `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;
@@ -115,6 +123,21 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- A commit that fails, by returning an error or because a rule panics, now
+  closes its transaction: applying to it or committing it again returns
+  `EngineError::UnknownTx`, and its reservations are released. The failed
+  attempt's footprint evidence stays readable through
+  `Engine::last_aborted_execution_footprints`, as before. Before, the
+  transaction stayed open with the failed attempt's reservations still
+  held, so committing it again failed with
+  `InternalCorruption("scheduler rejected rewrite but no blockers were
+  found")` whenever one of its rewrites conflicted only with them. Reusing
+  a transaction after a failed commit is unsupported, so it is now refused.
+  A failed commit now also emits the scheduler's
+  `TelemetrySink::on_summary` for its transaction, as a committed one does.
+  Ops applied before an error mid-apply still remain in engine state, as
+  before (#957).
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.

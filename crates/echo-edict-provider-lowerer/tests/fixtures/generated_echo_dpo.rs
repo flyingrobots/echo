@@ -50,7 +50,7 @@ pub mod echo_dpo {
     /// Digest-framing domain for the complete Target IR artifact envelope.
     pub const TARGET_IR_DIGEST_DOMAIN: &str = "edict.target-ir.artifact/v1";
     /// Exact domain-framed identity of the emitted Target IR artifact.
-    pub const TARGET_IR_DIGEST: &str = "sha256:40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da";
+    pub const TARGET_IR_DIGEST: &str = "sha256:fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399";
     /// Exact target-profile coordinate.
     pub const TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
     /// Digest-framing domain for the target-profile artifact.
@@ -71,7 +71,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "8e4f82bb48bab1bdc11f22b3c37de49edaf87028aa365b15ef061ac07f990a10";
+        "4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -108,7 +108,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "8e4f82bb48bab1bdc11f22b3c37de49edaf87028aa365b15ef061ac07f990a10",
+        "4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {

@@ -16,12 +16,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use edict_provider_host_wasmtime::{
+use amblicit_provider_host_wasmtime::{
     PreparedProviderComponent, ProviderComponentHost, ProviderHostFailureKind, ProviderHostLimits,
     ProviderHostPhase, ProviderReplayObservation, ResolvedProviderComponent,
 };
-use edict_provider_schema::{ProviderArtifactSchemaRegistry, ResolvedProviderSchemaArtifact};
-use edict_syntax::{
+use amblicit_provider_schema::{ProviderArtifactSchemaRegistry, ResolvedProviderSchemaArtifact};
+use amblicit_syntax::{
     bind_target_provider_manifest, compile_to_core, decode_canonical_cbor, digest_core_module,
     digest_target_ir_artifact, encode_canonical_cbor, encode_core_module,
     encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
@@ -64,9 +64,9 @@ const DIAGNOSTIC_ABI_DIGEST: &str =
     "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const RAW_TARGET_IR_SHA256: &str =
-    "5955207bd319a6b214bd6412421be1b62d5f73bb3ad10dfb0f485e708147ba89";
+    "4b2b5f68a978e8a2ac6c10efc827eeb575b125fe31afecb2eb506bbbc7345e22";
 const DOMAIN_TARGET_IR_SHA256: &str =
-    "40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da";
+    "fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399";
 const RAW_TARGET_PROFILE_SHA256: &str =
     "1b105d1b1f6cdf5fecdef98b7adeb238525047d43581fe9fd8c44fd213e1788e";
 const DOMAIN_TARGET_PROFILE_SHA256: &str =
@@ -677,8 +677,9 @@ fn echo_verifier_harness_with_request(
     let schema = echo_verifier_registry(manifest);
     let contract = Box::leak(Box::new(contract));
     let request = Box::leak(Box::new(request));
-    let request = edict_syntax::validate_provider_verification_request(schema, contract, request)
-        .expect("Echo verification request passes complete schema admission");
+    let request =
+        amblicit_syntax::validate_provider_verification_request(schema, contract, request)
+            .expect("Echo verification request passes complete schema admission");
     VerifyHarness {
         host,
         prepared,
@@ -1207,6 +1208,8 @@ fn echo_verifier_observation() -> String {
 
 fn oracle_target_ir_artifact(core: &CoreModule) -> TargetIrArtifact {
     let facts = TargetIrLoweringFacts {
+        effect_signatures: Vec::new(),
+        pure_functions: Vec::new(),
         target_profile: ResourceRef {
             coordinate: ECHO_DPO_TARGET_PROFILE.to_owned(),
             digest: Some(format!("sha256:{DOMAIN_TARGET_PROFILE_SHA256}")),
@@ -1251,6 +1254,7 @@ fn compatibility_verifier_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDige
 fn closed_lowerer_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
     let mut artifact = oracle_target_ir_artifact(core);
     artifact.semantic_closure = Some(TargetIrSemanticClosure {
+        capabilities: Vec::new(),
         source_core: ResourceRef {
             coordinate: core.coordinate.clone(),
             digest: Some(
@@ -1274,10 +1278,10 @@ fn closed_lowerer_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
 fn echo_component_matches_independent_edict_target_ir_bytes_and_digest() {
     let core = echo_core();
     let core_bytes = encode_core_module(&core).expect("Core module encodes");
-    assert_eq!(core_bytes.len(), 1209);
+    assert_eq!(core_bytes.len(), 1087);
     assert_eq!(
         hex(&provider_digest(CORE_MODULE_DIGEST_DOMAIN, &core_bytes).bytes),
-        "c3dbe413c78a82f6120e64c9a04bc94e2d79505f9e4b8a65c2bc26b408d775de"
+        "930ad162c2cc80421ce71c58388ae8f92ecbfd27bd899c50d80fa651fe55d42c"
     );
     assert_eq!(raw_sha256(TARGET_PROFILE_BYTES), RAW_TARGET_PROFILE_SHA256);
     assert_eq!(
@@ -1306,7 +1310,7 @@ fn echo_component_matches_independent_edict_target_ir_bytes_and_digest() {
     assert_eq!(output.artifact.domain, TARGET_IR_ARTIFACT_DIGEST_DOMAIN);
     assert_eq!(output.logical_path, None);
     assert_eq!(output.artifact.bytes, oracle_bytes);
-    assert_eq!(output.artifact.bytes.len(), 1017);
+    assert_eq!(output.artifact.bytes.len(), 998);
     assert_eq!(raw_sha256(&output.artifact.bytes), RAW_TARGET_IR_SHA256);
 
     let manifest = outcome.manifest().expect("host authors an output manifest");
@@ -1519,20 +1523,39 @@ fn echo_component_refuses_nonempty_input_constraints_through_the_actual_host() {
 
 #[test]
 fn echo_component_refuses_incomplete_local_inventory_through_the_actual_host() {
-    let core_bytes = encode_core_module(&echo_core()).expect("Core module encodes canonically");
+    let original = echo_core();
+    let baseline = echo_harness(&original, TARGET_IR_ROLE);
+    let accepted = baseline
+        .host
+        .invoke_lowerer(
+            &baseline.prepared,
+            &baseline.request,
+            baseline.schema,
+            host_limits(),
+        )
+        .expect("complete local inventory crosses host admission");
+    assert!(accepted.response().is_some());
+    assert!(accepted.refusal().is_none());
+    let core_bytes = encode_core_module(&original).expect("Core module encodes canonically");
     let mut core = decode_canonical_cbor(&core_bytes).expect("Core module decodes canonically");
     let body = canonical_map_field_mut(canonical_core_intent_mut(&mut core), "body");
     let CanonicalValue::Array(locals) = canonical_map_field_mut(body, "locals") else {
         panic!("Core locals is not an array");
     };
+    assert_eq!(locals.len(), 3, "positive fixture owns three locals");
     locals.retain(|local| {
         let CanonicalValue::Map(entries) = local else {
             return true;
         };
         !entries
             .iter()
-            .any(|(key, value)| key == &text("type") && value == &text("target.replace.rejected"))
+            .any(|(key, value)| key == &text("id") && value == &text("obstruction.0"))
     });
+    assert_eq!(
+        locals.len(),
+        2,
+        "mutation must remove exactly the obstruction local"
+    );
     let core_bytes = encode_canonical_cbor(&core).expect("mutated Core encodes canonically");
     let (contract, request) = echo_request_from_core_bytes(&core_bytes, TARGET_IR_ROLE);
     let harness = echo_harness_with_request(contract, request);
@@ -2118,4 +2141,25 @@ fn independent_processes_reproduce_the_same_echo_verifier_observation() {
     let first = run_child();
     let second = run_child();
     assert_eq!(first, second);
+}
+
+#[test]
+#[ignore = "explicit current compiler fixture export; does not invoke provider components"]
+fn emit_current_compiler_fixture() {
+    let core = echo_core();
+    let core_bytes = encode_core_module(&core).expect("current compiler Core encodes");
+    let (open_target, _) = compatibility_verifier_target_ir(&core);
+    let (closed_target, closed_digest) = closed_lowerer_target_ir(&core);
+    println!("CURRENT_CORE_HEX={}", hex(&core_bytes));
+    println!("CURRENT_OPEN_TARGET_HEX={}", hex(&open_target));
+    println!("CURRENT_CLOSED_TARGET_HEX={}", hex(&closed_target));
+    println!(
+        "CURRENT_CORE_DIGEST={}",
+        hex(&provider_digest(CORE_MODULE_DIGEST_DOMAIN, &core_bytes).bytes)
+    );
+    println!(
+        "CURRENT_CLOSED_TARGET_RAW_SHA256={}",
+        raw_sha256(&closed_target)
+    );
+    println!("CURRENT_CLOSED_TARGET_DIGEST={}", hex(&closed_digest.bytes));
 }

@@ -4,15 +4,26 @@
 use super::{get, sequence, string, unsigned, Check, Schema, Types, Value};
 
 /// Whether an intent body calls an operation only this judgment checks: an
-/// addition's no-overflow proof, a subtraction's or slice's range proof, or a
-/// count's full-byte scan charge. A Core without a function table still needs
-/// the judgment for any of them.
+/// addition's no-overflow proof, a subtraction's or slice's range proof,
+/// a count's full-byte scan charge, exhaustive variant dispatch, or bounded state iteration, or bounded lists.
+/// A Core without a function table still needs the judgment for any of them.
 pub(super) fn present(core: &Value) -> Check<bool> {
-    let mut layers = vec![get(core, "intents")?];
+    let mut remaining = 65_536_usize;
+    let mut layers = vec![core];
     while !layers.is_empty() {
         let mut next = Vec::new();
         for value in layers {
+            remaining = remaining.checked_sub(1).ok_or(())?;
+            if matches!(value, Value::Text(name) if name.starts_with("List<")) {
+                return Ok(true);
+            }
             if let Value::Map(entries) = value {
+                if matches!(
+                    get(value, "kind").and_then(string),
+                    Ok("match" | "fold" | "list" | "List")
+                ) {
+                    return Ok(true);
+                }
                 // Each of these needs an intent-level proof, even without a
                 // source-function table.
                 if string(get(value, "kind").unwrap_or(&Value::Null)) == Ok("call")
@@ -21,7 +32,12 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                         Ok("core.integer.add"
                             | "core.integer.subtract"
                             | "core.bytes.slice"
-                            | "core.bytes.count")
+                            | "core.bytes.at"
+                            | "core.bytes.count"
+                            | "core.list.length"
+                            | "core.list.at"
+                            | "core.list.append"
+                            | "core.list.concat")
                     )
                 {
                     return Ok(true);

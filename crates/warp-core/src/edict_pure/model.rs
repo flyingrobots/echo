@@ -13,15 +13,54 @@ pub(crate) const MAX_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Expr {
     Constant(Value),
+    Variant {
+        identity: String,
+        case: String,
+        payload: Option<Box<Expr>>,
+    },
+    Match(Box<Expr>, Vec<MatchArm>),
     Local(String),
     Field(Box<Expr>, String),
+    List(Vec<Expr>),
+    ListLength {
+        ty: RuntimeType,
+        value: Box<Expr>,
+    },
+    ListAt {
+        ty: RuntimeType,
+        value: Box<Expr>,
+        index: Box<Expr>,
+    },
+    ListAppend {
+        ty: RuntimeType,
+        value: Box<Expr>,
+        item: Box<Expr>,
+    },
+    ListConcat {
+        left_type: Box<RuntimeType>,
+        right_type: Box<RuntimeType>,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+    Fold {
+        initial: Box<Expr>,
+        step: String,
+        bound: u64,
+        state: RuntimeType,
+    },
     ByteUtf8 {
         min: u64,
         max: u64,
         value: Box<Expr>,
+    },
+    ByteAt {
+        min: u64,
+        max: u64,
+        value: Box<Expr>,
+        index: Box<Expr>,
     },
     ByteLength {
         min: u64,
@@ -62,6 +101,13 @@ pub(crate) enum Expr {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MatchArm {
+    pub case: String,
+    pub binder: Option<String>,
+    pub body: Expr,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Predicate {
     Compare {
         op: Comparison,
@@ -69,6 +115,7 @@ pub(crate) enum Predicate {
         right: Expr,
     },
     All(Vec<Predicate>),
+    Any(Vec<Predicate>),
     Not(Box<Predicate>),
 }
 
@@ -76,15 +123,30 @@ pub(crate) enum Predicate {
 pub(crate) enum Comparison {
     Equal,
     LessOrEqual,
+    Less,
+    Greater,
+    GreaterOrEqual,
+    NotEqual,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeType {
     Bool,
     Unsigned(u64),
-    Bytes { min: u64, max: u64 },
+    Bytes {
+        min: u64,
+        max: u64,
+    },
+    List {
+        item: Option<Box<RuntimeType>>,
+        max: u64,
+    },
     Record(Vec<(String, RuntimeType)>),
     Nominal(String, Box<RuntimeType>),
+    Variant {
+        identity: String,
+        cases: BTreeMap<String, Option<RuntimeType>>,
+    },
 }
 
 impl RuntimeType {
@@ -111,6 +173,7 @@ pub(crate) struct Parameter {
 
 pub(crate) struct Helper {
     pub source_owned: bool,
+    pub fold_capability: bool,
     pub params: Vec<Parameter>,
     pub bindings: Vec<Binding>,
     pub result: Expr,

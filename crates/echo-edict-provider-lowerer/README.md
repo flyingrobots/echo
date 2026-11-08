@@ -49,8 +49,8 @@ locals, record construction/selection, byte equality, and unsigned equality or
 ordering guards. Failure arms currently require zero-argument application
 obstruction constructors; terminal guards require an empty obstruction payload.
 
-The checked schema and component now publish this read configuration. Selecting
-the ordered contract publication lets unmodified Edict compile the authored
+The checked schema and component publish this read configuration through the
+single current contract publication. Unmodified Amblicit compiles the authored
 single and independent-address paired reads through this component and the
 independent verifier. The original native fixtures retain their diagnostic
 capture provenance; the separate public compiler witness proves package/report
@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 478,042-byte checked lowerer component has SHA-256
-`2a3738e3947529990143e184c0c1f39858e921738e6c6efaaeb4b7da5110626d` and has
+The refreshed 543,117-byte checked lowerer component has SHA-256
+`873dfec859285f26cadff97a7aa602fd91bcbcba3a3d347918c3658c4575afaa` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT

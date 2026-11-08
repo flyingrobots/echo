@@ -4,7 +4,7 @@
 //!
 //! The generator receives the CDDL and manifest bytes explicitly. This module
 //! performs no filesystem, registry, environment, or network discovery. It
-//! admits only an explicitly selected pinned Edict publication: internal manifest
+//! admits only the current pinned upstream publication: internal manifest
 //! consistency is necessary, but does not substitute for the pinned external
 //! identity checked here.
 
@@ -32,92 +32,16 @@ pub const EDICT_PROVIDER_CONTRACT_PACK_LICENSE: &str = "Apache-2.0";
 
 /// SHA-256 of the admitted self-contained CDDL bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256: &str =
-    "8d77c84ecbd7d7e38496479b2f8346c15504a56f076170d79c0eca2a57fdb3a5";
+    "2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284";
 
 /// SHA-256 of the admitted Edict publication manifest bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256: &str =
-    "bc222c4a669b888a60df6f398412bae232967c11841b9a27c7ba6c18eb41e362";
+    "48c08670e27bd722dc779488e5839f01252ff4ecc90c670043a509365bab6361";
 
 /// Maximum manifest size parsed at the contract-pack authority boundary.
-pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 72_177;
+pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 84_340;
 
-/// Closed selection of exact upstream publications, never inferred from input bytes.
-///
-/// Schema admission does not grant support for an artifact's executable semantics.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderContractPublicationV1 {
-    /// Existing pure-binding publication; the original admission API selects this.
-    PureBindings,
-    /// Ordered-instruction publication from Edict commit `2405a550e93e1e97fff640caa44bbd0f65ffff3c`.
-    OrderedInstructions,
-    /// Source-owned pure functions, selected by the exact upstream publication pair.
-    SourceFunctions,
-    /// Authenticated source-closure schema from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
-    SourceModules,
-}
-
-impl ProviderContractPublicationV1 {
-    const fn schema_sha256(self) -> &'static str {
-        match self {
-            Self::PureBindings => EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256,
-            Self::OrderedInstructions => {
-                "82273f3ea016a421c881f15b0fd451802205903ac9177bac8accbf3173f66d2c"
-            }
-            Self::SourceFunctions => {
-                "e484eabd615584a38cb57454b52747786f2314c135c13f99da6f6bae619a709f"
-            }
-            Self::SourceModules => {
-                "8f8db4052e1bb85c4f728a0a453c4eb20904bcf2ce81530ffdbfce9351e209bc"
-            }
-        }
-    }
-
-    const fn manifest_sha256(self) -> &'static str {
-        match self {
-            Self::PureBindings => EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256,
-            Self::OrderedInstructions => {
-                "6303668861667a30418870ef25e5f169017905ae1f9d261451ba298120afdd9d"
-            }
-            Self::SourceFunctions => {
-                "aebc2e4133407ae433c18b55421a89bf15dc5d489368f82ce4874f948d4f9c79"
-            }
-            Self::SourceModules => {
-                "29927f6db5e0fe1e5e7475bef3fb2c6e7f0f84ea56304fd97bd1299f1c2bb4be"
-            }
-        }
-    }
-
-    const fn manifest_max_bytes(self) -> usize {
-        match self {
-            Self::PureBindings => EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES,
-            Self::OrderedInstructions => 75_359,
-            Self::SourceFunctions => 75_989,
-            Self::SourceModules => 77_916,
-        }
-    }
-}
-
-impl ProviderContractPublicationV1 {
-    fn contracts(self) -> Vec<(&'static str, &'static str)> {
-        let mut bindings = EXPECTED_CONTRACTS.to_vec();
-        if self == Self::SourceModules {
-            bindings.push(("source-closure", "source-closure"));
-            bindings.sort_unstable();
-        }
-        bindings
-    }
-
-    fn domains(self) -> Vec<(&'static str, &'static str)> {
-        let mut bindings = EXPECTED_DOMAINS.to_vec();
-        if self == Self::SourceModules {
-            bindings.push(("edict.source-closure/v1", "source-closure"));
-            bindings.sort_unstable();
-        }
-        bindings
-    }
-}
-
-const EXPECTED_CONTRACTS: [(&str, &str); 11] = [
+const EXPECTED_CONTRACTS: [(&str, &str); 12] = [
     ("authority-facts", "authority-facts"),
     ("core-module", "core-module"),
     ("lawpack-adapter", "lawpack-adapter"),
@@ -125,6 +49,7 @@ const EXPECTED_CONTRACTS: [(&str, &str); 11] = [
     ("lawpack-manifest", "lawpack-manifest"),
     ("lowering-requirements", "lowering-requirements"),
     ("result-projection", "result-projection"),
+    ("source-closure", "source-closure"),
     ("target-ir-artifact", "target-ir-artifact"),
     ("target-profile-intrinsics", "intrinsics-document"),
     ("target-profile-manifest", "target-profile-manifest"),
@@ -134,12 +59,13 @@ const EXPECTED_CONTRACTS: [(&str, &str); 11] = [
     ),
 ];
 
-const EXPECTED_DOMAINS: [(&str, &str); 7] = [
+const EXPECTED_DOMAINS: [(&str, &str); 8] = [
     ("edict.authority-facts/v1", "authority-facts"),
     ("edict.core.module/v1", "core-module"),
     ("edict.lawpack/v1", "lawpack-manifest"),
     ("edict.lowering-requirements/v1", "lowering-requirements"),
     ("edict.result-projection.artifact/v1", "result-projection"),
+    ("edict.source-closure/v1", "source-closure"),
     ("edict.target-ir.artifact/v1", "target-ir-artifact"),
     ("edict.target-profile/v1", "target-profile-manifest"),
 ];
@@ -286,7 +212,6 @@ impl ProviderContractResourceV1 {
 /// Opaque proof that explicit bytes match Echo's pinned Edict publication.
 #[derive(Clone)]
 pub struct AdmittedProviderContractPackV1 {
-    publication: ProviderContractPublicationV1,
     schema_bytes: Vec<u8>,
     manifest_bytes: Vec<u8>,
     contracts: Vec<ProviderContractBindingV1>,
@@ -299,7 +224,6 @@ impl fmt::Debug for AdmittedProviderContractPackV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AdmittedProviderContractPackV1")
-            .field("publication", &self.publication)
             .field("schema_bytes", &self.schema_bytes)
             .field("manifest_bytes", &self.manifest_bytes)
             .field("contracts", &self.contracts)
@@ -311,8 +235,7 @@ impl fmt::Debug for AdmittedProviderContractPackV1 {
 
 impl PartialEq for AdmittedProviderContractPackV1 {
     fn eq(&self, other: &Self) -> bool {
-        self.publication == other.publication
-            && self.schema_bytes == other.schema_bytes
+        self.schema_bytes == other.schema_bytes
             && self.manifest_bytes == other.manifest_bytes
             && self.contracts == other.contracts
             && self.domains == other.domains
@@ -323,12 +246,6 @@ impl PartialEq for AdmittedProviderContractPackV1 {
 impl Eq for AdmittedProviderContractPackV1 {}
 
 impl AdmittedProviderContractPackV1 {
-    /// Returns the explicit publication authenticated by this admission.
-    #[must_use]
-    pub const fn publication(&self) -> ProviderContractPublicationV1 {
-        self.publication
-    }
-
     /// Returns the exact admitted API version.
     #[must_use]
     pub const fn api_version(&self) -> &'static str {
@@ -356,7 +273,7 @@ impl AdmittedProviderContractPackV1 {
     /// Returns the SHA-256 of the admitted CDDL bytes.
     #[must_use]
     pub const fn schema_sha256(&self) -> &'static str {
-        self.publication.schema_sha256()
+        EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256
     }
 
     /// Returns the exact admitted publication manifest bytes.
@@ -368,7 +285,7 @@ impl AdmittedProviderContractPackV1 {
     /// Returns the SHA-256 of the admitted publication manifest bytes.
     #[must_use]
     pub const fn manifest_sha256(&self) -> &'static str {
-        self.publication.manifest_sha256()
+        EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256
     }
 
     /// Returns all contract to root-rule bindings in publication order.
@@ -692,33 +609,11 @@ pub fn admit_provider_contract_pack_v1(
     schema_bytes: &[u8],
     manifest_bytes: &[u8],
 ) -> Result<AdmittedProviderContractPackV1, ProviderContractPackError> {
-    admit_provider_contract_pack_for_publication_v1(
-        ProviderContractPublicationV1::PureBindings,
-        schema_bytes,
-        manifest_bytes,
-    )
-}
-
-/// Authenticate one explicitly selected, digest-pinned Edict publication.
-///
-/// The closed selector fixes both digests and the manifest size bound before
-/// input is parsed. The original entry point always selects `PureBindings`.
-/// No provider package, executable, or runtime capability is selected here.
-///
-/// # Errors
-///
-/// Returns a structured error for malformed, mixed, oversized, substituted,
-/// or otherwise invalid inputs under the selected publication's exact pins.
-pub fn admit_provider_contract_pack_for_publication_v1(
-    publication: ProviderContractPublicationV1,
-    schema_bytes: &[u8],
-    manifest_bytes: &[u8],
-) -> Result<AdmittedProviderContractPackV1, ProviderContractPackError> {
-    if manifest_bytes.len() > publication.manifest_max_bytes() {
+    if manifest_bytes.len() > EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES {
         return Err(ProviderContractPackError::new(
             ProviderContractPackErrorKind::ManifestSizeExceeded,
             "manifest.bytes",
-            publication.manifest_max_bytes().to_string(),
+            EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES.to_string(),
         ));
     }
 
@@ -759,29 +654,31 @@ pub fn admit_provider_contract_pack_for_publication_v1(
         return Err(ProviderContractPackError::new(
             ProviderContractPackErrorKind::SchemaBytesMismatch,
             "schema.bytesHex",
-            publication.schema_sha256(),
+            EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256,
         ));
     }
 
     let schema_digest = sha256_hex(schema_bytes);
-    if manifest.schema.raw_sha256 != schema_digest || schema_digest != publication.schema_sha256() {
+    if manifest.schema.raw_sha256 != schema_digest
+        || schema_digest != EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256
+    {
         return Err(ProviderContractPackError::new(
             ProviderContractPackErrorKind::SchemaDigestMismatch,
             "schema.rawSha256",
-            publication.schema_sha256(),
+            EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256,
         ));
     }
 
     validate_bindings(
         &manifest.contracts,
-        &publication.contracts(),
+        &EXPECTED_CONTRACTS,
         ProviderContractPackErrorKind::ContractInventoryMismatch,
         "contracts",
         |binding| (&binding.contract, &binding.root_rule),
     )?;
     validate_bindings(
         &manifest.domains,
-        &publication.domains(),
+        &EXPECTED_DOMAINS,
         ProviderContractPackErrorKind::DomainInventoryMismatch,
         "domains",
         |binding| (&binding.domain, &binding.root_rule),
@@ -790,18 +687,17 @@ pub fn admit_provider_contract_pack_for_publication_v1(
     let resources = validate_resources(manifest.resources)?;
 
     let manifest_digest = sha256_hex(manifest_bytes);
-    if manifest_digest != publication.manifest_sha256() {
+    if manifest_digest != EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256 {
         return Err(ProviderContractPackError::new(
             ProviderContractPackErrorKind::ManifestDigestMismatch,
             "manifest",
-            publication.manifest_sha256(),
+            EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256,
         ));
     }
 
-    let schema_context = compile_schema_context(publication, schema_bytes)?;
+    let schema_context = compile_schema_context(schema_bytes)?;
 
     Ok(AdmittedProviderContractPackV1 {
-        publication,
         schema_bytes: schema_bytes.to_vec(),
         manifest_bytes: manifest_bytes.to_vec(),
         contracts: manifest
@@ -826,7 +722,6 @@ pub fn admit_provider_contract_pack_for_publication_v1(
 }
 
 fn compile_schema_context(
-    publication: ProviderContractPublicationV1,
     schema_bytes: &[u8],
 ) -> Result<Arc<BasicContext>, ProviderContractPackError> {
     let schema = std::str::from_utf8(schema_bytes).map_err(|_| {
@@ -844,11 +739,7 @@ fn compile_schema_context(
         )
     })?;
     let context = Arc::new(BasicContext::new(rules));
-    for (_, root) in publication
-        .contracts()
-        .into_iter()
-        .chain(publication.domains())
-    {
+    for (_, root) in EXPECTED_CONTRACTS.into_iter().chain(EXPECTED_DOMAINS) {
         if !context.rules.contains_key(root) {
             return Err(ProviderContractPackError::new(
                 ProviderContractPackErrorKind::SchemaRootMissing,

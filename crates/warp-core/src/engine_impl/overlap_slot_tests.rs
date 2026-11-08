@@ -46,6 +46,26 @@ fn port_of(scope: &NodeId) -> u64 {
     u64::from(scope.0[0])
 }
 
+/// Offset of the port each rewrite only reads, above the one it writes.
+const IN_ONLY_PORT_OFFSET: u64 = 1_000;
+
+fn own_edge(warp_id: WarpId, scope: &NodeId) -> EdgeKey {
+    EdgeKey {
+        warp_id,
+        local_id: make_edge_id(&format!("test/overlap-own-edge/{}", port_of(scope))),
+    }
+}
+
+fn own_range(warp_id: WarpId, scope: &NodeId) -> OutgoingEdgeRange {
+    OutgoingEdgeRange {
+        source: NodeKey {
+            warp_id,
+            local_id: *scope,
+        },
+        edge_type: make_type_id("test/overlap-link"),
+    }
+}
+
 fn footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let shared = NodeKey {
@@ -72,6 +92,13 @@ fn footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     footprint.a_write.insert(AttachmentKey::node_alpha(own));
     footprint.b_in.insert(warp_id, port_of(scope));
     footprint.b_out.insert(warp_id, port_of(scope));
+    // Only read (a port) and only written (an edge and a range), so the
+    // read-only and write-only sides of each slot kind are exercised too.
+    footprint
+        .b_in
+        .insert(warp_id, port_of(scope) + IN_ONLY_PORT_OFFSET);
+    footprint.e_write.insert(own_edge(warp_id, scope));
+    footprint.r_write.insert(own_range(warp_id, scope));
     footprint
 }
 
@@ -151,10 +178,13 @@ fn overlapping_footprints_commit_the_same_sorted_slot_sets() {
             SlotId::Node(key),
             SlotId::Attachment(AttachmentKey::node_alpha(key)),
             SlotId::Port((warp_id, port_of(node))),
+            SlotId::Edge(own_edge(warp_id, node)),
+            SlotId::OutgoingEdges(own_range(warp_id, node)),
         ] {
             expected_in.insert(slot);
             expected_out.insert(slot);
         }
+        expected_in.insert(SlotId::Port((warp_id, port_of(node) + IN_ONLY_PORT_OFFSET)));
     }
     let expected_in: Vec<SlotId> = expected_in.into_iter().collect();
     let expected_out: Vec<SlotId> = expected_out.into_iter().collect();

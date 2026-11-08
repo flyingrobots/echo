@@ -7,7 +7,7 @@ use super::{
 };
 use crate::EchoOperationAnchoredNodeOccupancyV1 as Occupancy;
 use crate::{
-    EchoOperationInvocationV1, EchoOperationObservationV1, NodeKey, ProvenanceStore, WriterHeadKey,
+    EchoOperationInvocation, EchoOperationObservationV1, NodeKey, ProvenanceStore, WriterHeadKey,
 };
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueV1 as V,
@@ -106,7 +106,7 @@ impl Contexts {
                     let digest: Hash = field_bytes(&fields[4])?.try_into().map_err(error)?;
                     let invocation_bytes = field_bytes(&fields[5])?.to_vec();
                     let invocation =
-                        EchoOperationInvocationV1::from_canonical_bytes(&invocation_bytes)
+                        EchoOperationInvocation::from_canonical_bytes(&invocation_bytes)
                             .map_err(error)?;
                     let observation = self
                         .observations
@@ -344,7 +344,7 @@ impl TrustedRuntimeHost {
         &mut self,
         request: &str,
         attempt: &str,
-        invocation: EchoOperationInvocationV1,
+        invocation: EchoOperationInvocation,
     ) -> Result<Vec<u8>> {
         check_id(request)?;
         let wal = self

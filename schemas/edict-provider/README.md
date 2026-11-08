@@ -12,15 +12,11 @@ The current source is
 `echo.edict-provider-semantics/v1`, and its semantic-source coordinate is
 `echo.semantic-schema@1`.
 
-The explicit source-module variant is
-[`echo-provider-semantics-source-modules-v1.json`](echo-provider-semantics-source-modules-v1.json).
-It adds only an alternative source-closure invocation input and its owning
-schema binding. Each generation selects exactly one semantic source and binds
-its exact bytes together with an explicit contract publication. The module
-variant requires `ProviderContractPublicationV1::SourceModules`; there is no
-automatic upgrade from a legacy selection. `provider_source_module_generation`
-checks that every pre-existing semantic declaration is identical in both
-variants and that module generation has its owning schema root.
+The one current declaration includes both raw source and authenticated source
+closure as distinct invocation inputs, with their owning schema bindings.
+Generation binds these exact bytes to the sole current upstream contract pack.
+The production package inventory is the exact 32-binding set; historical
+publication variants and their 31-binding package path are not admitted.
 
 ## Authority
 
@@ -179,17 +175,16 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-485,983 bytes with SHA-256
-`cd81874f971f290f74987b39479ef89ddb5060e56df54044d2359e6e89b2430c`; the
-promoted verifier is 504,431 bytes with SHA-256
-`3451e95a7d084d4874c30833f90f5c21012e8341f35ed0f0888d4d268a768b11`.
+533,655 bytes with SHA-256
+`df515cc07804b1ff1f616cbe48b75e6373fd5427bcad3a12141002dfb4a2f5a4`; the
+promoted verifier is 571,432 bytes with SHA-256
+`4311ddde4d0f6acabf4d0c10a693bb2b92dbf9719d094b1adde9c93897d885f5`.
 
 The checked schema/components also support the explicit
 `compiler-produced-bounded-read/v1` configuration with required `maxReads`
 (1–65,536) and `maxReadBytes` (1–67,108,864) limits. Its package kind is distinct
-from pure computation. Ordered read programs require explicit selection of the
-ordered contract publication; the default generation path preserves the
-original contract selection. The public compiler witness builds a single read
+from pure computation. Ordered read programs use the same current contract
+publication as the default generation path. The public compiler witness builds a single read
 and a pair with independent addresses, runs both Wasm components, and requires
 repeatable package/report pairs. It proves no runtime read or mutation.
 
@@ -324,7 +319,7 @@ independent host-side CDDL admission before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
-routes, 31 domain-to-root bindings (nine compatibility invocation domains, the
+routes, 32 domain-to-root bindings (ten current invocation domains, the
 generated artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains), and raw SHA-256 of all 24 physical
 members without hashing the derived manifest into itself. The five routed
@@ -343,24 +338,30 @@ writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
 
-The isolated legacy Edict host gate pins revision
-`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes that exact checked package.
-It constructs all 31 native schema bindings, validates the five canonical primaries
+The effectful conformance source uses the compiler's untyped effect context.
+Its bounded strings have canonical inline identities, and its unused obstruction
+binder is `Unit`: it carries no authenticated failure-payload authority. The
+DPO verifier requires this exact current Core shape. A program that reads a typed
+failure payload must instead obtain its signature from authenticated lawpack
+exports; this fixture is not evidence for that separate path.
+
+The isolated current Amblicit host gate pins revision
+`2269d81f257f7794b44270cf3f7ca330966a0784` and consumes that exact checked package.
+It constructs all 32 native schema bindings, validates the five canonical primaries
 and 14 generated resources, proves every owner field names the expected exact
 resource digest, prepares both components, and obtains both opaque request
 proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The [source-function contract publication](contracts/source-functions-v1/README.md)
-is selected explicitly through `ProviderContractPublicationV1::SourceFunctions`.
-It preserves the existing pure-binding and ordered publication bytes and does
-not change the default checked generation route. Its candidate generator uses
-the same artifact/provenance/package admission libraries with the selected new
-pair and the refreshed checked component carriers. Source-owned call authority
-and runtime capability still require independent provider validation.
+The [current upstream contract publication](contracts/v1/README.md) includes
+source functions, authenticated source closures, folds and structured Target IR
+schema shapes. Older publications are rejected. Independent provider judgments
+still own source-call authority, capability support and costs. The checked
+components admit the bounded source-owned folds described in the
+[application hosting contract](../../docs/architecture/application-contract-hosting.md).
 
-The crate-local `assets/v1/` tree is an exact 46-file publication carrier for
+The crate-local `assets/v1/` tree is an exact 39-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
 provenance. The compile-time generator identity enumerates a 21-file source
 closure, including the provider-generic registry implementation. Carrier paths

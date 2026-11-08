@@ -1374,7 +1374,7 @@ fn observed_operation_contexts_recover_without_replacing_original_inputs() {
         "the canonical root exists without an alpha attachment"
     );
     let invocation = |value: &[u8]| {
-        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+        warp_core::EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
         warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
         observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320),
         node, value.to_vec(), vec![0xa0],
@@ -1485,7 +1485,7 @@ fn bind_link_request(
     let observation = host
         .retain_echo_operation_observation_v1(request, head, &[node])
         .expect("capture");
-    let invocation = warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+    let invocation = warp_core::EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
         warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
         observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, b"value".to_vec(), vec![0xa0]);
     host.bind_echo_operation_request_v1(request, request, invocation)
@@ -1645,7 +1645,7 @@ fn healthy_contexts_advance_without_reconstructing_the_wal() {
                 .expect("reading"),
             observation
         );
-        let invocation = warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+        let invocation = warp_core::EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
             warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
             observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, b"value".to_vec(), vec![0xa0]);
         let original = host
@@ -1744,7 +1744,7 @@ fn durable_request_error_resolves_original_bytes_before_retrying() {
         .retain_echo_operation_observation_v1("attempt", head, &[node])
         .expect("observation");
     let invocation = |value: &[u8]| {
-        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+        warp_core::EchoOperationInvocation::anchored_node_attachment_create_if_absent_with_application_input(
             warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
             observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, value.to_vec(), vec![0xa0])
     };

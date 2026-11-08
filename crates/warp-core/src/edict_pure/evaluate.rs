@@ -10,10 +10,12 @@ use super::{EvaluationError as Error, EvaluationLimits, EvaluationResult};
 // Fixed interpreter storage units; Rust layout and pointer width cannot alter cost.
 pub(crate) const VALUE_CELL_BYTES: u64 = 64;
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Meter {
     limits: EvaluationLimits,
     steps: u64,
     allocated: u64,
+    atomic_charges: bool,
 }
 
 impl Meter {
@@ -22,11 +24,50 @@ impl Meter {
             limits,
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
+        }
+    }
+
+    pub(crate) fn new_atomic(limits: EvaluationLimits) -> Self {
+        Self {
+            atomic_charges: true,
+            ..Self::new(limits)
         }
     }
 
     pub(crate) const fn usage(&self) -> (u64, u64) {
         (self.steps, self.allocated)
+    }
+
+    pub(crate) fn with_component<T, E>(
+        &mut self,
+        limits: EvaluationLimits,
+        run: impl FnOnce(&mut Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let saved = self.limits;
+        self.limits.max_steps = saved
+            .max_steps
+            .min(self.steps.saturating_add(limits.max_steps));
+        self.limits.max_allocated_bytes = saved
+            .max_allocated_bytes
+            .min(self.allocated.saturating_add(limits.max_allocated_bytes));
+        let result = run(self);
+        self.limits = saved;
+        result
+    }
+
+    // The caller already charged work and storage; only atomic frame paths
+    // translate allocator refusal into a host fault. Standalone behavior stays.
+    pub(crate) fn copy_precharged_read_bytes(&self, bytes: &[u8]) -> Result<Value, Error> {
+        if !self.atomic_charges {
+            return Ok(Value::Bytes(bytes.to_vec()));
+        }
+        let mut value = Vec::new();
+        value
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| Error::HostAllocationFailed)?;
+        value.extend_from_slice(bytes);
+        Ok(Value::Bytes(value))
     }
 
     pub(crate) fn step(&mut self, depth: usize) -> Result<(), Error> {
@@ -37,10 +78,14 @@ impl Meter {
     }
 
     pub(crate) fn charge_steps(&mut self, count: u64) -> Result<(), Error> {
-        self.steps = self
+        let next = self
             .steps
             .checked_add(count)
             .ok_or(Error::StepBudgetExceeded)?;
+        if self.atomic_charges && next > self.limits.max_steps {
+            return Err(Error::StepBudgetExceeded);
+        }
+        self.steps = next;
         if self.steps > self.limits.max_steps {
             return Err(Error::StepBudgetExceeded);
         }
@@ -48,10 +93,14 @@ impl Meter {
     }
 
     pub(crate) fn allocate(&mut self, bytes: u64) -> Result<(), Error> {
-        self.allocated = self
+        let next = self
             .allocated
             .checked_add(bytes)
             .ok_or(Error::AllocationBudgetExceeded)?;
+        if self.atomic_charges && next > self.limits.max_allocated_bytes {
+            return Err(Error::AllocationBudgetExceeded);
+        }
+        self.allocated = next;
         if self.allocated > self.limits.max_allocated_bytes {
             return Err(Error::AllocationBudgetExceeded);
         }
@@ -84,9 +133,13 @@ impl Meter {
             .ok_or(Error::AllocationBudgetExceeded)?;
         self.charge_bytes(length)?;
         let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(length)
-            .map_err(|_| Error::AllocationBudgetExceeded)?;
+        bytes.try_reserve_exact(length).map_err(|_| {
+            if self.atomic_charges {
+                Error::HostAllocationFailed
+            } else {
+                Error::AllocationBudgetExceeded
+            }
+        })?;
         bytes.extend_from_slice(left);
         bytes.extend_from_slice(right);
         Ok(Value::Bytes(bytes))
@@ -117,12 +170,19 @@ impl Meter {
 }
 
 pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, Error> {
-    let mut meter = Meter {
-        limits: program.limits,
-        steps: 0,
-        allocated: 0,
-    };
-    validate(&input, &program.input_type, &mut meter, 0).map_err(|error| {
+    run_with_meter(program, input, &mut Meter::new(program.limits))
+}
+
+pub(crate) fn run_with_meter(
+    program: &Program,
+    input: Value,
+    meter: &mut Meter,
+) -> Result<EvaluationResult, Error> {
+    meter.with_component(program.limits, |meter| run_body(program, input, meter))
+}
+
+fn run_body(program: &Program, input: Value, meter: &mut Meter) -> Result<EvaluationResult, Error> {
+    validate(&input, &program.input_type, meter, 0).map_err(|error| {
         if error == Error::InvalidArtifact {
             Error::InvalidInput
         } else {
@@ -132,17 +192,17 @@ pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, E
     meter.charge(&input, 0)?;
     let mut locals = BTreeMap::from([(program.input_id.as_str(), input)]);
     for (coordinate, constraint) in &program.constraints {
-        if !predicate(constraint, &locals, &program.helpers, &mut meter, 0)? {
+        if !predicate(constraint, &locals, &program.helpers, meter, 0)? {
             return Err(Error::InputConstraintFailed(coordinate.clone()));
         }
     }
     for binding in &program.bindings {
-        let value = expression(&binding.value, &locals, &program.helpers, &mut meter, 0)?;
-        validate(&value, &binding.ty, &mut meter, 0)?;
+        let value = expression(&binding.value, &locals, &program.helpers, meter, 0)?;
+        validate(&value, &binding.ty, meter, 0)?;
         locals.insert(binding.id.as_str(), value);
     }
-    let result = expression(&program.result, &locals, &program.helpers, &mut meter, 0)?;
-    validate(&result, &program.output_type, &mut meter, 0)?;
+    let result = expression(&program.result, &locals, &program.helpers, meter, 0)?;
+    validate(&result, &program.output_type, meter, 0)?;
     // Encoding scratch is charged separately from the materialized result.
     meter.charge(&result, 0)?;
     let output = encode(&result).map_err(|_| Error::InvalidArtifact)?;
@@ -165,7 +225,28 @@ pub(crate) fn expression(
 ) -> Result<Value, Error> {
     meter.step(depth)?;
     match expr {
+        Expr::ListLength { .. }
+        | Expr::ListAt { .. }
+        | Expr::ListAppend { .. }
+        | Expr::ListConcat { .. } => {
+            super::list_operations::evaluate(expr, locals, helpers, meter, depth)
+        }
         Expr::Constant(value) => meter.copy(value),
+        Expr::Variant {
+            identity,
+            case,
+            payload,
+        } => super::variants::evaluate_constructor(
+            (identity, case),
+            payload.as_deref(),
+            locals,
+            helpers,
+            meter,
+            depth,
+        ),
+        Expr::Match(scrutinee, arms) => {
+            super::matches::evaluate_match(scrutinee, arms, locals, helpers, meter, depth)
+        }
         Expr::Local(id) => meter.copy(locals.get(id.as_str()).ok_or(Error::InvalidArtifact)?),
         Expr::Field(base, name) => {
             let record = expression(base, locals, helpers, meter, depth + 1)?;
@@ -183,6 +264,19 @@ pub(crate) fn expression(
                     }
                 })
                 .ok_or(Error::InvalidArtifact)
+        }
+        Expr::List(items) => {
+            meter.allocate(VALUE_CELL_BYTES)?;
+            let mut values = Vec::new();
+            // Reserve only after each element's storage has passed the meter.
+            for item in items {
+                let value = expression(item, locals, helpers, meter, depth + 1)?;
+                values
+                    .try_reserve_exact(1)
+                    .map_err(|_| Error::HostAllocationFailed)?;
+                values.push(value);
+            }
+            Ok(Value::Array(values))
         }
         Expr::Record(fields) => {
             meter.allocate(VALUE_CELL_BYTES)?;
@@ -204,6 +298,31 @@ pub(crate) fn expression(
             };
             expression(branch, locals, helpers, meter, depth + 1)
         }
+        Expr::Fold {
+            initial,
+            step,
+            bound,
+            state,
+        } => {
+            let helper = helpers.get(step).ok_or(Error::UnsupportedProgram)?;
+            if !helper.source_owned
+                || !helper.fold_capability
+                || helper.params.len() != 1
+                || helper.params[0].ty != *state
+                || helper.ty != *state
+            {
+                return Err(Error::InvalidArtifact);
+            }
+            let mut value = expression(initial, locals, helpers, meter, depth + 1)?;
+            validate(&value, state, meter, depth + 1)?;
+            for _ in 0..*bound {
+                meter.step(depth + 1)?;
+                validate(&value, &helper.params[0].ty, meter, depth + 1)?;
+                let frame = BTreeMap::from([(helper.params[0].id.as_str(), value)]);
+                value = helper_body(helper, frame, helpers, meter, depth + 1)?;
+            }
+            Ok(value)
+        }
         Expr::Call(name, args) => {
             let helper = helpers.get(name).ok_or(Error::UnsupportedProgram)?;
             if args.len() != helper.params.len() {
@@ -217,14 +336,7 @@ pub(crate) fn expression(
                 validate(&value, &parameter.ty, meter, depth + 1)?;
                 frame.insert(parameter.id.as_str(), value);
             }
-            for binding in &helper.bindings {
-                let value = expression(&binding.value, &frame, helpers, meter, depth + 1)?;
-                validate(&value, &binding.ty, meter, depth + 1)?;
-                frame.insert(binding.id.as_str(), value);
-            }
-            let value = expression(&helper.result, &frame, helpers, meter, depth + 1)?;
-            validate(&value, &helper.ty, meter, depth + 1)?;
-            Ok(value)
+            helper_body(helper, frame, helpers, meter, depth + 1)
         }
         Expr::UnsignedSubtract { max, left, right } | Expr::UnsignedAdd { max, left, right } => {
             let left = expression(left, locals, helpers, meter, depth + 1)?;
@@ -262,6 +374,58 @@ pub(crate) fn expression(
             let length = u64::try_from(bytes.len()).map_err(|_| Error::StepBudgetExceeded)?;
             meter.charge_steps(length)?;
             meter.copy(&Value::Bool(std::str::from_utf8(&bytes).is_ok()))
+        }
+        Expr::ByteCount {
+            min,
+            max,
+            value,
+            needle,
+        } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            let Value::Bytes(bytes) = value else {
+                return Err(Error::InvalidArtifact);
+            };
+            let length = u64::try_from(bytes.len()).map_err(|_| Error::StepBudgetExceeded)?;
+            meter.charge_steps(length)?;
+            // Never exceeds the already-charged byte length.
+            let count = bytes
+                .iter()
+                .fold(0_u64, |count, byte| count + u64::from(byte == needle));
+            meter.copy(&Value::Integer(i128::from(count)))
+        }
+        Expr::ByteAt {
+            min,
+            max,
+            value,
+            index,
+        } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            let index = expression(index, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            validate(&index, &RuntimeType::Unsigned(u64::MAX), meter, depth + 1)?;
+            let (Value::Bytes(bytes), Value::Integer(index)) = (value, index) else {
+                return Err(Error::InvalidArtifact);
+            };
+            let index = usize::try_from(index).map_err(|_| Error::InvalidArtifact)?;
+            let byte = *bytes.get(index).ok_or(Error::InvalidArtifact)?;
+            meter.copy(&Value::Integer(i128::from(byte)))
         }
         Expr::ByteLength { min, max, value } => {
             let value = expression(value, locals, helpers, meter, depth + 1)?;
@@ -372,6 +536,14 @@ pub(crate) fn predicate(
         Predicate::Not(value) => {
             return self::predicate(value, locals, helpers, meter, depth + 1).map(|value| !value);
         }
+        Predicate::Any(values) => {
+            for value in values {
+                if self::predicate(value, locals, helpers, meter, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
         Predicate::All(values) => {
             for value in values {
                 if !self::predicate(value, locals, helpers, meter, depth + 1)? {
@@ -387,6 +559,12 @@ pub(crate) fn predicate(
         (Comparison::Equal, Value::Bool(left), Value::Bool(right)) => Ok(left == right),
         (Comparison::Equal, Value::Integer(left), Value::Integer(right)) => Ok(left == right),
         (Comparison::LessOrEqual, Value::Integer(left), Value::Integer(right)) => Ok(left <= right),
+        (Comparison::Less, Value::Integer(left), Value::Integer(right)) => Ok(left < right),
+        (Comparison::Greater, Value::Integer(left), Value::Integer(right)) => Ok(left > right),
+        (Comparison::GreaterOrEqual, Value::Integer(left), Value::Integer(right)) => {
+            Ok(left >= right)
+        }
+        (Comparison::NotEqual, Value::Integer(left), Value::Integer(right)) => Ok(left != right),
         (Comparison::Equal, Value::Bytes(left), Value::Bytes(right)) => {
             // Charge the full operand aperture before comparing, including unequal
             // lengths. Cost cannot depend on a library's short-circuit behavior.
@@ -406,7 +584,10 @@ pub(crate) fn validate(
     depth: usize,
 ) -> Result<(), Error> {
     meter.step(depth)?;
-    match (value, ty) {
+    match (value, ty.representation()) {
+        (_, RuntimeType::Variant { identity, cases }) => {
+            super::variants::validate_value(value, identity, cases, meter, depth)
+        }
         (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))
             if *value >= 0 && *value <= i128::from(*max) =>
@@ -416,6 +597,17 @@ pub(crate) fn validate(
         (Value::Bytes(value), RuntimeType::Bytes { min, max })
             if (value.len() as u64) >= *min && (value.len() as u64) <= *max =>
         {
+            Ok(())
+        }
+        (Value::Array(values), RuntimeType::List { item, max }) if values.len() as u64 <= *max => {
+            for value in values {
+                validate(
+                    value,
+                    item.as_deref().ok_or(Error::InvalidArtifact)?,
+                    meter,
+                    depth + 1,
+                )?;
+            }
             Ok(())
         }
         (Value::Map(fields), RuntimeType::Record(types)) if fields.len() == types.len() => {
@@ -436,6 +628,25 @@ pub(crate) fn validate(
         }
         _ => Err(Error::InvalidArtifact),
     }
+}
+
+/// Calls and fold iterations use this body evaluator with a fresh frame each
+/// time. Values move into that frame; local reads meter their own copies.
+fn helper_body<'a>(
+    helper: &'a Helper,
+    mut frame: BTreeMap<&'a str, Value>,
+    helpers: &BTreeMap<String, Helper>,
+    meter: &mut Meter,
+    depth: usize,
+) -> Result<Value, Error> {
+    for binding in &helper.bindings {
+        let value = expression(&binding.value, &frame, helpers, meter, depth)?;
+        validate(&value, &binding.ty, meter, depth)?;
+        frame.insert(binding.id.as_str(), value);
+    }
+    let value = expression(&helper.result, &frame, helpers, meter, depth)?;
+    validate(&value, &helper.ty, meter, depth)?;
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -561,6 +772,7 @@ mod tests {
             limits,
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         assert_eq!(
             meter.copy_bytes(&[0, 128, 255])?,
@@ -574,6 +786,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         assert_eq!(
             work.copy_bytes(&[0, 128, 255]),
@@ -587,6 +800,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         assert_eq!(
             storage.copy_bytes(&[0, 128, 255]),
@@ -607,6 +821,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         let length = Expr::ByteLength {
             min: 0,
@@ -635,6 +850,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         let subtract = Expr::UnsignedSubtract {
             max: u64::MAX,
@@ -663,6 +879,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         let value = Value::Map(vec![(
             Value::Text("id".into()),

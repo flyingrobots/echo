@@ -13,6 +13,14 @@ pub(super) enum Schema {
         upper: u64,
     },
     Word(u64),
+    Sequence {
+        element: Option<Box<Schema>>,
+        maximum: u64,
+    },
+    Variant {
+        identity: String,
+        alternatives: BTreeMap<String, Option<Schema>>,
+    },
     Row(BTreeMap<String, Schema>),
     Nominal {
         identity: String,
@@ -47,6 +55,20 @@ impl Schema {
         match (self, actual) {
             (Self::Bytes { lower, upper }, Self::Bytes { lower: a, upper: b }) => {
                 lower <= a && b <= upper
+            }
+            (
+                Self::Sequence { element, maximum },
+                Self::Sequence {
+                    element: actual,
+                    maximum: count,
+                },
+            ) => {
+                count <= maximum
+                    && match (element, actual) {
+                        (_, None) => *count == 0,
+                        (Some(want), Some(got)) => want.includes(got),
+                        _ => false,
+                    }
             }
             (Self::Row(expected), Self::Row(actual)) => {
                 expected.len() == actual.len()
@@ -155,6 +177,28 @@ impl<'a> Symbols<'a> {
             return Err(());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
+        if let Some(parameters) = name
+            .strip_prefix("List<")
+            .and_then(|name| name.strip_suffix('>'))
+        {
+            let (item, maximum) = parameters.rsplit_once(",max=").ok_or(())?;
+            let maximum = decimal(maximum)?;
+            return Ok(Schema::Sequence {
+                element: Some(Box::new(self.schema(item, depth + 1)?)),
+                maximum,
+            });
+        }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.work = self.work.checked_sub(spec.len()).ok_or(())?;
+            let mut fields = BTreeMap::new();
+            for (name, ty) in super::super::super::record_type::fields(spec)? {
+                fields.insert(name.to_owned(), self.schema(ty, depth + 1)?);
+            }
+            return Ok(Schema::Row(fields));
+        }
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let value = get(get(self.core, "types")?, key)?;
         match text(value, "kind")? {
@@ -178,6 +222,16 @@ impl<'a> Symbols<'a> {
                 Ok(Schema::Nominal {
                     identity: key.to_owned(),
                     storage: Box::new(self.schema(text(value, "representation")?, depth + 1)?),
+                })
+            }
+            "Variant" => self.variant_schema(value, key, depth),
+            "List" => {
+                exact(value, &["kind", "item", "max"])?;
+                let maximum = number(get(value, "max")?)?;
+                let element = self.schema(text(value, "item")?, depth + 1)?;
+                Ok(Schema::Sequence {
+                    element: Some(Box::new(element)),
+                    maximum,
                 })
             }
             "Record" => {
@@ -226,6 +280,23 @@ impl<'a> Symbols<'a> {
     pub(super) fn expression(&mut self, value: &Value, depth: usize) -> Check<Schema> {
         self.charge(depth)?;
         match text(value, "kind")? {
+            "list" => {
+                exact(value, &["kind", "values"])?;
+                let values = super::sequence(value, "values")?;
+                let mut element: Option<Schema> = None;
+                for expression in values {
+                    let schema = self.expression(expression, depth + 1)?;
+                    element = Some(match element {
+                        Some(previous) => previous.choice(schema)?,
+                        None => schema,
+                    });
+                }
+                Ok(Schema::Sequence {
+                    element: element.map(Box::new),
+                    maximum: u64::try_from(values.len()).map_err(|_| ())?,
+                })
+            }
+            "match" => self.match_schema(value, depth),
             "local" => {
                 exact(value, &["kind", "ref"])?;
                 let local = get(value, "ref")?;
@@ -264,7 +335,7 @@ impl<'a> Symbols<'a> {
                 }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = text(literal, "width")?;
-                if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
+                if text(literal, "kind")? != "int" || !["U8", "U32", "U64"].contains(&width) {
                     return Err(());
                 }
                 let Schema::Word(max) = self.schema(width, 0)? else {
@@ -280,17 +351,29 @@ impl<'a> Symbols<'a> {
                 self.predicate_at(get(value, "predicate")?, depth + 1)?;
                 let yes = self.expression(get(value, "then")?, depth + 1)?;
                 let no = self.expression(get(value, "else")?, depth + 1)?;
-                match (yes, no) {
-                    (
-                        Schema::Bytes { lower: a, upper: b },
-                        Schema::Bytes { lower: c, upper: d },
-                    ) => Ok(Schema::Bytes {
-                        lower: a.min(c),
-                        upper: b.max(d),
-                    }),
-                    (a, b) if a == b => Ok(a),
-                    _ => Err(()),
+                yes.choice(no)
+            }
+            "fold" => {
+                exact(value, &["kind", "initial", "step", "bound", "stateType"])?;
+                number(get(value, "bound")?)?;
+                let state = text(value, "stateType")?;
+                let core = self.core;
+                let prefix = format!("{}.", text(core, "coordinate")?);
+                let name = text(value, "step")?.strip_prefix(&prefix).ok_or(())?;
+                let definition = get(get(core, "functions")?, name)?;
+                let params = super::sequence(definition, "params")?;
+                if params.len() != 1
+                    || text(&params[0], "type")? != state
+                    || text(definition, "returnType")? != state
+                {
+                    return Err(());
                 }
+                let expected = self.schema(state, 0)?;
+                let initial = self.expression(get(value, "initial")?, depth + 1)?;
+                if !expected.includes(&initial) {
+                    return Err(());
+                }
+                Ok(expected)
             }
             "call" => self.call(value, depth),
             _ => Err(()),
@@ -303,7 +386,9 @@ impl<'a> Symbols<'a> {
         let args = super::sequence(value, "args")?;
         let types = super::sequence(value, "typeArgs")?;
         let mut actual = Vec::new();
-        for argument in args {
+        for argument in
+            crate::executable_operation::source_functions::checked_arguments(name, args)?
+        {
             actual.push(self.expression(argument, depth + 1)?);
         }
         let core = self.core;
@@ -342,16 +427,77 @@ impl<'a> Symbols<'a> {
             declared.push(self.schema(string(coordinate)?, 0)?);
         }
         match (name, actual.as_slice(), declared.as_slice()) {
-            // The source-function audit has independently proved totality.
+            // The independent whole-intent audit has proved the strict domains.
+            (
+                "core.list.length",
+                [value],
+                [ty @ Schema::Sequence {
+                    element: Some(_), ..
+                }],
+            ) if ty.includes(value) => Ok(Schema::Word(u64::MAX)),
+            (
+                "core.list.at",
+                [value, Schema::Word(u64::MAX)],
+                [ty @ Schema::Sequence {
+                    element: Some(element),
+                    ..
+                }],
+            ) if ty.includes(value) => Ok(*element.clone()),
+            (
+                "core.list.append",
+                [value, entry],
+                [ty @ Schema::Sequence {
+                    element: Some(element),
+                    ..
+                }],
+            ) if ty == value && element.includes(entry) => Ok(ty.clone()),
+            (
+                "core.list.concat",
+                [left, right],
+                [a @ Schema::Sequence {
+                    element: Some(element),
+                    maximum: n,
+                }, b @ Schema::Sequence {
+                    element: Some(other),
+                    maximum: m,
+                }],
+            ) if element == other && a.includes(left) && b.includes(right) => {
+                Ok(Schema::Sequence {
+                    element: Some(element.clone()),
+                    maximum: n.checked_add(*m).ok_or(())?,
+                })
+            }
+            // The source-function audit has independently proved totality and order.
             ("core.integer.add", [left, right], [expected @ Schema::Word(_)])
                 if left == expected && right == expected =>
             {
                 Ok(expected.clone())
             }
+            ("core.integer.subtract", [left, right], [expected @ Schema::Word(_)])
+                if expected.includes(left) && expected.includes(right) =>
+            {
+                Ok(expected.clone())
+            }
+            // The same audit independently proved start <= end <= len(bytes).
+            (
+                "core.bytes.slice",
+                [actual, Schema::Word(a), Schema::Word(b)],
+                [expected @ Schema::Bytes { upper, .. }],
+            ) if *a == u64::MAX && *b == u64::MAX && expected.includes(actual) => {
+                Ok(Schema::Bytes {
+                    lower: 0,
+                    upper: *upper,
+                })
+            }
             ("core.bytes.isUtf8", [actual], [expected @ Schema::Bytes { .. }])
                 if expected == actual =>
             {
                 Ok(Schema::Boolean)
+            }
+            ("core.bytes.count", [actual], [expected @ Schema::Bytes { .. }])
+                if expected == actual =>
+            {
+                Ok(Schema::Word(u64::MAX))
             }
             ("core.bytes.length", [actual], [expected @ Schema::Bytes { .. }])
                 if expected.includes(actual) =>
@@ -418,7 +564,7 @@ impl<'a> Symbols<'a> {
         ) {
             ("==", Schema::Boolean, Schema::Boolean)
             | ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
-            ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
+            ("==" | "<=" | "<" | ">" | ">=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
             _ => Err(()),
         }
     }
@@ -452,6 +598,48 @@ mod tests {
         )
     }
     #[test]
+    fn source_u8_read_literals_preserve_the_byte_domain() {
+        let core = map([]);
+        let mut symbols = Symbols {
+            core: &core,
+            exports: &core,
+            declared: BTreeMap::new(),
+            live: BTreeSet::new(),
+            claimed: BTreeSet::new(),
+            work: 65_536,
+        };
+        for value in [0_i128, 128, 255] {
+            assert!(matches!(
+                symbols.expression(&u8_constant(Value::Integer(value)), 0),
+                Ok(Schema::Word(255))
+            ));
+        }
+        for value in [
+            Value::Integer(256),
+            Value::Integer(-1),
+            Value::Bytes(vec![255]),
+        ] {
+            assert!(matches!(
+                symbols.expression(&u8_constant(value), 0),
+                Err(())
+            ));
+        }
+    }
+    fn u8_constant(value: Value) -> Value {
+        map([
+            ("kind", Value::Text("const".into())),
+            (
+                "value",
+                map([
+                    ("kind", Value::Text("int".into())),
+                    ("width", Value::Text("U8".into())),
+                    ("value", value),
+                ]),
+            ),
+        ])
+    }
+
+    #[test]
     fn distinct_nominals_without_source_functions_do_not_convert() -> Check<()> {
         let nominal = |contract: &str| {
             map([
@@ -479,3 +667,15 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod variant_tests;
+
+#[cfg(test)]
+mod list_tests;
+
+mod variants;
+
+mod matches;
+
+mod lists;

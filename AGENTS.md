@@ -62,6 +62,20 @@ tracing yields an explicit posture, never a successful all-zero receipt.
 - **NEVER** push to `main` without explicit permission.
 - Always use standard commits and regular pushes.
 
+## One Current Version
+
+Keep exactly one supported version of each data structure, wire format, and
+implementation in the main crates. Replace the previous version and update
+its producers and consumers together. Old versions may exist only in separate
+upgrade or migration tools, never behind compatibility wrappers, aliases,
+feature flags, or version-dispatch branches in the main crates.
+
+The user confirmed on 2026-10-19 that there are no existing saved histories to
+preserve. Do not invent a backward-compatibility requirement. Future persisted
+data upgrades belong in explicit migration tools. See the current
+[version policy](docs/topics/GeneratedRules.md#one-current-version-and-explicit-migration),
+which supersedes earlier proposals and compatibility promises.
+
 ## Repository Knowledge Model
 
 Repository knowledge has one owner for each kind of truth:

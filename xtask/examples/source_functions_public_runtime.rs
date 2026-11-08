@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::Path;
 use warp_core::edict_pure::{self, EvaluationError, EvaluationLimits};
-use warp_core::edict_read::{ReadBasis, ReadView};
+use warp_core::edict_read::{ReadBasis, ReadError, ReadView};
 use warp_core::{
     make_node_id, make_type_id, AtomPayload, AttachmentValue, GraphStore, NodeKey, NodeRecord,
     WorldlineFrontier, WorldlineId, WorldlineState,
@@ -212,8 +212,264 @@ fn pure(root: &Path, name: &str, reversed: bool, evidence: &serde_json::Value) -
     println!("PUBLIC_PURE_RUNTIME_OK {name} {}", cases.len());
     Ok(cases.len())
 }
-fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
-    let (package_bytes, report_bytes) = emitted(&root.join("read"), evidence)?;
+fn unsigned_bytes(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    for (name, identity) in [("u8-identity", true), ("u8-literal", false)] {
+        let (package, report) = emitted(&root.join(name), evidence)?;
+        let (package, pin) = checked_pair(package, report)?;
+        for value in [0_i128, 128, 255] {
+            let input = encode(&record([
+                ("firstFragment", Value::Integer(value)),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            let outcome = edict_pure::evaluate(&package, pin, &input, limits())
+                .map_err(|error| anyhow!("unsigned-byte runtime refused: {error:?}"))?;
+            let expected = if identity || value == 0 { value } else { 255 };
+            ensure!(
+                decode(&outcome.output)? == record([("bytes", Value::Integer(expected))]),
+                "wrong unsigned-byte result"
+            );
+            ensure!(
+                Ok(outcome) == edict_pure::evaluate(&package, pin, &input, limits()),
+                "unsigned-byte result or accounting changed on repeat"
+            );
+        }
+        for value in [
+            Value::Integer(256),
+            Value::Integer(-1),
+            Value::Bytes(vec![255]),
+        ] {
+            let input = encode(&record([
+                ("firstFragment", value),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits())
+                    == Err(EvaluationError::InvalidInput),
+                "unsigned-byte input domain did not refuse"
+            );
+        }
+        let input = encode(&record([
+            ("firstFragment", Value::Integer(255)),
+            ("secondFragment", Value::Integer(0)),
+        ]))?;
+        for (limits, expected) in [
+            (
+                EvaluationLimits {
+                    max_steps: 1,
+                    ..limits()
+                },
+                EvaluationError::StepBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_allocated_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::AllocationBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_output_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::OutputBudgetExceeded,
+            ),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits) == Err(expected),
+                "unsigned-byte host resource limit did not refuse"
+            );
+        }
+        let mut wrong = pin;
+        wrong[0] ^= 1;
+        ensure!(
+            edict_pure::evaluate(&package, wrong, &input, limits())
+                == Err(EvaluationError::PackageIdentityMismatch),
+            "unsigned-byte package substitution did not refuse"
+        );
+        println!("PUBLIC_U8_RUNTIME_OK {name}: 3 literal cases, 3 input refusals, 3 resource refusals, 1 identity refusal");
+    }
+    Ok(())
+}
+
+fn byte_literals(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    let (package_bytes, report_bytes) = emitted(&root.join("byte-literals"), evidence)?;
+    let (package, pin) = checked_pair(package_bytes, report_bytes)?;
+    let cases: [(&[u8], &[u8], &[u8]); 3] = [
+        (b"", b"unused", b""),
+        (b"a", b"", &[0, 255, 10, 13]),
+        (&[255], b"x", &[0, 255, 10, 13]),
+    ];
+    for (first, second, expected) in cases {
+        let input = encode(&record([
+            ("firstFragment", Value::Bytes(first.to_vec())),
+            ("secondFragment", Value::Bytes(second.to_vec())),
+        ]))?;
+        let outcome = edict_pure::evaluate(&package, pin, &input, limits())
+            .map_err(|error| anyhow!("byte literal runtime refused: {error:?}"))?;
+        ensure!(
+            decode(&outcome.output)? == record([("bytes", Value::Bytes(expected.to_vec()))]),
+            "wrong authored byte literal result"
+        );
+        ensure!(
+            Ok(outcome) == edict_pure::evaluate(&package, pin, &input, limits()),
+            "byte literal output or accounting changed on repeat"
+        );
+    }
+    let input = encode(&record([
+        ("firstFragment", Value::Bytes(b"a".to_vec())),
+        ("secondFragment", Value::Bytes(vec![])),
+    ]))?;
+    for (limits, expected) in [
+        (
+            EvaluationLimits {
+                max_steps: 1,
+                ..limits()
+            },
+            EvaluationError::StepBudgetExceeded,
+        ),
+        (
+            EvaluationLimits {
+                max_allocated_bytes: 1,
+                ..limits()
+            },
+            EvaluationError::AllocationBudgetExceeded,
+        ),
+        (
+            EvaluationLimits {
+                max_output_bytes: 1,
+                ..limits()
+            },
+            EvaluationError::OutputBudgetExceeded,
+        ),
+    ] {
+        ensure!(
+            edict_pure::evaluate(&package, pin, &input, limits) == Err(expected),
+            "byte literal host resource limit did not refuse"
+        );
+    }
+    let invalid = encode(&record([
+        ("firstFragment", Value::Bytes(vec![1; 9])),
+        ("secondFragment", Value::Bytes(vec![])),
+    ]))?;
+    ensure!(
+        edict_pure::evaluate(&package, pin, &invalid, limits())
+            == Err(EvaluationError::InvalidInput),
+        "byte literal input bound did not refuse"
+    );
+    let mut wrong_pin = pin;
+    wrong_pin[0] ^= 1;
+    ensure!(
+        edict_pure::evaluate(&package, wrong_pin, &input, limits())
+            == Err(EvaluationError::PackageIdentityMismatch),
+        "byte literal package substitution did not refuse"
+    );
+    println!("PUBLIC_BYTE_LITERAL_RUNTIME_OK 3 literal cases, 3 resource refusals, input and identity refusals");
+    Ok(())
+}
+fn byte_lookup(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    for (name, lazy) in [("byte-lookup", false), ("byte-lookup-lazy-or", true)] {
+        let (package, report) = emitted(&root.join(name), evidence)?;
+        let (package, pin) = checked_pair(package, report)?;
+        let input =
+            |bytes: Value, index: Value| encode(&record([("bytes", bytes), ("index", index)]));
+        for (bytes, index) in [
+            (&b""[..], 0_u64),
+            (&[0, 128, 255][..], 0),
+            (&[0, 128, 255][..], 1),
+            (&[0, 128, 255][..], 2),
+            (&[0, 128, 255][..], 3),
+            (&b"a"[..], u64::MAX),
+        ] {
+            let selected = usize::try_from(index).ok().and_then(|i| bytes.get(i));
+            let expected = if lazy {
+                if selected.is_none_or(|byte| *byte < 128) {
+                    0
+                } else {
+                    255
+                }
+            } else {
+                selected.map_or(0, |byte| i128::from(*byte))
+            };
+            let input = input(Value::Bytes(bytes.to_vec()), Value::Integer(index.into()))?;
+            let result = edict_pure::evaluate(&package, pin, &input, limits())
+                .map_err(|error| anyhow!("byte lookup refused: {error:?}"))?;
+            ensure!(
+                decode(&result.output)? == record([("value", Value::Integer(expected))]),
+                "wrong byte lookup"
+            );
+            ensure!(
+                Ok(result) == edict_pure::evaluate(&package, pin, &input, limits()),
+                "lookup repeat changed result/accounting"
+            );
+        }
+        for (bytes, index) in [
+            (Value::Bytes(vec![255]), Value::Integer(-1)),
+            (Value::Bytes(vec![255]), Value::Bool(true)),
+            (Value::Integer(255), Value::Integer(0)),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input(bytes, index)?, limits())
+                    == Err(EvaluationError::InvalidInput),
+                "invalid lookup input admitted"
+            );
+        }
+        let input = input(Value::Bytes(vec![255]), Value::Integer(0))?;
+        for (limits, expected) in [
+            (
+                EvaluationLimits {
+                    max_steps: 1,
+                    ..limits()
+                },
+                EvaluationError::StepBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_allocated_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::AllocationBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_output_bytes: 1,
+                    ..limits()
+                },
+                EvaluationError::OutputBudgetExceeded,
+            ),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits) == Err(expected),
+                "lookup resource limit admitted"
+            );
+        }
+        let mut wrong = pin;
+        wrong[0] ^= 1;
+        ensure!(
+            edict_pure::evaluate(&package, wrong, &input, limits())
+                == Err(EvaluationError::PackageIdentityMismatch),
+            "lookup substitution admitted"
+        );
+        println!("PUBLIC_BYTE_LOOKUP_RUNTIME_OK {name}: 6 cases, 3 input refusals, 3 resource refusals, 1 identity refusal");
+    }
+    Ok(())
+}
+#[path = "source_functions_public_runtime/lists.rs"]
+mod lists;
+#[path = "source_functions_public_runtime/worklists.rs"]
+mod worklists;
+
+fn atom_read(root: &Path, evidence: &serde_json::Value, name: &str) -> Result<(u64, u64)> {
+    atom_read_expected(root, evidence, name, b"alpha")
+}
+
+fn atom_read_expected(
+    root: &Path,
+    evidence: &serde_json::Value,
+    name: &str,
+    expected: &[u8],
+) -> Result<(u64, u64)> {
+    let (package_bytes, report_bytes) = emitted(&root.join(name), evidence)?;
     let (package, pin) = checked_pair(package_bytes, report_bytes)?;
     let mut store = GraphStore::default();
     let node = make_node_id("public-source-function-read");
@@ -244,7 +500,7 @@ fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
     let aperture = [key];
     let view = ReadView::new(&frontier, basis, &aperture)
         .map_err(|error| anyhow!("view refused: {error:?}"))?;
-    let input = encode(&record([
+    let mut input_fields = vec![
         (
             "address",
             record([
@@ -254,7 +510,18 @@ fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
             ]),
         ),
         ("expected", Value::Bytes(b"alpha".to_vec())),
-    ]))?;
+    ];
+    if name.starts_with("read-byte-lookup") {
+        input_fields.push(("probe", Value::Bytes(vec![0, 128, 255])));
+    }
+    if name.starts_with("worklist-read-") {
+        input_fields.push(("fallback", Value::Bytes(vec![])));
+    }
+    if matches!(name, "list-read-nominal" | "worklist-read-nominal") {
+        input_fields.push(("identity", Value::Bytes(vec![7; 32])));
+        input_fields.push(("raw", Value::Bytes(vec![7; 32])));
+    }
+    let input = encode(&record(input_fields))?;
     let result = warp_core::edict_read::evaluate(
         &package,
         pin,
@@ -268,7 +535,7 @@ fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
     )
     .map_err(|error| anyhow!("read runtime refused: {error:?}"))?;
     ensure!(
-        decode(&result.output)? == Value::Bytes(b"alpha".to_vec()),
+        decode(&result.output)? == Value::Bytes(expected.to_vec()),
         "wrong stored-atom result"
     );
     ensure!(
@@ -278,9 +545,310 @@ fn atom_read(root: &Path, evidence: &serde_json::Value) -> Result<()> {
             && frontier.state().state_root() == before,
         "wrong read evidence or mutation"
     );
-    println!("PUBLIC_READ_RUNTIME_OK 1 5");
+    let read_limits = warp_core::edict_read::ReadLimits {
+        evaluation: EvaluationLimits {
+            max_steps: result.steps,
+            max_allocated_bytes: result.allocated_bytes,
+            max_output_bytes: result.output.len() as u64,
+            ..limits()
+        },
+        max_reads: 1,
+        max_read_bytes: 5,
+    };
+    ensure!(
+        Ok(result.clone())
+            == warp_core::edict_read::evaluate(&package, pin, &input, &view, read_limits),
+        "read output or accounting changed on repeat"
+    );
+    for (limits, expected) in [
+        (
+            warp_core::edict_read::ReadLimits {
+                max_reads: 0,
+                ..read_limits
+            },
+            ReadError::ReadCountExceeded,
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                max_read_bytes: 4,
+                ..read_limits
+            },
+            ReadError::ReadBytesExceeded,
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                evaluation: EvaluationLimits {
+                    max_steps: result.steps - 1,
+                    ..read_limits.evaluation
+                },
+                ..read_limits
+            },
+            ReadError::Evaluation(EvaluationError::StepBudgetExceeded),
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                evaluation: EvaluationLimits {
+                    max_allocated_bytes: result.allocated_bytes - 1,
+                    ..read_limits.evaluation
+                },
+                ..read_limits
+            },
+            ReadError::Evaluation(EvaluationError::AllocationBudgetExceeded),
+        ),
+        (
+            warp_core::edict_read::ReadLimits {
+                evaluation: EvaluationLimits {
+                    max_output_bytes: result.output.len() as u64 - 1,
+                    ..read_limits.evaluation
+                },
+                ..read_limits
+            },
+            ReadError::Evaluation(EvaluationError::OutputBudgetExceeded),
+        ),
+    ] {
+        ensure!(
+            warp_core::edict_read::evaluate(&package, pin, &input, &view, limits) == Err(expected),
+            "explicit read limit did not refuse"
+        );
+        ensure!(
+            frontier.state().state_root() == before,
+            "refused read changed state"
+        );
+    }
+    println!("PUBLIC_READ_RUNTIME_OK {name}: 1 read, 5 bytes, 5 resource refusals, steps={} allocated={}", result.steps, result.allocated_bytes);
+    Ok((result.steps, result.allocated_bytes))
+}
+fn variant_package(
+    root: &Path,
+    name: &str,
+    evidence: &serde_json::Value,
+) -> Result<(Vec<u8>, [u8; 32])> {
+    let (package, report) = emitted(&root.join(name), evidence)?;
+    let (package, pin) = checked_pair(package, report)?;
+    let value = decode(&package)?;
+    let program = decode(bytes(field(&value, "program")?)?)?;
+    let core = decode(bytes(field(&program, "core_artifact")?)?)?;
+    ensure!(
+        field(&core, "requiredCoreCapabilities")?
+            == &Value::Array(vec![Value::Text("core.variant/v1".into())]),
+        "public compiler variant capability was lost or changed"
+    );
+    ensure!(
+        text(field(
+            field(field(&core, "types")?, "WitnessChoice")?,
+            "kind"
+        )?)? == "Variant",
+        "public compiler variant declaration missing"
+    );
+    if name.starts_with("match-") {
+        let selector = field(field(&core, "functions")?, "selectChoice")?;
+        ensure!(
+            text(field(field(field(selector, "body")?, "result")?, "kind")?)? == "match",
+            "public compiler match body missing"
+        );
+    }
+    Ok((package, pin))
+}
+
+fn closed_variants(
+    root: &Path,
+    evidence: &serde_json::Value,
+    read_usage: (u64, u64),
+    prefix: &str,
+) -> Result<()> {
+    let input = encode(&record([
+        ("firstFragment", Value::Bytes(b"first".to_vec())),
+        ("secondFragment", Value::Bytes(b"last".to_vec())),
+    ]))?;
+    let (baseline, report) = emitted(&root.join("pure"), evidence)?;
+    let (baseline, pin) = checked_pair(baseline, report)?;
+    let baseline = edict_pure::evaluate(&baseline, pin, &input, limits())
+        .map_err(|e| anyhow!("variant control refused: {e:?}"))?;
+    let mut previous = (baseline.steps, baseline.allocated_bytes);
+    let mut previous_read = read_usage;
+    for case in ["empty", "payload"] {
+        let name = format!("{prefix}-pure-{case}");
+        pure(root, &name, false, evidence)?;
+        let (package, pin) = variant_package(root, &name, evidence)?;
+        let result = edict_pure::evaluate(&package, pin, &input, limits())
+            .map_err(|e| anyhow!("variant runtime refused: {e:?}"))?;
+        ensure!(
+            result.output == baseline.output,
+            "constructor changed the authored byte result"
+        );
+        ensure!(
+            result.steps > previous.0 && result.allocated_bytes > previous.1,
+            "constructor or payload work was not charged"
+        );
+        ensure!(
+            Ok(result.clone()) == edict_pure::evaluate(&package, pin, &input, limits()),
+            "variant output/accounting changed on repeat"
+        );
+        for (limit, expected) in [
+            (
+                EvaluationLimits {
+                    max_steps: result.steps - 1,
+                    ..limits()
+                },
+                EvaluationError::StepBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_allocated_bytes: result.allocated_bytes - 1,
+                    ..limits()
+                },
+                EvaluationError::AllocationBudgetExceeded,
+            ),
+            (
+                EvaluationLimits {
+                    max_output_bytes: result.output.len() as u64 - 1,
+                    ..limits()
+                },
+                EvaluationError::OutputBudgetExceeded,
+            ),
+        ] {
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limit) == Err(expected),
+                "variant one-under resource ceiling did not refuse"
+            );
+        }
+        let mut wrong = pin;
+        wrong[0] ^= 1;
+        ensure!(
+            edict_pure::evaluate(&package, wrong, &input, limits())
+                == Err(EvaluationError::PackageIdentityMismatch),
+            "variant package substitution did not refuse"
+        );
+        previous = (result.steps, result.allocated_bytes);
+        let read_name = format!("{prefix}-read-{case}");
+        variant_package(root, &read_name, evidence)?;
+        let current = atom_read(root, evidence, &read_name)?;
+        ensure!(
+            current.0 > previous_read.0 && current.1 > previous_read.1,
+            "read constructor or payload work was not charged"
+        );
+        previous_read = current;
+        println!("PUBLIC_VARIANT_RUNTIME_OK {prefix}-{case}: capability retained, 12 pure cases, repeat, 3 one-under budgets, identity refusal, bounded read");
+    }
     Ok(())
 }
+
+fn state_folds(root: &Path, evidence: &serde_json::Value) -> Result<()> {
+    // The zero-bound public package supplies only the fixed wrapper cost.
+    // Independently counted toggle work: 2 admission + 1 if + 1 compare +
+    // 3*2 expression/copy + 1 result = 11 steps, and 3*64 = 192 copied bytes.
+    // This checks deltas, not an independently derived absolute wrapper cost.
+    let mut baseline = [(0, 0); 4];
+    for bound in [0_u64, 1, 2, 3] {
+        let name = format!("fold-pure-{bound}");
+        let (package, report) = emitted(&root.join(&name), evidence)?;
+        let (package, pin) = checked_pair(package, report)?;
+        for (index, value) in [0_i128, 1, 128, 255].into_iter().enumerate() {
+            let input = encode(&record([
+                ("firstFragment", Value::Integer(value)),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            let result = edict_pure::evaluate(&package, pin, &input, limits())
+                .map_err(|error| anyhow!("fold runtime refused: {error:?}"))?;
+            let expected = if bound == 0 {
+                value
+            } else if value == 0 {
+                i128::from(bound % 2)
+            } else {
+                i128::from((bound - 1) % 2)
+            };
+            ensure!(
+                decode(&result.output)? == record([("bytes", Value::Integer(expected))]),
+                "wrong fold result at bound {bound}, input {value}"
+            );
+            if bound == 0 {
+                baseline[index] = (result.steps, result.allocated_bytes);
+            }
+            ensure!(
+                (result.steps, result.allocated_bytes)
+                    == (
+                        baseline[index].0 + 11 * bound,
+                        baseline[index].1 + 192 * bound
+                    ),
+                "fold iteration accounting mismatch"
+            );
+            let exact = EvaluationLimits {
+                max_steps: result.steps,
+                max_allocated_bytes: result.allocated_bytes,
+                max_output_bytes: result.output.len() as u64,
+                ..limits()
+            };
+            ensure!(
+                Ok(result.clone()) == edict_pure::evaluate(&package, pin, &input, exact),
+                "fold exact budget or repeat failed"
+            );
+            for (ceiling, expected_error) in [
+                (
+                    EvaluationLimits {
+                        max_steps: result.steps - 1,
+                        ..exact
+                    },
+                    EvaluationError::StepBudgetExceeded,
+                ),
+                (
+                    EvaluationLimits {
+                        max_allocated_bytes: result.allocated_bytes - 1,
+                        ..exact
+                    },
+                    EvaluationError::AllocationBudgetExceeded,
+                ),
+                (
+                    EvaluationLimits {
+                        max_output_bytes: result.output.len() as u64 - 1,
+                        ..exact
+                    },
+                    EvaluationError::OutputBudgetExceeded,
+                ),
+            ] {
+                ensure!(
+                    edict_pure::evaluate(&package, pin, &input, ceiling) == Err(expected_error),
+                    "fold one-under resource limit did not refuse"
+                );
+            }
+            let mut wrong = pin;
+            wrong[0] ^= 1;
+            ensure!(
+                edict_pure::evaluate(&package, wrong, &input, limits())
+                    == Err(EvaluationError::PackageIdentityMismatch),
+                "fold package identity substitution admitted"
+            );
+        }
+        for invalid in [
+            Value::Integer(-1),
+            Value::Integer(256),
+            Value::Bytes(vec![0]),
+        ] {
+            let input = encode(&record([
+                ("firstFragment", invalid),
+                ("secondFragment", Value::Integer(0)),
+            ]))?;
+            ensure!(
+                edict_pure::evaluate(&package, pin, &input, limits())
+                    == Err(EvaluationError::InvalidInput),
+                "fold input domain did not refuse"
+            );
+        }
+        println!("PUBLIC_FOLD_RUNTIME_OK {name}: 4 inputs, parity, exact budgets, iteration deltas, one-under limits, identity and input refusals");
+    }
+    let mut previous = None;
+    for bound in [0, 1, 3] {
+        let usage = atom_read(root, evidence, &format!("fold-read-{bound}"))?;
+        if let Some((steps, bytes)) = previous {
+            ensure!(
+                usage.0 > steps && usage.1 > bytes,
+                "read fold iterations were not charged"
+            );
+        }
+        previous = Some(usage);
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     ensure!(
         Path::new("/.dockerenv").is_file(),
@@ -303,10 +871,51 @@ fn main() -> Result<()> {
         evidence["outcome"] == "public-compiler-and-provider-verifier-accepted",
         "compiler witness incomplete"
     );
+    if evidence["schema"] == "echo.list-worklist-publication/v1" {
+        worklists::run(root, &evidence)?;
+        println!("PUBLIC_WORKLIST_RUNTIME_ACCEPTED");
+        return Ok(());
+    }
     pure(root, "pure", false, &evidence)?;
     pure(root, "renamed-pure", false, &evidence)?;
     pure(root, "changed-body", true, &evidence)?;
-    atom_read(root, &evidence)?;
+    let read_usage = atom_read(root, &evidence, "read")?;
+    if evidence["results"].get("variant-pure-payload").is_some() {
+        closed_variants(root, &evidence, read_usage, "variant")?;
+    }
+    if evidence["results"].get("match-pure-payload").is_some() {
+        closed_variants(root, &evidence, read_usage, "match")?;
+    }
+    if evidence["results"].get("u8-literal").is_some() {
+        unsigned_bytes(root, &evidence)?;
+        let u8_usage = atom_read(root, &evidence, "read-u8-constant")?;
+        ensure!(
+            u8_usage.0 > read_usage.0 && u8_usage.1 > read_usage.1,
+            "the additional U8 binding incurred no runtime work/storage"
+        );
+    }
+    if evidence["results"].get("byte-literals").is_some() {
+        byte_literals(root, &evidence)?;
+    }
+    if evidence["results"].get("byte-lookup").is_some() {
+        byte_lookup(root, &evidence)?;
+        let lookup_usage = atom_read(root, &evidence, "read-byte-lookup")?;
+        ensure!(
+            lookup_usage.0 > read_usage.0 && lookup_usage.1 > read_usage.1,
+            "read lookup incurred no extra work/storage"
+        );
+        let constant_usage = atom_read(root, &evidence, "read-byte-lookup-constant")?;
+        ensure!(
+            lookup_usage.0 > constant_usage.0 && lookup_usage.1 > constant_usage.1,
+            "read lookup not charged beyond its same-input constant-marker control"
+        );
+    }
+    if evidence["results"].get("fold-pure-0").is_some() {
+        state_folds(root, &evidence)?;
+    }
+    if evidence["results"].get("list-pure-empty").is_some() {
+        lists::run(root, &evidence, read_usage)?;
+    }
     println!("PUBLIC_SOURCE_FUNCTION_RUNTIME_ACCEPTED");
     Ok(())
 }

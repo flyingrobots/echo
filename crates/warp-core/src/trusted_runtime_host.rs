@@ -50,33 +50,35 @@ use crate::{
         action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
         action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
         action_preparation_identity_matches_v1, admit_action_invocation_v1, admit_invocation_v1,
-        admit_package_v1, commit_prepared_to_state, commit_scheduler_action_batch_to_state_v1,
-        decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
-        inspect_action_invocation_v1, install_recovered_v1, installed_from_admitted,
-        not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
-        not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
-        reconstruct_action_evaluation_v1, reconstruct_action_preparation_v1,
-        recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
-        retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
-        validate_receipt_application_result_v1, validate_receipt_installation_v1,
-        EchoOperationEvaluationAuthorityV1, SchedulerEchoOperationCandidateV1,
+        admit_operation_package, commit_prepared_to_state,
+        commit_scheduler_action_batch_to_state_v1, decode_invocation_route_v1,
+        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
+        installed_from_admitted, not_committed_basis_changed,
+        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
+        operation_descent_stack, prepare_operation_v1, reconstruct_action_evaluation_v1,
+        reconstruct_action_preparation_v1, recover_action_outcome_v1,
+        recover_committed_execution_receipt_v1, recover_operation_installation,
+        restore_operation_catalog_entry, retain_action_outcome_v1, retain_committed_execution_v1,
+        retain_operation_installation, validate_receipt_application_result_v1,
+        validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
+        SchedulerEchoOperationCandidateV1,
     },
     provider_contract::admit_provider_contract_package_v1,
-    AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
+    AdmittedEchoOperationInvocation, AdmittedExecutableOperationPackage,
     AdmittedProviderContractPackageV1, CausalAnchorAdmissionRequest, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
     CausalFrontierRef, CausalReceiptHistoryObstruction, CausalReceiptHistoryPage,
     CausalReceiptHistoryRequest, ContractInverseAdmissionRequest, ContractInverseContext,
     ContractInverseDerivation, ContractInverseHistoryObstruction, ContractInverseObstruction,
-    ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorV1,
-    EchoOperationAdmissionPolicyV1, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
+    ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionError,
+    EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
     EchoOperationCommitErrorV1, EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
-    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
-    EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionError,
+    EchoOperationInvocationAdmissionErrorKind, EchoOperationInvocationAdmissionPolicy,
     EchoOperationPreparationV1, EchoOperationReceiptV1, EchoOperationTerminalPostureV1, Engine,
     IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
     IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageRecord, InstalledEchoOperationV1,
+    InstalledContractPackageRecord, InstalledEchoOperation,
     InstalledProviderContractPackageRecordV1, IntentOutcome, IntentOutcomeDecision,
     IntentOutcomeObservation, IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact,
     ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
@@ -104,6 +106,9 @@ const ECHO_OPERATION_ACTION_ADMISSION_DIGEST_DOMAIN: &[u8] =
 /// Error returned by the reference trusted host loop.
 #[derive(Debug, Error)]
 pub enum TrustedRuntimeHostError {
+    /// A private effect frame could not bind its parent or resource limits.
+    #[error("trusted runtime host effect frame setup error: {0}")]
+    EffectFrameSetup(#[from] crate::edict_effects::EffectFrameSetupError),
     /// Provenance initialization failed.
     #[error("trusted runtime host provenance error: {0}")]
     Provenance(#[from] HistoryError),
@@ -153,7 +158,7 @@ pub enum TrustedRuntimeHostError {
     EchoOperationActionAdmissionPolicyUnavailable,
     /// Runtime-owned admission refused a durably accepted executable Action.
     #[error("trusted runtime host executable-operation Action admission error: {0}")]
-    EchoOperationActionAdmission(#[from] EchoOperationInvocationAdmissionErrorV1),
+    EchoOperationActionAdmission(#[from] EchoOperationInvocationAdmissionError),
     /// Executable-operation installation conflicted with installed authority.
     #[error("trusted runtime host executable-operation installation error: {0}")]
     EchoOperationInstallation(#[from] EchoOperationInstallationErrorV1),
@@ -513,7 +518,7 @@ pub struct TrustedRuntimeWalRecovery {
     /// Ordered Echo control history for committed causal-anchor admissions.
     pub causal_anchor_history: Vec<WitnessedCausalAnchorAdmission>,
     /// Exact executable meaning reconstructed from retained installation records.
-    pub installed_echo_operations: Vec<InstalledEchoOperationV1>,
+    pub installed_echo_operations: Vec<InstalledEchoOperation>,
     /// Typed receipts reconstructed from executable-operation tick records.
     pub echo_operation_receipts: Vec<EchoOperationReceiptV1>,
     /// Typed executable-operation Action outcomes reconstructed from
@@ -861,12 +866,12 @@ pub struct TrustedRuntimeHost {
     runtime_wal: Option<TrustedRuntimeWal>,
     causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
-    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
+    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicy>,
     echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
     pending_echo_operation_actions: BTreeSet<Hash>,
-    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocation>,
     echo_operation_action_admission_obstructions:
-        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKind>,
 }
 
 /// Owned decomposition of a [`TrustedRuntimeHost`].
@@ -882,12 +887,12 @@ pub struct TrustedRuntimeHostParts {
     runtime_wal: Option<TrustedRuntimeWal>,
     causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
-    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
+    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicy>,
     echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
     pending_echo_operation_actions: BTreeSet<Hash>,
-    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocation>,
     echo_operation_action_admission_obstructions:
-        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKind>,
 }
 
 impl TrustedRuntimeHostParts {
@@ -1064,7 +1069,7 @@ impl TrustedRuntimeHost {
     /// executable-operation Actions before scheduler selection.
     pub fn install_echo_operation_action_admission_policy_v1(
         &mut self,
-        policy: EchoOperationInvocationAdmissionPolicyV1,
+        policy: EchoOperationInvocationAdmissionPolicy,
     ) {
         self.echo_operation_action_admission_policy = Some(policy);
         self.requeue_obstructed_echo_operation_actions_v1();
@@ -1086,7 +1091,7 @@ impl TrustedRuntimeHost {
     pub fn echo_operation_action_admission_obstruction_v1(
         &self,
         submission_id: &Hash,
-    ) -> Option<EchoOperationInvocationAdmissionErrorKindV1> {
+    ) -> Option<EchoOperationInvocationAdmissionErrorKind> {
         self.echo_operation_action_admission_obstructions
             .get(submission_id)
             .copied()
@@ -1097,12 +1102,20 @@ impl TrustedRuntimeHost {
     /// A successful result is an opaque admission token. It does not install
     /// the package and the program digest inside the package does not confer an
     /// operation coordinate, invocability, or authority.
-    pub fn admit_echo_operation_package_v1(
+    /// Application handles cannot admit executable packages:
+    ///
+    /// ```compile_fail,E0599
+    /// use warp_core::{TrustedRuntimeApp, EchoOperationAdmissionPolicy};
+    /// fn application_cannot_admit(app: &TrustedRuntimeApp<'_>, policy: &EchoOperationAdmissionPolicy, bytes: Vec<u8>) {
+    ///     app.admit_echo_operation_package(policy, bytes);
+    /// }
+    /// ```
+    pub fn admit_echo_operation_package(
         &self,
-        policy: &EchoOperationAdmissionPolicyV1,
+        policy: &EchoOperationAdmissionPolicy,
         canonical_package_bytes: Vec<u8>,
-    ) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionErrorV1> {
-        admit_package_v1(policy, canonical_package_bytes)
+    ) -> Result<AdmittedExecutableOperationPackage, EchoOperationAdmissionError> {
+        admit_operation_package(policy, canonical_package_bytes)
     }
 
     /// Installs exact executable meaning carried by an admitted operation package.
@@ -1110,33 +1123,40 @@ impl TrustedRuntimeHost {
     /// Installation stores no native callback and still does not authorize an
     /// invocation. Application-facing [`TrustedRuntimeApp`] handles cannot call
     /// this runtime-owner method.
-    pub fn install_admitted_echo_operation_package_v1(
+    ///
+    /// ```compile_fail,E0599
+    /// use warp_core::{TrustedRuntimeApp, AdmittedExecutableOperationPackage};
+    /// fn application_cannot_install(app: &mut TrustedRuntimeApp<'_>, admitted: AdmittedExecutableOperationPackage) {
+    ///     app.install_admitted_echo_operation_package(admitted);
+    /// }
+    /// ```
+    pub fn install_admitted_echo_operation_package(
         &mut self,
-        admitted: AdmittedExecutableOperationPackageV1,
-    ) -> Result<InstalledEchoOperationV1, TrustedRuntimeHostError> {
-        let installed = installed_from_admitted(admitted)?;
+        admitted: AdmittedExecutableOperationPackage,
+    ) -> Result<InstalledEchoOperation, TrustedRuntimeHostError> {
+        let installed = installed_from_admitted(admitted);
         self.engine
-            .preflight_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
+            .preflight_recovered_echo_operation_packages(core::slice::from_ref(&installed))?;
         if self
             .engine
-            .installed_echo_operation_package_v1(installed.package_id())
+            .installed_echo_operation_package(installed.package_id())
             == Some(&installed)
         {
             return Ok(installed);
         }
 
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
-            let retained = retain_installation_v1(&installed)?;
+            let retained = retain_operation_installation(&installed)?;
             if let Err(error) = runtime_wal.record_executable_operation_installation(&retained) {
-                if !runtime_wal.recover_filesystem_executable_operation_installation_after_error(
-                    installed.package_id(),
-                ) {
+                if !runtime_wal
+                    .recover_filesystem_executable_operation_installation_after_error(&installed)
+                {
                     return Err(error.into());
                 }
             }
         }
         self.engine
-            .restore_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
+            .restore_recovered_echo_operation_packages(core::slice::from_ref(&installed))?;
         self.requeue_obstructed_echo_operation_actions_v1();
         Ok(installed)
     }
@@ -1160,16 +1180,127 @@ impl TrustedRuntimeHost {
         .map_err(TrustedRuntimeHostError::from)
     }
 
+    /// Starts a private computation/read frame at an exact current parent.
+    ///
+    /// The runtime resolves the writer, ticks, root and commit identity itself
+    /// and borrows its own frontier. It never accepts caller-supplied storage.
+    /// The immutable host borrow prevents a scheduler tick during this frame.
+    /// Policy and limits are trusted-host inputs, not application authority.
+    /// The typed application basis remains a proposition; this constructor does
+    /// not validate it against application input. This is not package admission,
+    /// installed dispatch or a mutation path.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unknown writer, a stale or substituted full parent, or invalid
+    /// resource declarations before creating a frame or recording a read.
+    pub fn effect_evaluation_frame_v1(
+        &self,
+        expected: EchoOperationEvaluationBasisV1,
+        allowed_range_types: &[crate::TypeId],
+        max_range_edges: u64,
+        budget: crate::EchoOperationBudgetV1,
+        limits: crate::edict_pure::EvaluationLimits,
+    ) -> Result<crate::edict_effects::EffectEvaluationFrame<'_>, TrustedRuntimeHostError> {
+        let current = self.echo_operation_evaluation_basis_v1(
+            expected.writer_head(),
+            expected.application_basis(),
+        )?;
+        if current != expected {
+            return Err(crate::edict_effects::EffectFrameSetupError::BasisMismatch.into());
+        }
+        let frontier = self
+            .runtime
+            .worldlines()
+            .get(&current.writer_head().worldline_id)
+            .ok_or_else(|| RuntimeError::UnknownWorldline(current.writer_head().worldline_id))?;
+        let reads = crate::edict_effects::EffectRangeReadSession::new(
+            frontier,
+            allowed_range_types,
+            max_range_edges,
+            budget,
+        );
+        Ok(crate::edict_effects::EffectEvaluationFrame::at_parent(
+            reads,
+            limits,
+            current,
+            self.echo_operation_evaluation_authority.clone(),
+        )?)
+    }
+
+    /// Privately derives a patch from completed authored work without applying it.
+    /// # Errors
+    /// Refuses mismatched authority/origin and invalid mutation proposals.
+    pub fn derive_echo_operation_effects(
+        &self,
+        admitted: &crate::AdmittedEchoOperationInvocation,
+        completed: crate::edict_effects::CompletedEffectEvaluation,
+    ) -> Result<crate::edict_effects::DerivedEffectPatch, crate::edict_effects::EffectDerivationError>
+    {
+        use crate::edict_effects::{EffectDerivationError as Error, EffectDerivationKind as Kind};
+        let fail = |kind| Error::new(kind, crate::EchoOperationBudgetV1::new(0, 0, 0));
+        if !admitted.is_owned_by(&self.echo_operation_evaluation_authority)
+            || !completed.is_owned_by(&self.echo_operation_evaluation_authority)
+        {
+            return Err(fail(Kind::AuthorityMismatch));
+        }
+        let installed = self
+            .engine
+            .installed_echo_operation_package(admitted.package_id())
+            .ok_or_else(|| fail(Kind::OperationUnavailable))?;
+        if installed.installed_operation_id() != admitted.installed_operation_id() {
+            return Err(fail(Kind::OperationUnavailable));
+        }
+        let program = installed
+            .program()
+            .as_effect_program()
+            .ok_or_else(|| fail(Kind::OperationUnavailable))?;
+        if completed.program_identity() != installed.program_identity()
+            || completed.evaluation_basis() != admitted.evaluation_basis()
+        {
+            return Err(fail(Kind::OriginMismatch));
+        }
+        let basis = self
+            .echo_operation_evaluation_basis_v1(
+                admitted.evaluation_basis().writer_head(),
+                admitted.evaluation_basis().application_basis(),
+            )
+            .map_err(|_| fail(Kind::BasisChanged))?;
+        if basis != admitted.evaluation_basis() {
+            return Err(fail(Kind::BasisChanged));
+        }
+        let state = self
+            .runtime
+            .worldlines()
+            .get(&basis.writer_head().worldline_id)
+            .ok_or_else(|| fail(Kind::BasisChanged))?
+            .state();
+        let invocation = admitted
+            .invocation()
+            .identity()
+            .map_err(|_| fail(Kind::OriginMismatch))?
+            .as_hash();
+        crate::edict_effects::derive::derive(
+            state,
+            program,
+            completed,
+            admitted.invocation().delegated_budget(),
+            self.engine.echo_operation_policy_id(),
+            installed.identity(),
+            invocation,
+        )
+    }
+
     /// Independently admits a canonical installed-operation invocation.
     ///
     /// Admission checks exact installed package identity, public operation
     /// coordinate, authority profile and grant, delegated budget, and current
     /// parent basis. It does not evaluate or mutate the graph.
-    pub fn admit_echo_operation_invocation_v1(
+    pub fn admit_echo_operation_invocation(
         &self,
-        policy: &EchoOperationInvocationAdmissionPolicyV1,
+        policy: &EchoOperationInvocationAdmissionPolicy,
         canonical_invocation_bytes: &[u8],
-    ) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+    ) -> Result<AdmittedEchoOperationInvocation, EchoOperationInvocationAdmissionError> {
         let (package_id, claimed_basis) = decode_invocation_route_v1(canonical_invocation_bytes)?;
         let current_basis = self
             .echo_operation_evaluation_basis_v1(
@@ -1188,7 +1319,7 @@ impl TrustedRuntimeHost {
                 )
             })?;
         admit_invocation_v1(
-            self.engine.installed_echo_operation_package_v1(package_id),
+            self.engine.installed_echo_operation_package(package_id),
             *policy,
             canonical_invocation_bytes,
             current_basis,
@@ -1207,7 +1338,7 @@ impl TrustedRuntimeHost {
     #[doc(hidden)]
     pub fn prepare_echo_operation_v1(
         &self,
-        admitted: AdmittedEchoOperationInvocationV1,
+        admitted: AdmittedEchoOperationInvocation,
     ) -> EchoOperationPreparationV1 {
         let current_basis = self.echo_operation_evaluation_basis_v1(
             admitted.evaluation_basis().writer_head(),
@@ -1226,7 +1357,7 @@ impl TrustedRuntimeHost {
         };
         prepare_operation_v1(
             self.engine
-                .installed_echo_operation_package_v1(admitted.package_id()),
+                .installed_echo_operation_package(admitted.package_id()),
             admitted,
             current_basis,
             state,
@@ -1269,7 +1400,7 @@ impl TrustedRuntimeHost {
         }
         if self
             .engine
-            .installed_echo_operation_package_v1(prepared.package_id())
+            .installed_echo_operation_package(prepared.package_id())
             .is_none_or(|installed| {
                 installed.installed_operation_id() != prepared.installed_operation_id()
             })
@@ -1338,7 +1469,7 @@ impl TrustedRuntimeHost {
 
         let installed = self
             .engine
-            .installed_echo_operation_package_v1(prepared.package_id());
+            .installed_echo_operation_package(prepared.package_id());
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
             let installed =
                 installed.ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
@@ -1415,7 +1546,7 @@ impl TrustedRuntimeHost {
             &recovery,
         )?;
         self.engine
-            .preflight_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
+            .preflight_recovered_echo_operation_packages(&recovery.installed_echo_operations)?;
 
         let mut restored_runtime = forked_runtime;
         let mut restored_provenance = forked_provenance;
@@ -1440,7 +1571,7 @@ impl TrustedRuntimeHost {
         validate_recovered_tick_decisions(&restored_runtime, &recovery.receipts)?;
 
         self.engine
-            .restore_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
+            .restore_recovered_echo_operation_packages(&recovery.installed_echo_operations)?;
         self.echo_operation_action_outcomes = recovery
             .echo_operation_action_outcomes
             .iter()
@@ -1942,7 +2073,7 @@ impl TrustedRuntimeHost {
     fn admit_pending_echo_operation_actions_v1(
         &mut self,
         staging: &mut TicketedIngressStagingRollback,
-    ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
+    ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocation>, TrustedRuntimeHostError> {
         if self.pending_echo_operation_actions.is_empty() {
             return Ok(self.admitted_echo_operation_actions.clone());
         }
@@ -2027,7 +2158,7 @@ impl TrustedRuntimeHost {
                 }
             };
             let admitted = match admit_action_invocation_v1(
-                self.engine.installed_echo_operation_package_v1(package_id),
+                self.engine.installed_echo_operation_package(package_id),
                 policy,
                 &invocation_bytes,
                 self.echo_operation_evaluation_authority.clone(),
@@ -2322,14 +2453,11 @@ fn ensure_runtime_authority_is_durable(
         .iter()
         .map(|installed| (installed.package_id(), installed))
         .collect::<BTreeMap<_, _>>();
-    if engine
-        .installed_echo_operation_packages_v1()
-        .any(|installed| {
-            recovered_operations
-                .get(&installed.package_id())
-                .is_none_or(|recovered| **recovered != *installed)
-        })
-    {
+    if engine.installed_echo_operation_packages().any(|installed| {
+        recovered_operations
+            .get(&installed.package_id())
+            .is_none_or(|recovered| **recovered != *installed)
+    }) {
         return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
             gap: RuntimeWalActivationGap::ExecutableOperationInstallation,
         });
@@ -3360,7 +3488,7 @@ impl TrustedRuntimeWal {
 
     fn recover_filesystem_executable_operation_installation_after_error(
         &mut self,
-        package_id: crate::EchoOperationPackageIdV1,
+        expected: &InstalledEchoOperation,
     ) -> bool {
         if !self.uses_filesystem_store() {
             return false;
@@ -3372,7 +3500,7 @@ impl TrustedRuntimeWal {
             recovery
                 .installed_echo_operations
                 .iter()
-                .any(|installed| installed.package_id() == package_id)
+                .any(|installed| installed == expected)
         })
     }
 
@@ -3596,10 +3724,10 @@ impl TrustedRuntimeWal {
         &mut self,
         retained_installation_bytes: &[u8],
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
-        let installed = recover_installation_v1(retained_installation_bytes)?;
+        let installed = recover_operation_installation(retained_installation_bytes)?;
         let next_catalog_frontier = executable_operation_catalog_frontier_digest(
             self.executable_operation_catalog_frontier_digest,
-            installed.package_id(),
+            installed.package_identity(),
             retained_installation_bytes,
         );
         let transaction = build_executable_operation_installation_transaction(
@@ -3608,7 +3736,7 @@ impl TrustedRuntimeWal {
                 WalAppendAuthority::RuntimeControl,
                 WalTransactionId::from_hash(executable_operation_installation_transaction_digest(
                     self.executable_operation_catalog_frontier_digest,
-                    installed.package_id(),
+                    installed.package_identity(),
                     retained_installation_bytes,
                 )),
             ),
@@ -3630,7 +3758,7 @@ impl TrustedRuntimeWal {
         retained_execution_bytes: Vec<u8>,
         state_delta: &WalRuntimeStateDeltaRecord,
         state_delta_digest: Hash,
-        installed: &InstalledEchoOperationV1,
+        installed: &InstalledEchoOperation,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
         let retained_receipt = recover_committed_execution_receipt_v1(&retained_execution_bytes)?;
         if &retained_receipt != receipt || state_delta.digest()? != state_delta_digest {
@@ -4256,7 +4384,7 @@ impl TrustedRuntimeWalCursor {
                     let catalog_before = cursor.executable_operation_catalog_frontier_digest;
                     let catalog_after = executable_operation_catalog_frontier_digest(
                         catalog_before,
-                        installed.package_id(),
+                        installed.package_identity(),
                         &retained_bytes,
                     );
                     validate_echo_operation_frontier_root(
@@ -4488,7 +4616,7 @@ fn restore_provenance_entries(
 }
 
 struct RecoveredEchoOperationMaterial {
-    installations: Vec<InstalledEchoOperationV1>,
+    installations: Vec<InstalledEchoOperation>,
     receipts: Vec<EchoOperationReceiptV1>,
 }
 
@@ -4509,7 +4637,7 @@ fn recover_echo_operation_material(
         match transaction.commit.transaction_kind {
             WalTransactionKind::ExecutableOperationInstallation => {
                 let (installed, _) = operation_installation_from_transaction(transaction)?;
-                install_recovered_v1(&mut installations, &mut operations, installed)?;
+                restore_operation_catalog_entry(&mut installations, &mut operations, installed)?;
             }
             WalTransactionKind::ExecutableOperationTick => {
                 let (receipt, state_delta, _) =
@@ -4557,10 +4685,11 @@ fn recover_echo_operation_material(
 /// performed independently by the surrounding provenance checks.
 fn operation_patch_scope_v1(
     patch: &crate::WorldlineTickPatchV1,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
 ) -> Option<crate::NodeKey> {
     match program {
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet {
+        crate::EchoOperationProgram::EdictEffect(_) => None,
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet {
             required_attachment_type,
             max_replacement_bytes,
             ..
@@ -4586,7 +4715,7 @@ fn operation_patch_scope_v1(
             }
             _ => None,
         },
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent {
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent {
             required_node_type,
             required_attachment_type,
             max_replacement_bytes,
@@ -4665,7 +4794,7 @@ fn operation_patch_inputs_match_v1(
 
 fn operation_patch_scope_in_parent_state_v1(
     patch: &crate::WorldlineTickPatchV1,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
     parent_state: &crate::WorldlineState,
 ) -> Option<crate::NodeKey> {
     let node = operation_patch_scope_v1(patch, program)?;
@@ -4675,7 +4804,7 @@ fn operation_patch_scope_in_parent_state_v1(
     let descent_stack = operation_descent_stack(parent_state, node.warp_id)?;
     if matches!(
         program,
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. }
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent { .. }
     ) {
         let store = parent_state.store(&node.warp_id)?;
         if store.node(&node.local_id).is_some() || store.node_attachment(&node.local_id).is_some() {
@@ -4703,7 +4832,7 @@ fn operation_tick_binds_patch_v1(
     tick_receipt: &crate::TickReceipt,
     patch: &crate::WorldlineTickPatchV1,
     expected_rule_id: Hash,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
 ) -> bool {
     let Some(expected_scope) = operation_patch_scope_v1(patch, program) else {
         return false;
@@ -4724,7 +4853,7 @@ fn operation_tick_scope_in_parent_state_v1(
     tick_receipt: &crate::TickReceipt,
     patch: &crate::WorldlineTickPatchV1,
     expected_rule_id: Hash,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
     parent_state: &crate::WorldlineState,
 ) -> Option<crate::NodeKey> {
     let expected_scope = operation_patch_scope_in_parent_state_v1(patch, program, parent_state)?;
@@ -4742,13 +4871,14 @@ fn operation_tick_scope_in_parent_state_v1(
 }
 
 fn operation_application_basis_matches_scope_v1(
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
     node: crate::NodeKey,
     application_basis: EchoOperationApplicationBasisV1,
 ) -> bool {
     match program {
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. } => true,
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+        crate::EchoOperationProgram::EdictEffect(_) => false,
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet { .. } => true,
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
             application_basis
                 == crate::echo_operation_anchored_node_absent_application_basis_v1(node)
         }
@@ -5594,7 +5724,7 @@ fn evaluation_basis_matches_recovered_coordinate(
 fn validate_operation_receipt_state_delta(
     receipt: &EchoOperationReceiptV1,
     state_delta: &WalRuntimeStateDeltaRecord,
-    installed: &InstalledEchoOperationV1,
+    installed: &InstalledEchoOperation,
 ) -> Result<(), TrustedRuntimeWalError> {
     let entry = state_delta.provenance_entry();
     let basis = receipt.evaluation_basis();
@@ -5920,7 +6050,7 @@ fn validate_recovered_echo_operation_action_outcomes(
     witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
     receipt_correlations: &[ReceiptCorrelationPersistenceRecord],
     provenance_entries: &[ProvenanceEntry],
-    installed_echo_operations: &[InstalledEchoOperationV1],
+    installed_echo_operations: &[InstalledEchoOperation],
     outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
     decisions: &BTreeMap<Hash, WalTickDecision>,
     installation_order: &RecoveredEchoOperationActionInstallationOrder,
@@ -6246,13 +6376,13 @@ fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) 
 
 fn operation_installation_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
-) -> Result<(InstalledEchoOperationV1, Vec<u8>), TrustedRuntimeWalError> {
+) -> Result<(InstalledEchoOperation, Vec<u8>), TrustedRuntimeWalError> {
     let frame = required_unique_transaction_frame(
         transaction,
         WalRecordKind::ExecutableOperationPackageInstalled,
     )?;
     let retained_bytes = frame.payload.canonical_bytes.clone();
-    let installed = recover_installation_v1(&retained_bytes)?;
+    let installed = recover_operation_installation(&retained_bytes)?;
     Ok((installed, retained_bytes))
 }
 
@@ -7203,7 +7333,7 @@ fn provider_contract_host_admission_digest(
 
 fn echo_operation_action_admission_digest(
     submission: &IntentSubmissionRecord,
-    admitted: &AdmittedEchoOperationInvocationV1,
+    admitted: &AdmittedEchoOperationInvocation,
 ) -> Hash {
     echo_operation_action_admission_digest_from_parts(
         submission,
@@ -7488,59 +7618,93 @@ mod tests {
         .expect("the recovery parent-state fixture is lawful")
     }
 
-    #[test]
-    fn executable_operation_index_preserves_legacy_root_without_action_outcomes() {
-        let operation_coordinate = "echo.test.LegacyRecoveryIndex.v1";
+    fn recovery_index_installation(operation_coordinate: &str) -> InstalledEchoOperation {
         let authority_profile_identity = [0x17; 32];
         let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
-        let package = crate::ExecutableOperationPackageV1::new(
+        let package = crate::ExecutableOperationPackage::new(
             operation_coordinate,
-            "echo.test.LegacyRecoveryIndex.Obstruction.v1",
-            crate::EchoOperationSemanticClosureV1::new(
+            "echo.test.RecoveryIndex.Obstruction.v1",
+            crate::EchoOperationSemanticClosure::new(
                 [0x10; 32],
                 [0x11; 32],
                 [0x12; 32],
                 [0x13; 32],
-                "echo.test.legacy-index-schema/v1",
+                "echo.test.recovery-index-schema/v1",
                 [0x14; 32],
-                "echo.test.legacy-index-lawpack/v1",
+                "echo.test.recovery-index-lawpack/v1",
                 [0x15; 32],
             ),
             crate::echo_operation_target_profile_identity_v1(),
             authority_profile_identity,
             budget,
-            crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
-                crate::make_type_id("legacy-index-node"),
-                crate::make_type_id("legacy-index-attachment"),
+            crate::EchoOperationProgram::anchored_node_attachment_compare_and_set(
+                crate::make_type_id("recovery-index-node"),
+                crate::make_type_id("recovery-index-attachment"),
                 128,
             ),
         );
         let package_bytes = package
             .to_canonical_bytes()
-            .expect("the legacy-index package is canonical");
+            .expect("the recovery-index package is canonical");
         let package_id = crate::echo_operation_package_id_v1(&package_bytes);
-        let admitted = admit_package_v1(
-            &crate::EchoOperationAdmissionPolicyV1::exact(
-                package_id,
+        let admitted = admit_operation_package(
+            &crate::EchoOperationAdmissionPolicy::exact(
+                package_id.as_hash(),
                 operation_coordinate,
                 authority_profile_identity,
                 budget,
             ),
             package_bytes,
         )
-        .expect("the legacy-index package is admitted");
-        let installed =
-            installed_from_admitted(admitted).expect("the legacy-index package installs");
+        .expect("the recovery-index package is admitted");
+        installed_from_admitted(admitted)
+    }
 
+    #[test]
+    fn operation_index_uses_one_current_recipe_even_without_action_outcomes() {
+        let base = [0x20; 32];
+        let installed = recovery_index_installation("echo.test.RecoveryIndex.a");
+        let bytes = retain_operation_installation(&installed).expect("retained installation");
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo:trusted-runtime-wal:executable-operation-index:v3\0");
+        expected.update(&base);
+        expected.update(&1u64.to_le_bytes());
+        expected.update(&(bytes.len() as u64).to_le_bytes());
+        expected.update(&bytes);
+        expected.update(&0u64.to_le_bytes()); // No execution receipts.
+        expected.update(&0u64.to_le_bytes()); // No Action outcomes.
         assert_eq!(
-            recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[])
-                .expect("the legacy index root is computable"),
-            [
-                0xf9, 0xcf, 0x53, 0xf2, 0xad, 0xaf, 0x93, 0x1a, 0xa0, 0xe6, 0x06, 0xc6, 0x5a, 0x91,
-                0x6f, 0xfa, 0x0b, 0x4f, 0xf5, 0x50, 0x66, 0x32, 0x8c, 0x1c, 0x48, 0xf7, 0x22, 0xcd,
-                0x1e, 0x0d, 0x40, 0x2e,
-            ]
+            recovered_echo_operation_index_root(base, &[installed], &[], &[],)
+                .expect("current index"),
+            *expected.finalize().as_bytes(),
         );
+    }
+
+    #[test]
+    fn operation_index_canonicalizes_installation_order_without_a_second_catalog() {
+        let a = recovery_index_installation("echo.test.RecoveryIndex.a");
+        let b = recovery_index_installation("echo.test.RecoveryIndex.b");
+        let forward =
+            recovered_echo_operation_index_root([0x20; 32], &[a.clone(), b.clone()], &[], &[])
+                .expect("forward catalog");
+        let reversed = recovered_echo_operation_index_root([0x20; 32], &[b, a], &[], &[])
+            .expect("reversed catalog");
+        assert_eq!(forward, reversed);
+    }
+
+    #[test]
+    fn operation_index_commits_empty_sections_under_the_same_current_domain() {
+        let base = [0x20; 32];
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo:trusted-runtime-wal:executable-operation-index:v3\0");
+        expected.update(&base);
+        for _ in 0..3 {
+            expected.update(&0u64.to_le_bytes());
+        }
+        let root =
+            recovered_echo_operation_index_root(base, &[], &[], &[]).expect("empty current index");
+        assert_eq!(root, *expected.finalize().as_bytes());
+        assert_ne!(root, base);
     }
 
     #[test]
@@ -7550,17 +7714,16 @@ mod tests {
             local_id: crate::make_node_id("operation-wal-created-node"),
         };
         let installed_program =
-            crate::EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            crate::EchoOperationProgram::anchored_node_attachment_create_if_absent(
                 crate::make_type_id("operation-wal-created-node"),
                 crate::make_type_id("operation-wal-created-attachment"),
                 7,
             );
-        let update_program =
-            crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
-                crate::make_type_id("operation-wal-created-node"),
-                crate::make_type_id("operation-wal-created-attachment"),
-                7,
-            );
+        let update_program = crate::EchoOperationProgram::anchored_node_attachment_compare_and_set(
+            crate::make_type_id("operation-wal-created-node"),
+            crate::make_type_id("operation-wal-created-attachment"),
+            7,
+        );
         let patch = creation_scope_patch(node);
         let parent_state = creation_scope_parent_state(node);
         assert_eq!(
@@ -7853,7 +8016,7 @@ mod tests {
         let attachment_slot = crate::AttachmentKey::node_alpha(node);
         let rule_id = [21; 32];
         let attachment_type = crate::make_type_id("operation-recovery-attachment");
-        let program = crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        let program = crate::EchoOperationProgram::anchored_node_attachment_compare_and_set(
             crate::make_type_id("operation-recovery-node"),
             attachment_type,
             7,
@@ -8770,14 +8933,14 @@ fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
 
 fn executable_operation_catalog_frontier_digest(
     previous: Hash,
-    package_id: crate::EchoOperationPackageIdV1,
+    package_id: Hash,
     retained_installation_bytes: &[u8],
 ) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(b"executable-operation-catalog-frontier");
     hasher.update(&previous);
-    hasher.update(&package_id.as_hash());
+    hasher.update(&package_id);
     hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
     hasher.update(retained_installation_bytes);
     hasher.finalize().into()
@@ -8794,13 +8957,13 @@ fn executable_operation_receipt_frontier_digest(previous: Hash, receipt_digest: 
 
 fn executable_operation_installation_transaction_digest(
     catalog_frontier: Hash,
-    package_id: crate::EchoOperationPackageIdV1,
+    package_id: Hash,
     retained_installation_bytes: &[u8],
 ) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo:trusted-runtime:executable-operation-installation-transaction:v1\0");
     hasher.update(&catalog_frontier);
-    hasher.update(&package_id.as_hash());
+    hasher.update(&package_id);
     hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
     hasher.update(retained_installation_bytes);
     hasher.finalize().into()
@@ -8875,7 +9038,7 @@ struct RecoveredRuntimeWalIndexEvidence<'a> {
     provenance_entries: &'a [ProvenanceEntry],
     missing_runtime_state_deltas: &'a [Hash],
     causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
-    installed_echo_operations: &'a [InstalledEchoOperationV1],
+    installed_echo_operations: &'a [InstalledEchoOperation],
     echo_operation_receipts: &'a [EchoOperationReceiptV1],
     echo_operation_action_outcomes: &'a [(Hash, Hash, EchoOperationActionOutcomeV1)],
 }
@@ -8923,47 +9086,38 @@ fn recovered_runtime_wal_indexes_root(
 
 fn recovered_echo_operation_index_root(
     base_root: Hash,
-    installations: &[InstalledEchoOperationV1],
+    installations: &[InstalledEchoOperation],
     receipts: &[EchoOperationReceiptV1],
     action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
 ) -> Result<Hash, TrustedRuntimeWalError> {
-    let legacy_root =
-        recovered_echo_operation_legacy_index_root(base_root, installations, receipts)?;
-    if action_outcomes.is_empty() {
-        return Ok(legacy_root);
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v2\0");
-    hasher.update(&legacy_root);
-    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
-    for (submission_id, ingress_id, outcome) in action_outcomes {
-        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
-    }
-    Ok(hasher.finalize().into())
-}
+    let mut catalog = installations
+        .iter()
+        .map(|installed| {
+            Ok((
+                installed.package_id().as_hash(),
+                retain_operation_installation(installed)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, TrustedRuntimeWalError>>()?;
+    catalog.sort_unstable();
 
-fn recovered_echo_operation_legacy_index_root(
-    base_root: Hash,
-    installations: &[InstalledEchoOperationV1],
-    receipts: &[EchoOperationReceiptV1],
-) -> Result<Hash, TrustedRuntimeWalError> {
-    if installations.is_empty() && receipts.is_empty() {
-        return Ok(base_root);
-    }
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v1\0");
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v3\0");
     hasher.update(&base_root);
-    hasher.update(&(installations.len() as u64).to_le_bytes());
-    for installed in installations {
-        let bytes = retain_installation_v1(installed)?;
+    hasher.update(&(catalog.len() as u64).to_le_bytes());
+    for (_, bytes) in catalog {
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
     }
     hasher.update(&(receipts.len() as u64).to_le_bytes());
     for receipt in receipts {
         let bytes = receipt.to_canonical_bytes()?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
+    for (submission_id, ingress_id, outcome) in action_outcomes {
+        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
     }

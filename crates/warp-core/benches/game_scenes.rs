@@ -42,7 +42,7 @@ fn percentile(samples: &[Duration], per_mille: usize) -> f64 {
 }
 
 fn report(scene: Scene, profile: &str, obs: &Observation) -> bool {
-    let expect = game::expectation(scene);
+    let expect = game::expectation(scene, SEED);
     let class = game::validate(scene, &expect, obs);
     let spec = game::workload(scene, SEED);
     let workload_id = spec.workload_id();
@@ -52,6 +52,25 @@ fn report(scene: Scene, profile: &str, obs: &Observation) -> bool {
         hex32(&workload_id),
         hex32(&expect.expectation_id(&workload_id)),
         class.label()
+    );
+    let a = &obs.accounting;
+    println!(
+        "F6 scene={} profile={profile} bodies={} emitters={} world_units={} cell_units={} \
+         frames={} occurrences={} delivery_attempts={} submitted={} admitted={} \
+         committed={} refused={} unfinished={}",
+        scene.name,
+        scene.bodies,
+        scene.emitters,
+        scene.world,
+        scene.cell,
+        scene.frames,
+        a.occurrences,
+        a.delivery_attempts,
+        a.submitted,
+        a.admitted,
+        a.committed,
+        a.refused,
+        a.unfinished
     );
     if !class.comparable() {
         println!("F6 scene={} detail: {class:?}", scene.name);

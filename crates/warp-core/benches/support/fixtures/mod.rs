@@ -10,7 +10,7 @@
 //! - [`outcome`]: result classes and work accounting.
 //! - [`star`]: control C1, the star scene `action_scene` builds.
 //! - [`think_append`]: fixture F5, append and replay through the trusted host.
-//! - [`game`]: fixture F6, real-time game scenes run frame by frame.
+//! - [`game`]: fixture F6, game scenes run frame by frame.
 
 pub mod game;
 pub mod manifest;

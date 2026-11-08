@@ -255,52 +255,52 @@ const SMALL_SCENES: [game::Scene; 3] = [
     game::BULLETS.scaled(1, 8, 70),
 ];
 
-/// Pinned live roots of the small scenes at seed 6, as `hex32`. Regenerate
-/// (the failure message prints the observed root) whenever the game, the
-/// graph layout or `FIXTURE_VERSION` changes.
-const SMALL_SCENE_ROOTS: [&str; 3] = [
-    "76a94d9c932dd31433f9e06636ee13f1a36d8cee3390c99da2e4d91d3bed632a",
-    "51b539864ad690800c02fcdafc5935197bfd501a2689eb60719f624a5720627f",
-    "5395d6af41ae131d9088db24c242e60eea10eb207097cf653e94ab71a4619cec",
+/// Pinned live roots of the small scenes at seed 6, as `hex32`. They are
+/// declared through `with_live_root`, so a moved root makes the run invalid.
+/// Repin (the failure lists every observed root) after any intended change
+/// to `step`, the generator, the graph layout, or Echo's state-root encoding.
+const SMALL_SCENE_ROOTS: [&str; SMALL_SCENES.len()] = [
+    "1b695925daf1a57b0a53575c0aada90843607a7eb2cc48aae5e9a653185e5f62",
+    "d1f2d370e9d1bb132a78f79337d165cd5269271576284f93f80e11970d970877",
+    "9cad1fc1d5ed77dbbe26fb9be2a1ca8254cb6dc1bcbb36e883f131a47b1885e4",
 ];
 
-/// Pinned blake3 digests of each full-size scene's generated initial world at
-/// seed 6: the concatenated encodings of its bodies in id order. Regenerate
-/// (the failure message prints the observed digest) whenever the generator
-/// changes.
-const INITIAL_WORLD_DIGESTS: [&str; 3] = [
-    "4a0074099f7e3ee1d2eef31fddf3482f36e42ac8516ff9eb09dc080bb5d71e09",
-    "a872542db06f4284e9c231358ff5207edbb2e7afa801d7b4b896f0f4331c6ed1",
-    "e1b3f46bfe2d54dd01520141f604f198fbb731dc57ad6b4dd7feda5318f6dda0",
+/// Pinned initial-world digests (`game::world_digest`) of the full-size
+/// scenes at seed 6. Repin (the failure lists every observed digest) after
+/// any intended generator change, and bump `FIXTURE_VERSION` with it.
+const INITIAL_WORLD_DIGESTS: [&str; game::SCENES.len()] = [
+    "f52ff86823d1f9f9f3abb09876ad862d45c6df23782a5db41092477acd6cd07d",
+    "8dbba2bbf07ac78842ae76df5246ede0fb4728d78e5ee03af078f5bb2a9fece9",
+    "2c05f8ea8c696c5ad6ed65db61b73f7d76dda255fa7db5622cef57bc5e41508d",
 ];
 
 /// Small F6 scenes run validly in a debug build, where footprint enforcement
-/// checks that the step declares every read and write it makes. The pile runs
+/// checks that the footprint declares every read and write the step makes.
+/// Each run's expectation also declares its pinned live root. The pile runs
 /// long enough to land and pile up, so contact edges are added (the hand
 /// scenes below check removal); the bullets run past a projectile lifetime,
-/// so bodies despawn. Each scene runs once; its live root must match the pin.
+/// so bodies despawn. Each scene runs once.
 #[test]
 fn f6_small_scenes_run_validly() {
     let mut observations = std::collections::BTreeMap::new();
     let mut moved = Vec::new();
     for (scene, pinned) in SMALL_SCENES.into_iter().zip(SMALL_SCENE_ROOTS) {
         let obs = game::run(scene, 6);
-        assert_eq!(
-            game::validate(scene, &game::expectation(scene), &obs),
-            ResultClass::Valid,
-            "{}",
-            scene.name
-        );
         assert!(obs.rendered > 0, "{} rendered nothing", scene.name);
-        let root = hex32(&obs.live_root);
-        if root != pinned {
-            moved.push(format!("{}: live root is {root}", scene.name));
+        let expect = game::with_live_root(game::expectation(scene, 6), pinned);
+        match game::validate(scene, &expect, &obs) {
+            ResultClass::Valid => {}
+            class => moved.push(format!(
+                "{}: live root is {} ({class:?})",
+                scene.name,
+                hex32(&obs.live_root)
+            )),
         }
         observations.insert(scene.name, obs);
     }
     assert!(
         moved.is_empty(),
-        "live roots moved; repin if the change is intended:\n{}",
+        "small scenes invalid; repin only if the change is intended:\n{}",
         moved.join("\n")
     );
     assert!(
@@ -315,18 +315,13 @@ fn f6_small_scenes_run_validly() {
 }
 
 /// Each full-size scene's generated initial world matches its pinned digest,
-/// so a generator change cannot pass unnoticed.
+/// so a generator change cannot pass unnoticed; the digest is also declared
+/// in the scene's expectation, so `expectation_id` moves with it.
 #[test]
 fn f6_initial_worlds_match_their_pinned_digests() {
     let mut moved = Vec::new();
     for (scene, pinned) in game::SCENES.into_iter().zip(INITIAL_WORLD_DIGESTS) {
-        let world = game::initial_world(scene, 6);
-        let mut hasher = blake3::Hasher::new();
-        for body in world.bodies.values() {
-            hasher.update(&body.encode());
-        }
-        let digest: [u8; 32] = hasher.finalize().into();
-        let digest = hex32(&digest);
+        let digest = hex32(&game::world_digest(&game::initial_world(scene, 6)));
         if digest != pinned {
             moved.push(format!("{}: initial world digest is {digest}", scene.name));
         }
@@ -338,11 +333,105 @@ fn f6_initial_worlds_match_their_pinned_digests() {
     );
 }
 
-/// Every scene's cell is at least twice its radius, the rule the broadphase
-/// relies on to find every touching pair in a 3x3 neighbourhood.
+/// The validator refuses each kind of hosting failure it declares: leftover
+/// graph state, an unreadable or different graph world, a replay that does
+/// not reproduce the live root, a different submitted script, and a moved
+/// live root.
+#[test]
+fn f6_canaries_are_invalid() {
+    let scene = SMALL_SCENES[0];
+    let obs = game::run(scene, 6);
+    let expect = game::expectation(scene, 6);
+    assert_eq!(game::validate(scene, &expect, &obs), ResultClass::Valid);
+    let canaries: [(&str, fn(&mut game::Observation)); 5] = [
+        ("leftover graph state", |o| {
+            o.graph_holds_only_the_world = false
+        }),
+        ("unreadable graph world", |o| o.final_world = None),
+        ("replay differs", |o| o.replay_root = Some([0; 32])),
+        ("different script", |o| o.executed_script_digest = [0; 32]),
+        ("different start", |o| o.initial_world_digest = [0; 32]),
+    ];
+    for (name, mutate) in canaries {
+        let mut bad = obs.clone();
+        mutate(&mut bad);
+        assert!(
+            matches!(
+                game::validate(scene, &expect, &bad),
+                ResultClass::Invalid(_)
+            ),
+            "{name} was accepted"
+        );
+    }
+    let wrong_root = game::with_live_root(expect, &hex32(&[0; 32]));
+    assert!(matches!(
+        game::validate(scene, &wrong_root, &obs),
+        ResultClass::Invalid(_)
+    ));
+}
+
+/// The graph reader refuses a misplaced member edge, and the accounting
+/// check notices a node the world does not explain.
+#[test]
+fn f6_reader_and_accounting_refuse_stray_graph_state() {
+    let scene = SMALL_SCENES[0];
+    let world = game::initial_world(scene, 6);
+    let store = game::initial_store(scene, &world);
+    assert_eq!(game::world_in(&store, scene).as_ref(), Some(&world));
+    assert!(game::holds_only(&store, scene, &world));
+
+    let body = world.bodies.values().next().expect("a body");
+    let home = (0..scene_cells(scene))
+        .find(|&cell| {
+            let mut probe = game::initial_store(scene, &world);
+            probe.insert_edge(
+                game::cell_node_id(cell),
+                game::member_edge_record(body.id, cell),
+            );
+            game::world_in(&probe, scene).is_some()
+        })
+        .expect("the body's own cell");
+    let elsewhere = (home + 1) % scene_cells(scene);
+    let mut misplaced = game::initial_store(scene, &world);
+    misplaced.insert_edge(
+        game::cell_node_id(elsewhere),
+        game::member_edge_record(body.id, elsewhere),
+    );
+    assert_eq!(
+        game::world_in(&misplaced, scene),
+        None,
+        "misplaced member edge"
+    );
+
+    let mut leftover = game::initial_store(scene, &world);
+    // A body node no cell reaches, as a despawn that kept the node would leave.
+    leftover.insert_node(
+        warp_core::make_node_id("f6-test/orphan"),
+        warp_core::NodeRecord {
+            ty: warp_core::make_type_id("bench/f6/body"),
+        },
+    );
+    assert_eq!(game::world_in(&leftover, scene).as_ref(), Some(&world));
+    assert!(!game::holds_only(&leftover, scene, &world), "orphan node");
+}
+
+fn scene_cells(scene: game::Scene) -> u32 {
+    let grid = scene.world / scene.cell;
+    u32::try_from(grid * grid).expect("cells fit u32")
+}
+
+/// Every scene's world is a whole number of cells, and every cell is at least
+/// twice the radius, the rule the broadphase relies on to find every touching
+/// pair in a 3x3 neighbourhood.
 #[test]
 fn f6_scenes_satisfy_the_cell_rule() {
     for scene in game::SCENES.into_iter().chain([HAND]) {
+        assert_eq!(
+            scene.world % scene.cell,
+            0,
+            "{}: world is not whole cells",
+            scene.name
+        );
         assert!(
             scene.cell >= 2 * scene.radius,
             "{}: cell {} is smaller than twice the radius {}",
@@ -472,7 +561,7 @@ fn check_hand_scene(start: &game::World, expected: &[game::World]) {
         };
         let obs = game::run_from_world(scene, 0, start.clone());
         assert_eq!(
-            game::validate(scene, &game::expectation(scene), &obs),
+            game::validate(scene, &game::expectation_from(scene, 0, start), &obs),
             ResultClass::Valid,
             "frame {}",
             frame + 1

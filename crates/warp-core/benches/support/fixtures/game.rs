@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Fixture F6: a real-time game scene, run like a game.
+//! Fixture F6: game scenes, run frame by frame like a game loop.
 //!
 //! Each scene starts a trusted host, installs the game's contract package and
 //! builds its world, then runs frames, then tears down. Every frame does what
@@ -63,8 +63,28 @@ use super::prng::SplitMix64;
 
 // --- The game ---
 
-/// Bumped whenever this generator's logic changes.
-pub const FIXTURE_VERSION: u32 = 1;
+/// Bumped whenever the generator's logic changes: scene placement, input or
+/// spawn streams, or anything else that changes a scene's bytes for the same
+/// dimensions and seed. The `physics` setting in [`workload`] names the step
+/// law and changes only with `step` itself; graph identity domain tags
+/// (`.../v1`) change only with the graph layout. Repin the conformance
+/// goldens after any of the three changes.
+pub const FIXTURE_VERSION: u32 = 2;
+
+/// A random stream derived from `parts` by chained SplitMix64 mixing, so
+/// distinct `(seed, tag, ...)` tuples do not alias the way XOR-combined
+/// seeds do.
+fn stream(parts: &[u64]) -> SplitMix64 {
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+    for part in parts {
+        state = SplitMix64::new(state ^ part).next_u64();
+    }
+    SplitMix64::new(state)
+}
+
+const PLACEMENT_STREAM: u64 = 1;
+const INPUT_STREAM: u64 = 2;
+const SPAWN_STREAM: u64 = 3;
 
 const OP_ID: u32 = 7106;
 const RULE_NAME: &str =
@@ -305,25 +325,19 @@ pub fn workload(scene: Scene, seed: u64) -> WorkloadSpec {
         dimensions: vec![
             ("scene", u64::from(scene.index)),
             ("bodies", u64::from(scene.bodies)),
-            ("world_units", u64::try_from(scene.world).unwrap_or(0)),
-            ("cell_units", u64::try_from(scene.cell).unwrap_or(0)),
-            ("radius_units", u64::try_from(scene.radius).unwrap_or(0)),
-            ("gravity_q16", u64::try_from(scene.gravity).unwrap_or(0)),
-            (
-                "restitution_q8",
-                u64::try_from(scene.restitution).unwrap_or(0),
-            ),
-            (
-                "initial_speed_q16",
-                u64::try_from(scene.initial_speed).unwrap_or(0),
-            ),
+            ("world_units", scene.world.cast_unsigned()),
+            ("cell_units", scene.cell.cast_unsigned()),
+            ("radius_units", scene.radius.cast_unsigned()),
+            ("gravity_q16", scene.gravity.cast_unsigned()),
+            ("restitution_q8", scene.restitution.cast_unsigned()),
+            ("initial_speed_q16", scene.initial_speed.cast_unsigned()),
             ("player", u64::from(scene.player)),
             ("emitters", u64::from(scene.emitters)),
             ("spawn_per_emitter", u64::from(scene.spawn_per_emitter)),
             ("projectile_ttl", u64::from(scene.projectile_ttl)),
             (
                 "projectile_speed_q16",
-                u64::try_from(scene.projectile_speed).unwrap_or(0),
+                scene.projectile_speed.cast_unsigned(),
             ),
             ("frames", scene.frames),
             ("writer_heads", 1),
@@ -342,20 +356,62 @@ pub fn workload(scene: Scene, seed: u64) -> WorkloadSpec {
     }
 }
 
-/// Declared outcomes for a scene. Expected counts come from the scene, not
-/// from Echo; the hand-computed worlds in the conformance tests are the
-/// physics goldens, and the pinned digests there are the scene goldens.
-pub fn expectation(scene: Scene) -> Expectation {
+/// Declared outcomes for a scene run from its generated world. The frame
+/// count comes from the scene; the initial-world and script digests come
+/// from the generator, so `expectation_id` moves whenever either does. The
+/// physics goldens are the hand-computed worlds in the conformance tests.
+pub fn expectation(scene: Scene, seed: u64) -> Expectation {
+    expectation_from(scene, seed, &initial_world(scene, seed))
+}
+
+/// Declared outcomes for a scene run from `start` (the hand-built worlds).
+pub fn expectation_from(scene: Scene, seed: u64, start: &World) -> Expectation {
     Expectation {
         assertions: vec![
             ("committed", scene.frames.to_string()),
             ("refused", "0".to_owned()),
             ("one_tick_per_frame", "true".to_owned()),
             ("graph_world_equals_reference", "true".to_owned()),
+            ("graph_holds_only_the_world", "true".to_owned()),
             ("replay_root_equals_live_root", "true".to_owned()),
+            ("initial_world_digest", hex(&world_digest(start))),
+            ("script_digest", hex(&script_digest(scene, seed))),
         ],
-        output_formats: vec![("state_root", 1), ("f6_body", 1)],
+        output_formats: vec![("state_root", 1), ("f6_body", 1), ("f6_vars", 1)],
     }
+}
+
+/// `expect` plus a pinned live root, the golden of a conformance run.
+pub fn with_live_root(mut expect: Expectation, live_root_hex: &str) -> Expectation {
+    expect
+        .assertions
+        .push(("live_root", live_root_hex.to_owned()));
+    expect
+}
+
+/// Digest of a world's bodies: their encodings in id order.
+pub fn world_digest(world: &World) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.bench.fixture.f6.world/v1\0");
+    for body in world.bodies.values() {
+        hasher.update(&body.encode());
+    }
+    hasher.finalize().into()
+}
+
+/// Digest of the step intents a run of `scene` submits: every frame's
+/// [`vars`], in order.
+pub fn script_digest(scene: Scene, seed: u64) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.bench.fixture.f6.script/v1\0");
+    for frame in 0..scene.frames {
+        hasher.update(&vars(scene, seed, frame, input(scene, seed, frame)));
+    }
+    hasher.finalize().into()
+}
+
+fn hex(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The game world: what the step reads and produces.
@@ -373,20 +429,22 @@ pub struct World {
 
 /// The world a scene starts with.
 pub fn initial_world(scene: Scene, seed: u64) -> World {
-    let mut rng = SplitMix64::new(seed ^ (u64::from(scene.index) << 56));
+    let mut rng = stream(&[seed, PLACEMENT_STREAM, u64::from(scene.index)]);
     let mut world = World::default();
     let radius = scene.radius * ONE;
     // Bodies start on a jittered lattice, so none overlap: centres are three
     // radii apart and jitter moves each by less than half a radius. A scene
-    // that cannot place every body above the floor is refused here rather
-    // than folded onto it; a workload is never shrunk silently to fit.
+    // whose lowest row would sit below one radius above the floor is refused
+    // here rather than folded onto it; a workload is never shrunk silently.
     let spacing = scene.radius * 3;
     let per_row = (scene.world / spacing).max(1);
     let rows = (i64::from(scene.bodies) + per_row - 1) / per_row;
+    // Lowest centre: row `rows - 1`, moved down by at most the jitter bound.
+    let lowest = scene.world - 1 - ((rows - 1) * spacing + spacing / 2) - scene.radius / 2;
     assert!(
-        rows * spacing + spacing <= scene.world,
-        "{}: {} bodies need {} rows {} units apart, which do not fit above the \
-         floor of a {}-unit world",
+        rows == 0 || lowest >= scene.radius,
+        "{}: {} bodies need {} rows {} units apart, and the lowest would sit \
+         below one radius above the floor of a {}-unit world",
         scene.name,
         scene.bodies,
         rows,
@@ -453,7 +511,7 @@ pub fn input(scene: Scene, seed: u64, frame: u64) -> [i64; 2] {
     if !scene.player {
         return [0, 0];
     }
-    let mut rng = SplitMix64::new(seed ^ 0xA5A5_0000 ^ frame);
+    let mut rng = stream(&[seed, INPUT_STREAM, frame]);
     let axis = |rng: &mut SplitMix64| i64::try_from(rng.below(5).unwrap_or(2)).unwrap_or(2) - 2;
     [axis(&mut rng) * ONE / 4, axis(&mut rng) * ONE / 4]
 }
@@ -494,9 +552,13 @@ pub fn step(scene: Scene, seed: u64, world: &World, input: [i64; 2]) -> World {
         .collect();
     for emitter in emitters {
         for k in 0..scene.spawn_per_emitter {
-            let mut rng = SplitMix64::new(
-                seed ^ frame.rotate_left(20) ^ (u64::from(emitter.id) << 40) ^ u64::from(k),
-            );
+            let mut rng = stream(&[
+                seed,
+                SPAWN_STREAM,
+                frame,
+                u64::from(emitter.id),
+                u64::from(k),
+            ]);
             let dir = |rng: &mut SplitMix64| {
                 let span = u64::try_from(2 * scene.projectile_speed + 1).unwrap_or(1);
                 i64::try_from(rng.below(span).unwrap_or(0)).unwrap_or(0) - scene.projectile_speed
@@ -668,6 +730,22 @@ fn body_type() -> TypeId {
     make_type_id("bench/f6/body")
 }
 
+fn root_type() -> TypeId {
+    make_type_id("bench/f6/root")
+}
+
+fn cell_type() -> TypeId {
+    make_type_id("bench/f6/cell")
+}
+
+fn world_of_type() -> TypeId {
+    make_type_id("bench/f6/world-of")
+}
+
+fn cell_of_type() -> TypeId {
+    make_type_id("bench/f6/cell-of")
+}
+
 fn member_type() -> TypeId {
     make_type_id("bench/f6/member")
 }
@@ -695,6 +773,50 @@ fn atom(ty: TypeId, bytes: Vec<u8>) -> AttachmentValue {
 
 /// The reads the step needs, over either view an executor or a footprint
 /// gets.
+/// Reads the world back from a graph store, or `None` if the graph is not a
+/// well-formed F6 world (including a stale, misplaced or duplicated member
+/// edge, or a member edge whose node is not the body it carries).
+pub fn world_in(store: &GraphStore, scene: Scene) -> Option<World> {
+    read_world(&mut GraphView::new(store), scene)
+}
+
+/// Builds the initial graph store for `world`: the root, the world node, one
+/// node per cell, and one node and member edge per body, plus contact edges.
+pub fn initial_store(scene: Scene, world: &World) -> GraphStore {
+    initial_state(scene, world)
+        .store(&make_warp_id(WARP))
+        .expect("F6 initial store")
+        .clone()
+}
+
+/// Whether the game's part of `store` is exactly the graph of `world`: the
+/// root, the world node, every cell, one node per body, and one edge each from
+/// root to world, world to cell, cell to body and per contact. Only nodes and
+/// edges of the game's own types are counted, since the runtime records its
+/// intents in the same warp. Leftover game nodes or edges, such as a
+/// despawned body's node, make this false.
+pub fn holds_only(store: &GraphStore, scene: Scene, world: &World) -> bool {
+    let node_types = [root_type(), world_type(), cell_type(), body_type()];
+    let edge_types = [
+        world_of_type(),
+        cell_of_type(),
+        member_type(),
+        contact_type(),
+    ];
+    let cells = scene.cells() as usize;
+    let nodes = store
+        .iter_nodes()
+        .filter(|(_, record)| node_types.contains(&record.ty))
+        .count();
+    let edges = store
+        .iter_edges()
+        .flat_map(|(_, out)| out.iter())
+        .filter(|edge| edge_types.contains(&edge.ty))
+        .count();
+    nodes == 2 + cells + world.bodies.len()
+        && edges == 1 + cells + world.bodies.len() + world.contacts.len()
+}
+
 trait WorldReader {
     fn attachment_bytes(&mut self, node: &NodeId) -> Option<Vec<u8>>;
     fn targets(&mut self, node: &NodeId, ty: TypeId) -> Vec<NodeId>;
@@ -746,7 +868,10 @@ fn read_world(reader: &mut impl WorldReader, scene: Scene) -> Option<World> {
     for cell in 0..scene.cells() {
         for node in reader.targets(&cell_node(cell), member_type()) {
             let body = Body::decode(&reader.attachment_bytes(&node)?)?;
-            if cell_of(scene, body.pos) != cell || bodies.insert(body.id, body).is_some() {
+            if node != body_node(body.id)
+                || cell_of(scene, body.pos) != cell
+                || bodies.insert(body.id, body).is_some()
+            {
                 return None;
             }
         }
@@ -852,6 +977,22 @@ fn diff_ops(
     ops
 }
 
+/// The member edge record placing body `id` in `cell`. Public so the
+/// conformance tests can plant a misplaced one.
+pub fn member_edge_record(id: u32, cell: u32) -> EdgeRecord {
+    EdgeRecord {
+        id: member_edge(id, cell),
+        from: cell_node(cell),
+        to: body_node(id),
+        ty: member_type(),
+    }
+}
+
+/// The graph node of cell `cell`.
+pub fn cell_node_id(cell: u32) -> NodeId {
+    cell_node(cell)
+}
+
 fn member_upsert(warp_id: warp_core::WarpId, id: u32, cell: u32) -> WarpOp {
     WarpOp::UpsertEdge {
         warp_id,
@@ -866,12 +1007,13 @@ fn member_upsert(warp_id: warp_core::WarpId, id: u32, cell: u32) -> WarpOp {
 
 // --- The rule -------------------------------------------------------------
 
-/// A step intent's variables. The intent carries the scene's dimensions and
-/// the seed as well as the frame and its input, so the installed rule needs
-/// no state outside the graph and the intent: Echo's crates admit no global
-/// state, and scaled test scenes share their full scene's index.
-/// The step intent's variables: scene index, player flag, frame, seed and
-/// every scene dimension, so the rule needs no table but the scene names.
+/// A step intent's variables. The intent carries the seed and every scene
+/// dimension as well as the frame and its input, so the installed rule needs
+/// no state outside the graph and the intent (Echo's crates admit no global
+/// state). Layout, little-endian: scene index (u8), player (u8); frame, seed,
+/// frames (u64); bodies, emitters, spawn_per_emitter, projectile_ttl (u32);
+/// input x, input y, radius, world, cell, gravity, restitution,
+/// initial_speed, projectile_speed (i64).
 pub fn vars(scene: Scene, seed: u64, frame: u64, input: [i64; 2]) -> Vec<u8> {
     let mut out = Vec::with_capacity(VARS_BYTES);
     out.push(scene.index);
@@ -905,9 +1047,11 @@ pub fn vars(scene: Scene, seed: u64, frame: u64, input: [i64; 2]) -> Vec<u8> {
 
 const VARS_BYTES: usize = 2 + 8 * 3 + 4 * 4 + 8 * 9;
 
-/// Parses a step intent's variables: the scene, the seed, the frame and its
-/// input.
-/// Parses what [`vars`] packed, or `None` if the bytes are malformed.
+/// Parses what [`vars`] packed into the scene, the seed, the frame and its
+/// input, or `None` if the bytes are malformed. The scene's name is looked up
+/// by index in [`SCENES`], so a scaled or hand-built scene parses back under
+/// the name of the scene it shares an index with; every dimension travels in
+/// the bytes.
 pub fn parse(vars: &[u8]) -> Option<(Scene, u64, u64, [i64; 2])> {
     if vars.len() != VARS_BYTES {
         return None;
@@ -941,7 +1085,7 @@ pub fn parse(vars: &[u8]) -> Option<(Scene, u64, u64, [i64; 2])> {
         projectile_speed: i64_at(longs + 64),
         frames: u64_at(18),
     };
-    if scene.cell <= 0 || scene.world < scene.cell {
+    if scene.cell <= 0 || scene.world < scene.cell || scene.world % scene.cell != 0 {
         return None;
     }
     Some((scene, seed, frame, [i64_at(longs), i64_at(longs + 8)]))
@@ -1138,12 +1282,7 @@ pub fn initial_state(scene: Scene, world: &World) -> WorldlineState {
     let warp_id = make_warp_id(WARP);
     let mut store = GraphStore::new(warp_id);
     let root = root_node();
-    store.insert_node(
-        root,
-        NodeRecord {
-            ty: make_type_id("bench/f6/root"),
-        },
-    );
+    store.insert_node(root, NodeRecord { ty: root_type() });
     store.insert_node(world_node(), NodeRecord { ty: world_type() });
     store.set_node_attachment(world_node(), Some(atom(world_type(), world_bytes(world))));
     store.insert_edge(
@@ -1152,16 +1291,11 @@ pub fn initial_state(scene: Scene, world: &World) -> WorldlineState {
             id: warp_core::make_edge_id("f6-root-world"),
             from: root,
             to: world_node(),
-            ty: make_type_id("bench/f6/world-of"),
+            ty: world_of_type(),
         },
     );
     for cell in 0..scene.cells() {
-        store.insert_node(
-            cell_node(cell),
-            NodeRecord {
-                ty: make_type_id("bench/f6/cell"),
-            },
-        );
+        store.insert_node(cell_node(cell), NodeRecord { ty: cell_type() });
         store.insert_edge(
             world_node(),
             EdgeRecord {
@@ -1171,7 +1305,7 @@ pub fn initial_state(scene: Scene, world: &World) -> WorldlineState {
                 )),
                 from: world_node(),
                 to: cell_node(cell),
-                ty: make_type_id("bench/f6/cell-of"),
+                ty: cell_of_type(),
             },
         );
     }
@@ -1220,6 +1354,12 @@ pub struct Observation {
     pub reference_world: World,
     /// Live state root at the end.
     pub live_root: [u8; 32],
+    /// Whether the live graph holds exactly the reference world's graph.
+    pub graph_holds_only_the_world: bool,
+    /// Digest of the world the run started from.
+    pub initial_world_digest: [u8; 32],
+    /// Digest of the step intents the run actually submitted.
+    pub executed_script_digest: [u8; 32],
     /// State root rebuilt by applying retained patches.
     pub replay_root: Option<[u8; 32]>,
     /// Bodies seen by the per-frame render read, summed over frames.
@@ -1235,7 +1375,8 @@ pub struct Observation {
 /// Measured durations, each with a declared boundary.
 #[derive(Clone, Debug, Default)]
 pub struct Timings {
-    /// Host, runtime and package set-up plus initial scene construction.
+    /// Host, runtime and package set-up, including building the initial
+    /// graph from the scene's world (the world itself is generated before).
     pub startup: Duration,
     /// Per frame: build and pack the envelope, submit, admit, tick, and the
     /// render read.
@@ -1283,7 +1424,10 @@ fn run_scene(
     profile: impl FnOnce(WorldlineState) -> WorldlineState,
 ) -> Observation {
     let mut obs = Observation::default();
+    obs.initial_world_digest = world_digest(&start_world);
     let inputs: Vec<[i64; 2]> = (0..scene.frames).map(|f| input(scene, seed, f)).collect();
+    let mut script = blake3::Hasher::new();
+    script.update(b"echo.bench.fixture.f6.script/v1\0");
 
     // The reference: the game alone, timed per frame.
     let mut reference = start_world.clone();
@@ -1345,8 +1489,12 @@ fn run_scene(
         let envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter { worldline_id },
             make_intent_kind("echo.intent/eint-v1"),
-            echo_wasm_abi::pack_intent_v1(OP_ID, &vars(scene, seed, frame as u64, *frame_input))
-                .expect("intent packs"),
+            echo_wasm_abi::pack_intent_v1(OP_ID, &{
+                let bytes = vars(scene, seed, frame as u64, *frame_input);
+                script.update(&bytes);
+                bytes
+            })
+            .expect("intent packs"),
         );
         let Ok(submission) = host.app().submit_intent(envelope) else {
             continue;
@@ -1406,10 +1554,11 @@ fn run_scene(
             .expect("worldline exists");
         obs.live_root = live.state().state_root();
         if let Some(store) = live.state().store(&warp_id) {
-            let mut view = GraphView::new(store);
-            obs.final_world = read_world(&mut view, scene);
+            obs.final_world = world_in(store, scene);
+            obs.graph_holds_only_the_world = holds_only(store, scene, &obs.reference_world);
         }
     }
+    obs.executed_script_digest = script.finalize().into();
     let started = Instant::now();
     let replayed = host
         .provenance()
@@ -1447,9 +1596,16 @@ pub fn validate(scene: Scene, expect: &Expectation, obs: &Observation) -> Result
             (obs.final_world.as_ref() == Some(&obs.reference_world)).to_string(),
         ),
         (
+            "graph_holds_only_the_world",
+            obs.graph_holds_only_the_world.to_string(),
+        ),
+        (
             "replay_root_equals_live_root",
             (obs.replay_root == Some(obs.live_root)).to_string(),
         ),
+        ("initial_world_digest", hex(&obs.initial_world_digest)),
+        ("script_digest", hex(&obs.executed_script_digest)),
+        ("live_root", hex(&obs.live_root)),
     ]
     .into_iter()
     .collect();

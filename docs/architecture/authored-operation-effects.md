@@ -513,7 +513,12 @@ a digest alone could not be executed. One law is defined:
       rather than hashing or dropping it. The law has no edge-count ceiling;
       authoring interfaces may set their own. Independent vectors, frozen hex
       and mutation postcards in `crates/warp-core/tests/content_address_v1_tests.rs`
-      check it without calling the module.
+      check it without calling the module. The six successful frozen identities
+      are shared files in
+      [`tests/fixtures/content-address-v1/`](../../crates/warp-core/tests/fixtures/content-address-v1/README.md),
+      with their exact inputs documented beside them. Sharing these vectors
+      does not establish compiler, provider, or runtime publication of identity
+      intrinsics.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal

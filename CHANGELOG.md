@@ -131,6 +131,11 @@
 
 ### Fixed
 
+- pulldown-cmark is updated to 0.13.6, and `xtask` requires at least that
+  version, fixing RUSTSEC-2026-0433 (quadratic parsing of nested image
+  wikilinks). No advisory exceptions are added. The provider package's
+  `provider.digest` changes; consumers that pin it must update the pin.
+
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.
 

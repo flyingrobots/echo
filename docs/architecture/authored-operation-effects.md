@@ -513,7 +513,12 @@ a digest alone could not be executed. One law is defined:
       rather than hashing or dropping it. The law has no edge-count ceiling;
       authoring interfaces may set their own. Independent vectors, frozen hex
       and mutation postcards in `crates/warp-core/tests/content_address_v1_tests.rs`
-      check it without calling the module.
+      check it without calling the module. The six successful frozen identities
+      are shared files in
+      [`tests/fixtures/content-address-v1/`](../../crates/warp-core/tests/fixtures/content-address-v1/README.md),
+      with their exact inputs documented beside them. The runtime's
+      [identity intrinsics](#identity-intrinsics) reproduce the node and edge
+      vectors; the published provider does not yet offer them.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal
@@ -530,8 +535,65 @@ a digest alone could not be executed. One law is defined:
     whose id is program-chosen.
     All ids are 32 bytes. A content node's id therefore commits to its content
     and its children, as Jim's rope requires, and no later effect can make it
-    stale. A program computes the same BLAKE3 inputs; Edict must expose them
-    before an effect package can be produced.
+    stale. A program computes the same BLAKE3 inputs through the
+    [identity intrinsics](#identity-intrinsics); the published provider must
+    offer them before an effect package can be produced.
+
+### Identity intrinsics
+
+An authored program computes `ContentAddressV1` ids by calling three pure
+intrinsics in Echo's target namespace. Each takes no type arguments and returns
+one 32-byte id. Every id operand is exactly 32 bytes.
+
+| Coordinate                  | Operands, in order                                                                                                                             | Result                                |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `echo.dpo@1.contentAddress` | warp id, node type id, atom type id, atom bytes (at most 1,048,576), outgoing edges (a list of at most 16 `{edgeType, to}` records of two ids) | the content node id                   |
+| `echo.dpo@1.contentEdgeId`  | warp id, source node id, edge type id, target node id                                                                                          | the id of an edge from a content node |
+| `echo.dpo@1.slotEdgeId`     | warp id, source node id, edge type id                                                                                                          | the id of an edge from a mutable node |
+
+The intrinsics hash with `warp_core::content_address_v1` and add nothing to
+the law. Outgoing edges may be given in any order; every order names the same
+node. The atom and edge ceilings belong to this authoring interface, not to
+the law.
+
+A call evaluates its operands once, left to right, and requires each value to
+inhabit its operand type; a value outside it is `InvalidArtifact`. A call with
+the wrong number of operands or with type arguments is `UnsupportedProgram`
+when the program is prepared. The call then charges all of its work before it
+hashes. Beyond evaluating its operands, a call costs:
+
+| Intrinsic        | Steps                                    | Storage bytes        |
+| ---------------- | ---------------------------------------- | -------------------- |
+| `contentAddress` | 71, plus 1 per atom byte and 67 per edge | 96, plus 64 per edge |
+| `contentEdgeId`  | 70                                       | 96                   |
+| `slotEdgeId`     | 69                                       | 96                   |
+
+Edge order does not change the cost. A cost rule published for these
+intrinsics must be at least these amounts.
+
+**Duplicate outgoing edges refuse.** A `contentAddress` call that names the
+same (edge type, target) twice fails evaluation with the typed
+`EvaluationError::DuplicateOutgoingEdge`. It returns no id, and the edge set
+is never deduplicated: the law refuses that set, and an id for the
+deduplicated set would name a node the program did not describe. The refusal
+comes after the call's work is charged, so a call that cannot pay for its
+operands reports the exhausted budget instead. The error carries no operand
+bytes. Whether this refusal should instead surface as an authored obstruction
+is undecided; see [Open questions](#open-questions).
+
+The runtime evaluator in `crates/warp-core/src/edict_pure/identity.rs`
+implements these calls in intent expressions and source helpers, and a module
+cannot define a helper at one of the three coordinates. Synthetic tests in
+`crates/warp-core/src/edict_pure/identity_tests.rs` compare the results with
+the frozen node and edge vectors and check the refusals, costs and
+one-unit-short budgets above.
+
+The published provider does not offer these intrinsics. Its intrinsic catalog
+declares only effects, and its lowerer and verifier admit only the callees
+they list, which exclude the three coordinates, so no compiler-produced
+package reaches the runtime with one. Catalog publication with a contract
+version and cost rule, lowerer admission, independent verification and a
+public compiler witness remain to be done.
 
 ## Witnessed reads over a bounded slice
 
@@ -1975,8 +2037,12 @@ provisional detail into an obligation when its test lands.
 - How `edict_read` exposes outgoing edges by type to Edict source, and how a
   bounded closure read guided by a pure Edict selector is expressed and
   budgeted. The metering of a single range read is defined above.
-- How Edict source exposes the `ContentAddressV1` inputs; the law itself
-  is defined above.
+- How a `contentAddress` call's duplicate-edge refusal reaches an author.
+  The runtime refuses with a typed evaluation error (see [Identity
+  intrinsics](#identity-intrinsics)). An authored obstruction would need a
+  result type other than a bare id, which is a different intrinsic contract.
+- Whether the 16-edge and 1,048,576-byte ceilings of `contentAddress` suit
+  Jim's rope. They follow the contract Amblicit's admission tests use.
 - Whether proposals larger than the Action-batch operation limit should ever
   be committable. This design says no: such a proposal is still representable
   as evidence (`BudgetExceeded`, posture `Proposed` with a `Derived` patch, as

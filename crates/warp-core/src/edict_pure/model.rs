@@ -98,6 +98,19 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// One of Echo's pure identity intrinsics over its operands, in call order.
+    Identity(IdentityIntrinsic, Vec<Expr>),
+}
+
+/// The `ContentAddressV1` identity a pure call computes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IdentityIntrinsic {
+    /// `echo.dpo@1.contentAddress`: a content node id.
+    ContentAddress,
+    /// `echo.dpo@1.contentEdgeId`: the id of an edge from a content node.
+    ContentEdgeId,
+    /// `echo.dpo@1.slotEdgeId`: the id of an edge from a mutable node.
+    SlotEdgeId,
 }
 
 #[derive(Debug, PartialEq, Eq)]

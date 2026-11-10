@@ -7,6 +7,18 @@
 
 ### Added
 
+- The runtime evaluates three pure identity intrinsics,
+  `echo.dpo@1.contentAddress`, `echo.dpo@1.contentEdgeId` and
+  `echo.dpo@1.slotEdgeId`, with the existing `ContentAddressV1` law. Operands
+  have fixed 32-byte id widths, a 1,048,576-byte atom ceiling and a 16-edge
+  ceiling. A `contentAddress` call that repeats an outgoing edge fails with
+  the new `EvaluationError::DuplicateOutgoingEdge`; edges are never
+  deduplicated. Synthetic tests reproduce the frozen node and edge vectors,
+  including empty and reordered edge lists, and check operand, arity, cost and
+  one-unit-short budget refusals. The published provider does not offer these
+  intrinsics yet: its catalog, lowerer and verifier are unchanged, so no
+  compiler-produced package can call them.
+
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation
   under `core.list/v1`. Synthetic tests cover strict domains, capability and

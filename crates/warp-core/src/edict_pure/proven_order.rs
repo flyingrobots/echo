@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Echo-owned order proofs for slicing/subtraction and strict byte lookup.
+//! Echo-owned order proofs for slicing/subtraction and strict byte lookup,
+//! and constant upper limits for unsigned addition from the same facts.
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
 //! constants, or a dominating fact: an earlier conjunct of an enclosing
-//! `all`, or a pure intent's input constraint. Conditional predicates,
-//! negations and later conjuncts prove nothing for this order judgment.
+//! `all`, or an authored effect program's input constraint. Conditional
+//! predicates, negations and later conjuncts prove nothing for this order
+//! judgment, and a `require` adds no fact for the nodes after it.
 //! The separate strict lookup judgment below also uses signed conditional and
 //! lazy-prefix truths. Neither judgment trusts annotations in the artifact.
 use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1 as Value};
@@ -37,6 +39,74 @@ pub(crate) fn proven(
         }
     }
     Ok(false)
+}
+
+/// The smallest constant upper bound a dominating fact gives `term`:
+/// `term <= c`, `term == c` or `c == term` give `c`. Conjunctions contribute
+/// every conjunct. Edict also reads the strict and reversed forms (`<`, `>`,
+/// `>=`); the checked lowerer and verifier read only these three, so Echo
+/// reads only these too, and the other forms are to be added to all three
+/// judgments together (#960).
+pub(crate) fn upper_limit(
+    term: &Value,
+    facts: &[&Value],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<Option<u64>, Error> {
+    if facts.is_empty() {
+        return Ok(None);
+    }
+    parser.enter(depth)?;
+    let term = key(term, parser)?;
+    let mut limit = None;
+    for fact in facts {
+        limit_from(fact, &term, &mut limit, parser, depth + 1)?;
+    }
+    Ok(limit)
+}
+
+/// Lowers `limit` to the smallest constant bound that `fact` gives the
+/// canonically encoded `term`. It reads conjunctions and the three comparison
+/// forms that `upper_limit` names, and ignores every other predicate.
+fn limit_from(
+    fact: &Value,
+    term: &[u8],
+    limit: &mut Option<u64>,
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<(), Error> {
+    parser.enter(depth)?;
+    match text_field(fact, "kind")? {
+        "all" => {
+            for item in array(field(fact, "values")?)? {
+                limit_from(item, term, limit, parser, depth + 1)?;
+            }
+        }
+        "compare" => {
+            let op = text_field(fact, "op")?;
+            let left = field(fact, "left")?;
+            let right = field(fact, "right")?;
+            let mut bound = |value: u64| {
+                *limit = Some(limit.map_or(value, |current| current.min(value)));
+            };
+            if matches!(op, "<=" | "==") {
+                if let Some(value) = constant(right) {
+                    if key(left, parser)? == term {
+                        bound(value);
+                    }
+                }
+            }
+            if op == "==" {
+                if let Some(value) = constant(left) {
+                    if key(right, parser)? == term {
+                        bound(value);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// The Core term `core.bytes.length<coordinate>(bytes)`, for slice end proofs.

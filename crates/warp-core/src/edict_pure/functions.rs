@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Closed source/imported helper authority, lexical scopes, and runtime apertures.
-use super::proven_order::{length_of, proven};
+use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
         Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
@@ -131,6 +131,9 @@ pub(crate) fn definitions<'a>(
     Ok(definitions)
 }
 
+/// Decodes and checks every pure helper definition, used or not. A helper
+/// frame starts with no caller facts. An unsigned binding proven below its
+/// width carries that ceiling to the later bindings of the same body.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
@@ -193,7 +196,7 @@ pub(crate) fn decode(
                 return Err(Error::InvalidArtifact);
             }
             if let RuntimeType::Unsigned(max) = ty {
-                let cap = unsigned_ceiling(value, max, &caps, parser, 0)?;
+                let cap = unsigned_ceiling(value, max, &caps, &[], parser, 0)?;
                 if cap < max {
                     caps.insert(id, cap);
                 }
@@ -355,8 +358,9 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
 
 pub(super) type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
-/// dominating order facts (earlier conjuncts of enclosing `all`s), plus
-/// signed branch/lazy-prefix truths used only by the strict lookup judgment.
+/// dominating facts (an intent's input constraints and earlier conjuncts of
+/// enclosing `all`s), plus signed branch/lazy-prefix truths used only by the
+/// strict lookup judgment.
 #[derive(Clone, Copy)]
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
@@ -373,10 +377,15 @@ impl<'c, 'v> Proof<'c, 'v> {
         }
     }
 }
-/// Proven upper bounds of earlier unsigned bindings in the same helper body.
-/// Local identities are unique and immutable, so a cap names exactly the
-/// bound value. Bounds never cross helper results or record fields.
+/// Proven upper bounds of earlier unsigned bindings in the same helper or
+/// effect-program body. Local identities are unique and immutable, so a cap
+/// names exactly the bound value. Bounds never cross helper results, record
+/// fields or helper frames, and they narrow additions only; an order proof
+/// for a slice or subtraction still needs a fact over the same term.
 pub(crate) type Caps<'a> = BTreeMap<&'a str, u64>;
+/// Infers the runtime type of one Core expression. An unsigned addition is
+/// refused unless the proven ceilings of its operands sum within the type's
+/// width.
 pub(crate) fn infer<'v>(
     value: &'v Value,
     scope: &Scope<'_>,
@@ -701,11 +710,36 @@ pub(crate) fn infer<'v>(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left =
-                        unsigned_ceiling(&arguments[0], *max, proof.caps, parser, depth + 1)?;
-                    let right =
-                        unsigned_ceiling(&arguments[1], *max, proof.caps, parser, depth + 1)?;
-                    if left.checked_add(right).is_none_or(|sum| sum > *max) {
+                    // Judge the sum without facts first, at exactly the depth
+                    // and cost it had before facts bounded additions; read the
+                    // facts only when that does not fit.
+                    let fits = |facts: &[&Value], parser: &mut Parser<'_>| -> Result<bool, Error> {
+                        let left = unsigned_ceiling(
+                            &arguments[0],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        let right = unsigned_ceiling(
+                            &arguments[1],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        Ok(left.checked_add(right).is_some_and(|sum| sum <= *max))
+                    };
+                    // A nested sum that overflows without facts is refused
+                    // as `UnsupportedProgram`; that is "does not fit", not a
+                    // final answer.
+                    let fits_without = match fits(&[], parser) {
+                        Err(Error::UnsupportedProgram) => false,
+                        judged => judged?,
+                    };
+                    if !fits_without && (proof.facts.is_empty() || !fits(proof.facts, parser)?) {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
@@ -748,13 +782,34 @@ pub(crate) fn infer<'v>(
     }
 }
 
-// Fresh helper frames receive no caller constraints. Constants and already
-// checked nested additions can narrow a bound; every other term has its full
-// declared width. The parser's combined work/depth ceiling covers this walk.
-fn unsigned_ceiling(
+/// The proven upper bound of the unsigned term `value`, whose type holds at
+/// most `max`. Constants, counts, carried binding caps and already checked
+/// nested additions can narrow a bound, and so can a dominating fact comparing
+/// the term with a constant; every other term has its full declared width.
+/// Fresh helper frames receive no caller facts. The parser's combined
+/// work/depth ceiling covers this walk.
+pub(crate) fn unsigned_ceiling(
     value: &Value,
     max: u64,
     caps: &Caps<'_>,
+    facts: &[&Value],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<u64, Error> {
+    let structural = structural_ceiling(value, max, caps, facts, parser, depth)?;
+    Ok(upper_limit(value, facts, parser, depth + 1)?
+        .map_or(structural, |limit| structural.min(limit)))
+}
+
+/// The upper bound of `value` from its own shape, before any fact about the
+/// whole term is applied. `facts` are only forwarded to the nested-addition
+/// recursion; the structural ceiling itself comes from caps, counts and
+/// widths.
+fn structural_ceiling(
+    value: &Value,
+    max: u64,
+    caps: &Caps<'_>,
+    facts: &[&Value],
     parser: &mut Parser<'_>,
     depth: usize,
 ) -> Result<u64, Error> {
@@ -780,8 +835,15 @@ fn unsigned_ceiling(
         let [left, right] = array(field(value, "args")?)? else {
             return Err(Error::InvalidArtifact);
         };
-        return unsigned_ceiling(left, max, caps, parser, depth + 1)?
-            .checked_add(unsigned_ceiling(right, max, caps, parser, depth + 1)?)
+        return unsigned_ceiling(left, max, caps, facts, parser, depth + 1)?
+            .checked_add(unsigned_ceiling(
+                right,
+                max,
+                caps,
+                facts,
+                parser,
+                depth + 1,
+            )?)
             .ok_or(Error::UnsupportedProgram);
     }
     Ok(max)

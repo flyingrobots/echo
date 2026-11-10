@@ -121,7 +121,7 @@ impl Meter {
         self.allocate(length)
     }
 
-    fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
+    pub(crate) fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
         self.charge_bytes(bytes.len())?;
         Ok(Value::Bytes(bytes.to_vec()))
     }
@@ -230,6 +230,9 @@ pub(crate) fn expression(
         | Expr::ListAppend { .. }
         | Expr::ListConcat { .. } => {
             super::list_operations::evaluate(expr, locals, helpers, meter, depth)
+        }
+        Expr::Identity(intrinsic, args) => {
+            super::identity::evaluate(*intrinsic, args, locals, helpers, meter, depth)
         }
         Expr::Constant(value) => meter.copy(value),
         Expr::Variant {

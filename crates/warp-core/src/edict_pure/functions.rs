@@ -4,7 +4,8 @@
 use super::proven_order::{length_of, proven};
 use super::{
     model::{
-        Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
+        Binding, Expr, Helper, IdentityIntrinsic, Parameter, Predicate, RuntimeType, MAX_DEPTH,
+        MAX_PROGRAM_NODES,
     },
     syntax::Parser,
     values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
@@ -69,6 +70,7 @@ pub(crate) fn definitions<'a>(
         }
         let name = text_field(item, "coordinate")?;
         if name.starts_with("core.")
+            || IdentityIntrinsic::named(name).is_some()
             || definitions
                 .insert(
                     name.to_owned(),
@@ -110,6 +112,7 @@ pub(crate) fn definitions<'a>(
             exact_fields(value, &["params", "returnType", "body"])?;
             let coordinate = format!("{coordinate}.{name}");
             if coordinate.starts_with("core.")
+                || IdentityIntrinsic::named(&coordinate).is_some()
                 || effect_names.contains(coordinate.as_str())
                 || definitions
                     .insert(
@@ -607,6 +610,27 @@ pub(crate) fn infer<'v>(
                 }
                 return parser.ty(callee.result_type, 0);
             }
+            if let Some(intrinsic) = IdentityIntrinsic::named(name) {
+                let ceilings = intrinsic.parameter_types();
+                if !types.is_empty() || arguments.len() != ceilings.len() {
+                    return Err(Error::UnsupportedProgram);
+                }
+                for (argument, ceiling) in arguments.iter().zip(&ceilings) {
+                    let actual = infer(
+                        argument,
+                        scope,
+                        proof,
+                        definitions,
+                        source,
+                        parser,
+                        depth + 1,
+                    )?;
+                    if !super::identity::fits(ceiling, &actual) {
+                        return Err(Error::InvalidArtifact);
+                    }
+                }
+                return Ok(super::identity::id_type());
+            }
             if name == "core.bytes.count" {
                 let ([operand, needle], [coordinate]) = (arguments, types) else {
                     return Err(Error::UnsupportedProgram);
@@ -1090,6 +1114,16 @@ impl Heights<'_> {
                     .max(type_height(left_type))
                     .max(type_height(right_type))
                     + 1
+            }
+            Expr::Identity(intrinsic, args) => {
+                let mut maximum = 0;
+                for ty in intrinsic.parameter_types() {
+                    maximum = maximum.max(type_height(&ty));
+                }
+                for argument in args {
+                    maximum = maximum.max(self.expr(argument, depth + 1)?);
+                }
+                maximum + 1
             }
             Expr::ByteUtf8 { value, .. }
             | Expr::ByteLength { value, .. }

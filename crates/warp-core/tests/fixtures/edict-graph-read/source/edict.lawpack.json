@@ -113,43 +113,43 @@
       ],
       "obstructions": [
         {
-          "coordinate": "consumer.graph@1.SourceMissing resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.SourceMissing",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.EdgeBoundExceeded resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.EdgeBoundExceeded",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.ScanBoundExceeded resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.ScanBoundExceeded",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.StartMissing resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.StartMissing",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.NodeBoundExceeded resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.NodeBoundExceeded",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.DepthBoundExceeded resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.DepthBoundExceeded",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.WorkBoundExceeded resourceFault",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.WorkBoundExceeded",
+          "authorityClass": "resourceFault",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {
-          "coordinate": "consumer.graph@1.SelectorInsufficient domainMappable",
-          "authorityClass": "",
+          "coordinate": "consumer.graph@1.SelectorInsufficient",
+          "authorityClass": "domainMappable",
           "payloadSchema": "consumer.graph@1.ObstructionDetail"
         },
         {

@@ -732,9 +732,14 @@ pub(crate) fn infer<'v>(
                         )?;
                         Ok(left.checked_add(right).is_some_and(|sum| sum <= *max))
                     };
-                    if !fits(&[], parser)?
-                        && (proof.facts.is_empty() || !fits(proof.facts, parser)?)
-                    {
+                    // A nested sum that overflows without facts is refused
+                    // as `UnsupportedProgram`; that is "does not fit", not a
+                    // final answer.
+                    let fits_without = match fits(&[], parser) {
+                        Err(Error::UnsupportedProgram) => false,
+                        judged => judged?,
+                    };
+                    if !fits_without && (proof.facts.is_empty() || !fits(proof.facts, parser)?) {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())

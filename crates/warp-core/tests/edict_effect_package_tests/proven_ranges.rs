@@ -797,3 +797,26 @@ fn an_input_constraint_proves_a_byte_lookup() {
         .expect("the constraint proves at < len(text)");
     refused(&program(Vec::new()));
 }
+
+/// A nested sum whose inner addition overflows without the facts is still
+/// judged with them: under `at <= 10`, `(at + 1) + (u64::MAX - 11)` fits
+/// and `(at + 1) + (u64::MAX - 10)` does not.
+#[test]
+fn an_input_constraint_bounds_a_nested_sum() {
+    let total = declared("local.total", "U64");
+    let program = |addend: u64| {
+        package(
+            vec![at_most(input("at"), int(10))],
+            vec![
+                Node::Let(total.clone(), add(add(input("at"), int(1)), int(addend))),
+                Node::Let(
+                    ok_binding(),
+                    is_true_value(at_most(local(&total), local(&total))),
+                ),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(u64::MAX - 11)).expect("at + 1 is at most 11");
+    refused(&program(u64::MAX - 10));
+}

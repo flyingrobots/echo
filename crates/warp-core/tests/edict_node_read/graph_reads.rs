@@ -5,7 +5,7 @@
 //! These packages are SYNTHETIC. Each is the retained public single-read
 //! package with its Core intent, Target IR step, result projection and
 //! lowering configuration coherently replaced and repinned by
-//! `support/edict_graph_read.rs`. They
+//! `tests/support/edict_graph_read.rs`. They
 //! witness the runtime's graph-read semantics only. They are not public
 //! compiler output and carry no provider or verifier approval.
 //!
@@ -15,7 +15,7 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
 
 #[allow(dead_code, clippy::unwrap_used, clippy::panic)]
-#[path = "support/edict_graph_read.rs"]
+#[path = "../support/edict_graph_read.rs"]
 mod support;
 
 use echo_edict_canonical::{

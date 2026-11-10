@@ -1188,7 +1188,7 @@ intrinsics. The provider lowerer and verifier do not judge them, the checked
 components do not accept them, and no public compiler witness exists; a
 recording effect frame refuses them. The remaining publication work is owned by
 [#926](https://github.com/flyingrobots/echo/issues/926). The runtime witnesses
-in `crates/warp-core/tests/edict_graph_read_tests.rs` use explicitly synthetic
+in `crates/warp-core/tests/edict_node_read/graph_reads.rs` use explicitly synthetic
 packages derived from the retained public read package, not compiler output.
 
 A package declares graph reads in its lowering configuration. The optional

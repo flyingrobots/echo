@@ -180,10 +180,6 @@ name = "edict_node_read_tests"
 required-features = ["trusted_runtime"]
 
 [[test]]
-name = "edict_graph_read_tests"
-required-features = ["trusted_runtime"]
-
-[[test]]
 name = "edict_effect_range_reads"
 required-features = ["trusted_runtime"]
 

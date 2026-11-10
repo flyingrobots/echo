@@ -4,6 +4,11 @@
 #![cfg(feature = "trusted_runtime")]
 #![allow(clippy::unwrap_used, clippy::panic)]
 
+/// Typed outgoing-edge and guided closure reads share this target and its
+/// trusted-runtime schedule.
+#[path = "edict_node_read/graph_reads.rs"]
+mod graph_reads;
+
 use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1 as digest,
     encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value,

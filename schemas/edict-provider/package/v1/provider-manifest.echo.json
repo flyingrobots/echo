@@ -3,7 +3,7 @@
   "providerAbi": "edict:target-provider@1.0.0",
   "provider": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:9058a1f5819850372d5406e41d162db8328ae9dca9f421cb54a14e38e2d30785"
+    "digest": "sha256:50644c0559ab57a403376989cc2e35645f57e3d2d0c25cf0504373f39a5e38f3"
   },
   "artifacts": [
     {
@@ -21,7 +21,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -40,7 +40,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -59,7 +59,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -78,7 +78,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -102,7 +102,7 @@
       "artifactKind": "generationProvenance",
       "resource": {
         "coordinate": "echo.edict-provider-generation-provenance@1",
-        "digest": "sha256:a0353093fb6800c6c354d17397ab6cf99e33323a5c5705c57e9f377e77d6bf73"
+        "digest": "sha256:334ba6aeed2efabbd303caa7d78b7adbda0bb1a879d59533ed9e3b2954f76bd4"
       },
       "source": {
         "kind": "generated",
@@ -112,7 +112,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -121,7 +121,7 @@
       "artifactKind": "reviewArtifact",
       "resource": {
         "coordinate": "echo.edict-provider-generation-review@1",
-        "digest": "sha256:933781f25d536c81353b4ee2796ab7fad9c3f4cb5b3b1ad02a1910bcd6062b90"
+        "digest": "sha256:fcb3a75bcb7ab19c89c076b52367a37935122e8f2f28ccb9c5fd013643c4160e"
       },
       "source": {
         "kind": "generated",
@@ -131,7 +131,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -140,7 +140,7 @@
       "artifactKind": "artifactSchema",
       "resource": {
         "coordinate": "echo.provider-artifacts.cddl@1",
-        "digest": "sha256:4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21"
+        "digest": "sha256:97fbfb9beaeac9567e5e34222400b7cc057734aaac611049493dfca016f903b5"
       },
       "source": {
         "kind": "generated",
@@ -150,7 +150,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },
@@ -169,7 +169,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:57c103178455e3e1ad6b8e61cc821fad576720c8eccac794982742b35b089ad0"
+          "digest": "sha256:940668f947454750772795530da8d1992a77b403669437a03a5d0b2cd924c6ee"
         }
       }
     },

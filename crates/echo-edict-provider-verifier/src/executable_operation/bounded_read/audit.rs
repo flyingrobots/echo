@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Invert target instructions into Core, then compare the complete ordered body.
 
+mod graph;
 mod reads;
 mod types;
 
@@ -17,10 +18,7 @@ use std::collections::BTreeMap;
 use types::{Schema, Symbols};
 
 pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
-    exact(
-        &e.configuration,
-        &["apiVersion", "programKind", "maxReads", "maxReadBytes"],
-    )?;
+    let declared = graph::declaration(&e.configuration)?;
     if !(1..=65_536).contains(&number(get(&e.configuration, "maxReads")?)?)
         || !(1..=64 * 1024 * 1024).contains(&number(get(&e.configuration, "maxReadBytes")?)?)
     {
@@ -192,13 +190,19 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     let mut reconstructed = Vec::new();
     let mut projection_locals = BTreeMap::new();
     let mut reads = 0;
+    let mut graph_reads = 0_u64;
     for id in order {
         let id = string(id)?;
         let (category, instruction) = instructions.remove(id).ok_or(())?;
         let node = match category {
             "steps" => {
                 reads += 1;
-                let node = reads::invert(e, profile, instruction, &mut symbols)?;
+                let inverted =
+                    reads::invert(e, profile, instruction, declared.as_ref(), &mut symbols)?;
+                if inverted.graph_read {
+                    graph_reads += 1;
+                }
+                let node = inverted.node;
                 projection_locals.insert(id, ("capabilityResult", get(instruction, "binding")?));
                 node
             }
@@ -241,6 +245,10 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     {
         return Err(());
     }
+    // A declared graph capability must be the one the program uses.
+    if declared.is_some() != (graph_reads > 0) {
+        return Err(());
+    }
     same(&Value::Array(reconstructed), get(body, "nodes")?)?;
     same(get(target, "result")?, get(body, "result")?)?;
     symbols.finish(get(target, "result")?, text(intent, "output")?)?;
@@ -272,7 +280,7 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
         0,
     )?;
     same(&result, get(target, "result")?)?;
-    package(e, name, intent, &coordinate)
+    package(e, name, intent, &coordinate, declared.is_some())
 }
 
 fn member(e: &Evidence<'_>, name: &str) -> Check<String> {

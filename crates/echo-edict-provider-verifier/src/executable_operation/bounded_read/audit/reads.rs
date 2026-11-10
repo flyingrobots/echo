@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independently reconstruct a Core effect from a declared target read.
 
+use super::graph;
 use super::types::{Schema, Symbols};
 use super::{
     canonical_map, canonical_text, exact, exported, get, member, members, number, obstruction,
@@ -9,12 +10,29 @@ use super::{
 };
 use std::collections::BTreeSet;
 
+const NODE_ATOM: &str = "echo.dpo@1.node-atom-read";
+
+/// Runtime failures of a node-atom read, each with its required authority class.
+const NODE_ATOM_OUTCOMES: [(&str, &str); 4] = [
+    ("echo.atom-byte-bound-exceeded/v1", "integrityFault"),
+    ("echo.atom-missing/v1", "resourceFault"),
+    ("echo.atom-required/v1", "integrityFault"),
+    ("echo.atom-type-mismatch/v1", "integrityFault"),
+];
+
+/// One reconstructed Core effect and whether it discovers graph material.
+pub(super) struct Inverted {
+    pub node: Value,
+    pub graph_read: bool,
+}
+
 pub(super) fn invert(
     e: &Evidence<'_>,
     profile: &Value,
     step: &Value,
+    declared: Option<&graph::Declaration>,
     symbols: &mut Symbols<'_>,
-) -> Check<Value> {
+) -> Check<Inverted> {
     exact(
         step,
         &[
@@ -30,8 +48,8 @@ pub(super) fn invert(
     let effect_name = member(e, text(step, "effect")?)?;
     let effect = exported(e, "effects", &effect_name)?;
     let implementation = get(get(&e.adapter, "effectImplementations")?, &effect_name)?;
-    if text(step, "targetIntrinsic")? != "echo.dpo@1.node-atom-read"
-        || text(implementation, "targetIntrinsic")? != "echo.dpo@1.node-atom-read"
+    let intrinsic = text(step, "targetIntrinsic")?;
+    if text(implementation, "targetIntrinsic")? != intrinsic
         || text(implementation, "writeClass")? != "read"
         || text(effect, "executionClass")? != "runtime"
         || text(effect, "effectKindHint")? != "read"
@@ -49,72 +67,139 @@ pub(super) fn invert(
         get(implementation, "targetConfiguration")?,
         &e.closure.configuration.artifact,
     )?;
-    let address_name = text(effect, "inputType")?;
-    let address = symbols.schema(address_name, 0)?;
+    let input_name = text(effect, "inputType")?;
+    let output_name = text(effect, "outputType")?;
+    let input = symbols.schema(input_name, 0)?;
+    let output = symbols.schema(output_name, 0)?;
+    if symbols.expression(get(step, "input")?, 0)? != input
+        || text(get(step, "binding")?, "type")? != output_name
+    {
+        return Err(());
+    }
+    let read_bytes = number(get(&e.configuration, "maxReadBytes")?)?;
+    let outcomes: &[(&str, &str)] = match intrinsic {
+        NODE_ATOM => {
+            node_atom(e, input_name, output_name, &input, &output, read_bytes)?;
+            &NODE_ATOM_OUTCOMES
+        }
+        graph::EDGE_INTRINSIC if declared.is_some() => {
+            definitions(e, symbols, [(input_name, &input), (output_name, &output)])?;
+            graph::edge_signature(&input, &output)?;
+            &graph::EDGE_OUTCOMES
+        }
+        graph::CLOSURE_INTRINSIC if declared.is_some() => {
+            definitions(e, symbols, [(input_name, &input), (output_name, &output)])?;
+            let guided = graph::closure_signature(&input, &output, read_bytes)?;
+            graph::selector(&e.core, symbols, declared, &guided)?;
+            &graph::CLOSURE_OUTCOMES
+        }
+        _ => return Err(()),
+    };
+    let original_arms = arms(e, effect, implementation, step, outcomes, &input, symbols)?;
+    symbols.bind(get(step, "binding")?, output)?;
+    Ok(Inverted {
+        node: canonical_map([
+            ("kind", canonical_text("effect")),
+            ("effect", get(step, "effect")?.clone()),
+            ("binding", get(step, "binding")?.clone()),
+            ("input", get(step, "input")?.clone()),
+            ("obstructionMap", Value::Map(original_arms)),
+        ]),
+        graph_read: intrinsic != NODE_ATOM,
+    })
+}
+
+/// A node-atom read takes the exact typed address and returns bounded bytes.
+fn node_atom(
+    e: &Evidence<'_>,
+    address_name: &str,
+    output_name: &str,
+    address: &Schema,
+    output: &Schema,
+    read_bytes: u64,
+) -> Check<()> {
     if !address.address()
-        || symbols.expression(get(step, "input")?, 0)? != address
         || text(exported(e, "types", address_name)?, "definition")?
             != "Record<nodeId:Bytes<exact=32>,typeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"
     {
         return Err(());
     }
-    let output_name = text(effect, "outputType")?;
-    let output = symbols.schema(output_name, 0)?;
-    let Schema::Bytes { lower: 0, upper } = output else {
+    let Schema::Bytes { lower: 0, upper } = *output else {
         return Err(());
     };
     if upper == 0
-        || upper > number(get(&e.configuration, "maxReadBytes")?)?
-        || text(get(step, "binding")?, "type")? != output_name
+        || upper > read_bytes
         || text(exported(e, "types", output_name)?, "definition")? != format!("Bytes<max={upper}>")
     {
         return Err(());
     }
+    Ok(())
+}
+
+/// Each exported definition must expand to the schema Core gives its coordinate.
+fn definitions(
+    e: &Evidence<'_>,
+    symbols: &mut Symbols<'_>,
+    signature: [(&str, &Schema); 2],
+) -> Check<()> {
+    for (name, resolved) in signature {
+        let definition = text(exported(e, "types", name)?, "definition")?;
+        if &symbols.schema(definition, 0)? != resolved {
+            return Err(());
+        }
+    }
+    Ok(())
+}
+
+/// Reverses the adapter's failure mapping into the authored obstruction map,
+/// requiring one arm of the right authority class for every runtime outcome.
+fn arms(
+    e: &Evidence<'_>,
+    effect: &Value,
+    implementation: &Value,
+    step: &Value,
+    outcomes: &[(&str, &str)],
+    payload: &Schema,
+    symbols: &mut Symbols<'_>,
+) -> Check<Vec<(Value, Value)>> {
     let failures = get(effect, "effectFailures")?;
     let mappings = members(get(implementation, "failureMappings")?)?;
-    let arms = get(step, "obstructionArms")?;
-    let expected = BTreeSet::from([
-        "echo.atom-missing/v1",
-        "echo.atom-required/v1",
-        "echo.atom-type-mismatch/v1",
-        "echo.atom-byte-bound-exceeded/v1",
-    ]);
-    if mappings.len() != expected.len()
-        || members(failures)?.len() != expected.len()
-        || members(arms)?.len() != expected.len()
+    let declared = get(step, "obstructionArms")?;
+    if mappings.len() != outcomes.len()
+        || members(failures)?.len() != outcomes.len()
+        || members(declared)?.len() != outcomes.len()
     {
         return Err(());
     }
-    let failure_list: Vec<_> = expected
+    // The outcome tables are sorted, as the canonical target failure set is.
+    let expected: Vec<_> = outcomes
         .iter()
-        .map(|failure| canonical_text(failure))
+        .map(|(outcome, _)| canonical_text(outcome))
         .collect();
-    if sequence(step, "obstructionFailures")? != failure_list {
+    if sequence(step, "obstructionFailures")? != expected {
         return Err(());
     }
     let mut seen = BTreeSet::new();
-    let mut original_arms = Vec::new();
-    for (original, target_failure) in mappings {
-        let name = string(original)?;
+    let mut original = Vec::new();
+    for (name, target_failure) in mappings {
         let target_failure = string(target_failure)?;
-        if !expected.contains(target_failure) || !seen.insert(target_failure) {
+        let authority = outcomes
+            .iter()
+            .find_map(|(outcome, class)| (*outcome == target_failure).then_some(*class))
+            .ok_or(())?;
+        if !seen.insert(target_failure) {
             return Err(());
         }
-        let failure = get(failures, name)?;
+        let failure = get(failures, string(name)?)?;
         exact(failure, &["payloadType", "authorityClass"])?;
-        let authority = if target_failure == "echo.atom-missing/v1" {
-            "resourceFault"
-        } else {
-            "integrityFault"
-        };
-        if text(failure, "payloadType")? != address_name
+        if text(failure, "payloadType")? != text(effect, "inputType")?
             || text(failure, "authorityClass")? != authority
         {
             return Err(());
         }
-        let arm = get(arms, target_failure)?;
+        let arm = get(declared, target_failure)?;
         exact(arm, &["binder", "value"])?;
-        symbols.claim_failure(get(arm, "binder")?, &address)?;
+        symbols.claim_failure(get(arm, "binder")?, payload)?;
         let call = get(arm, "value")?;
         exact(call, &["kind", "callee", "args", "typeArgs"])?;
         if text(call, "kind")? != "call"
@@ -124,14 +209,7 @@ pub(super) fn invert(
             return Err(());
         }
         obstruction(e, text(call, "callee")?, authority)?;
-        original_arms.push((original.clone(), arm.clone()));
+        original.push((name.clone(), arm.clone()));
     }
-    symbols.bind(get(step, "binding")?, output)?;
-    Ok(canonical_map([
-        ("kind", canonical_text("effect")),
-        ("effect", get(step, "effect")?.clone()),
-        ("binding", get(step, "binding")?.clone()),
-        ("input", get(step, "input")?.clone()),
-        ("obstructionMap", Value::Map(original_arms)),
-    ]))
+    Ok(original)
 }

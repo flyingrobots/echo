@@ -227,6 +227,7 @@ fn slice_program(constraints: Vec<V>, bytes: &str) -> V {
     )
 }
 
+/// `at <= len(text)` as an input constraint proves `slice(text, 0, at)`.
 #[test]
 fn an_input_constraint_proves_a_runtime_prefix_slice() {
     prepare(&slice_program(
@@ -236,11 +237,13 @@ fn an_input_constraint_proves_a_runtime_prefix_slice() {
     .expect("the constraint dominates the slice");
 }
 
+/// With no constraint, the same slice has no range proof and is refused.
 #[test]
 fn a_runtime_slice_without_its_range_proof_is_refused() {
     refused(&slice_program(Vec::new(), "text"));
 }
 
+/// A bound against `len(other)` does not prove a slice of `text`.
 #[test]
 fn a_constraint_on_another_operand_proves_nothing() {
     refused(&slice_program(
@@ -249,6 +252,8 @@ fn a_constraint_on_another_operand_proves_nothing() {
     ));
 }
 
+/// A `require` before a slice adds no fact; the same shape prepares once the
+/// bound is an input constraint.
 #[test]
 fn a_require_guard_does_not_prove_later_nodes() {
     // Edict's totality rule: only input constraints and earlier conjuncts of
@@ -271,6 +276,8 @@ fn a_require_guard_does_not_prove_later_nodes() {
         .expect("the constraint proves the slice after the require");
 }
 
+/// A `let` alias of the constrained term is a different term, so the slice
+/// over the alias is refused.
 #[test]
 fn a_let_alias_does_not_carry_an_order_fact() {
     // Order facts name terms by canonical encoding: `at2` is a different term
@@ -286,6 +293,8 @@ fn a_let_alias_does_not_carry_an_order_fact() {
     ));
 }
 
+/// `at <= len(text)` proves `len(text) - at`; without it the subtraction is
+/// refused.
 #[test]
 fn an_input_constraint_proves_a_runtime_subtraction() {
     let rest = declared("local.rest", "U64");
@@ -315,6 +324,8 @@ fn an_input_constraint_proves_a_runtime_subtraction() {
     refused(&program(Vec::new()));
 }
 
+/// A count over text of at most 64 bytes is at most 64, and a `let` carries that
+/// ceiling: the addend `u64::MAX - 64` fits and one more is refused.
 #[test]
 fn a_let_carries_its_proven_ceiling_to_later_additions() {
     let count = declared("local.count", "U64");
@@ -358,6 +369,8 @@ fn a_let_carries_its_proven_ceiling_to_later_additions() {
     refused(&program(u64::MAX - 63));
 }
 
+/// `at <= 10` reaches an addition through a `let` of `input.at`: the addend
+/// `u64::MAX - 10` fits and one more is refused.
 #[test]
 fn an_input_constraint_bounds_a_let_and_its_later_additions() {
     let at = declared("local.at", "U64");
@@ -440,6 +453,8 @@ fn constrained_program() -> V {
     )
 }
 
+/// Prepares `source` and evaluates it on the text `"hé"` at byte offset
+/// `at`, with an empty `other`.
 fn run(source: &V, at: u64) -> Result<Vec<u8>, EffectFrameError> {
     let package = prepare(source).expect("the program prepares");
     let program = package.program().as_effect_program().expect("effect");
@@ -471,6 +486,9 @@ fn run(source: &V, at: u64) -> Result<Vec<u8>, EffectFrameError> {
         .map(<[u8]>::to_vec)
 }
 
+/// The constraint-proven program answers the prefix check at every in-range
+/// offset, and the input constraint fails before any node runs at an
+/// out-of-range offset.
 #[test]
 fn an_input_constraint_proves_a_slice_that_runs() {
     // "hé" is h, then é as two bytes: offsets 0, 1 and 3 are boundaries and
@@ -521,6 +539,8 @@ fn a_guarded_conjunction_runs_and_takes_the_authored_path_outside_boundaries() {
     }
 }
 
+/// The prefix check alone in a `require`, with no guarding conjunct, is
+/// refused at preparation.
 #[test]
 fn the_same_check_outside_its_conjunction_is_refused_before_it_runs() {
     refused(&package(
@@ -536,6 +556,8 @@ fn the_same_check_outside_its_conjunction_is_refused_before_it_runs() {
     ));
 }
 
+/// `at == 10` and `10 == at` bound an addition over `input.at`; the strict
+/// and reversed comparison forms bound nothing.
 #[test]
 fn an_equality_constraint_bounds_a_term_from_either_side() {
     let total = declared("local.total", "U64");

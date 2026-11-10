@@ -65,6 +65,9 @@ pub(crate) fn upper_limit(
     Ok(limit)
 }
 
+/// Lowers `limit` to the smallest constant bound that `fact` gives the
+/// canonically encoded `term`. It reads conjunctions and the three comparison
+/// forms that `upper_limit` names, and ignores every other predicate.
 fn limit_from(
     fact: &Value,
     term: &[u8],

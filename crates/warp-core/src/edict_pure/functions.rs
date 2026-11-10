@@ -131,6 +131,9 @@ pub(crate) fn definitions<'a>(
     Ok(definitions)
 }
 
+/// Decodes and checks every pure helper definition, used or not. A helper
+/// frame starts with no caller facts. An unsigned binding proven below its
+/// width carries that ceiling to the later bindings of the same body.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
@@ -380,6 +383,9 @@ impl<'c, 'v> Proof<'c, 'v> {
 /// fields or helper frames, and they narrow additions only; an order proof
 /// for a slice or subtraction still needs a fact over the same term.
 pub(crate) type Caps<'a> = BTreeMap<&'a str, u64>;
+/// Infers the runtime type of one Core expression. An unsigned addition is
+/// refused unless the proven ceilings of its operands sum within the type's
+/// width.
 pub(crate) fn infer<'v>(
     value: &'v Value,
     scope: &Scope<'_>,
@@ -763,11 +769,12 @@ pub(crate) fn infer<'v>(
     }
 }
 
-// Constants, counts, carried binding caps and already checked nested additions
-// can narrow a bound, and so can a dominating fact comparing the term with a
-// constant; every other term has its full declared width. Fresh helper frames
-// receive no caller facts. The parser's combined work/depth ceiling covers
-// this walk.
+/// The proven upper bound of the unsigned term `value`, whose type holds at
+/// most `max`. Constants, counts, carried binding caps and already checked
+/// nested additions can narrow a bound, and so can a dominating fact comparing
+/// the term with a constant; every other term has its full declared width.
+/// Fresh helper frames receive no caller facts. The parser's combined
+/// work/depth ceiling covers this walk.
 pub(crate) fn unsigned_ceiling(
     value: &Value,
     max: u64,
@@ -781,8 +788,10 @@ pub(crate) fn unsigned_ceiling(
         .map_or(structural, |limit| structural.min(limit)))
 }
 
-// `facts` are only forwarded to the nested-addition recursion; the
-// structural ceiling itself comes from caps, counts and widths.
+/// The upper bound of `value` from its own shape, before any fact about the
+/// whole term is applied. `facts` are only forwarded to the nested-addition
+/// recursion; the structural ceiling itself comes from caps, counts and
+/// widths.
 fn structural_ceiling(
     value: &Value,
     max: u64,

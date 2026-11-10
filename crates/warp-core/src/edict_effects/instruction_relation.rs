@@ -11,6 +11,11 @@ use crate::edict_pure::{
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Checks one authored effect intent against its Target form: the ordered
+/// Core/Target correspondence, the lexical local identities and the range
+/// proofs of its expressions. Each input constraint is checked with no facts.
+/// All of them then hold for the whole body, and an unsigned `let` carries
+/// its proven ceiling to later nodes. A `require` adds no fact.
 pub(super) fn validate<'a>(
     module: &'a Value,
     intent: &'a Value,
@@ -277,6 +282,8 @@ impl<'a> Scope<'a> {
         self.parser.expr(value, 0)?;
         self.references(value, binder, 0)
     }
+    /// Infers the runtime type of `value` under the facts and ceilings proven
+    /// so far, and records its parsed expression.
     fn data_type(&mut self, value: &Value) -> Result<RuntimeType, Error> {
         let actual = functions::infer(
             value,
@@ -313,6 +320,8 @@ impl<'a> Scope<'a> {
         }
         Ok(())
     }
+    /// Checks `value` as a predicate under the facts and ceilings proven so
+    /// far, records its parsed form and claims the references it reads.
     fn predicate(&mut self, value: &Value) -> Result<(), Error> {
         functions::check_predicate(
             value,

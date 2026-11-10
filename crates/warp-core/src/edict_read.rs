@@ -10,22 +10,24 @@
 mod access;
 mod decode;
 mod evaluate;
+mod graph;
 mod instructions;
 mod model;
 mod view;
 
-pub(crate) use access::NodeAtomAccess;
-pub use view::{ReadBasis, ReadView};
+pub(crate) use access::{Material, NodeAtomAccess, Outgoing};
+pub use view::{GraphReadAperture, ReadBasis, ReadView};
 
 use crate::edict_pure::{EvaluationError, EvaluationLimits};
-use crate::NodeKey;
+use crate::{NodeKey, TypeId};
 
 /// Host ceilings, intersected with the package's declared budgets.
 #[derive(Clone, Copy, Debug)]
 pub struct ReadLimits {
     /// Package/input sizes and deterministic expression evaluation ceilings.
     pub evaluation: EvaluationLimits,
-    /// Maximum number of node-atom read attempts.
+    /// Maximum number of read attempts: node-atom reads, typed outgoing-range
+    /// reads, and closure node materializations.
     pub max_reads: u64,
     /// Maximum aggregate atom bytes delivered to the interpreter.
     pub max_read_bytes: u64,
@@ -44,10 +46,13 @@ pub struct ReadResult {
     pub steps: u64,
     /// Cumulative charged value storage, including copied atom bytes.
     pub allocated_bytes: u64,
-    /// Successful node-atom reads.
+    /// Read attempts: node-atom reads, typed outgoing-range reads, and closure
+    /// node materializations.
     pub reads: u64,
     /// Aggregate delivered atom bytes.
     pub read_bytes: u64,
+    /// Bucket edges inspected by graph reads, matching or not.
+    pub edge_scans: u64,
 }
 
 /// Underlying cause of an authored obstruction.
@@ -65,6 +70,54 @@ pub enum ReadObstruction {
     Guard,
 }
 
+/// Underlying cause of an authored graph-read obstruction.
+///
+/// Resource bounds, a selector that asked for too little and storage that
+/// violates the declared invariants stay distinct: each is its own declared
+/// failure with its own authored arm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GraphReadObstruction {
+    /// The edge-read source node is absent.
+    EdgeSourceMissing,
+    /// More edges match than the declared result list holds.
+    EdgeBoundExceeded,
+    /// The source bucket exceeds the remaining scan allowance.
+    EdgeScanBoundExceeded,
+    /// The closure start node is absent.
+    ClosureStartMissing,
+    /// Another distinct node would exceed the node bound.
+    ClosureNodeBoundExceeded,
+    /// A selected child lies deeper than the depth bound.
+    ClosureDepthBoundExceeded,
+    /// A bucket exceeds the remaining scan allowance.
+    ClosureScanBoundExceeded,
+    /// The declared edge or occurrence capacity is exhausted.
+    ClosureWorkBoundExceeded,
+    /// The selector declared that the closure it can ask for is insufficient.
+    ClosureSelectorInsufficient,
+    /// Stored material violates a declared or structural invariant.
+    ClosureStorageMalformed,
+}
+
+impl GraphReadObstruction {
+    /// The versioned tag the runtime records for this failure.
+    #[must_use]
+    pub const fn runtime_tag(self) -> &'static str {
+        match self {
+            Self::EdgeSourceMissing => "echo.edge-source-missing/v1",
+            Self::EdgeBoundExceeded => "echo.edge-bound-exceeded/v1",
+            Self::EdgeScanBoundExceeded => "echo.edge-scan-bound-exceeded/v1",
+            Self::ClosureStartMissing => "echo.closure-start-missing/v1",
+            Self::ClosureNodeBoundExceeded => "echo.closure-node-bound-exceeded/v1",
+            Self::ClosureDepthBoundExceeded => "echo.closure-depth-bound-exceeded/v1",
+            Self::ClosureScanBoundExceeded => "echo.closure-scan-bound-exceeded/v1",
+            Self::ClosureWorkBoundExceeded => "echo.closure-work-bound-exceeded/v1",
+            Self::ClosureSelectorInsufficient => "echo.closure-selector-insufficient/v1",
+            Self::ClosureStorageMalformed => "echo.closure-storage-malformed/v1",
+        }
+    }
+}
+
 /// Typed failure; no partial output or mutation is published.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadError {
@@ -76,6 +129,9 @@ pub enum ReadError {
     InvalidAperture,
     /// Requested node is outside the host-selected aperture.
     OutsideAperture(NodeKey),
+    /// A graph read named an edge type, or discovered a node type, outside the
+    /// host-selected graph aperture.
+    OutsideGraphAperture(TypeId),
     /// The read-attempt ceiling is exhausted.
     ReadCountExceeded,
     /// The aggregate read-byte ceiling is exhausted.
@@ -86,6 +142,13 @@ pub enum ReadError {
         coordinate: String,
         /// Generic runtime cause.
         cause: ReadObstruction,
+    },
+    /// A graph-read failure maps to this authored obstruction.
+    GraphObstructed {
+        /// Application-owned source obstruction coordinate.
+        coordinate: String,
+        /// Generic runtime cause.
+        cause: GraphReadObstruction,
     },
 }
 

@@ -7480,3 +7480,61 @@ fn current_invocation_admits_effect_grants_without_an_invented_anchor() {
         basis
     );
 }
+
+#[allow(dead_code, clippy::unwrap_used)]
+#[path = "support/edict_graph_read.rs"]
+mod graph_read;
+
+/// Recording frames do not yet witness graph reads in their read image, so
+/// they must refuse one before observing any graph material. The package is
+/// the synthetic edge-read fixture; the refusal is the frame's, not the
+/// package decoder's, because the same package evaluates over a plain view.
+#[test]
+fn recorded_effect_frame_refuses_an_unwitnessed_graph_read_without_observing_it() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = graph_read::package(&graph_read::edge_build(2));
+    let input = encode_canonical_cbor_v1(&graph_read::record([(
+        "read",
+        graph_read::edge_request(node, "left"),
+    )]))
+    .expect("canonical input");
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    let aperture = [node];
+    let edge_types = [make_type_id("left")];
+    let plain = warp_core::edict_read::ReadView::at(frontier, &aperture)
+        .expect("plain control")
+        .with_graph_aperture(warp_core::edict_read::GraphReadAperture {
+            edge_types: &edge_types,
+            node_types: &[],
+            max_edge_scans: 64,
+        })
+        .expect("graph aperture");
+    let control =
+        warp_core::edict_read::evaluate(&package, pin, &input, &plain, recorded_read_limits())
+            .expect("the same package evaluates over a plain view");
+    assert_eq!(control.reads, 1);
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(&package, pin, &input, &aperture, recorded_read_limits()),
+        Err(warp_core::edict_effects::EffectFrameError::Read(
+            warp_core::edict_effects::EffectRangeReadError::FootprintLawViolation
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed().read_bytes(), 0);
+}

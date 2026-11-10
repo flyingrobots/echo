@@ -5,7 +5,7 @@ use super::{
     EffectFrameError, EffectRangeReadError, EffectRangeReadSession, OBSERVATION_STORAGE_BYTES,
 };
 use crate::edict_pure::evaluate::Meter;
-use crate::edict_read::{NodeAtomAccess, ReadBasis, ReadObstruction};
+use crate::edict_read::{Material, NodeAtomAccess, Outgoing, ReadBasis, ReadObstruction};
 use crate::{AttachmentKey, AttachmentValue, NodeKey, SlotId, SlotReading, TypeId};
 
 pub(crate) struct RecordedNodeAccess<'r, 'f> {
@@ -39,6 +39,28 @@ impl NodeAtomAccess for RecordedNodeAccess<'_, '_> {
                     .record_typed_atom(node, absent_type, expected, max_bytes, meter)
             }
         }
+    }
+    // A recording frame does not yet witness graph reads in its read image.
+    // It refuses them outright rather than observe material it cannot record.
+    fn scan_ceiling(&self) -> u64 {
+        0
+    }
+    fn outgoing(
+        &mut self,
+        _range: crate::OutgoingEdgeRange,
+        _source_type: Option<TypeId>,
+        _allowance: u64,
+        _meter: &mut Meter,
+    ) -> Result<Outgoing, Self::Error> {
+        Err(EffectRangeReadError::FootprintLawViolation.into())
+    }
+    fn material(
+        &mut self,
+        _node: NodeKey,
+        _referrer: Option<TypeId>,
+        _meter: &mut Meter,
+    ) -> Result<Material<'_>, Self::Error> {
+        Err(EffectRangeReadError::FootprintLawViolation.into())
     }
 }
 

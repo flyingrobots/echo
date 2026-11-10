@@ -1,0 +1,16 @@
+package consumer.graph.read@1;
+use lawpack consumer.graph@1 digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" as graph;
+type Input = { read: graph.EdgeQuery };
+intent readEdges(input: Input) returns graph.Edges
+  profile graph.readGraph
+  basis input.read.nodeId
+  budget <= graph.readBudget
+{
+  let observed: graph.Edges = graph.outgoing(input.read)
+    else {
+      sourceMissing(query) => graph.SourceMissing,
+      edgeBound(query) => graph.EdgeBoundExceeded,
+      scanBound(query) => graph.ScanBoundExceeded,
+    };
+  return observed;
+}

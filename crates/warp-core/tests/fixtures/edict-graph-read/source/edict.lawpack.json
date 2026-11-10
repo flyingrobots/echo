@@ -1,0 +1,292 @@
+{
+  "schema": "edict.lawpack-build/v1",
+  "outputDirectory": "vendor/graph-read",
+  "lawpack": {
+    "schema": "edict.lawpack-authoring/v1",
+    "id": "consumer.graph",
+    "version": "1",
+    "acceptedCoreAbi": [
+      "edict.core/v1"
+    ],
+    "dependencies": [],
+    "exportsCoordinate": "consumer.graph.exports/v1",
+    "exports": {
+      "types": [
+        {
+          "coordinate": "consumer.graph@1.EdgeQuery",
+          "definition": "Record<edgeType:Bytes<exact=32>,nodeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"
+        },
+        {
+          "coordinate": "consumer.graph@1.Edges",
+          "definition": "List<Record<edgeId:Bytes<exact=32>,toId:Bytes<exact=32>>,max=4>"
+        },
+        {
+          "coordinate": "consumer.graph@1.Guide",
+          "definition": "Record<a:U64,b:U64,followA:Bool,followB:Bool,reach:U64>"
+        },
+        {
+          "coordinate": "consumer.graph@1.NodeRow",
+          "definition": "Record<atomBytes:Bytes<max=64>,atomType:Bytes<max=32>,nodeId:Bytes<exact=32>,nodeType:Bytes<exact=32>>"
+        },
+        {
+          "coordinate": "consumer.graph@1.ClosureQuery",
+          "definition": "Record<edgeTypes:List<Bytes<exact=32>,max=2>,guide:Record<a:U64,b:U64,followA:Bool,followB:Bool,reach:U64>,maxDepth:U64,maxNodes:U64,nodeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"
+        },
+        {
+          "coordinate": "consumer.graph@1.Closure",
+          "definition": "Record<edges:List<Record<edgeId:Bytes<exact=32>,from:U64,node:U64,slot:U64>,max=12>,nodes:List<Record<atomBytes:Bytes<max=64>,atomType:Bytes<max=32>,nodeId:Bytes<exact=32>,nodeType:Bytes<exact=32>>,max=8>,occurrences:List<Record<depth:U64,edge:U64,guide:Record<a:U64,b:U64,followA:Bool,followB:Bool,reach:U64>,node:U64>,max=12>>"
+        },
+        {
+          "coordinate": "consumer.graph@1.ObstructionDetail",
+          "definition": "String<max=256,canonical=raw-utf8>"
+        }
+      ],
+      "constants": [],
+      "pureFunctions": [],
+      "effects": [
+        {
+          "coordinate": "consumer.graph@1.outgoing",
+          "typeParameters": [],
+          "inputType": "consumer.graph@1.EdgeQuery",
+          "outputType": "consumer.graph@1.Edges",
+          "executionClass": "runtime",
+          "effectKindHint": "read",
+          "footprintObligation": "consumer.graph@1.readFootprint",
+          "costObligation": "consumer.graph@1.readBudget",
+          "effectFailures": {
+            "sourceMissing": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.EdgeQuery"
+            },
+            "edgeBound": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.EdgeQuery"
+            },
+            "scanBound": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.EdgeQuery"
+            }
+          },
+          "guardSupport": true
+        },
+        {
+          "coordinate": "consumer.graph@1.closure",
+          "typeParameters": [],
+          "inputType": "consumer.graph@1.ClosureQuery",
+          "outputType": "consumer.graph@1.Closure",
+          "executionClass": "runtime",
+          "effectKindHint": "read",
+          "footprintObligation": "consumer.graph@1.readFootprint",
+          "costObligation": "consumer.graph@1.readBudget",
+          "effectFailures": {
+            "startMissing": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            },
+            "nodeBound": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            },
+            "depthBound": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            },
+            "scanBound": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            },
+            "workBound": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            },
+            "selectorInsufficient": {
+              "authorityClass": "domainMappable",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            },
+            "storageMalformed": {
+              "authorityClass": "integrityFault",
+              "payloadType": "consumer.graph@1.ClosureQuery"
+            }
+          },
+          "guardSupport": true
+        }
+      ],
+      "obstructions": [
+        {
+          "coordinate": "consumer.graph@1.SourceMissing resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.EdgeBoundExceeded resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.ScanBoundExceeded resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.StartMissing resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.NodeBoundExceeded resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.DepthBoundExceeded resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.WorkBoundExceeded resourceFault",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.SelectorInsufficient domainMappable",
+          "authorityClass": "",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.graph@1.StorageMalformed",
+          "authorityClass": "integrityFault",
+          "payloadSchema": "consumer.graph@1.ObstructionDetail"
+        }
+      ],
+      "operationProfiles": {
+        "consumer.graph@1.readGraph": {
+          "opticTemplate": {
+            "opticKind": "affectReintegration",
+            "boundaryKind": "affect",
+            "supportPolicy": "consumer.graph@1.basisBoundSupport",
+            "lossDisposition": "consumer.graph@1.lossless",
+            "basisTemplate": "consumer.graph@1.exactHeadBasis",
+            "apertureRequirement": {
+              "kind": "abstractFootprintObligation",
+              "reference": "consumer.graph@1.readFootprint"
+            }
+          },
+          "effectPredicate": "consumer.graph@1.readEffects"
+        }
+      }
+    },
+    "targetAdapters": [
+      {
+        "coordinate": "consumer.graph.echo-adapter/v1",
+        "output": "adapter.cbor",
+        "acceptedTargetProfile": {
+          "id": "echo.dpo@1",
+          "digest": "sha256:2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04"
+        },
+        "acceptedTargetIr": {
+          "id": "echo.span-ir/v2",
+          "digest": "sha256:123e7f805dc5e831e88befec4cd49ec02c39858b6f3990da8a73b50c6086ae39"
+        },
+        "operationProfiles": {
+          "consumer.graph@1.readGraph": {
+            "core": "continuum.profile.read-only/v1",
+            "semanticEffects": [
+              "consumer.graph@1.outgoing",
+              "consumer.graph@1.closure"
+            ],
+            "budgetObligation": "consumer.graph@1.readBudget",
+            "targetConfiguration": {
+              "local": "echo-config"
+            }
+          }
+        },
+        "effectImplementations": {
+          "consumer.graph@1.outgoing": {
+            "targetIntrinsic": "echo.dpo@1.outgoing-edge-read",
+            "targetConfiguration": {
+              "local": "echo-config"
+            },
+            "writeClass": "read",
+            "footprintObligation": "consumer.graph@1.readFootprint",
+            "costObligation": "consumer.graph@1.readBudget",
+            "failureMappings": {
+              "sourceMissing": "echo.edge-source-missing/v1",
+              "edgeBound": "echo.edge-bound-exceeded/v1",
+              "scanBound": "echo.edge-scan-bound-exceeded/v1"
+            }
+          },
+          "consumer.graph@1.closure": {
+            "targetIntrinsic": "echo.dpo@1.closure-read",
+            "targetConfiguration": {
+              "local": "echo-config"
+            },
+            "writeClass": "read",
+            "footprintObligation": "consumer.graph@1.readFootprint",
+            "costObligation": "consumer.graph@1.readBudget",
+            "failureMappings": {
+              "startMissing": "echo.closure-start-missing/v1",
+              "nodeBound": "echo.closure-node-bound-exceeded/v1",
+              "depthBound": "echo.closure-depth-bound-exceeded/v1",
+              "scanBound": "echo.closure-scan-bound-exceeded/v1",
+              "workBound": "echo.closure-work-bound-exceeded/v1",
+              "selectorInsufficient": "echo.closure-selector-insufficient/v1",
+              "storageMalformed": "echo.closure-storage-malformed/v1"
+            }
+          }
+        },
+        "budgets": {
+          "consumer.graph@1.readBudget": {
+            "maxSteps": 1048576,
+            "maxAllocatedBytes": 16777216,
+            "maxOutputBytes": 8388608
+          }
+        }
+      }
+    ],
+    "verifier": {
+      "class": "declarative",
+      "ruleset": {
+        "local": "verifier-rules"
+      }
+    },
+    "compatibility": {
+      "id": "consumer.graph.compatibility/v1",
+      "digest": "sha256:2adf83f798205f52636ad64ca45178f33a8e1cc663874f8a6113484c945e3052"
+    },
+    "conformanceFixtureCorpus": {
+      "id": "consumer.graph.read.oracle@1",
+      "digest": "sha256:b9b4707dd5e07897cbe7af36d88928401887e6af5d167d1a88a8d6181b4dbb0e"
+    },
+    "localResources": [
+      {
+        "name": "echo-config",
+        "coordinate": "echo.operation-lowering-configuration/v1",
+        "output": "echo-operation-configuration.cbor",
+        "value": {
+          "apiVersion": "echo.operation-lowering-configuration/v1",
+          "programKind": "compiler-produced-bounded-read/v1",
+          "maxReadBytes": 1048576,
+          "maxReads": 64,
+          "graphReads": {
+            "maxEdgeScans": 64,
+            "maxClosureNodes": 8,
+            "maxClosureDepth": 4,
+            "closureSelector": "select"
+          }
+        }
+      },
+      {
+        "name": "verifier-rules",
+        "coordinate": "consumer.graph.verifier-rules/v1",
+        "output": "verifier-rules.cbor",
+        "value": {
+          "schema": "consumer.graph.schema@1",
+          "schemaDigest": "sha256:f49b0ff6c9c7010d3a72b46734d47832853f496739a083edc41dddec3431bac7",
+          "oracleIsExecutableInput": false,
+          "runtimeOntology": "generic-bounded-graph"
+        }
+      }
+    ]
+  },
+  "dependencyBundles": []
+}

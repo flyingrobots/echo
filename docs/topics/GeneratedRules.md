@@ -260,9 +260,9 @@ out-of-range `at` and takes the authored path, while a program without the guard
 is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
-literal, count and nested-sum bounds, carried `let` ceilings, and (new with
-#934) a dominating fact from its own conjunct prefixes that compares the term
-with a constant (`term <= c`, `term == c` or `c == term`). Other terms retain their full
+literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
+fact from its own conjunct prefixes that compares the term with a constant
+(`term <= c`, `term == c` or `c == term`). Other terms retain their full
 unsigned width, so zero identity is total and an unbounded parameter plus one
 refuses. Caller constraints do not cross into a helper frame.
 

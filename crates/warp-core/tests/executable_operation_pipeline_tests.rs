@@ -7538,3 +7538,262 @@ fn recorded_effect_frame_refuses_an_unwitnessed_graph_read_without_observing_it(
     assert!(frame.readings().is_empty());
     assert_eq!(frame.consumed().read_bytes(), 0);
 }
+
+/// Evaluation ceilings large enough for the closure result; the plain control
+/// and the recording frame use the same ones.
+fn graph_read_limits() -> warp_core::edict_read::ReadLimits {
+    warp_core::edict_read::ReadLimits {
+        evaluation: warp_core::edict_pure::EvaluationLimits {
+            max_package_bytes: 65536,
+            max_input_bytes: 4096,
+            max_output_bytes: 65536,
+            max_steps: 1_000_000,
+            max_allocated_bytes: 16_777_216,
+        },
+        max_reads: 64,
+        max_read_bytes: 1_048_576,
+    }
+}
+
+/// A typed footprint law granting the graph-read fixture's node, atom and edge types.
+fn graph_read_law(max_reads: u64) -> warp_core::edict_effects::EffectFootprintLaw {
+    use CanonicalValueV1 as V;
+    let ids = |names: &[&str]| {
+        V::Array(
+            graph_read::sorted(names)
+                .iter()
+                .map(|id| V::Bytes(id.0.to_vec()))
+                .collect(),
+        )
+    };
+    let law = V::Map(vec![
+        (V::Text("read_node_types".into()), ids(&["branch", "leaf"])),
+        (V::Text("write_node_types".into()), V::Array(vec![])),
+        (V::Text("atom_types".into()), ids(&["text"])),
+        (V::Text("range_edge_types".into()), ids(&["left", "right"])),
+        (V::Text("write_edge_types".into()), V::Array(vec![])),
+        (V::Text("portal_owner_types".into()), V::Array(vec![])),
+        (
+            V::Text("max_reads".into()),
+            V::Integer(i128::from(max_reads)),
+        ),
+        (V::Text("max_writes".into()), V::Integer(0)),
+        (V::Text("max_range_edges".into()), V::Integer(64)),
+    ]);
+    warp_core::edict_effects::EffectFootprintLaw::from_canonical_bytes(
+        &encode_canonical_cbor_v1(&law).expect("law bytes"),
+    )
+    .expect("valid graph law")
+}
+
+fn typed_graph_frame(
+    host: &TrustedRuntimeHost,
+    head: WriterHeadKey,
+) -> warp_core::edict_effects::EffectEvaluationFrame<'_> {
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    host.effect_evaluation_frame_v1(
+        basis,
+        &graph_read::sorted(&["left", "right"]),
+        64,
+        EchoOperationBudgetV1::new(1_000_000, 16_777_216, 0),
+        graph_read_limits().evaluation,
+    )
+    .expect("bound frame")
+    .with_footprint_law(graph_read_law(64))
+    .expect("unused law-bound frame")
+}
+
+/// A recording frame with its plain-view control output and its recorded output.
+type RecordedClosure<'h> = (
+    warp_core::edict_effects::EffectEvaluationFrame<'h>,
+    Result<Vec<u8>, warp_core::edict_read::ReadError>,
+    Result<Vec<u8>, warp_core::edict_effects::EffectFrameError>,
+);
+
+/// Evaluates the boundary-path closure through a typed recording frame and
+/// returns the frame, the plain-view control output and the recorded output.
+fn recorded_boundary_closure(
+    host: &TrustedRuntimeHost,
+    head: WriterHeadKey,
+    root: NodeKey,
+) -> RecordedClosure<'_> {
+    let (package, pin) = graph_read::package(&graph_read::closure_build(7, 6, 5));
+    let input = encode_canonical_cbor_v1(&graph_read::record([(
+        "read",
+        graph_read::closure_request(root, graph_read::boundary_guide(), 7, 2),
+    )]))
+    .expect("canonical input");
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    let aperture = [root];
+    let (edge_types, node_types) = (
+        graph_read::sorted(&["left", "right"]),
+        graph_read::sorted(&["branch", "leaf"]),
+    );
+    let plain = warp_core::edict_read::ReadView::at(frontier, &aperture)
+        .expect("plain control")
+        .with_graph_aperture(warp_core::edict_read::GraphReadAperture {
+            edge_types: &edge_types,
+            node_types: &node_types,
+            max_edge_scans: 64,
+        })
+        .expect("graph aperture");
+    let control =
+        warp_core::edict_read::evaluate(&package, pin, &input, &plain, graph_read_limits())
+            .map(|result| result.output);
+    let mut frame = typed_graph_frame(host, head);
+    let recorded = frame.evaluate_typed_read(
+        &package,
+        pin,
+        &input,
+        &[warp_core::edict_effects::TypedNodeRead {
+            node: root,
+            absent_node_type: graph_read::kind("branch"),
+        }],
+        graph_read_limits(),
+    );
+    (frame, control, recorded)
+}
+
+/// Oracle, by hand from the fixture tree: the boundary guide materializes all
+/// seven nodes, expands the occurrences of root, lower, upper, l1 and l4, and
+/// reads each of those through both declared edge types. The decoy edge is
+/// inspected but never retained as a pair.
+#[test]
+fn a_typed_recording_frame_witnesses_every_graph_observation_in_its_read_image() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, control, recorded) = recorded_boundary_closure(&host, head, root);
+    let recorded = recorded.expect("recorded closure read");
+    assert_eq!(
+        Ok(recorded),
+        control,
+        "recording does not change the reading"
+    );
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("graph read image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical image");
+    let rows = view.rows();
+    let count = |class: u8, outcome: u8| {
+        rows.iter()
+            .filter(|row| row.slot.class == class && row.outcome == outcome)
+            .count()
+    };
+    assert_eq!(rows.len(), 24);
+    assert_eq!(count(0, 0), 7, "seven present nodes");
+    assert_eq!(count(1, 0), 7, "seven alpha atoms");
+    assert_eq!(
+        count(3, 2),
+        10,
+        "five expanded occurrences by two edge types"
+    );
+    let expanded = ["root", "lower", "upper", "l1", "l4"].map(graph_read::node);
+    for row in rows.iter().filter(|row| row.slot.class == 3) {
+        assert!(expanded.iter().any(|node| node.0 == row.slot.local_id));
+        assert!(graph_read::sorted(&["left", "right"])
+            .iter()
+            .any(|ty| ty.0 == row.slot.edge_type));
+    }
+    let mut targets: Vec<_> = view
+        .pairs()
+        .iter()
+        .map(|pair| pair.target_local_id)
+        .collect();
+    targets.sort_unstable();
+    let mut want: Vec<_> = ["lower", "upper", "l1", "l2", "l3", "l4"]
+        .iter()
+        .map(|name| graph_read::node(name).0)
+        .collect();
+    want.sort_unstable();
+    assert_eq!(targets, want, "matching edges only; the decoy is excluded");
+    for row in rows.iter().filter(|row| row.slot.class == 1) {
+        assert_eq!(row.read_type, graph_read::kind("text").0);
+    }
+}
+
+/// Two observations of one present slot cannot both stand in a read image:
+/// a substituted image carrying a second, different observation of a node
+/// the graph read retained is refused as conflicting evidence.
+#[test]
+fn a_read_image_with_a_conflicting_second_observation_of_a_graph_node_is_refused() {
+    use warp_core::edict_effects::{EffectReadImageError, EffectReadSetView};
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, _, recorded) = recorded_boundary_closure(&host, head, root);
+    recorded.expect("recorded closure read");
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("graph read image");
+    let bytes = image.as_bytes();
+    let rows = u64::from_le_bytes(bytes[..8].try_into().expect("row count"));
+    let rows = usize::try_from(rows).expect("row count fits");
+    let first = 8;
+    let mut conflicting = bytes[first..first + 192].to_vec();
+    // Same slot and type, different observed value.
+    conflicting[152] ^= 0xff;
+    let mut forged = Vec::with_capacity(bytes.len() + 192);
+    forged.extend_from_slice(&u64::try_from(rows + 1).expect("count").to_le_bytes());
+    forged.extend_from_slice(&bytes[first..first + 192]);
+    forged.extend_from_slice(&conflicting);
+    forged.extend_from_slice(&bytes[first + 192..]);
+    let words: Vec<u64> = forged
+        .chunks_exact(8)
+        .map(|word| u64::from_ne_bytes(word.try_into().expect("eight bytes")))
+        .collect();
+    assert_eq!(
+        EffectReadSetView::parse(bytemuck::cast_slice(&words)).map(|view| view.rows().len()),
+        Err(EffectReadImageError::InvalidImage)
+    );
+    assert!(
+        EffectReadSetView::parse(bytes).is_ok(),
+        "the genuine image stands"
+    );
+}
+
+/// A store that breaks the declared invariant keeps its own authored outcome
+/// under a recording frame, and the frame witnesses the absence that decided
+/// it, authorized under the type of the node whose edge named it.
+#[test]
+fn a_dangling_closure_edge_is_malformed_storage_and_its_absence_is_witnessed() {
+    use warp_core::edict_effects::{EffectFrameError, EffectReadSetView};
+    use warp_core::edict_read::{GraphReadObstruction, ReadError};
+    let (state, root) =
+        graph_read::tree_state(|store| graph_read::link(store, "lower", "left", "never-stored"));
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, control, recorded) = recorded_boundary_closure(&host, head, root);
+    let malformed = |error: &ReadError| {
+        matches!(
+            error,
+            ReadError::GraphObstructed {
+                cause: GraphReadObstruction::ClosureStorageMalformed,
+                ..
+            }
+        )
+    };
+    assert!(
+        matches!(&control, Err(error) if malformed(error)),
+        "plain control: {control:?}"
+    );
+    assert!(
+        matches!(&recorded, Err(EffectFrameError::BoundedRead(error)) if malformed(error)),
+        "recorded: {recorded:?}"
+    );
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("failed-frame prefix");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical prefix");
+    let absent = view
+        .rows()
+        .iter()
+        .find(|row| row.slot.class == 0 && row.slot.local_id == graph_read::node("never-stored").0)
+        .expect("the dangling target's absence is witnessed");
+    assert_eq!(absent.outcome, 1);
+    assert_eq!(absent.read_type, graph_read::kind("branch").0);
+}

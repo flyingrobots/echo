@@ -40,27 +40,55 @@ impl NodeAtomAccess for RecordedNodeAccess<'_, '_> {
             }
         }
     }
-    // A recording frame does not yet witness graph reads in its read image.
-    // It refuses them outright rather than observe material it cannot record.
+    // Graph reads are recorded only under a typed footprint law, whose
+    // permissions act as the graph aperture and whose read image witnesses
+    // them. An untyped recording frame grants no graph read.
     fn scan_ceiling(&self) -> u64 {
-        0
+        match self.aperture {
+            NodeAperture::Typed(_) => self.reads.graph_scan_ceiling(),
+            NodeAperture::Untyped(_) => 0,
+        }
     }
     fn outgoing(
         &mut self,
-        _range: crate::OutgoingEdgeRange,
-        _source_type: Option<TypeId>,
-        _allowance: u64,
-        _meter: &mut Meter,
+        range: crate::OutgoingEdgeRange,
+        source_type: Option<TypeId>,
+        allowance: u64,
+        meter: &mut Meter,
     ) -> Result<Outgoing, Self::Error> {
-        Err(EffectRangeReadError::FootprintLawViolation.into())
+        let absent = self.graph_absence(range.source, source_type)?;
+        self.reads
+            .record_graph_range(range, absent, allowance, meter)
     }
     fn material(
         &mut self,
-        _node: NodeKey,
-        _referrer: Option<TypeId>,
-        _meter: &mut Meter,
+        node: NodeKey,
+        referrer: Option<TypeId>,
+        meter: &mut Meter,
     ) -> Result<Material<'_>, Self::Error> {
-        Err(EffectRangeReadError::FootprintLawViolation.into())
+        let absent = self.graph_absence(node, referrer)?;
+        self.reads.record_material(node, absent, meter)
+    }
+}
+
+impl RecordedNodeAccess<'_, '_> {
+    /// The type that authorizes a graph-read node's absence: the observed
+    /// type that named it, or the host-declared type of a selected node.
+    fn graph_absence(
+        &self,
+        node: NodeKey,
+        known: Option<TypeId>,
+    ) -> Result<TypeId, EffectFrameError> {
+        match (&self.aperture, known) {
+            (NodeAperture::Typed(_), Some(known)) => Ok(known),
+            (NodeAperture::Typed(_), None) => self
+                .aperture
+                .absent_type(node)
+                .ok_or_else(|| EffectRangeReadError::FootprintLawViolation.into()),
+            (NodeAperture::Untyped(_), _) => {
+                Err(EffectRangeReadError::FootprintLawViolation.into())
+            }
+        }
     }
 }
 

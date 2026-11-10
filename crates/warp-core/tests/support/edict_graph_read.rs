@@ -563,6 +563,15 @@ pub fn link(store: &mut GraphStore, from: &str, edge_type: &str, to: &str) {
 ///      l1 "ab"   l2 "cd"   l3 "ef"   l4 "gh"
 /// ```
 pub fn tree(change: impl FnOnce(&mut GraphStore)) -> (WorldlineFrontier, NodeKey) {
+    let (state, root) = tree_state(change);
+    (
+        WorldlineFrontier::new(WorldlineId::from_bytes([7; 32]), state),
+        root,
+    )
+}
+
+/// The same stored tree as a state a runtime host can own.
+pub fn tree_state(change: impl FnOnce(&mut GraphStore)) -> (WorldlineState, NodeKey) {
     let mut store = GraphStore::default();
     for (name, atom) in [("root", 4), ("lower", 2), ("upper", 6)] {
         put(&mut store, name, "branch", &vec![b'.'; atom]);
@@ -584,9 +593,8 @@ pub fn tree(change: impl FnOnce(&mut GraphStore)) -> (WorldlineFrontier, NodeKey
         warp_id: store.warp_id(),
         local_id: node("root"),
     };
-    let state = WorldlineState::from_root_store(store, root.local_id).unwrap();
     (
-        WorldlineFrontier::new(WorldlineId::from_bytes([7; 32]), state),
+        WorldlineState::from_root_store(store, root.local_id).unwrap(),
         root,
     )
 }

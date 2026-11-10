@@ -607,3 +607,69 @@ fn an_equality_constraint_bounds_a_term_from_either_side() {
         refused(&program(constraint, u64::MAX - 10));
     }
 }
+
+/// A chain of `lets` unsigned additions over a count, whose sum is never
+/// bounded by `constraints` input constraints over `at`, which no node reads.
+fn unread_constraint_chain(constraints: u64, lets: usize) -> V {
+    let mut nodes = Vec::new();
+    let mut previous = call(
+        "core.bytes.count",
+        &[BYTES],
+        vec![
+            input("text"),
+            map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([("kind", text("bytes")), ("value", V::Bytes(vec![b'\n']))]),
+                ),
+            ]),
+        ],
+    );
+    for index in 0..lets {
+        let binding = declared(&format!("local.t{index}"), "U64");
+        nodes.push(Node::Let(binding.clone(), add(previous, int(0))));
+        previous = local(&binding);
+    }
+    nodes.push(Node::Let(
+        ok_binding(),
+        is_true_value(at_most(previous.clone(), previous)),
+    ));
+    package(
+        (0..constraints)
+            .map(|index| at_most(input("at"), int(10 + index)))
+            .collect(),
+        nodes,
+        local(&ok_binding()),
+    )
+}
+
+/// The longest chain that prepares, by bisection over `1..=4096`.
+fn longest_accepted_chain(constraints: u64) -> usize {
+    let (mut accepted, mut refused) = (1, 4097);
+    prepare(&unread_constraint_chain(constraints, accepted)).expect("a one-let chain prepares");
+    while refused - accepted > 1 {
+        let middle = accepted + (refused - accepted) / 2;
+        if prepare(&unread_constraint_chain(constraints, middle)).is_ok() {
+            accepted = middle;
+        } else {
+            refused = middle;
+        }
+    }
+    accepted
+}
+
+/// The facts are consulted only when the judgment without them refuses, so
+/// constraints a body never needs cost only their own size. Before that
+/// rule, one unread constraint cut the longest accepted chain from 1281
+/// lets to 80, and sixteen cut it to 9; `main` accepted 1269 with sixteen.
+#[test]
+fn unread_input_constraints_leave_the_proof_budget_to_the_body() {
+    let unconstrained = longest_accepted_chain(0);
+    assert!(unconstrained > 1, "the bisection found a real limit");
+    let constrained = longest_accepted_chain(16);
+    assert!(
+        constrained >= unconstrained - unconstrained / 16,
+        "16 unread constraints cut the longest chain from {unconstrained} to {constrained}"
+    );
+}

@@ -293,6 +293,12 @@ predicate inside its `then` branch, and reads the strict and reversed
 comparison forms; all three Echo judgments do not yet (#960). A program
 that needs a fact the judgment lacks is refused when its package is prepared.
 
+warp-core judges each node first without these facts or carried ceilings, at
+the cost the judgment had before facts existed. Only when that refuses does
+it carry the ceilings and judge the node again with the input constraints;
+comparing facts encodes their terms, which is charged to the proof budget. A
+constraint no node needs therefore costs only its own size.
+
 On the bounded-read route the provider lowerer
 (`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)
 and verifier

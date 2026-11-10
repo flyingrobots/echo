@@ -17,8 +17,10 @@
   - A dominating `term <= c`, `term == c` or `c == term` bounds an addition,
     in effect bodies and, newly, in pure helpers' conjunct prefixes.
   - A `require` still adds no fact, matching Edict's totality rule.
-  - Constraint-heavy programs spend more of the proof budget, since each
-    fact's terms are encoded to compare them.
+  - A node is first judged without these facts, as before; the facts and
+    carried ceilings are read, and their encoding charged to the proof
+    budget, only when that judgment refuses. Unread constraints therefore
+    cost only their own size.
   - Differences from the provider lowerer and verifier and from Edict are
     tracked in #960.
 

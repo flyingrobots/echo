@@ -1218,7 +1218,11 @@ evaluates its predicate once and executes only its chosen arm. An unchosen arm
 performs no reads or emissions. All iterations share the existing cumulative
 meter and mutation buffer, so a late failure exposes no partial buffer while
 retaining charges for work already performed. Native structured-control
-witnesses do not establish public compiler/provider publication.
+witnesses do not establish public compiler/provider publication. The effect
+proposal serializer and the ordered-read lowerer, verifier and runtime accept
+only flat `echo.span-ir/v2` orders. They refuse structured declarations and
+control entries, so no provider path publishes a structured program until the
+public lowerer/verifier effect branch exists.
 
 Reads resolve the actual atom through the existing typed recording adapter.
 Successful node/atom pairs must satisfy the prepared graph schema before their

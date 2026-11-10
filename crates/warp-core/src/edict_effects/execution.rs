@@ -26,6 +26,18 @@ struct Reason {
     payload: Expr,
 }
 enum Instruction {
+    For {
+        binder: String,
+        item: RuntimeType,
+        iterable: Expr,
+        bound: u64,
+        body: Vec<Instruction>,
+    },
+    Branch {
+        condition: Predicate,
+        then_body: Vec<Instruction>,
+        else_body: Vec<Instruction>,
+    },
     Let(Binding),
     Mutation {
         kind: MutationKind,
@@ -91,62 +103,13 @@ impl Program {
             lowered.insert(text_field(step, "id")?, step);
         }
         let body = field(intent, "body")?;
-        let mut instructions = Vec::new();
-        for (node, id) in array(field(body, "nodes")?)?
-            .iter()
-            .zip(array(field(target, "executionOrder")?)?)
-        {
-            parser.enter(0)?;
-            let instruction = match text_field(node, "kind")? {
-                "let" => Instruction::Let(binding(node, "value", &mut parser)?),
-                "effect" => {
-                    let step = lowered.get(text(id)?).ok_or(Error::InvalidArtifact)?;
-                    let binding = binding(node, "input", &mut parser)?;
-                    if let Some(kind) =
-                        MutationKind::from_intrinsic(text_field(step, "targetIntrinsic")?)
-                    {
-                        instructions.push(Instruction::Mutation { kind, binding });
-                        continue;
-                    }
-                    let RuntimeType::Bytes { max, .. } = binding.ty else {
-                        return Err(Error::UnsupportedProgram);
-                    };
-                    // Arms are keyed by catalog name; the read raises runtime tags.
-                    let mut arms = BTreeMap::new();
-                    for (name, arm) in map(field(step, "obstructionArms")?)? {
-                        arms.insert(
-                            text(name)?.to_owned(),
-                            text_field(field(arm, "value")?, "callee")?.to_owned(),
-                        );
-                    }
-                    let failures = super::failure_names::runtime_arms(
-                        text_field(step, "targetIntrinsic")?,
-                        arms,
-                    )?;
-                    Instruction::Read {
-                        binding,
-                        failures,
-                        max_bytes: max,
-                    }
-                }
-                "require" => {
-                    let reason = field(field(node, "onFailure")?, "reason")?;
-                    let mut payload = Vec::new();
-                    for (key, value) in map(field(reason, "payload")?)? {
-                        payload.push((text(key)?.to_owned(), parser.expr(value, 0)?));
-                    }
-                    Instruction::Require {
-                        condition: parser.predicate(field(node, "predicate")?, 0)?,
-                        reason: Reason {
-                            name: text_field(reason, "reasonKind")?.to_owned(),
-                            payload: Expr::Record(payload),
-                        },
-                    }
-                }
-                _ => return Err(Error::UnsupportedProgram),
-            };
-            instructions.push(instruction);
-        }
+        let instructions = decode_instructions(
+            body,
+            field(target, "executionOrder")?,
+            &lowered,
+            &mut parser,
+            0,
+        )?;
         Ok(Self {
             input: parser.ty(text_field(intent, "input")?, 0)?,
             output: parser.ty(text_field(intent, "output")?, 0)?,
@@ -201,15 +164,97 @@ impl Program {
                 return Err(Error::InputConstraintFailed(name.clone()).into());
             }
         }
-        for instruction in &self.instructions {
+        self.run_instructions(
+            &self.instructions,
+            &mut locals,
+            &mut mutations,
+            access,
+            schema,
+            meter,
+            0,
+        )?;
+        let value = expression(&self.result, &locals, helpers, meter, 0)?;
+        validate(&value, &self.output, meter, 0)?;
+        Ok(Evaluation {
+            output: self.output_bytes(&value, meter)?,
+            mutations,
+        })
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn run_instructions<'a>(
+        &'a self,
+        instructions: &'a [Instruction],
+        locals: &mut BTreeMap<&'a str, Value>,
+        mutations: &mut Vec<EffectMutation>,
+        access: &mut RecordedNodeAccess<'_, '_>,
+        schema: &EffectGraphSchema,
+        meter: &mut Meter,
+        depth: usize,
+    ) -> Result<(), EffectFrameError> {
+        let helpers = &self.helpers;
+        for instruction in instructions {
             // Mutation's fixed step is admitted atomically with its write bytes
             // and row reservation after evaluating its argument.
             if !matches!(instruction, Instruction::Mutation { .. }) {
-                meter.step(0)?;
+                meter.step(depth)?;
             }
             match instruction {
+                Instruction::For {
+                    binder,
+                    item,
+                    iterable,
+                    bound,
+                    body,
+                } => {
+                    let Value::Array(values) = expression(iterable, locals, helpers, meter, depth)?
+                    else {
+                        return Err(Error::InvalidArtifact.into());
+                    };
+                    if u64::try_from(values.len()).map_err(|_| Error::InvalidArtifact)? > *bound {
+                        return Err(Error::InvalidArtifact.into());
+                    }
+                    // Iterate the evaluated list once. Values move into each fresh
+                    // iteration scope; the expression evaluator charged their storage.
+                    for value in values {
+                        meter.step(depth + 1)?;
+                        validate(&value, item, meter, depth + 1)?;
+                        locals.insert(binder.as_str(), value);
+                        self.run_instructions(
+                            body,
+                            locals,
+                            mutations,
+                            access,
+                            schema,
+                            meter,
+                            depth + 1,
+                        )?;
+                        clear_bindings(body, locals);
+                        locals.remove(binder.as_str());
+                    }
+                }
+                Instruction::Branch {
+                    condition,
+                    then_body,
+                    else_body,
+                } => {
+                    let body = if predicate(condition, locals, helpers, meter, depth)? {
+                        then_body
+                    } else {
+                        else_body
+                    };
+                    self.run_instructions(
+                        body,
+                        locals,
+                        mutations,
+                        access,
+                        schema,
+                        meter,
+                        depth + 1,
+                    )?;
+                    clear_bindings(body, locals);
+                }
                 Instruction::Mutation { kind, binding } => {
-                    let value = expression(&binding.value, &locals, helpers, meter, 0)?;
+                    let value = expression(&binding.value, locals, helpers, meter, 0)?;
                     if mutations.len() >= super::EFFECT_COUNT_CEILING_V1 {
                         return Err(EffectFrameError::BudgetExceeded);
                     }
@@ -228,7 +273,7 @@ impl Program {
                     locals.insert(binding.name.as_str(), result);
                 }
                 Instruction::Let(binding) => {
-                    let value = expression(&binding.value, &locals, helpers, meter, 0)?;
+                    let value = expression(&binding.value, locals, helpers, meter, 0)?;
                     validate(&value, &binding.ty, meter, 0)?;
                     locals.insert(binding.name.as_str(), value);
                 }
@@ -237,7 +282,7 @@ impl Program {
                     failures,
                     max_bytes,
                 } => {
-                    let address = expression(&binding.value, &locals, helpers, meter, 0)?;
+                    let address = expression(&binding.value, locals, helpers, meter, 0)?;
                     let (node, expected) = address_value(&address)?;
                     if !access.contains(node) {
                         return Err(ReadError::OutsideAperture(node).into());
@@ -276,19 +321,15 @@ impl Program {
                     locals.insert(binding.name.as_str(), value);
                 }
                 Instruction::Require { condition, reason } => {
-                    if !predicate(condition, &locals, helpers, meter, 0)? {
-                        let payload = expression(&reason.payload, &locals, helpers, meter, 0)?;
+                    if !predicate(condition, locals, helpers, meter, 0)? {
+                        let payload = expression(&reason.payload, locals, helpers, meter, 0)?;
                         return Err(self.obstruct(&reason.name, payload, meter)?);
                     }
                 }
             }
         }
-        let value = expression(&self.result, &locals, helpers, meter, 0)?;
-        validate(&value, &self.output, meter, 0)?;
-        Ok(Evaluation {
-            output: self.output_bytes(&value, meter)?,
-            mutations,
-        })
+
+        Ok(())
     }
     fn output_bytes(&self, value: &Value, meter: &mut Meter) -> Result<Vec<u8>, EffectFrameError> {
         meter.charge(value, 0)?;
@@ -309,6 +350,110 @@ impl Program {
             payload: self.output_bytes(&payload, meter)?,
         })
     }
+}
+fn clear_bindings(instructions: &[Instruction], locals: &mut BTreeMap<&str, Value>) {
+    for instruction in instructions {
+        match instruction {
+            Instruction::Let(binding)
+            | Instruction::Read { binding, .. }
+            | Instruction::Mutation { binding, .. } => {
+                locals.remove(binding.name.as_str());
+            }
+            Instruction::For { .. } | Instruction::Branch { .. } | Instruction::Require { .. } => {}
+        }
+    }
+}
+fn decode_instructions(
+    body: &Value,
+    order: &Value,
+    lowered: &BTreeMap<&str, &Value>,
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<Vec<Instruction>, Error> {
+    parser.enter(depth)?;
+    let mut instructions = Vec::new();
+    for (node, id) in array(field(body, "nodes")?)?.iter().zip(array(order)?) {
+        parser.enter(depth)?;
+        let instruction = match text_field(node, "kind")? {
+            "let" => Instruction::Let(binding(node, "value", parser)?),
+            "effect" => {
+                let step = lowered.get(text(id)?).ok_or(Error::InvalidArtifact)?;
+                let binding = binding(node, "input", parser)?;
+                if let Some(kind) =
+                    MutationKind::from_intrinsic(text_field(step, "targetIntrinsic")?)
+                {
+                    instructions.push(Instruction::Mutation { kind, binding });
+                    continue;
+                }
+                let RuntimeType::Bytes { max, .. } = binding.ty else {
+                    return Err(Error::UnsupportedProgram);
+                };
+                // Arms are keyed by catalog name; the read raises runtime tags.
+                let mut arms = BTreeMap::new();
+                for (name, arm) in map(field(step, "obstructionArms")?)? {
+                    arms.insert(
+                        text(name)?.to_owned(),
+                        text_field(field(arm, "value")?, "callee")?.to_owned(),
+                    );
+                }
+                let failures =
+                    super::failure_names::runtime_arms(text_field(step, "targetIntrinsic")?, arms)?;
+                Instruction::Read {
+                    binding,
+                    failures,
+                    max_bytes: max,
+                }
+            }
+            "require" => {
+                let reason = field(field(node, "onFailure")?, "reason")?;
+                let mut payload = Vec::new();
+                for (key, value) in map(field(reason, "payload")?)? {
+                    payload.push((text(key)?.to_owned(), parser.expr(value, 0)?));
+                }
+                Instruction::Require {
+                    condition: parser.predicate(field(node, "predicate")?, 0)?,
+                    reason: Reason {
+                        name: text_field(reason, "reasonKind")?.to_owned(),
+                        payload: Expr::Record(payload),
+                    },
+                }
+            }
+            "for" => Instruction::For {
+                binder: text_field(field(node, "binder")?, "id")?.to_owned(),
+                item: parser.ty(text_field(field(node, "binder")?, "type")?, 0)?,
+                iterable: parser.expr(field(node, "iter")?, 0)?,
+                bound: number(field(field(node, "bound")?, "value")?)?,
+                body: decode_instructions(
+                    field(node, "body")?,
+                    field(id, "body")?,
+                    lowered,
+                    parser,
+                    depth + 1,
+                )?,
+            },
+            "branch" => Instruction::Branch {
+                condition: parser.predicate(field(node, "predicate")?, 0)?,
+                then_body: decode_instructions(
+                    field(node, "then")?,
+                    field(id, "then")?,
+                    lowered,
+                    parser,
+                    depth + 1,
+                )?,
+                else_body: decode_instructions(
+                    field(node, "else")?,
+                    field(id, "else")?,
+                    lowered,
+                    parser,
+                    depth + 1,
+                )?,
+            },
+            _ => return Err(Error::UnsupportedProgram),
+        };
+        instructions.push(instruction);
+    }
+
+    Ok(instructions)
 }
 fn binding(node: &Value, key: &str, parser: &mut Parser<'_>) -> Result<Binding, Error> {
     let local = field(node, "binding")?;

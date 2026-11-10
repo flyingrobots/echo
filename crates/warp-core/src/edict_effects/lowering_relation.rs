@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn validate<'a>(
     module: &Value,
-    intent: &Value,
+    intent: &'a Value,
     target_artifact: &Value,
     target: &'a Value,
     exports: &'a Value,
@@ -129,17 +129,11 @@ pub(super) fn validate<'a>(
     super::imported_types::validate(module, exports, &coordinate)?;
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
     let authorized = array(field(profile, "semanticEffects")?)?;
-    let nodes = array(field(field(intent, "body")?, "nodes")?)?;
     let mut signatures = BTreeMap::new();
-    let steps = steps
-        .iter()
-        .map(|step| Ok((text_field(step, "id")?, step)))
-        .collect::<Result<BTreeMap<_, _>, Error>>()?;
-    for (core, id) in nodes.iter().zip(array(field(target, "executionOrder")?)?) {
+    for (core, lowered) in super::control_order::instructions(intent, target)? {
         if text_field(core, "kind")? != "effect" {
             continue;
         }
-        let lowered = *steps.get(text(id)?).ok_or(Error::InvalidArtifact)?;
         let name = resolve(text_field(core, "effect")?, &alias, &coordinate)?;
         if !authorized
             .iter()
@@ -183,7 +177,7 @@ pub(super) fn validate<'a>(
             "type",
             text_field(effect, "outputType")?,
         )?;
-        signatures.insert(text(id)?, effect);
+        signatures.insert(text_field(lowered, "id")?, effect);
         let failures = field(effect, "effectFailures")?;
         let mappings = map(field(implementation, "failureMappings")?)?;
         let source_arms = field(core, "obstructionMap")?;

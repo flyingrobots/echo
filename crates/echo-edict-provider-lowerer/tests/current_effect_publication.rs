@@ -315,3 +315,49 @@ fn the_retained_publication_controls_are_this_serializers_output() {
         assert_eq!(retained.trim(), emitted, "retained control is stale");
     }
 }
+
+fn with_target(bundle: &[u8], edit: impl FnOnce(&mut V)) -> Vec<u8> {
+    let mut changed = decode(bundle).expect("bundle");
+    let V::Bytes(raw) = get(&changed, "target_ir_artifact") else {
+        panic!("Target IR")
+    };
+    let mut target = decode(raw).expect("Target IR");
+    edit(&mut target);
+    set(
+        &mut changed,
+        "target_ir_artifact",
+        V::Bytes(encoded(&target)),
+    );
+    encoded(&changed)
+}
+
+/// Oracle: this serializer is specified for the flat `echo.span-ir/v2` ordered
+/// contract only. No provider relation or independent verifier judges
+/// structured orders yet (Echo #947), so a structured declaration must not be
+/// serialized into a proposal. The re-embedded control shows that the
+/// re-encoding alone does not cause the refusal.
+#[test]
+fn structured_target_declarations_are_not_serialized_into_proposals() {
+    use echo_edict_provider_lowerer::effect_publication::EffectPublicationError as E;
+    let (bundle, source, config) = material();
+    assert_eq!(
+        emit(&with_target(&bundle, |_| {}), &source, &config),
+        emit(&bundle, &source, &config)
+    );
+    emit(&bundle, &source, &config).expect("the flat ordered control still serializes");
+    for (domain, kind) in [
+        ("echo.span-ir/v3", "structuredTargetIrArtifact"),
+        ("echo.span-ir/v3", "orderedTargetIrArtifact"),
+        ("echo.span-ir/v2", "structuredTargetIrArtifact"),
+    ] {
+        let changed = with_target(&bundle, |target| {
+            set(target, "domain", text(domain));
+            set(target, "kind", text(kind));
+        });
+        assert_eq!(
+            emit(&changed, &source, &config),
+            Err(E::InvalidArtifact),
+            "{domain} {kind} was serialized"
+        );
+    }
+}

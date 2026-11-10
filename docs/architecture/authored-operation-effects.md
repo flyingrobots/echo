@@ -194,9 +194,14 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
   invocation (`crates/warp-core/src/echo_operation.rs`).
 - `edict_pure` and `edict_read` evaluate compiled Edict values, but no admitted
   path turns their results into writes. `edict_read` reads alpha atoms by
-  explicit node key; it cannot follow edges. It counts reads against a limit
-  but does not record which slots it read
-  (`crates/warp-core/src/edict_read/evaluate.rs`).
+  explicit node key. Under a host-selected typed graph aperture it also reads
+  a node's outgoing edges of one type and a guided bounded closure
+  ([Typed outgoing-edge and guided closure reads](application-contract-hosting.md#typed-outgoing-edge-and-guided-closure-reads)).
+  Over a plain view it counts reads against a limit but does not record which
+  slots it read; a recording effect frame records node and atom reads and
+  refuses graph reads, which it does not yet witness
+  (`crates/warp-core/src/edict_read/evaluate.rs`,
+  `crates/warp-core/src/edict_effects/node_reads.rs`).
 - Create-if-absent obstructs when the node already exists, even with identical
   content.
 - `GraphStore::upsert_edge_record` does not check that an edge's endpoints

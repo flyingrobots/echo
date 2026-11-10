@@ -7,6 +7,24 @@
 
 ### Added
 
+- The bounded-read runtime evaluates two generic graph-read intrinsics:
+  `echo.dpo@1.outgoing-edge-read` returns a node's outgoing edges of one type,
+  and `echo.dpo@1.closure-read` reads the bounded closure a declared pure
+  selector helper asks for, with `maxNodes` and `maxDepth`. Closure material is
+  deduplicated by node identity while every selected position keeps its own
+  edge path and guide. Node, depth, scan and work bounds, an insufficient
+  selector and malformed storage are distinct authored failures; bucket scans
+  count edges of other types. A package declares the capability with a
+  `graphReads` lowering-configuration record and the
+  `typed-graph-read-aperture/v1` footprint contract, and the host grants edge
+  and node types through `ReadView::with_graph_aperture`. Packages that do not
+  declare it, and recording effect frames, refuse graph reads; existing
+  node-read packages are unchanged. This is runtime support only, witnessed by
+  synthetic packages: the provider lowerer, verifier and checked components do
+  not yet judge or accept these intrinsics, and no public compiler witness
+  exists. `ReadResult` gains `edge_scans`; `ReadError` gains
+  `OutsideGraphAperture` and `GraphObstructed`.
+
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation
   under `core.list/v1`. Synthetic tests cover strict domains, capability and

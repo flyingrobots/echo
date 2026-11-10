@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Echo-owned order proofs for partial byte slicing and unsigned subtraction.
+//! Echo-owned order proofs for slicing/subtraction and strict byte lookup,
+//! and constant upper limits for unsigned addition from the same facts.
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
 //! constants, or a dominating fact: an earlier conjunct of an enclosing
-//! `all`, or a pure intent's input constraint. Conditional predicates,
-//! negations and later conjuncts prove nothing. This follows Edict's
-//! proven-range semantics without trusting any annotation in the artifact.
+//! `all`, or an authored effect program's input constraint. Conditional
+//! predicates, negations and later conjuncts prove nothing for this order
+//! judgment, and a `require` adds no fact for the nodes after it.
+//! The separate strict lookup judgment below also uses signed conditional and
+//! lazy-prefix truths. Neither judgment trusts annotations in the artifact.
 use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1 as Value};
 
 use super::syntax::Parser;
@@ -38,9 +41,12 @@ pub(crate) fn proven(
     Ok(false)
 }
 
-/// The smallest constant upper bound a dominating fact gives `term`, as in
-/// Edict: `term <= c`, `term == c` or `c >= term` give `c`, and the strict forms
-/// give `c - 1` (saturating). Conjunctions contribute every conjunct.
+/// The smallest constant upper bound a dominating fact gives `term`:
+/// `term <= c`, `term == c` or `c == term` give `c`. Conjunctions contribute
+/// every conjunct. Edict also reads the strict and reversed forms (`<`, `>`,
+/// `>=`); the checked lowerer and verifier read only these three, so Echo
+/// reads only these too, and the other forms are to be added to all three
+/// judgments together (#960).
 pub(crate) fn upper_limit(
     term: &Value,
     facts: &[&Value],
@@ -59,6 +65,9 @@ pub(crate) fn upper_limit(
     Ok(limit)
 }
 
+/// Lowers `limit` to the smallest constant bound that `fact` gives the
+/// canonically encoded `term`. It reads conjunctions and the three comparison
+/// forms that `upper_limit` names, and ignores every other predicate.
 fn limit_from(
     fact: &Value,
     term: &[u8],
@@ -77,23 +86,17 @@ fn limit_from(
             let op = text_field(fact, "op")?;
             let left = field(fact, "left")?;
             let right = field(fact, "right")?;
-            let strict = matches!(op, "<" | ">");
             let mut bound = |value: u64| {
-                let value = if strict {
-                    value.saturating_sub(1)
-                } else {
-                    value
-                };
                 *limit = Some(limit.map_or(value, |current| current.min(value)));
             };
-            if matches!(op, "<=" | "<" | "==") {
+            if matches!(op, "<=" | "==") {
                 if let Some(value) = constant(right) {
                     if key(left, parser)? == term {
                         bound(value);
                     }
                 }
             }
-            if matches!(op, ">=" | ">" | "==") {
+            if op == "==" {
                 if let Some(value) = constant(left) {
                     if key(right, parser)? == term {
                         bound(value);
@@ -157,7 +160,7 @@ fn supports(
 }
 
 /// Terms compare by canonical encoding, independent of in-memory map order.
-fn key(value: &Value, parser: &mut Parser<'_>) -> Result<Vec<u8>, Error> {
+pub(super) fn key(value: &Value, parser: &mut Parser<'_>) -> Result<Vec<u8>, Error> {
     let bytes = encode_canonical_cbor_v1(value).map_err(|_| Error::InvalidArtifact)?;
     parser.remaining = parser
         .remaining
@@ -175,4 +178,75 @@ fn constant(value: &Value) -> Option<u64> {
         return None;
     }
     number(field(literal, "value").ok()?).ok()
+}
+
+/// Strict proof for a byte lookup, including signed branch/lazy-path facts.
+pub(crate) fn strict_index(
+    coordinate: &Value,
+    args: &[Value],
+    minimum: u64,
+    facts: &[&Value],
+    path: &[(&Value, bool)],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<bool, Error> {
+    let [bytes, index] = args else {
+        return Err(Error::InvalidArtifact);
+    };
+    if constant(index).is_some_and(|i| i < minimum) {
+        return Ok(true);
+    }
+    let length = length_of(coordinate, bytes);
+    let a = key(index, parser)?;
+    let b = key(&length, parser)?;
+    for p in facts {
+        if strict_fact(p, true, &a, &b, parser, depth)? {
+            return Ok(true);
+        }
+    }
+    for (p, truth) in path {
+        if strict_fact(p, *truth, &a, &b, parser, depth)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+pub(super) fn strict_fact(
+    p: &Value,
+    truth: bool,
+    index: &[u8],
+    length: &[u8],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<bool, Error> {
+    parser.enter(depth)?;
+    match text_field(p, "kind")? {
+        "not" => strict_fact(field(p, "value")?, !truth, index, length, parser, depth + 1),
+        "all" if truth => {
+            for p in array(field(p, "values")?)? {
+                if strict_fact(p, true, index, length, parser, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        "any" if !truth => {
+            for p in array(field(p, "values")?)? {
+                if strict_fact(p, false, index, length, parser, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        "compare" => {
+            let a = key(field(p, "left")?, parser)?;
+            let b = key(field(p, "right")?, parser)?;
+            Ok(match (text_field(p, "op")?, truth) {
+                ("<", true) | (">=", false) => a == index && b == length,
+                (">", true) | ("<=", false) => b == index && a == length,
+                _ => false,
+            })
+        }
+        _ => Ok(false),
+    }
 }

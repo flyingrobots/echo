@@ -2,6 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deliberately rebound native-provider tests, not compiler acceptance evidence.
 use super::*;
+mod capabilities;
+mod fold;
+mod list_operations;
+mod lists;
 mod proven_ranges;
 mod unsigned_addition;
 

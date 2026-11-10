@@ -12,11 +12,24 @@
 
 mod decode;
 pub(crate) mod evaluate;
+#[cfg(test)]
+mod fold_tests;
 pub(crate) mod functions;
+mod list_operations;
+#[cfg(test)]
+mod list_operations_tests;
+#[cfg(test)]
+mod list_preparation_tests;
+#[cfg(test)]
+mod list_tests;
+mod matches;
 pub(crate) mod model;
 pub(crate) mod proven_order;
 pub(crate) mod syntax;
 pub(crate) mod values;
+#[cfg(test)]
+mod variant_tests;
+mod variants;
 
 use echo_edict_canonical::decode_canonical_cbor_v1;
 
@@ -121,3 +134,6 @@ mod byte_count_tests;
 mod byte_utf8_tests;
 #[cfg(test)]
 mod proven_range_tests;
+
+#[cfg(test)]
+mod byte_at_tests;

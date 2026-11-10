@@ -11,6 +11,11 @@ use crate::edict_pure::{
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Checks one authored effect intent against its Target form: the ordered
+/// Core/Target correspondence, the lexical local identities and the range
+/// proofs of its expressions. Each input constraint is checked with no facts.
+/// All of them then hold for the whole body, and an unsigned `let` carries
+/// its proven ceiling to later nodes. A `require` adds no fact.
 pub(super) fn validate<'a>(
     module: &'a Value,
     intent: &'a Value,
@@ -92,9 +97,14 @@ pub(super) fn validate<'a>(
                     field(node, "value")?,
                     text_field(field(node, "binding")?, "type")?,
                 )?;
-                scope.carry_ceiling(field(node, "binding")?, field(node, "value")?)?;
+                scope
+                    .lets
+                    .push((field(node, "binding")?, field(node, "value")?));
                 scope.introduce(field(node, "binding")?)?;
             }
+            // Deliberately pushed to neither `facts` nor `caps`: a require ends
+            // evaluation on failure, but it is not a dominating fact for the
+            // nodes after it (Edict totality).
             "require" => {
                 exact_fields(node, &["kind", "predicate", "onFailure"])?;
                 exact_fields(target, &["id", "predicate", "onFailure"])?;
@@ -211,6 +221,11 @@ struct Scope<'a> {
     helpers: BTreeMap<String, Helper>,
     /// Input constraints, which dominate the whole body.
     facts: Vec<&'a Value>,
+    /// Earlier `let` bindings and their values, in body order. Their
+    /// ceilings are carried into `caps` only when a judgment needs them.
+    lets: Vec<(&'a Value, &'a Value)>,
+    /// How many of `lets` have been carried into `caps`.
+    carried: usize,
     /// Proven ceilings of earlier unsigned bindings.
     caps: functions::Caps<'a>,
     expressions: Vec<Expr>,
@@ -253,6 +268,8 @@ impl<'a> Scope<'a> {
             expressions: Vec::new(),
             predicates: Vec::new(),
             facts: Vec::new(),
+            lets: Vec::new(),
+            carried: 0,
             caps: functions::Caps::new(),
         })
     }
@@ -274,30 +291,62 @@ impl<'a> Scope<'a> {
         self.parser.expr(value, 0)?;
         self.references(value, binder, 0)
     }
+    /// Infers the runtime type of `value` and records its parsed expression.
+    ///
+    /// The judgment first runs with no facts and no carried ceilings. Only
+    /// when that refuses does it carry the earlier ceilings and run again
+    /// with the input constraints, so a node that needs no fact spends no
+    /// proof budget on facts.
     fn data_type(&mut self, value: &Value) -> Result<RuntimeType, Error> {
-        let actual = functions::infer(
+        let none = functions::Caps::new();
+        let actual = match functions::infer(
             value,
             &self.available,
-            functions::Proof::new(&self.caps, &self.facts),
+            functions::Proof::new(&none, &[]),
             &self.definitions,
             true,
             &mut self.parser,
             0,
-        )?;
+        ) {
+            Err(Error::UnsupportedProgram) if !self.facts.is_empty() || !self.lets.is_empty() => {
+                self.carry_ceilings()?;
+                functions::infer(
+                    value,
+                    &self.available,
+                    functions::Proof::new(&self.caps, &self.facts),
+                    &self.definitions,
+                    true,
+                    &mut self.parser,
+                    0,
+                )?
+            }
+            judged => judged?,
+        };
         self.expressions.push(self.parser.expr(value, 0)?);
         Ok(actual)
     }
-    /// An unsigned binding whose value is proven below its width carries that
-    /// ceiling to later nodes. Local identities are unique and immutable, so
-    /// the cap names exactly the bound value.
-    fn carry_ceiling(&mut self, binding: &'a Value, value: &Value) -> Result<(), Error> {
-        let RuntimeType::Unsigned(max) = self.parser.ty(text_field(binding, "type")?, 0)? else {
-            return Ok(());
-        };
-        let cap =
-            functions::unsigned_ceiling(value, max, &self.caps, &self.facts, &mut self.parser, 0)?;
-        if cap < max {
-            self.caps.insert(text_field(binding, "id")?, cap);
+    /// Carries the ceilings of the `let` bindings not yet carried, in body
+    /// order. An unsigned binding whose value is proven below its width
+    /// carries that ceiling to later nodes. Local identities are unique and
+    /// immutable, so the cap names exactly the bound value.
+    fn carry_ceilings(&mut self) -> Result<(), Error> {
+        while let Some(&(binding, value)) = self.lets.get(self.carried) {
+            self.carried += 1;
+            let RuntimeType::Unsigned(max) = self.parser.ty(text_field(binding, "type")?, 0)?
+            else {
+                continue;
+            };
+            let cap = functions::unsigned_ceiling(
+                value,
+                max,
+                &self.caps,
+                &self.facts,
+                &mut self.parser,
+                0,
+            )?;
+            if cap < max {
+                self.caps.insert(text_field(binding, "id")?, cap);
+            }
         }
         Ok(())
     }
@@ -310,16 +359,34 @@ impl<'a> Scope<'a> {
         }
         Ok(())
     }
+    /// Checks `value` as a predicate, records its parsed form and claims the
+    /// references it reads. As in `data_type`, the facts and carried ceilings
+    /// are used only when the judgment without them refuses.
     fn predicate(&mut self, value: &Value) -> Result<(), Error> {
-        functions::check_predicate(
+        let none = functions::Caps::new();
+        match functions::check_predicate(
             value,
             &self.available,
-            functions::Proof::new(&self.caps, &self.facts),
+            functions::Proof::new(&none, &[]),
             &self.definitions,
             true,
             &mut self.parser,
             0,
-        )?;
+        ) {
+            Err(Error::UnsupportedProgram) if !self.facts.is_empty() || !self.lets.is_empty() => {
+                self.carry_ceilings()?;
+                functions::check_predicate(
+                    value,
+                    &self.available,
+                    functions::Proof::new(&self.caps, &self.facts),
+                    &self.definitions,
+                    true,
+                    &mut self.parser,
+                    0,
+                )?;
+            }
+            judged => judged?,
+        }
         self.predicates.push(self.parser.predicate(value, 0)?);
         self.references(value, None, 0)
     }

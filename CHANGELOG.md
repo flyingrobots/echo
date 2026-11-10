@@ -5,6 +5,186 @@
 
 ## Unreleased
 
+### Added
+
+- `warp-core`: authored effect programs are prepared with proven-range facts,
+  so a runtime `slice`, `subtract`, byte lookup or list lookup verifies when
+  the facts prove its range (#934). For example, under the input constraint
+  `at <= len(text)` a program may compute `isUtf8(slice(text, 0, at))` or
+  `len(text) - at`.
+  - Input constraints hold for the whole body.
+  - An unsigned `let` proven below its width carries that ceiling to later
+    additions.
+  - A dominating `term <= c`, `term == c` or `c == term` bounds an addition,
+    in effect bodies and, newly, in pure helpers' conjunct prefixes.
+  - A `require` still adds no fact, matching Edict's totality rule.
+  - A node, and each addition, is first judged without these facts, as
+    before; the facts and carried ceilings are read, and their encoding
+    charged to the proof budget, only when that judgment refuses. Unread
+    constraints and unneeded conjuncts therefore cost only their own size.
+  - Differences from the provider lowerer and verifier and from Edict are
+    tracked in #960.
+
+- The provider judgments and runtime paths support bounded list length,
+  checked access, capacity-preserving append and bound-summing concatenation
+  under `core.list/v1`. Synthetic tests cover strict domains, capability and
+  type refusals, deterministic copy charges and one-unit-short budgets.
+  Append and concat bind each declared operand type to its reconstructed type;
+  coherently widening concat operands cannot invent capacity or item bounds.
+  Inline record coordinates from structural alias joins resolve under bounded
+  parsing in pure, ordered-read and runtime judgments, preserving nominal fields.
+  Provider judgments and runtime preparation include operand validation depth across helper calls;
+  capability discovery preserves the canonical artifact nesting allowance.
+  List-domain proof scans keep ancestor predicate depth separate from descendant
+  expression depth while preserving work and actual nesting limits.
+  The checked Wasm component pair is promoted from two matching independent
+  builds, with refreshed package manifests and identity goldens. Public compiler
+  witnesses execute non-idempotent worklist folds at bounds 0/1/2/3/5, structural
+  alias concatenation and stored-read worklists, including nominal elements
+  and forward, reversed and negated strict bounds on equal-width words.
+  Independent result oracles check contents, order, duplicate retention and
+  guarded indexing. Exact/one-unit-short limits, invalid inputs and old-provider
+  refusals exercise the compiler, separate verifier and runtime boundaries.
+
+- The source-function lowerer, independent verifier and runtime support
+  bounded list values with element/length checks and deterministic resource
+  accounting. Ordered-read judgments accept lists and recursive record/branch
+  joins without erasing nominal identities. Native witnesses cover transitive
+  calls, exact and one-unit-short budgets, malformed values and proof limits.
+  Runtime helper inference joins record fields recursively, including list
+  elements and conditional/match branches. The ordered-read lowerer now charges
+  each expression visit against proof work. Helper-free capability discovery
+  scans the whole Core with a 65,536-value cap and refuses on exhaustion.
+  The checked component pair is reproduced by two independent CI builds and
+  promoted with refreshed package manifests and identity goldens. Public
+  compiler/runtime witnesses execute empty, nonempty, nested, record and
+  nominal-element lists through pure and ordered-read operations, including
+  repeated artifacts, exact/one-unit-short budgets, invalid input and identity
+  controls, and an old-provider refusal alongside unchanged scalar/fold controls.
+
+- Native Rust provider judgments and the generic runtime support first-order bounded
+  state folds with a source-owned invariant helper, zero-bound closure checks,
+  checked nested resource multiplication and metered iterative execution.
+  Missing step authority refuses even when Core has no function table.
+  The checked provider components are promoted from two byte-identical builds,
+  with regenerated canonical package manifests and publication assets.
+  Public compiler/runtime witnesses exercise pure folds at bounds 0/1/2/3 and
+  immutable-read result folds at bounds 0/1/3, with repeated artifacts and
+  resource, input and identity refusals.
+
+- Native source-helper preparation and execution accept exhaustive closed-variant
+  matches with lexical payload bindings, selected-arm evaluation, and metered
+  dispatch and frame copies. The checked provider component pair, reproduced by
+  two matching CI builds, includes these judgments. Public compiler witnesses consume
+  empty and payload matches through pure and bounded-read operations.
+
+- The runtime expression parser rejects duplicate case tags and empty match-arm
+  lists, including in intent bindings and results. Intent-level typed coverage
+  and binder scope remain obligations of the independent provider judgments.
+
+- Independent native lowerer and verifier source-function judgments check
+  exhaustive matches and lexical payload types, inspect unused arms for invalid
+  calls, and bound dispatch and frame-copy costs. Direct intent matches cannot
+  skip budget validation when the Core function table is absent. Bounded-read
+  relation and audit checks also admit direct matches while keeping payload
+  bindings local to their arms.
+
+- Independent native provider judgments and runtime preparation check bounded
+  closed variant types and constructors with exact union/payload identity and
+  payload traversal. Runtime values retain their type, case and optional payload
+  with deterministic storage/copy charges and resource refusals. Independently
+  reproduced provider components and their checked packages are refreshed.
+
+- Optional public compiler/runtime controls for empty and payload-bearing variant
+  helpers require retained capability metadata, exact repeated artifacts and
+  explicit work/storage charges in pure and bounded-read operations.
+
+- Generic pure and bounded-read native providers independently enforce required
+  capabilities, admitting `core.variant/v1` and requiring it for every variant
+  declaration while refusing unknown, duplicate, missing or malformed metadata.
+  Pure Core must include its capability inventory and type table.
+
+- The guarded source-function candidate publisher accepts an explicit bounded
+  lowerer/verifier component pair before checked-distribution promotion. Public
+  compiler and runtime witnesses include optional old/new-provider raw-byte
+  helper controls, exact repeated artifacts and resource/identity refusals.
+
+- Generic `core.bytes.at` with an exact U64 index and U8 result under
+  independently proven strict bounds. Conditional and lazy Boolean guards stay
+  scoped to lookup evaluation; same-width unsigned comparisons and closed
+  disjunctions execute with deterministic accounting. Function-free lookups
+  enter the same totality judgment. Out-of-range access refuses before indexing.
+  Checked provider components and digest-locked packages are refreshed.
+  Application cutover remains a separate gate.
+
+### Changed
+
+- Replace historical contract-publication selectors with one current upstream
+  schema/manifest pair and one 32-binding package inventory. Remove
+  `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;
+  the host witness pins the matching Amblicit compiler revision. Older pairs are
+  refused and retained only as rejection-test fixtures. Provider generation
+  uses one semantic declaration. The schema includes folds and structured Target
+  IR; fold execution was initially refused by the checked components and is
+  admitted by the bounded-fold publication described above.
+
+- Provider type-copy proof work counts each nominal wrapper as well as its
+  representation, tightening admission for nominal-typed flows near the proof
+  limit without adding runtime value tags or changing runtime storage charges.
+
+### Fixed
+
+- pulldown-cmark is updated to 0.13.6, and `xtask` requires at least that
+  version, fixing RUSTSEC-2026-0433 (quadratic parsing of nested image
+  wikilinks). No advisory exceptions are added. The provider package's
+  `provider.digest` changes; consumers that pin it must update the pin.
+
+- Semantic-source admission requires all seven current auxiliary inputs and
+  rejects the historical inventory without the source-closure input and binding.
+
+- Bind generated DPO helpers to the current provider schema identity. The
+  effectful conformance fixture and verifier use current canonical bounded-string
+  identities and a Unit-erased obstruction binder; this grants no authenticated
+  failure-payload authority. Keep incomplete-local refusal checks non-vacuous.
+  Refresh the independently reproduced components, package carriers and digest
+  checks together for the current compiler contract.
+
+- Public read payload-variant witnesses record an explicit allocation budget
+  and require allocation to be the only exceeded dimension in the retained
+  original-allocation compiler refusal.
+
+- Bounded-read relation judgments preserve closed variant helper-result and local
+  identities, with bounded case/payload expansion in each independent provider.
+
+- Public source-function witnesses verify and recycle disposable pure vendor
+  copies between variants, so optional controls do not multiply retained inputs.
+
+- Independent provider judgments and private pure/read runtime parsing accept
+  U8 literals in the exact 0 through 255 domain, preserving existing scalar
+  metering and rejecting malformed or cross-width helper values. Provider
+  subtraction is restricted to U32/U64, matching the runtime's supported widths.
+- Checked provider components and digest-bound publication assets carry the U8
+  judgments after independent designated builds and structural promotion.
+- Optional public source-function U8 controls compare matching old/new providers,
+  exact repeated artifacts and actual pure/read runtime behavior. Read controls
+  now test resource refusals explicitly.
+
+- The public source-function witness recognizes Amblicit's specific source
+  budget diagnostic followed by its CLI summary, while retaining rejection of
+  unrelated diagnostics and executable artifacts on a refused build.
+- Native lowerer, independent verifier and runtime helper judgments now accept
+  raw byte constants, including empty and non-UTF-8 values, with exact length
+  typing and materialization charges. Malformed payloads, extra fields and
+  narrower declared result bounds still refuse. Checked lowerer and verifier
+  carriers are refreshed from two independently reproduced designated builds;
+  generated package assets retain their existing publication selection. The
+  runtime retains its existing value-cell-plus-payload materialization meter.
+
+- The generator selects the synchronous Wesley kernel without its unused async
+  resilience dependencies, removing the affected Tokio/Ninelives chain from
+  the workspace lockfile. The Markdown tooling dependency is updated to
+  pulldown-cmark 0.13.5. No advisory exceptions are added.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used
@@ -95,13 +275,18 @@
 
 ### Changed
 
-- Authored effect programs now carry Edict's proven-range facts at
-  preparation. The intent's input constraints dominate the body, an unsigned
-  `let` proven below its width carries that ceiling to later nodes, and an
-  addition bound also uses a dominating fact comparing its term with a
-  constant. A runtime `slice` or `subtract` in an effect program verifies when
-  those facts prove its range, so Jim's `isUtf8(slice(text, 0, at))` can run
-  inside the edit. A `require` still proves nothing after it, matching Edict.
+- `ContentAddressV1` now lives in one module, `warp_core::content_address_v1`,
+  with content node ids, content and slot edge ids, and attachment digests.
+  Effect admission and read evidence use it, replacing the inline hashing in
+  derivation and `edict_effects::value_digest`. A duplicate outgoing
+  (edge type, target) is refused rather than hashed. Identities are unchanged:
+  a regression test admits ids captured before the move, and independent
+  vectors, frozen hex and mutation postcards check the law without calling
+  the module. A two-effect proposal, a content node with an edge from it, is
+  admitted under independently computed ids, and admission refuses a content
+  edge id computed for another target, a slot id from a content source, and a
+  node id that omits an edge the same proposal adds. Edges already in
+  ascending order are hashed without a copy, and admission sorts its own.
 
 - An authored effect package no longer carries a single `obstruction_coordinate`.
   Its embedded exports declare every obstruction the program can return, and

@@ -7,10 +7,10 @@ use super::{
         Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
     },
     syntax::Parser,
-    values::{array, exact_fields, field, map, number, require_text, text, text_field},
+    values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
 };
-use echo_edict_canonical::CanonicalValueV1 as Value;
+use echo_edict_canonical::{CanonicalValueV1 as Value, MAX_CANONICAL_DECODE_NODES_V1};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Definition<'a> {
@@ -18,6 +18,7 @@ pub(crate) struct Definition<'a> {
     body: &'a Value,
     result_type: &'a str,
     source_owned: bool,
+    fold_capability: bool,
 }
 
 /// Collect the one current source/imported helper signature authority.
@@ -27,6 +28,28 @@ pub(crate) fn definitions<'a>(
     coordinate: &str,
 ) -> Result<BTreeMap<String, Definition<'a>>, Error> {
     let mut definitions = BTreeMap::new();
+    let mut capabilities = BTreeSet::new();
+    if let Ok(required) = field(core, "requiredCoreCapabilities") {
+        for capability in array(required)? {
+            let capability = text(capability)?;
+            if !matches!(
+                capability,
+                "core.fold/v1" | "core.variant/v1" | "core.list/v1"
+            ) || !capabilities.insert(capability)
+            {
+                return Err(Error::UnsupportedProgram);
+            }
+        }
+    }
+    let fold_capability = capabilities.contains("core.fold/v1");
+    if !capabilities.contains("core.list/v1") {
+        // Each input was separately admitted by the canonical decoder. Scan
+        // under those wire budgets; the parser keeps its shared program budget.
+        for artifact in [core, exports] {
+            let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
+            super::list_operations::without_capability(artifact, &mut remaining, 0)?;
+        }
+    }
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;
         let implementation = field(item, "body")?;
@@ -54,6 +77,7 @@ pub(crate) fn definitions<'a>(
                         body,
                         result_type: text_field(item, "returnType")?,
                         source_owned: false,
+                        fold_capability,
                     },
                 )
                 .is_some()
@@ -95,6 +119,7 @@ pub(crate) fn definitions<'a>(
                             body: field(value, "body")?,
                             result_type: text_field(value, "returnType")?,
                             source_owned: true,
+                            fold_capability,
                         },
                     )
                     .is_some()
@@ -106,6 +131,9 @@ pub(crate) fn definitions<'a>(
     Ok(definitions)
 }
 
+/// Decodes and checks every pure helper definition, used or not. A helper
+/// frame starts with no caller facts. An unsigned binding proven below its
+/// width carries that ceiling to the later bindings of the same body.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
@@ -156,6 +184,7 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    path: &[],
                 },
                 &definitions,
                 definition.source_owned,
@@ -189,6 +218,7 @@ pub(crate) fn decode(
             Proof {
                 caps: &caps,
                 facts: &[],
+                path: &[],
             },
             &definitions,
             definition.source_owned,
@@ -203,6 +233,7 @@ pub(crate) fn decode(
             name.clone(),
             Helper {
                 source_owned: definition.source_owned,
+                fold_capability: definition.fold_capability,
                 params,
                 bindings,
                 result: parser.expr(result, 0)?,
@@ -234,6 +265,7 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    path: &[],
                 },
                 &definitions,
                 true,
@@ -264,6 +296,20 @@ pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
         (RuntimeType::Bytes { min, max }, RuntimeType::Bytes { min: a, max: b }) => {
             min <= a && b <= max
         }
+        (
+            RuntimeType::List { item: a, max },
+            RuntimeType::List {
+                item: b,
+                max: count,
+            },
+        ) => {
+            count <= max
+                && match (a, b) {
+                    (_, None) => *count == 0,
+                    (Some(a), Some(b)) => accepts(a, b),
+                    _ => false,
+                }
+        }
         (RuntimeType::Record(left), RuntimeType::Record(right)) => {
             left.len() == right.len()
                 && left.iter().all(|(key, ty)| {
@@ -277,7 +323,7 @@ pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
     }
 }
 
-fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
+pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
     match (left, right) {
         (RuntimeType::Bytes { min: a, max: b }, RuntimeType::Bytes { min: c, max: d }) => {
             Ok(RuntimeType::Bytes {
@@ -285,29 +331,61 @@ fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
                 max: b.max(d),
             })
         }
+        (RuntimeType::List { item: a, max: n }, RuntimeType::List { item: b, max: m }) => {
+            Ok(RuntimeType::List {
+                item: match (a, b) {
+                    (Some(a), Some(b)) => Some(Box::new(join(*a, *b)?)),
+                    (a, b) => a.or(b),
+                },
+                max: n.max(m),
+            })
+        }
+        (RuntimeType::Record(left), RuntimeType::Record(right)) if left.len() == right.len() => {
+            let mut fields = Vec::new();
+            for (name, ty) in left {
+                let other = right
+                    .iter()
+                    .find(|(key, _)| key == &name)
+                    .ok_or(Error::UnsupportedProgram)?;
+                fields.push((name, join(ty, other.1.clone())?));
+            }
+            Ok(RuntimeType::Record(fields))
+        }
         (left, right) if left == right => Ok(left),
         _ => Err(Error::UnsupportedProgram),
     }
 }
 
-type Scope<'a> = BTreeMap<&'a str, &'a Value>;
+pub(super) type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
-/// dominating order facts (earlier conjuncts of enclosing `all`s).
+/// dominating facts (an intent's input constraints and earlier conjuncts of
+/// enclosing `all`s), plus signed branch/lazy-prefix truths used only by the
+/// strict lookup judgment.
 #[derive(Clone, Copy)]
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
     facts: &'c [&'v Value],
+    path: &'c [(&'v Value, bool)],
 }
 impl<'c, 'v> Proof<'c, 'v> {
     /// What a caller has proven: binding caps it owns and dominating facts.
     pub(crate) const fn new(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
-        Self { caps, facts }
+        Self {
+            caps,
+            facts,
+            path: &[],
+        }
     }
 }
-/// Proven upper bounds of earlier unsigned bindings in the same helper body.
-/// Local identities are unique and immutable, so a cap names exactly the
-/// bound value. Bounds never cross helper results or record fields.
+/// Proven upper bounds of earlier unsigned bindings in the same helper or
+/// effect-program body. Local identities are unique and immutable, so a cap
+/// names exactly the bound value. Bounds never cross helper results, record
+/// fields or helper frames, and they narrow additions only; an order proof
+/// for a slice or subtraction still needs a fact over the same term.
 pub(crate) type Caps<'a> = BTreeMap<&'a str, u64>;
+/// Infers the runtime type of one Core expression. An unsigned addition is
+/// refused unless the proven ceilings of its operands sum within the type's
+/// width.
 pub(crate) fn infer<'v>(
     value: &'v Value,
     scope: &Scope<'_>,
@@ -319,6 +397,61 @@ pub(crate) fn infer<'v>(
 ) -> Result<RuntimeType, Error> {
     parser.enter(depth)?;
     match text_field(value, "kind")? {
+        "fold" => {
+            exact_fields(value, &["kind", "initial", "step", "bound", "stateType"])?;
+            number(field(value, "bound")?)?;
+            let state = text_field(value, "stateType")?;
+            let definition = definitions
+                .get(text_field(value, "step")?)
+                .ok_or(Error::InvalidArtifact)?;
+            if !source
+                || !definition.fold_capability
+                || !definition.source_owned
+                || definition.params.len() != 1
+                || definition.result_type != state
+                || text_field(&definition.params[0], "type")? != state
+            {
+                return Err(Error::InvalidArtifact);
+            }
+            let ty = parser.ty(state, 0)?;
+            let initial = infer(
+                field(value, "initial")?,
+                scope,
+                proof,
+                definitions,
+                source,
+                parser,
+                depth + 1,
+            )?;
+            if !accepts(&ty, &initial) {
+                return Err(Error::InvalidArtifact);
+            }
+            Ok(ty)
+        }
+        "match" => {
+            super::matches::infer_match(value, scope, proof, definitions, source, parser, depth)
+        }
+        "variant" => {
+            let (ty, tag, payload) = super::variants::constructor(parser, value)?;
+            let RuntimeType::Variant { cases, .. } = &ty else {
+                return Err(Error::InvalidArtifact);
+            };
+            if let (Some(expected), Some(payload)) = (&cases[tag], payload) {
+                let actual = infer(
+                    payload,
+                    scope,
+                    proof,
+                    definitions,
+                    source,
+                    parser,
+                    depth + 1,
+                )?;
+                if !accepts(expected, &actual) {
+                    return Err(Error::InvalidArtifact);
+                }
+            }
+            Ok(ty)
+        }
         "local" => {
             exact_fields(value, &["kind", "ref"])?;
             let reference = field(value, "ref")?;
@@ -330,6 +463,15 @@ pub(crate) fn infer<'v>(
         "const" => {
             exact_fields(value, &["kind", "value"])?;
             let literal = field(value, "value")?;
+            if text_field(literal, "kind")? == "bytes" {
+                exact_fields(literal, &["kind", "value"])?;
+                let length = u64::try_from(bytes(field(literal, "value")?)?.len())
+                    .map_err(|_| Error::InvalidArtifact)?;
+                return Ok(RuntimeType::Bytes {
+                    min: length,
+                    max: length,
+                });
+            }
             if text_field(literal, "kind")? == "bool" {
                 exact_fields(literal, &["kind", "value"])?;
                 if !matches!(field(literal, "value")?, Value::Bool(_)) {
@@ -367,6 +509,22 @@ pub(crate) fn infer<'v>(
                 })
                 .ok_or(Error::InvalidArtifact)
         }
+        "list" => {
+            exact_fields(value, &["kind", "values"])?;
+            let values = array(field(value, "values")?)?;
+            let mut item: Option<Box<RuntimeType>> = None;
+            for value in values {
+                let next = infer(value, scope, proof, definitions, source, parser, depth + 1)?;
+                item = Some(Box::new(match item {
+                    Some(previous) => join(*previous, next)?,
+                    None => next,
+                }));
+            }
+            Ok(RuntimeType::List {
+                item,
+                max: u64::try_from(values.len()).map_err(|_| Error::UnsupportedProgram)?,
+            })
+        }
         "record" => {
             exact_fields(value, &["kind", "fields"])?;
             let fields = map(field(value, "fields")?)?
@@ -399,19 +557,29 @@ pub(crate) fn infer<'v>(
                 parser,
                 depth + 1,
             )?;
+            let mut path = proof.path.to_vec();
+            path.push((field(value, "predicate")?, true));
             let left = infer(
                 field(value, "then")?,
                 scope,
-                proof,
+                Proof {
+                    path: &path,
+                    ..proof
+                },
                 definitions,
                 source,
                 parser,
                 depth + 1,
             )?;
+            path.pop();
+            path.push((field(value, "predicate")?, false));
             let right = infer(
                 field(value, "else")?,
                 scope,
-                proof,
+                Proof {
+                    path: &path,
+                    ..proof
+                },
                 definitions,
                 source,
                 parser,
@@ -486,11 +654,39 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::list_operations::is_operation(name) {
+                return super::list_operations::infer(
+                    value,
+                    &actual,
+                    &declared,
+                    proof.facts,
+                    proof.path,
+                    parser,
+                );
+            }
             match (name, actual.as_slice(), declared.as_slice()) {
                 ("core.bytes.isUtf8", [actual], [expected @ RuntimeType::Bytes { .. }])
                     if expected == actual =>
                 {
                     Ok(RuntimeType::Bool)
+                }
+                (
+                    "core.bytes.at",
+                    [actual, RuntimeType::Unsigned(index_max)],
+                    [expected @ RuntimeType::Bytes { min, .. }],
+                ) if *index_max == u64::MAX && accepts(expected, actual) => {
+                    if !super::proven_order::strict_index(
+                        &types[0],
+                        arguments,
+                        *min,
+                        proof.facts,
+                        proof.path,
+                        parser,
+                        depth + 1,
+                    )? {
+                        return Err(Error::UnsupportedProgram);
+                    }
+                    Ok(RuntimeType::Unsigned(u64::from(u8::MAX)))
                 }
                 ("core.bytes.length", [actual], [expected @ RuntimeType::Bytes { .. }])
                     if accepts(expected, actual) =>
@@ -514,23 +710,36 @@ pub(crate) fn infer<'v>(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left = unsigned_ceiling(
-                        &arguments[0],
-                        *max,
-                        proof.caps,
-                        proof.facts,
-                        parser,
-                        depth + 1,
-                    )?;
-                    let right = unsigned_ceiling(
-                        &arguments[1],
-                        *max,
-                        proof.caps,
-                        proof.facts,
-                        parser,
-                        depth + 1,
-                    )?;
-                    if left.checked_add(right).is_none_or(|sum| sum > *max) {
+                    // Judge the sum without facts first, at exactly the depth
+                    // and cost it had before facts bounded additions; read the
+                    // facts only when that does not fit.
+                    let fits = |facts: &[&Value], parser: &mut Parser<'_>| -> Result<bool, Error> {
+                        let left = unsigned_ceiling(
+                            &arguments[0],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        let right = unsigned_ceiling(
+                            &arguments[1],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        Ok(left.checked_add(right).is_some_and(|sum| sum <= *max))
+                    };
+                    // A nested sum that overflows without facts is refused
+                    // as `UnsupportedProgram`; that is "does not fit", not a
+                    // final answer.
+                    let fits_without = match fits(&[], parser) {
+                        Err(Error::UnsupportedProgram) => false,
+                        judged => judged?,
+                    };
+                    if !fits_without && (proof.facts.is_empty() || !fits(proof.facts, parser)?) {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
@@ -573,11 +782,12 @@ pub(crate) fn infer<'v>(
     }
 }
 
-// Constants, counts, carried binding caps and already checked nested additions
-// can narrow a bound, and so can a dominating fact comparing the term with a
-// constant; every other term has its full declared width. Fresh helper frames
-// receive no caller facts. The parser's combined work/depth ceiling covers
-// this walk.
+/// The proven upper bound of the unsigned term `value`, whose type holds at
+/// most `max`. Constants, counts, carried binding caps and already checked
+/// nested additions can narrow a bound, and so can a dominating fact comparing
+/// the term with a constant; every other term has its full declared width.
+/// Fresh helper frames receive no caller facts. The parser's combined
+/// work/depth ceiling covers this walk.
 pub(crate) fn unsigned_ceiling(
     value: &Value,
     max: u64,
@@ -591,6 +801,10 @@ pub(crate) fn unsigned_ceiling(
         .map_or(structural, |limit| structural.min(limit)))
 }
 
+/// The upper bound of `value` from its own shape, before any fact about the
+/// whole term is applied. `facts` are only forwarded to the nested-addition
+/// recursion; the structural ceiling itself comes from caps, counts and
+/// widths.
 fn structural_ceiling(
     value: &Value,
     max: u64,
@@ -652,6 +866,30 @@ pub(crate) fn check_predicate<'v>(
 ) -> Result<(), Error> {
     parser.enter(depth)?;
     match text_field(value, "kind")? {
+        "any" => {
+            exact_fields(value, &["kind", "values"])?;
+            let values = array(field(value, "values")?)?;
+            if values.is_empty() {
+                return Err(Error::InvalidArtifact);
+            }
+            let mut path = proof.path.to_vec();
+            for value in values {
+                check_predicate(
+                    value,
+                    scope,
+                    Proof {
+                        path: &path,
+                        ..proof
+                    },
+                    definitions,
+                    source,
+                    parser,
+                    depth + 1,
+                )?;
+                path.push((value, false));
+            }
+            return Ok(());
+        }
         "all" => {
             exact_fields(value, &["kind", "values"])?;
             let values = array(field(value, "values")?)?;
@@ -667,6 +905,7 @@ pub(crate) fn check_predicate<'v>(
                     Proof {
                         caps: proof.caps,
                         facts: &prefix,
+                        path: proof.path,
                     },
                     definitions,
                     source,
@@ -728,11 +967,11 @@ pub(crate) fn check_predicate<'v>(
     match (text_field(value, "op")?, left, right) {
         ("==", RuntimeType::Bool, RuntimeType::Bool)
         | ("==", RuntimeType::Bytes { .. }, RuntimeType::Bytes { .. }) => Ok(()),
-        ("==" | "<=", RuntimeType::Unsigned(left), RuntimeType::Unsigned(right))
-            if left == right =>
-        {
-            Ok(())
-        }
+        (
+            "==" | "!=" | "<" | "<=" | ">" | ">=",
+            RuntimeType::Unsigned(left),
+            RuntimeType::Unsigned(right),
+        ) if left == right => Ok(()),
         _ => Err(Error::UnsupportedProgram),
     }
 }
@@ -814,7 +1053,25 @@ impl Heights<'_> {
         self.enter(depth)?;
         let height = match expression {
             Expr::Constant(_) | Expr::Local(_) => 0,
+            Expr::Variant { payload, .. } => match payload {
+                Some(payload) => self.expr(payload, depth + 1)? + 1,
+                None => 1,
+            },
+            Expr::Match(scrutinee, arms) => {
+                let mut height = self.expr(scrutinee, depth + 1)?;
+                for arm in arms {
+                    height = height.max(self.expr(&arm.body, depth + 1)?);
+                }
+                height + 1
+            }
             Expr::Field(base, _) => self.expr(base, depth + 1)? + 1,
+            Expr::List(values) => {
+                let mut maximum = 0;
+                for value in values {
+                    maximum = maximum.max(self.expr(value, depth + 1)? + 1);
+                }
+                maximum
+            }
             Expr::Record(fields) => {
                 let mut maximum = 0;
                 for (_, value) in fields {
@@ -826,6 +1083,31 @@ impl Heights<'_> {
                 self.predicate(condition, depth + 1)?
                     .max(self.expr(yes, depth + 1)?)
                     .max(self.expr(no, depth + 1)?)
+                    + 1
+            }
+            Expr::Fold {
+                initial,
+                step,
+                state,
+                ..
+            } => {
+                let helper = self.helpers.get(step).ok_or(Error::UnsupportedProgram)?;
+                if !helper.source_owned
+                    || !helper.fold_capability
+                    || helper.params.len() != 1
+                    || helper.params[0].ty != *state
+                    || helper.ty != *state
+                    || self
+                        .visiting
+                        .iter()
+                        .any(|owner| !self.helpers[owner].source_owned)
+                {
+                    return Err(Error::InvalidArtifact);
+                }
+                // Zero iterations still retain a closed, acyclic helper graph.
+                self.helper(step, depth + 1)?
+                    .max(self.expr(initial, depth + 1)?)
+                    .max(type_height(state))
                     + 1
             }
             Expr::Call(name, args) => {
@@ -847,9 +1129,38 @@ impl Heights<'_> {
                 }
                 maximum + 1
             }
+            Expr::ListLength { ty, value } => self.expr(value, depth + 1)?.max(type_height(ty)) + 1,
+            Expr::ListAt { ty, value, index }
+            | Expr::ListAppend {
+                ty,
+                value,
+                item: index,
+            } => {
+                self.expr(value, depth + 1)?
+                    .max(self.expr(index, depth + 1)?)
+                    .max(type_height(ty))
+                    + 1
+            }
+            Expr::ListConcat {
+                left_type,
+                right_type,
+                left,
+                right,
+            } => {
+                self.expr(left, depth + 1)?
+                    .max(self.expr(right, depth + 1)?)
+                    .max(type_height(left_type))
+                    .max(type_height(right_type))
+                    + 1
+            }
             Expr::ByteUtf8 { value, .. }
             | Expr::ByteLength { value, .. }
             | Expr::ByteCount { value, .. } => self.expr(value, depth + 1)? + 1,
+            Expr::ByteAt { value, index, .. } => {
+                self.expr(value, depth + 1)?
+                    .max(self.expr(index, depth + 1)?)
+                    + 1
+            }
             Expr::ByteSlice {
                 value, start, end, ..
             } => {
@@ -880,7 +1191,7 @@ impl Heights<'_> {
                     + 1
             }
             Predicate::Not(value) => self.predicate(value, depth + 1)? + 1,
-            Predicate::All(values) => {
+            Predicate::All(values) | Predicate::Any(values) => {
                 let mut maximum = 0;
                 for value in values {
                     maximum = maximum.max(self.predicate(value, depth + 1)?);
@@ -897,6 +1208,21 @@ impl Heights<'_> {
 fn type_height(ty: &RuntimeType) -> usize {
     match ty {
         RuntimeType::Nominal(_, representation) => type_height(representation),
+        RuntimeType::Variant { cases, .. } => {
+            1 + cases
+                .values()
+                .filter_map(Option::as_ref)
+                .map(type_height)
+                .max()
+                .unwrap_or(0)
+        }
+        RuntimeType::List { item, max } => {
+            if *max == 0 {
+                0
+            } else {
+                item.as_ref().map_or(0, |ty| type_height(ty) + 1)
+            }
+        }
         RuntimeType::Record(fields) => fields
             .iter()
             .map(|(_, ty)| type_height(ty) + 1)
@@ -905,6 +1231,9 @@ fn type_height(ty: &RuntimeType) -> usize {
         _ => 0,
     }
 }
+
+#[cfg(test)]
+mod byte_literals_tests;
 
 #[cfg(test)]
 mod predicate_validation_tests {
@@ -960,6 +1289,7 @@ mod predicate_validation_tests {
             Proof {
                 caps: &BTreeMap::new(),
                 facts: &[],
+                path: &[],
             },
             &BTreeMap::new(),
             true,
@@ -1032,6 +1362,7 @@ mod predicate_validation_tests {
                 Proof {
                     caps: &BTreeMap::new(),
                     facts: &[],
+                    path: &[],
                 },
                 &BTreeMap::new(),
                 true,
@@ -1091,6 +1422,7 @@ mod predicate_validation_tests {
                     Proof {
                         caps: &BTreeMap::new(),
                         facts: &[],
+                        path: &[],
                     },
                     &BTreeMap::new(),
                     true,

@@ -124,11 +124,15 @@
         "domain": "echo.edict-provider/semantic-effect/v1",
         "authority": "echo.provider-semantic-declaration@1"
       },
-      "parameterTypes": ["a.b@1.Id"],
+      "parameterTypes": [
+        "a.b@1.Id"
+      ],
       "resultType": "a.b@1.Receipt",
       "executionClass": "runtime",
       "effectKindHint": "replace",
-      "guardKinds": ["precommit-atomic"],
+      "guardKinds": [
+        "precommit-atomic"
+      ],
       "failures": [
         {
           "key": "rejected",
@@ -150,9 +154,15 @@
         "domain": "echo.edict-provider/operation-profile/v1",
         "authority": "echo.provider-target-metadata@1"
       },
-      "sourceNames": ["p.effectful"],
-      "allowedWriteClasses": ["replace"],
-      "guardKinds": ["precommit-atomic"],
+      "sourceNames": [
+        "p.effectful"
+      ],
+      "allowedWriteClasses": [
+        "replace"
+      ],
+      "guardKinds": [
+        "precommit-atomic"
+      ],
       "atomicity": "atomic",
       "postconditionSupport": true,
       "opticTemplate": {
@@ -350,7 +360,9 @@
     "artifactRole": "lawpack.echo-dpo",
     "id": "echo.dpo-lawpack",
     "version": "1",
-    "acceptedCoreAbis": ["edict.core/v1"],
+    "acceptedCoreAbis": [
+      "edict.core/v1"
+    ],
     "dependencies": [],
     "exportsResource": "resource.lawpack-exports",
     "targetAdapters": [
@@ -358,7 +370,9 @@
         "acceptedTargetProfileRole": "target-profile.echo-dpo",
         "acceptedTargetIrResource": "resource.target-ir",
         "adapterResource": "resource.lawpack-target-adapter",
-        "effects": ["target.replace"]
+        "effects": [
+          "target.replace"
+        ]
       }
     ],
     "verifier": {
@@ -373,7 +387,9 @@
     "artifactRole": "target-profile.echo-dpo",
     "id": "echo.dpo",
     "version": "1",
-    "acceptedCoreAbis": ["edict.core/v1"],
+    "acceptedCoreAbis": [
+      "edict.core/v1"
+    ],
     "intrinsicNamespace": "echo.dpo@1",
     "intrinsicsResource": "resource.target-intrinsics",
     "operationProfilesResource": "resource.target-operation-profiles",
@@ -390,7 +406,9 @@
       "generated-artifact-profile.echo-dpo-registration"
     ],
     "canonicalEncodingRulesResource": "resource.canonical-encoding",
-    "acceptedLawpackAdapterAbis": ["edict.lawpack-adapter/v1"],
+    "acceptedLawpackAdapterAbis": [
+      "edict.lawpack-adapter/v1"
+    ],
     "diagnosticAbiResource": "resource.diagnostic-abi",
     "applicationModel": "atomic",
     "readConsistency": "application-snapshot",
@@ -543,6 +561,12 @@
       "role": "result-projection.echo-operation",
       "kind": "auxiliary",
       "domain": "edict.result-projection.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "source-closure.echo-operation",
+      "kind": "auxiliary",
+      "domain": "edict.source-closure/v1",
       "schemaRole": "schema.echo-provider-artifacts"
     },
     {
@@ -782,6 +806,12 @@
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
       "rootRule": "result-projection"
+    },
+    {
+      "domain": "edict.source-closure/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "source-closure"
     },
     {
       "domain": "edict.source/v1",

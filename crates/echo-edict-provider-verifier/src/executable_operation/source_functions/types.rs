@@ -13,7 +13,15 @@ pub(super) enum Schema {
         low: u64,
         high: u64,
     },
+    Sequence {
+        element: Option<Box<Schema>>,
+        bound: u64,
+    },
     Fields(BTreeMap<String, Schema>),
+    Alternatives {
+        identity: String,
+        cases: BTreeMap<String, Option<Schema>>,
+    },
     Nominal {
         identity: String,
         representation: Box<Schema>,
@@ -57,6 +65,20 @@ impl Schema {
     pub(super) fn encloses(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Blob { low, high }, Self::Blob { low: a, high: b }) => low <= a && b <= high,
+            (
+                Self::Sequence { element, bound },
+                Self::Sequence {
+                    element: actual,
+                    bound: count,
+                },
+            ) => {
+                count <= bound
+                    && match (element, actual) {
+                        (_, None) => *count == 0,
+                        (Some(want), Some(got)) => want.encloses(got),
+                        _ => false,
+                    }
+            }
             (Self::Fields(a), Self::Fields(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -71,6 +93,36 @@ impl Schema {
                 low: a.min(c),
                 high: b.max(d),
             }),
+            (
+                Self::Sequence {
+                    element: a,
+                    bound: n,
+                },
+                Self::Sequence {
+                    element: b,
+                    bound: m,
+                },
+            ) => {
+                let element = match (a, b) {
+                    (Some(a), Some(b)) => Some(Box::new(a.choice(*b)?)),
+                    (a, b) => a.or(b),
+                };
+                Ok(Self::Sequence {
+                    element,
+                    bound: n.max(m),
+                })
+            }
+            (Self::Fields(a), Self::Fields(b)) => {
+                if !a.keys().eq(b.keys()) {
+                    return Err(());
+                }
+                let fields = a
+                    .into_iter()
+                    .zip(b)
+                    .map(|((key, a), (_, b))| Ok((key, a.choice(b)?)))
+                    .collect::<Check<BTreeMap<_, _>>>()?;
+                Ok(Self::Fields(fields))
+            }
             (a, b) if a == b => Ok(a),
             _ => Err(()),
         }
@@ -88,11 +140,37 @@ impl Schema {
         match self {
             // Nominal types retain identity without adding physical value tags.
             Self::Nominal { representation, .. } => return representation.measure(),
+            Self::Alternatives { identity, cases } => {
+                return super::variants::measure(identity, cases)
+            }
             Self::Truth => size.encoded = 1,
             Self::Word(_) => {}
             Self::Blob { high, .. } => {
                 size.copy.storage += u128::from(*high);
                 size.encoded += u128::from(*high);
+            }
+            Self::Sequence { element, bound } => {
+                if let Some(element) = element {
+                    let child = element.measure()?;
+                    let count = u128::from(*bound);
+                    size.copy.append(Charge {
+                        ticks: child.copy.ticks.checked_mul(count).ok_or(())?,
+                        storage: child.copy.storage.checked_mul(count).ok_or(())?,
+                    })?;
+                    size.checks = child
+                        .checks
+                        .checked_mul(count)
+                        .and_then(|n| n.checked_add(1))
+                        .ok_or(())?;
+                    size.encoded = child
+                        .encoded
+                        .checked_mul(count)
+                        .and_then(|n| n.checked_add(9))
+                        .ok_or(())?;
+                    size.height = if *bound == 0 { 0 } else { child.height + 1 };
+                } else if *bound != 0 {
+                    return Err(());
+                }
             }
             Self::Fields(fields) => {
                 for (name, ty) in fields {
@@ -142,7 +220,7 @@ impl<'a> Types<'a> {
         Ok(())
     }
     pub(super) fn copy_type(&mut self, schema: &Schema) -> Check<Schema> {
-        let count = usize::try_from(schema.measure()?.copy.ticks).map_err(|_| ())?;
+        let count = super::variants::type_nodes(schema)?;
         self.remaining = self.remaining.checked_sub(count).ok_or(())?;
         Ok(schema.clone())
     }
@@ -195,6 +273,28 @@ impl<'a> Types<'a> {
             }
             return Err(());
         }
+        if let Some(inner) = name.strip_prefix("List<").and_then(|s| s.strip_suffix('>')) {
+            let (item, digits) = inner.rsplit_once(",max=").ok_or(())?;
+            let bound: u64 = digits.parse().map_err(|_| ())?;
+            if bound.to_string() != digits {
+                return Err(());
+            }
+            return Ok(Schema::Sequence {
+                element: Some(Box::new(self.resolve(item, depth + 1)?)),
+                bound,
+            });
+        }
+        if let Some(spec) = name
+            .strip_prefix("Record<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            self.proof_work(spec.len())?;
+            let mut fields = BTreeMap::new();
+            for (field, ty) in super::super::record_type::fields(spec)? {
+                fields.insert(field.to_owned(), self.resolve(ty, depth + 1)?);
+            }
+            return Ok(Schema::Fields(fields));
+        }
         let prefix = format!("{}.", string(get(self.module, "coordinate")?)?);
         let resolved = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.module, "types")?, resolved)?;
@@ -230,6 +330,16 @@ impl<'a> Types<'a> {
                     return Err(());
                 }
                 Ok(Schema::Blob { low, high })
+            }
+            "Variant" => self.alternatives(definition, resolved, &prefix, depth),
+            "List" => {
+                exact(definition, &["kind", "item", "max"])?;
+                Ok(Schema::Sequence {
+                    element: Some(Box::new(
+                        self.resolve(string(get(definition, "item")?)?, depth + 1)?,
+                    )),
+                    bound: unsigned(get(definition, "max")?)?,
+                })
             }
             "Record" => {
                 let mut fields = BTreeMap::new();

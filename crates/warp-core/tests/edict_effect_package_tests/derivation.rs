@@ -12,7 +12,11 @@ fn publication() -> V {
     publication_for("create-node")
 }
 fn publication_for(name: &str) -> V {
-    let (mut publication, _) = fixture(name, "continuum.profile.graph-effects/v1");
+    let (publication, _) = fixture(name, "continuum.profile.graph-effects/v1");
+    with_graph_law(publication)
+}
+/// The graph schema and footprint law every derivation case runs under.
+fn with_graph_law(mut publication: V) -> V {
     let V::Bytes(raw) = get(&publication, "program") else {
         panic!("program")
     };
@@ -994,4 +998,195 @@ fn competing_mutation_failures_follow_the_validation_phase_order() {
             .expect_err("multiple invalid claims");
         assert_eq!(error.kind(), want, "{name}: {input_field}");
     }
+}
+// Identities admission accepted before ContentAddressV1 moved into its own
+// module, captured from the pre-extraction runtime. Moving the law must not
+// change an identity Echo has already admitted.
+const ADMITTED_LEAF_ID: &str = "127c0d47351ee88620bec24603a1b8949610d792f06f913227308ee5c7e47f90";
+const ADMITTED_SLOT_EDGE_ID: &str =
+    "bd913d145bb0da61dc572cf56a5a4abd442bf295b7020c32aa1de85a3dd70aa2";
+fn hex_id(hex: &str) -> V {
+    V::Bytes(
+        (0..32)
+            .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex"))
+            .collect(),
+    )
+}
+#[test]
+fn identities_admitted_before_the_law_moved_are_still_admitted() {
+    let mut body = input("ensure-node");
+    set(&mut body, "nodeId", hex_id(ADMITTED_LEAF_ID));
+    derive_case(
+        "ensure-node",
+        body,
+        publication_for("ensure-node"),
+        false,
+        false,
+        false,
+    )
+    .expect("pre-extraction content node id");
+    let mut body = input("ensure-edge");
+    set(&mut body, "edgeId", hex_id(ADMITTED_SLOT_EDGE_ID));
+    derive_case(
+        "ensure-edge",
+        body,
+        publication_for("ensure-edge"),
+        false,
+        false,
+        false,
+    )
+    .expect("pre-extraction slot edge id");
+}
+// An id is bound to the exact atom and edge set it was computed from.
+// The surrounding package stays valid so refusal comes from the identity law.
+#[test]
+fn a_node_id_is_refused_when_the_submitted_atom_or_edge_set_differs() {
+    use warp_core::edict_effects::EffectDerivationKind as K;
+    for (field, value) in [
+        ("atomBytes", V::Bytes(b"newer".to_vec())),
+        ("atomBytes", V::Bytes(b"ne".to_vec())),
+        ("atomBytes", V::Bytes(b"nex".to_vec())),
+    ] {
+        let mut body = input("ensure-node");
+        set(&mut body, field, value);
+        let error = derive_case(
+            "ensure-node",
+            body,
+            publication_for("ensure-node"),
+            false,
+            false,
+            false,
+        )
+        .expect_err("different atom");
+        assert_eq!(error.kind(), K::IdentityLawViolation);
+    }
+    // Computed with one outgoing edge, submitted with none.
+    let with_edge = warp_core::content_address_v1::content_node_id(
+        warp_core::WarpId([3; 32]),
+        TypeId([7; 32]),
+        TypeId([2; 32]),
+        b"new",
+        &[warp_core::content_address_v1::OutgoingEdge {
+            edge_type: TypeId([6; 32]),
+            to: NodeId([5; 32]),
+        }],
+    )
+    .expect("one edge");
+    let mut body = input("ensure-node");
+    set(&mut body, "nodeId", V::Bytes(with_edge.0.to_vec()));
+    let error = derive_case(
+        "ensure-node",
+        body,
+        publication_for("ensure-node"),
+        false,
+        false,
+        false,
+    )
+    .expect_err("different edge set");
+    assert_eq!(error.kind(), K::IdentityLawViolation);
+}
+// A content node together with an outgoing edge in one proposal. Every id
+// below is assembled from its preimage here, never through the production law.
+fn content_leaf_with_edge(edge_type: [u8; 32], to: [u8; 32]) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"echo.bridge.node-id.v1\0");
+    h.update(&[3; 32]);
+    h.update(&[7; 32]);
+    h.update(&atom_hash(2, b"new"));
+    h.update(&1u64.to_le_bytes());
+    h.update(&edge_type);
+    h.update(&to);
+    h.finalize().into()
+}
+fn content_edge(from: [u8; 32], to: [u8; 32]) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"echo.bridge.edge-id.v1\0");
+    h.update(&[3; 32]);
+    h.update(&from);
+    h.update(&[6; 32]);
+    h.update(&to);
+    h.finalize().into()
+}
+/// The admitted ids of the leaf with one edge to node 5, and of that edge.
+const ADMITTED_LEAF_WITH_EDGE_ID: &str =
+    "322afec5e32a48d3ab373c0b7efbf614bda7cf391d01b726a72c64c753fc5e10";
+const ADMITTED_CONTENT_EDGE_ID: &str =
+    "3ff5f345ec93b3eeca43553ab0f02c33c68926cf88e692ef53fa9973ddb04147";
+fn node_and_edge(node_id: [u8; 32], edge_id: [u8; 32], to: [u8; 32]) -> V {
+    let mut node = input("ensure-node");
+    set(&mut node, "nodeId", V::Bytes(node_id.to_vec()));
+    let edge = map([
+        ("warpId", id(3)),
+        ("edgeId", V::Bytes(edge_id.to_vec())),
+        ("fromId", V::Bytes(node_id.to_vec())),
+        ("toId", V::Bytes(to.to_vec())),
+        ("edgeType", id(6)),
+    ]);
+    map([("first", node), ("second", edge)])
+}
+fn derive_pair(
+    body: V,
+) -> Result<
+    warp_core::edict_effects::DerivedEffectPatch,
+    warp_core::edict_effects::EffectDerivationError,
+> {
+    derive_case(
+        "ensure-node+ensure-edge",
+        body,
+        with_graph_law(super::mutations::fixture_pair(
+            "ensure-node",
+            "ensure-edge",
+            "continuum.profile.graph-effects/v1",
+        )),
+        false,
+        false,
+        false,
+    )
+}
+#[test]
+fn a_content_node_and_its_content_edge_are_admitted_together() {
+    let leaf = content_leaf_with_edge([6; 32], [5; 32]);
+    let edge = content_edge(leaf, [5; 32]);
+    assert_eq!(hex_id(ADMITTED_LEAF_WITH_EDGE_ID), V::Bytes(leaf.to_vec()));
+    assert_eq!(hex_id(ADMITTED_CONTENT_EDGE_ID), V::Bytes(edge.to_vec()));
+    let derived = derive_pair(node_and_edge(leaf, edge, [5; 32])).expect("content node and edge");
+    let ops = derived.patch().ops();
+    assert!(ops
+        .iter()
+        .any(|op| matches!(op, WarpOp::UpsertNode { node, record }
+        if node.local_id.0 == leaf && record.ty == TypeId([7; 32]))));
+    assert!(ops
+        .iter()
+        .any(|op| matches!(op, WarpOp::UpsertEdge { warp_id, record }
+        if warp_id.0 == [3; 32] && record.id.0 == edge && record.from.0 == leaf
+            && record.to.0 == [5; 32] && record.ty.0 == [6; 32])));
+}
+#[test]
+fn a_content_edge_id_computed_for_another_target_is_refused() {
+    use warp_core::edict_effects::EffectDerivationKind as K;
+    let leaf = content_leaf_with_edge([6; 32], [5; 32]);
+    let error = derive_pair(node_and_edge(leaf, content_edge(leaf, [4; 32]), [5; 32]))
+        .expect_err("edge id for node 4, submitted toward node 5");
+    assert_eq!(error.kind(), K::IdentityLawViolation);
+    // The slot form of the same edge is wrong for a content source too.
+    let mut h = blake3::Hasher::new();
+    h.update(b"echo.bridge.slot-edge-id.v1\0");
+    h.update(&[3; 32]);
+    h.update(&leaf);
+    h.update(&[6; 32]);
+    let slot: [u8; 32] = h.finalize().into();
+    let error = derive_pair(node_and_edge(leaf, slot, [5; 32])).expect_err("slot id from content");
+    assert_eq!(error.kind(), K::IdentityLawViolation);
+}
+#[test]
+fn a_node_id_that_omits_an_edge_the_proposal_adds_is_refused() {
+    use warp_core::edict_effects::EffectDerivationKind as K;
+    let without_edge = leaf_id();
+    let error = derive_pair(node_and_edge(
+        without_edge,
+        content_edge(without_edge, [5; 32]),
+        [5; 32],
+    ))
+    .expect_err("node id computed without the proposal's edge");
+    assert_eq!(error.kind(), K::IdentityLawViolation);
 }

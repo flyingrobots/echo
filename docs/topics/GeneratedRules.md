@@ -172,6 +172,48 @@ independently selected trusted-host pin and bounded input, work, storage and
 output limits. This is ordinary computation, not package admission, graph
 mutation, an Action, a Tick, a receipt or recovery evidence.
 
+The native interpreter prepares exhaustive closed-variant `match` expressions
+in source helpers. It checks every case exactly once, requires payload binders
+to have the declared payload type, and confines each binder to its own arm.
+Evaluation runs the scrutinee once and only the selected body. Dispatch charges
+each inspected arm; a payload-binding arm copies the outer lexical frame through
+the ordinary meter and moves the selected payload into it. Synthetic witnesses
+in `edict_pure::variant_tests` cover arm selection, malformed coverage, binder
+scope, populated-frame costs and exact work/storage refusal.
+
+Native lowerer and verifier source-function judgments independently check
+coverage, payload identity, all-arm call authority and maximum path costs,
+including lexical frame copies. A direct match is one in the checked expression
+itself, rather than only in a called helper. Direct matches in intent bindings
+or results trigger these judgments even without a function table. Unlike
+source-helper preparation, the runtime parser for intent expressions does not
+repeat typed coverage or binder-scope inference. It rejects duplicate case tags
+and empty arm lists. Evaluation validates each binding and the result against
+its declared type, and refuses if the selected case has no arm. Provider
+verification remains required for the static rules.
+
+The bounded-read relation and audit independently check direct matches. Both
+preserve outer declarations on success and refusal, and carry proof-work
+counters across arms rather than resetting them for each binder. A variant
+helper result or local can supply the scrutinee; direct constructor expressions
+and raw-byte constants remain outside the bounded-read relation profile. Author
+those values in source helpers when using this profile. See the
+[closed-variant architecture](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+for binder identity, payload omission and accounting rules.
+
+The public source-function publication witness accepts `--match-provider-before`
+to check pure constructor acceptance and pure/read match refusal with the
+constructor-capable provider, then compile empty and payload matches with the
+current provider. The previous-provider read refusal has no paired read
+acceptance control and does not isolate match as the sole cause of refusal. The runtime
+example consumes the exact emitted packages and reports: each pure alternative
+passes twelve byte-output cases, and bounded reads retain their output and
+resource-refusal checks. Repeated compiler builds retain identical package and
+report bytes. The current publication regenerated from checked components equals
+the committed package in all 25 files. Earlier candidate comparisons remain
+recorded producer snapshots; see the [publication comparison](../architecture/application-contract-hosting.md#closed-variants-in-provider-judgments-and-the-runtime)
+for the generation command and manifest boundary.
+
 The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
 against the declared unsigned width and checks the sum before copying the
 result through the ordinary resource meter. Overflow and invalid operands
@@ -219,19 +261,59 @@ is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
 literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
-fact that compares the term with a constant (`term <= c` or `term == c`). Other
-terms retain their full unsigned width, so zero identity is total and an
-unbounded parameter plus one refuses. Caller constraints do not cross into a
-helper frame.
+fact from its own conjunct prefixes that compares the term with a constant
+(`term <= c`, `term == c` or `c == term`). Other terms retain their full
+unsigned width, so zero identity is total and an unbounded parameter plus one
+refuses. Caller constraints do not cross into a helper frame.
 
-Authored effect programs are judged the same way at preparation. The intent's
-input constraints dominate its whole body, so `at <= len(text)` as an input
-constraint proves `slice(text, 0, at)` in any later node. An unsigned `let`
-proven below its width carries that ceiling to later nodes, from counts,
-literals, sums or a constraint such as `at <= 10`. Earlier conjuncts of one
-`all` prove the later ones. A `require` proves nothing after it, as in Edict:
-its guard ends evaluation on failure but is not a dominating fact. A guard on
-another operand or offset proves nothing.
+Every authored effect program is judged by warp-core when its package is
+prepared. Besides the helper bounds above, the
+judgment may assume these facts:
+
+- **Input constraints**, for every node of the body. Each constraint is itself
+  checked with no facts. So the constraint `at <= len(text)` lets the body use
+  `slice(text, 0, at)` and `len(text) - at`, and `at < len(text)` proves the
+  byte lookup `text[at]`. Byte and list lookups read these facts as they read
+  earlier conjuncts.
+- **Earlier conjuncts of one `all`**, for the slices, subtractions and
+  additions inside its later conjuncts.
+- **Carried `let` ceilings.** An unsigned `let` proven below its width carries
+  that ceiling, from counts, literals, sums or a constraint such as
+  `at <= 10`. A ceiling narrows later additions only.
+
+A slice or subtraction needs an order fact over the same term, compared by
+canonical encoding. So `let at2 = at` followed by `slice(text, 0, at2)` is
+refused even under `at <= len(text)`; use the constrained term itself. A
+constant bound is read only as `term <= c`, `term == c` or `c == term`; write
+`at < 11` or `11 > at` as `at <= 10`. A guard over a different term proves
+nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.rs`
+in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
+evaluation when it fails, so its predicate does hold at later nodes, but the
+rule does not assume it, and Echo follows the rule. State such a bound as an
+input constraint or inside the same `all`. Edict also assumes an `if`
+predicate inside its `then` branch, and reads the strict and reversed
+comparison forms; all three Echo judgments do not yet (#960). A program
+that needs a fact the judgment lacks is refused when its package is prepared.
+
+warp-core judges each node first without these facts or carried ceilings, at
+the cost the judgment had before facts existed. Only when that refuses does
+it carry the ceilings and judge the node again with the input constraints;
+comparing facts encodes their terms, which is charged to the proof budget. A
+constraint no node needs therefore costs only its own size. An addition is
+likewise first judged without the facts of its enclosing conjunct prefixes, so
+an unneeded earlier conjunct changes neither its proof-budget cost nor its
+depth.
+
+On the bounded-read route the provider lowerer
+(`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)
+and verifier
+(`crates/echo-edict-provider-verifier/src/executable_operation/source_functions.rs`)
+judge the same bodies independently with input-constraint facts and `let`
+ceilings, and the three judgments must agree. They differ in one way today:
+the providers let a constraint use the constraints before it, where Edict and
+Echo check each alone, so a package whose later constraint needs an earlier
+one passes the providers and is refused here (#960). The graph-effects route
+has no provider judgment yet.
 
 The provider lowerer and verifier each judge an authored effect program
 themselves, sharing no code with the runtime or each other. Each establishes
@@ -252,7 +334,7 @@ refused before installation, where the runtime would refuse it only when it
 executes.
 
 The retained public compiler fixtures cover a legacy-producer execution control
-and a strict SourceFunctions publication containing an authored arithmetic helper.
+and the current pinned publication containing an authored arithmetic helper.
 The accepted public verifier report binds the unmodified package bytes; repeated
 public compilation preserves both package and report identity.
 Checked provider components are promoted from two byte-identical designated
@@ -855,6 +937,10 @@ trigger hidden retries or widen access.
   identity needed to explain execution.
 
 ### Executable graph-schema preparation
+
+What an authored effect program's body may compute, and which range facts
+prove its slices, subtractions and additions, is described under
+[Bounded compiler-package computation](#bounded-compiler-package-computation).
 
 `EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
 the current authored-effect program contract. The root has exactly `node_types` and

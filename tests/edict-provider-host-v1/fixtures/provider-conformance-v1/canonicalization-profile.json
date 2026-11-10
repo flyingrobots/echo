@@ -3,7 +3,7 @@
   "canonicalAbi": "edict.canonical-cbor/v1",
   "contractPack": {
     "coordinate": "edict.provider-contract-pack.cddl@1",
-    "digest": "sha256:92697bc9a5262c68258be9ee451ee8c144aeb363b92142915b8224430b85cf74"
+    "digest": "sha256:2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284"
   },
-  "edictCommit": "2e3f52f9e6d615f96eb594a40126e223a9253d98"
+  "edictCommit": "2269d81f257f7794b44270cf3f7ca330966a0784"
 }

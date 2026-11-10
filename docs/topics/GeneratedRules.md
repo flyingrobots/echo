@@ -272,7 +272,9 @@ judgment may assume these facts:
 
 - **Input constraints**, for every node of the body. Each constraint is itself
   checked with no facts. So the constraint `at <= len(text)` lets the body use
-  `slice(text, 0, at)` and `len(text) - at`.
+  `slice(text, 0, at)` and `len(text) - at`, and `at < len(text)` proves the
+  byte lookup `text[at]`. Byte and list lookups read these facts as they read
+  earlier conjuncts.
 - **Earlier conjuncts of one `all`**, for the slices, subtractions and
   additions inside its later conjuncts.
 - **Carried `let` ceilings.** An unsigned `let` proven below its width carries
@@ -297,7 +299,10 @@ warp-core judges each node first without these facts or carried ceilings, at
 the cost the judgment had before facts existed. Only when that refuses does
 it carry the ceilings and judge the node again with the input constraints;
 comparing facts encodes their terms, which is charged to the proof budget. A
-constraint no node needs therefore costs only its own size.
+constraint no node needs therefore costs only its own size. An addition is
+likewise first judged without the facts of its enclosing conjunct prefixes, so
+an unneeded earlier conjunct changes neither its proof-budget cost nor its
+depth.
 
 On the bounded-read route the provider lowerer
 (`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)

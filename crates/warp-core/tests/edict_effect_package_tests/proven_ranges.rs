@@ -673,3 +673,127 @@ fn unread_input_constraints_leave_the_proof_budget_to_the_body() {
         "16 unread constraints cut the longest chain from {unconstrained} to {constrained}"
     );
 }
+
+/// A program whose only node requires `predicate`.
+fn requiring(predicate: V) -> V {
+    package(
+        Vec::new(),
+        vec![Node::Require(predicate)],
+        map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([("kind", text("bool")), ("value", V::Bool(true))]),
+            ),
+        ]),
+    )
+}
+
+/// The largest `size` in `1..=limit` for which `program(size)` prepares, by
+/// bisection.
+fn largest_accepted(limit: usize, program: impl Fn(usize) -> V) -> usize {
+    let (mut accepted, mut refused) = (1, limit + 1);
+    prepare(&program(accepted)).expect("the smallest program prepares");
+    while refused - accepted > 1 {
+        let middle = accepted + (refused - accepted) / 2;
+        if prepare(&program(middle)).is_ok() {
+            accepted = middle;
+        } else {
+            refused = middle;
+        }
+    }
+    accepted
+}
+
+/// `guards` conjuncts bounding `at`, which no addition reads.
+fn unread_guards(guards: u64) -> Vec<V> {
+    (0..guards)
+        .map(|index| at_most(input("at"), int(10 + index)))
+        .collect()
+}
+
+/// `size` conjuncts, each a sum that fits by its own literals, either after
+/// or before 64 guards it never needs. As earlier conjuncts the guards are
+/// facts, but a sum that fits without them must not pay to read them.
+fn wide_sums(guards_first: bool, size: usize) -> V {
+    let sum = at_most(add(int(1), int(1)), int(2));
+    let sums = std::iter::repeat_n(sum, size);
+    let conjuncts = if guards_first {
+        unread_guards(64).into_iter().chain(sums).collect()
+    } else {
+        sums.chain(unread_guards(64)).collect()
+    };
+    requiring(all(conjuncts))
+}
+
+/// The same sums and guards in either order fit the same proof budget.
+#[test]
+fn unneeded_earlier_conjuncts_cost_a_later_sum_nothing() {
+    let guards_after = largest_accepted(4096, |size| wide_sums(false, size));
+    assert!(guards_after > 1, "the bisection found a real limit");
+    let guards_first = largest_accepted(4096, |size| wide_sums(true, size));
+    assert!(
+        guards_first >= guards_after,
+        "unneeded guards cut the conjunction from {guards_after} sums to {guards_first}"
+    );
+}
+
+/// One conjunct that judges the sum `1 + 0` under `depth` negations, either
+/// after or before one guard it never needs.
+fn deep_sum(guard_first: bool, depth: usize) -> V {
+    let mut sum = at_most(add(int(1), int(0)), int(1));
+    for _ in 0..depth {
+        sum = map([("kind", text("not")), ("value", sum)]);
+    }
+    let guard = at_most(input("at"), int(10));
+    requiring(all(if guard_first {
+        vec![guard, sum]
+    } else {
+        vec![sum, guard]
+    }))
+}
+
+/// An unneeded earlier conjunct neither deepens nor enlarges the judgment
+/// of a deeply nested sum.
+#[test]
+fn an_unneeded_earlier_conjunct_leaves_a_deep_sum_its_depth() {
+    let guard_after = largest_accepted(90, |depth| deep_sum(false, depth));
+    assert!(
+        (2..90).contains(&guard_after),
+        "the bisection found a real limit below 90: {guard_after}"
+    );
+    let guard_first = largest_accepted(90, |depth| deep_sum(true, depth));
+    assert!(
+        guard_first >= guard_after,
+        "an unneeded guard cut the nesting from {guard_after} to {guard_first}"
+    );
+}
+
+/// Input constraints are facts for every proof the judgment makes, not only
+/// slices and arithmetic: `at < len(text)` proves the byte lookup
+/// `text[at]`, which is refused without it.
+#[test]
+fn an_input_constraint_proves_a_byte_lookup() {
+    let below = |left: V, right: V| {
+        map([
+            ("kind", text("compare")),
+            ("op", text("<")),
+            ("left", left),
+            ("right", right),
+        ])
+    };
+    let byte = || call("core.bytes.at", &[BYTES], vec![input("text"), input("at")]);
+    let program = |constraints: Vec<V>| {
+        package(
+            constraints,
+            vec![Node::Let(
+                ok_binding(),
+                is_true_value(at_most(byte(), byte())),
+            )],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(vec![below(input("at"), len(input("text")))]))
+        .expect("the constraint proves at < len(text)");
+    refused(&program(Vec::new()));
+}

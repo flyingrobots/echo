@@ -710,23 +710,31 @@ pub(crate) fn infer<'v>(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left = unsigned_ceiling(
-                        &arguments[0],
-                        *max,
-                        proof.caps,
-                        proof.facts,
-                        parser,
-                        depth + 1,
-                    )?;
-                    let right = unsigned_ceiling(
-                        &arguments[1],
-                        *max,
-                        proof.caps,
-                        proof.facts,
-                        parser,
-                        depth + 1,
-                    )?;
-                    if left.checked_add(right).is_none_or(|sum| sum > *max) {
+                    // Judge the sum without facts first, at exactly the depth
+                    // and cost it had before facts bounded additions; read the
+                    // facts only when that does not fit.
+                    let fits = |facts: &[&Value], parser: &mut Parser<'_>| -> Result<bool, Error> {
+                        let left = unsigned_ceiling(
+                            &arguments[0],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        let right = unsigned_ceiling(
+                            &arguments[1],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        Ok(left.checked_add(right).is_some_and(|sum| sum <= *max))
+                    };
+                    if !fits(&[], parser)?
+                        && (proof.facts.is_empty() || !fits(proof.facts, parser)?)
+                    {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())

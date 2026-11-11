@@ -8296,3 +8296,30 @@ fn a_read_image_whose_bucket_sizes_conflict_with_its_own_rows_is_malformed() {
         "the bucket tag is 0 or 1"
     );
 }
+
+/// An absent source is not an empty bucket. At a basis where l1 is gone but
+/// every bucket keeps its size (its two inbound edges now dangle), the
+/// witnessed empty bucket of l1 has no source to stand on and is refused.
+#[test]
+fn a_witnessed_empty_bucket_is_refused_at_a_basis_without_its_source() {
+    use warp_core::edict_effects::{EffectReadImageError, EffectReadSetView};
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, _, recorded) = recorded_boundary_closure(&host, head, root);
+    recorded.expect("recorded closure read");
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("graph read image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical image");
+    let l1 = node_row(&view, graph_read::node("l1"));
+    assert_eq!((l1.bucket, l1.bucket_len()), (1, 0));
+    let (without_l1, _) = graph_read::tree_state(|store| {
+        assert!(store.delete_node_cascade(graph_read::node("l1")));
+        graph_read::link(store, "lower", "left", "l1");
+        graph_read::link(store, "root", "decoy", "l1");
+    });
+    assert_eq!(
+        view.confirm_bucket_sizes(&without_l1),
+        Err(EffectReadImageError::BucketSizeMismatch)
+    );
+}

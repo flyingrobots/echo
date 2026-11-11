@@ -163,7 +163,8 @@
   row, whether the scan ran or was refused, because that size decides the
   scan's bound and charge. `EffectReadSetView::confirm_bucket_sizes` refuses an
   image whose recorded size differs from the bucket at its basis with the new
-  `EffectReadImageError::BucketSizeMismatch`, and parsing refuses ranges from
+  `EffectReadImageError::BucketSizeMismatch`. Parsing refuses a range without
+  its source's node row, a present source without its bucket, and ranges from
   one source that together retain more pairs than its bucket holds. The read
   row grows from 192 to 200 bytes (public `bucket` and `bucket_len_le` fields)
   and the read-set digest domain becomes `echo.bridge.read-set.v2`; version-1

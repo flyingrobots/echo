@@ -113,8 +113,9 @@ pub struct EffectRangeReadSession<'a> {
     law: Option<EffectFootprintLaw>,
     authorized_reads: BTreeSet<(SlotId, TypeId)>,
     validated_warps: BTreeSet<crate::WarpId>,
-    /// Length of every present source bucket a range or graph read consulted,
-    /// whether the read then scanned it or refused it unscanned. The read
+    /// Length of every present source bucket whose size decided a recorded
+    /// read's bound or charge, whether the read then scanned it or refused it
+    /// unscanned. The read
     /// image witnesses each on its source node row; the node's observation
     /// reservation covers it.
     observed_buckets: BTreeMap<crate::NodeKey, u64>,

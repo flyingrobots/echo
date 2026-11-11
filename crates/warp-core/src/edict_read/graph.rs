@@ -362,7 +362,10 @@ impl Walk<'_> {
             Obstruction::ClosureStartMissing
         };
         let (node_type, atom_type, atom) =
-            match session.view.material(key, referrer, session.meter)? {
+            match session
+                .view
+                .material(key, referrer, self.shape.node_bytes, session.meter)?
+            {
                 Material::Missing => return Ok(Err(absent)),
                 Material::Portal => return Ok(Err(Obstruction::ClosureStorageMalformed)),
                 Material::Node { ty, atom } => {
@@ -504,6 +507,12 @@ pub(super) fn closure<A: NodeAtomAccess>(
         }
         edge_types.push(edge_type);
     }
+    // A closure is a graph read. Without a granted graph aperture it observes
+    // nothing, not even its host-selected start node.
+    let first = *edge_types.first().ok_or(Error::InvalidArtifact)?;
+    if session.view.scan_ceiling() == 0 {
+        return Err(ReadError::OutsideGraphAperture(first).into());
+    }
     let guide = field(input, "guide")?;
     validate(guide, &shape.guide, session.meter, 0)?;
     let key = NodeKey {
@@ -561,13 +570,14 @@ pub(super) fn closure<A: NodeAtomAccess>(
                 Outgoing::Edges { edges, .. } => edges,
             };
             for edge in found {
+                // A full edge list is decided before the target is read.
+                if index(walk.edges.len())? >= shape.max_edges {
+                    return Ok(Err(Obstruction::ClosureWorkBoundExceeded));
+                }
                 let child = match walk.materialize(edge.to, Some(parent_type), session)? {
                     Ok(child) => child,
                     Err(obstruction) => return Ok(Err(obstruction)),
                 };
-                if index(walk.edges.len())? >= shape.max_edges {
-                    return Ok(Err(Obstruction::ClosureWorkBoundExceeded));
-                }
                 let row = record([
                     ("from", word(index(next)?)),
                     ("slot", word(index(slot)?)),

@@ -64,10 +64,11 @@ impl NodeAtomAccess for RecordedNodeAccess<'_, '_> {
         &mut self,
         node: NodeKey,
         referrer: Option<TypeId>,
+        max_bytes: u64,
         meter: &mut Meter,
     ) -> Result<Material<'_>, Self::Error> {
         let absent = self.graph_absence(node, referrer)?;
-        self.reads.record_material(node, absent, meter)
+        self.reads.record_material(node, absent, max_bytes, meter)
     }
 }
 

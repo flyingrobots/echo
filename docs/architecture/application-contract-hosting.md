@@ -1221,7 +1221,10 @@ authored scan bound and inspects no edge. A materialized node records the node
 and its alpha slot; an empty slot is retained as typeless absence. A node named
 by an edge but not stored records its absence under the type of the node whose
 edge named it and keeps the malformed-storage outcome. An untyped recording
-frame grants no graph read. A read image carrying a second, conflicting
+frame grants no graph read. A scan charges every edge in the source's bucket, of any
+type, but the read image records only the requested ranges: the bucket size
+that decides the scan bound is not yet witnessed. Graph reads therefore must
+not enter authored effect programs until the image witnesses it. A read image carrying a second, conflicting
 observation of one slot is refused as `InvalidImage`; a stale basis refuses
 with `BasisMismatch` before any read.
 

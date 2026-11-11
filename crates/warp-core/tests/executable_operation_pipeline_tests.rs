@@ -7485,8 +7485,9 @@ fn current_invocation_admits_effect_grants_without_an_invented_anchor() {
 #[path = "support/edict_graph_read.rs"]
 mod graph_read;
 
-/// Recording frames do not yet witness graph reads in their read image, so
-/// they must refuse one before observing any graph material. The package is
+/// An untyped recording frame has no footprint law to act as a graph
+/// aperture or to witness graph reads, so it refuses one before observing
+/// any graph material. The package is
 /// the synthetic edge-read fixture; the refusal is the frame's, not the
 /// package decoder's, because the same package evaluates over a plain view.
 #[test]
@@ -7796,4 +7797,89 @@ fn a_dangling_closure_edge_is_malformed_storage_and_its_absence_is_witnessed() {
         .expect("the dangling target's absence is witnessed");
     assert_eq!(absent.outcome, 1);
     assert_eq!(absent.read_type, graph_read::kind("branch").0);
+}
+
+/// An atom over the declared node-row bound is malformed storage under a
+/// recording frame exactly as over a plain view, even when the atom is larger
+/// than the frame's whole read budget: its payload is observed, not charged.
+#[test]
+fn an_oversized_recorded_atom_is_malformed_storage_as_over_a_plain_view() {
+    use warp_core::edict_effects::{EffectFrameError, EffectReadSetView};
+    use warp_core::edict_read::{GraphReadObstruction, ReadError};
+    let huge = vec![b'x'; 17 << 20];
+    let (state, root) = graph_read::tree_state(|store| graph_read::put(store, "l2", "leaf", &huge));
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, control, recorded) = recorded_boundary_closure(&host, head, root);
+    let malformed = |error: &ReadError| {
+        matches!(
+            error,
+            ReadError::GraphObstructed {
+                cause: GraphReadObstruction::ClosureStorageMalformed,
+                ..
+            }
+        )
+    };
+    assert!(
+        matches!(&control, Err(error) if malformed(error)),
+        "plain: {control:?}"
+    );
+    assert!(
+        matches!(&recorded, Err(EffectFrameError::BoundedRead(error)) if malformed(error)),
+        "recorded: {recorded:?}"
+    );
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("failed-frame prefix");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical prefix");
+    assert!(
+        view.rows().iter().any(|row| row.slot.class == 1
+            && row.slot.local_id == graph_read::node("l2").0
+            && row.outcome == 0),
+        "the oversized atom that decided the outcome is witnessed"
+    );
+}
+
+/// A bucket over the remaining scan allowance is the authored scan bound
+/// under a recording frame as over a plain view, and the source observation
+/// that decided it is retained.
+#[test]
+fn a_recorded_scan_bound_matches_the_plain_view_and_retains_its_source() {
+    use warp_core::edict_effects::{EffectFrameError, EffectReadSetView};
+    use warp_core::edict_read::{GraphReadObstruction, ReadError};
+    // Root's bucket grows to 65 edges, over both 64-edge allowances.
+    let (state, root) = graph_read::tree_state(|store| {
+        for index in 0..62 {
+            graph_read::link(store, "root", "decoy", &format!("extra-{index}"));
+        }
+    });
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, control, recorded) = recorded_boundary_closure(&host, head, root);
+    let scan_bound = |error: &ReadError| {
+        matches!(
+            error,
+            ReadError::GraphObstructed {
+                cause: GraphReadObstruction::ClosureScanBoundExceeded,
+                ..
+            }
+        )
+    };
+    assert!(
+        matches!(&control, Err(error) if scan_bound(error)),
+        "plain: {control:?}"
+    );
+    assert!(
+        matches!(&recorded, Err(EffectFrameError::BoundedRead(error)) if scan_bound(error)),
+        "recorded: {recorded:?}"
+    );
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("failed-frame prefix");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical prefix");
+    assert!(view.rows().iter().any(|row| row.slot.class == 0
+        && row.slot.local_id == root.local_id.0
+        && row.outcome == 0));
+    assert!(
+        view.pairs().is_empty(),
+        "no edge of the over-allowance bucket is retained"
+    );
 }

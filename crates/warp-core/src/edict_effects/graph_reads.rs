@@ -19,7 +19,9 @@ use crate::{
 const NO_TYPE: TypeId = TypeId([0; 32]);
 
 impl<'a> EffectRangeReadSession<'a> {
-    /// Bucket edges one typed graph evaluation may inspect in one range.
+    /// Bucket edges one typed graph evaluation may inspect in total: the law's
+    /// range bound, which also bounds every single bucket, intersected with the
+    /// host's.
     pub(super) fn graph_scan_ceiling(&self) -> u64 {
         self.law
             .as_ref()
@@ -70,10 +72,14 @@ impl<'a> EffectRangeReadSession<'a> {
     /// actual atom type; an empty alpha slot is retained as typeless absence.
     /// `absent_type` authorizes the node's absence: the host-named type for a
     /// selected start node, or the type of the node whose edge named it.
+    /// An atom over `max_bytes` is authorized and retained, but its payload is
+    /// not charged: the caller refuses it as malformed storage, exactly as over a
+    /// plain view, and never copies it.
     pub(super) fn record_material(
         &mut self,
         key: NodeKey,
         absent_type: TypeId,
+        max_bytes: u64,
         meter: &mut Meter,
     ) -> Result<Material<'a>, EffectFrameError> {
         self.reachable(key.warp_id, meter)?;
@@ -117,7 +123,9 @@ impl<'a> EffectRangeReadSession<'a> {
                 0
             }
         };
-        if !self.charge(0, payload, payload, Some(meter)) {
+        // An oversized atom is retained as observed but never delivered.
+        let delivered = if payload > max_bytes { 0 } else { payload };
+        if !self.charge(0, delivered, delivered, Some(meter)) {
             return Err(Error::BudgetExceeded.into());
         }
         self.readings

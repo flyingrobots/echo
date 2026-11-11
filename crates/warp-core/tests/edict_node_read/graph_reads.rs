@@ -784,3 +784,56 @@ fn the_retained_public_node_read_package_is_unchanged_by_graph_reads() {
         (1, 5, 0)
     );
 }
+
+// --- graph aperture and outcome precedence -----------------------------------
+
+/// A closure is a graph read even when it selects only its start node: a
+/// view without a graph aperture refuses it before any material is read.
+#[test]
+fn a_closure_over_a_view_without_a_graph_aperture_is_refused_before_reading() {
+    let (frontier, root) = tree(|_| {});
+    let aperture = [root];
+    let view = ReadView::at(&frontier, &aperture).unwrap();
+    let (package, pin) = package(&closure_build(7, 6, 5));
+    for edge_types in [vec![id(kind("left").0)], vec![]] {
+        let mut request = closure_request(root, boundary_guide(), 7, 2);
+        support::set(&mut request, "edgeTypes", Value::Array(edge_types.clone()));
+        let input = encode(&record([("read", request)])).unwrap();
+        let refused = evaluate(&package, pin, &input, &view, limits());
+        if edge_types.is_empty() {
+            // No edge type to read is a malformed request, not an empty read.
+            assert_eq!(
+                refused,
+                Err(ReadError::Evaluation(EvaluationError::InvalidArtifact))
+            );
+        } else {
+            assert_eq!(refused, Err(ReadError::OutsideGraphAperture(kind("left"))));
+        }
+    }
+}
+
+/// A full edge list is decided before its next target is read, so a
+/// dangling target past the list's capacity reports the work bound.
+#[test]
+fn a_full_edge_list_is_the_work_bound_even_before_a_dangling_target() {
+    // Root gains a second left edge, ordered after root-left-lower, to a node
+    // that is not stored. One edge row fits: the lower edge fills it.
+    let stored = make_edge_id("root-left-lower");
+    let dangling = (0..64)
+        .map(|index| format!("dangling-{index}"))
+        .find(|name| make_edge_id(&format!("root-left-{name}")) > stored)
+        .unwrap();
+    let (frontier, root) = tree(|store| link(store, "root", "left", &dangling));
+    let read = closure_request(root, boundary_guide(), 7, 2);
+    assert_eq!(
+        obstruction(run(
+            &frontier,
+            root,
+            &closure_build(7, 1, 5),
+            read,
+            64,
+            limits()
+        )),
+        Obstruction::ClosureWorkBoundExceeded
+    );
+}

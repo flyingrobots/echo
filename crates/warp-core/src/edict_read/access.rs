@@ -58,10 +58,13 @@ pub(crate) trait NodeAtomAccess {
     ) -> Result<Outgoing, Self::Error>;
     /// Resolves a node's material. `referrer` is the observed type of the node
     /// whose edge named this one; `None` names a host-selected start node.
+    /// An atom over `max_bytes` is resolved without charging its payload; the
+    /// caller refuses it.
     fn material(
         &mut self,
         node: NodeKey,
         referrer: Option<TypeId>,
+        max_bytes: u64,
         meter: &mut Meter,
     ) -> Result<Material<'_>, Self::Error>;
 }
@@ -99,6 +102,7 @@ impl NodeAtomAccess for &ReadView<'_> {
         &mut self,
         node: NodeKey,
         _referrer: Option<TypeId>,
+        _max_bytes: u64,
         _meter: &mut Meter,
     ) -> Result<Material<'_>, Self::Error> {
         ReadView::material(self, node)

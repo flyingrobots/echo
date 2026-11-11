@@ -25,7 +25,7 @@ fn int(value: u64) -> V {
         ),
     ])
 }
-fn declared(id: &str, ty: &str) -> V {
+pub(super) fn declared(id: &str, ty: &str) -> V {
     map([
         ("id", text(id)),
         ("type", text(ty)),
@@ -39,10 +39,10 @@ fn input_ref() -> V {
         ("alphaName", text("$arg0")),
     ])
 }
-fn local(reference: &V) -> V {
+pub(super) fn local(reference: &V) -> V {
     map([("kind", text("local")), ("ref", reference.clone())])
 }
-fn input(name: &str) -> V {
+pub(super) fn input(name: &str) -> V {
     map([
         ("kind", text("field")),
         ("base", local(&input_ref())),
@@ -60,10 +60,10 @@ fn call(callee: &str, types: &[&str], args: Vec<V>) -> V {
         ("args", V::Array(args)),
     ])
 }
-fn len(bytes: V) -> V {
+pub(super) fn len(bytes: V) -> V {
     call("core.bytes.length", &[BYTES], vec![bytes])
 }
-fn prefix_is_utf8(bytes: &str, at: V) -> V {
+pub(super) fn prefix_is_utf8(bytes: &str, at: V) -> V {
     call(
         "core.bytes.isUtf8",
         &[BYTES],
@@ -77,7 +77,7 @@ fn prefix_is_utf8(bytes: &str, at: V) -> V {
 fn add(left: V, right: V) -> V {
     call("core.integer.add", &["U64"], vec![left, right])
 }
-fn at_most(left: V, right: V) -> V {
+pub(super) fn at_most(left: V, right: V) -> V {
     map([
         ("kind", text("compare")),
         ("op", text("<=")),
@@ -85,7 +85,7 @@ fn at_most(left: V, right: V) -> V {
         ("right", right),
     ])
 }
-fn is_true(value: V) -> V {
+pub(super) fn is_true(value: V) -> V {
     map([
         ("kind", text("compare")),
         ("op", text("==")),
@@ -102,18 +102,20 @@ fn is_true(value: V) -> V {
         ),
     ])
 }
-fn all(values: Vec<V>) -> V {
+pub(super) fn all(values: Vec<V>) -> V {
     map([("kind", text("all")), ("values", V::Array(values))])
 }
 
-enum Node {
+pub(super) enum Node {
     Let(V, V),
     Require(V),
+    /// A `require` whose failure payload is the given record fields.
+    RequireWith(V, V),
 }
 
 /// An effect program with no graph effects over
 /// `{ text, other: Bytes<max=64>, at: U64 }`, returning a `Bool`.
-fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
+pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
     let mut core = compiled_core();
     set(
         &mut core,
@@ -162,6 +164,10 @@ fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
     let mut requirements = Vec::new();
     let mut order = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
+        let node_payload = match &node {
+            Node::RequireWith(_, payload) => Some(payload.clone()),
+            _ => None,
+        };
         match node {
             Node::Let(binding, value) => {
                 locals.push(binding.clone());
@@ -178,15 +184,16 @@ fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
                 ]));
                 order.push(text(&id));
             }
-            Node::Require(predicate) => {
+            Node::Require(predicate) | Node::RequireWith(predicate, _) => {
+                let payload = match &node_payload {
+                    Some(payload) => payload.clone(),
+                    None => map([("at", input("at"))]),
+                };
                 let failure = map([
                     ("kind", text("terminal")),
                     (
                         "reason",
-                        map([
-                            ("reasonKind", text("app.BadOffset")),
-                            ("payload", map([("at", input("at"))])),
-                        ]),
+                        map([("reasonKind", text("app.BadOffset")), ("payload", payload)]),
                     ),
                 ]);
                 core_nodes.push(map([
@@ -216,10 +223,10 @@ fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
     bound_compiler_package(&core, &target, &compiled_exports(), "update@1")
 }
 
-fn ok_binding() -> V {
+pub(super) fn ok_binding() -> V {
     declared("local.ok", "Bool")
 }
-fn slice_program(constraints: Vec<V>, bytes: &str) -> V {
+pub(super) fn slice_program(constraints: Vec<V>, bytes: &str) -> V {
     package(
         constraints,
         vec![Node::Let(ok_binding(), prefix_is_utf8(bytes, input("at")))],

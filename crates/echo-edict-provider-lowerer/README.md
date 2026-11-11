@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 563,128-byte checked lowerer component has SHA-256
-`6563decda7b4d08132ab6cb7daa91ee764f5f25df109a8db6c9e70240f7cb74a` and has
+The refreshed 563,659-byte checked lowerer component has SHA-256
+`218c4ab6df3add7ace149413501c5481de4fcbaa40a4cdd196a4d2759f7a59f4` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -206,10 +206,12 @@ Those remain explicit Echo runtime crossings.
 ## Current effect proposal serialization
 
 The native Rust API `effect_publication::encode_effect_publication` serializes
-untrusted proposals using the current `echo.operation-package/v1` and
+proposals using the current `echo.operation-package/v1` and
 `echo.operation-program/v1` effect kind. It preserves the compiler bundle's
-exact bytes, derives embedded Core/Target-IR/exports identities, carries explicit
-limits and graph/footprint data, and requires a declared obstruction coordinate.
+exact bytes, derives embedded Core/Target-IR/exports identities, and carries
+explicit limits and graph/footprint data. Each failure arm maps to an
+obstruction the program's own exports declare; a `require`'s reason kind is not
+checked against the exports.
 Its requested `authority_profile_identity` is derived only from the
 configuration's required `authorityProfile` label, by the same label digest
 fixed operations use; no caller supplies it.
@@ -217,10 +219,19 @@ It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
 retains the actual lawpack inside the compiled bundle, without a duplicate outer
 lawpack identity.
 
+Before serializing, publication runs the lowerer's own effect-program
+judgment, also available as `effect_publication::judge_effect_program`, and
+refuses an unsafe program with `UnsupportedProgram`. The judgment establishes
+the program's binding to its own artifacts, the pinned lawpack, adapter,
+profile and catalog that authorize each effect, each effect's intrinsic ABI and
+failure contract, declared obstructions, Core and Target IR correspondence, and
+the body's types, proven ranges and declared Core budget, under a static cost
+model over declared types that does not bound the runtime's meter. It does not
+judge graph-law semantics or grant authority. The verifier judges the same programs
+independently in `effect_package::verify_effect_package`.
+
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
-features are dev dependencies only. The factory does not verify compiler
-correspondence, graph-law semantics or authority. It is not yet called by the
-public lowerer, and it does not change the frozen WIT interface or enable
-installed effect execution. Producer integration and independent verification
-remain unfinished.
+features are dev dependencies only. The public lowerer's component interface
+does not yet produce effect packages, and publication does not change the frozen
+WIT interface or enable installed effect execution.

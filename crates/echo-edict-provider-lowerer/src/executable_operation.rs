@@ -4,6 +4,7 @@
 
 mod bounded_read;
 mod capabilities;
+pub(crate) mod effect_program;
 mod effect_resources;
 mod record_type;
 mod source_functions;

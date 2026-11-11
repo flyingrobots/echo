@@ -632,7 +632,7 @@ fn mutation_emission_refuses_a_write_budget_one_byte_short_before_buffering() {
         );
     }
 }
-fn repeat_emission(publication: &V, count: usize) -> V {
+pub(super) fn repeat_emission(publication: &V, count: usize) -> V {
     let (mut core, mut target, exports, lowering) = parts(publication);
     let body = core_body_mut(&mut core);
     let V::Array(original_nodes) = get(body, "nodes") else {

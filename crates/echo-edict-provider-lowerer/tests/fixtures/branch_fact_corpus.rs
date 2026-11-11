@@ -8,8 +8,10 @@
 //! body. Inside the `then` arm of an `if`, the predicate is a fact for
 //! additions, subtractions and slices, as in Amblicit's totality rule. The
 //! `else` arm, disjunctions, negations and the predicate itself gain nothing.
-//! Facts read only `<=`, `==` and, for order, `>=` and `<` as the judgments did
-//! before; aligning the operator sets is separate work (echo#960).
+//! Facts are read with the forms the judgments read before: an addition bound
+//! only from `term <= c`, `term == c` or `c == term`, an order from `<=`, `<`,
+//! `>=`, `>` or `==` between the two terms. Aligning the operator sets is
+//! separate work (echo#960).
 //!
 //! The first three cases are the Core shapes of Jedit's public reproducers
 //! `intent-guarded-add.edict` (as a helper), `subtraction-helper.edict` and
@@ -308,11 +310,44 @@ pub(crate) fn cases() -> Vec<Case> {
                 x,
             )
         }),
+        // The later conjunct `x <= 2` would bound `x + 1` if the predicate were
+        // a fact while it is itself judged.
         scalar("a predicate does not prove itself", false, |x, _| {
-            branch(compare("<=", add(x.clone(), int(1)), int(3)), x, int(0))
+            branch(
+                all(vec![
+                    compare("<=", add(x.clone(), int(1)), int(9)),
+                    compare("<=", x.clone(), int(2)),
+                ]),
+                x,
+                int(0),
+            )
         }),
+        // `x + 1` is a sibling of the inner `if`, outside its `then` arm.
         scalar("a fact does not leave its branch", false, |x, _| {
-            add(branch(compare("<=", x.clone(), int(2)), x, int(0)), int(1))
+            branch(
+                all(vec![
+                    compare(
+                        "<=",
+                        branch(compare("<=", x.clone(), int(2)), x.clone(), int(0)),
+                        int(2),
+                    ),
+                    compare("<=", add(x, int(1)), int(9)),
+                ]),
+                int(1),
+                int(0),
+            )
+        }),
+        // An `if` inside a predicate operand proves its own `then` arm.
+        scalar("a then arm inside a predicate operand", true, |x, _| {
+            branch(
+                compare(
+                    "<=",
+                    branch(compare("<=", x.clone(), int(2)), add(x, int(1)), int(0)),
+                    int(3),
+                ),
+                int(1),
+                int(0),
+            )
         }),
         scalar("subtraction in the wrong order", false, |start, end| {
             branch(
@@ -333,7 +368,9 @@ pub(crate) fn cases() -> Vec<Case> {
             },
         ),
         {
-            // A helper frame starts without its caller's branch facts.
+            // A helper frame starts without its caller's branch facts. The caller
+            // sorts first, so a judgment that checks helpers in name order meets
+            // the callee first inside the caller's `then` arm.
             let x = param(0, "U64");
             let inner = function(vec![x.clone()], "U64", add(read(&x), int(1)));
             let outer = function(
@@ -341,14 +378,14 @@ pub(crate) fn cases() -> Vec<Case> {
                 "U64",
                 branch(
                     compare("<=", read(&x), int(2)),
-                    call_helper("generic.branch@1.inner", vec![read(&x)]),
+                    call_helper("generic.branch@1.z_inner", vec![read(&x)]),
                     read(&x),
                 ),
             );
             case(
                 "a caller's branch does not reach its helper",
                 false,
-                vec![("inner", inner), ("outer", outer)],
+                vec![("a_outer", outer), ("z_inner", inner)],
             )
         },
     ]

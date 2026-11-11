@@ -16,8 +16,9 @@
   are accepted by all three.
   - The `else` arm, disjunctions, negations and the predicate itself gain
     nothing, and branch facts do not cross into helper frames.
-  - Branch facts use the same comparison forms as other facts; `<`, `>` and
-    reversed constant bounds are still not read (#960).
+  - Branch facts use the same comparison forms as other facts: an addition
+    still reads only `term <= c`, `term == c` and `c == term`, so
+    `index < 3` does not bound `index + 1` (#960).
   - Each judgment reads them only when the operation is refused without them,
     so programs accepted before keep their cost and depth.
   - A shared corpus fixes the verdicts all three must reach. The checked

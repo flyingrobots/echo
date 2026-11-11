@@ -314,8 +314,8 @@ in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
 evaluation when it fails, so its predicate does hold at later nodes, but the
 rule does not assume it, and Echo follows the rule. State such a bound as an
 input constraint, inside the same `all`, or as the predicate of an `if` whose
-`then` arm uses it. Edict also reads the strict and reversed comparison forms;
-all three Echo judgments do not yet (#960). A program that needs a fact the
+`then` arm uses it. For constant bounds Edict also reads the strict and reversed
+comparison forms; all three Echo judgments do not yet (#960). A program that needs a fact the
 judgment lacks is refused when its package is prepared.
 
 warp-core judges each node first without these facts or carried ceilings, at

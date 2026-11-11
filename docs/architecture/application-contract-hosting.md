@@ -1226,7 +1226,14 @@ scanned edge). For a closure it also covers:
   and the returned guide.
 
 Tests in each provider evaluate the public closure package with the runtime
-and require the meter's actual spend to stay within that charge.
+over a plain view and require the meter's actual spend to stay within that
+charge. The proof covers evaluation over a plain view only. A recording frame
+also charges its observation storage, permission records and per-range
+bookkeeping to the same frame meter, as it already does for node-atom reads,
+so a package near its declared budget can still be refused by a recording
+frame. The static proof does not include that overhead yet. The read-image
+export refuses with `ExportLimitExceeded`, instead of hashing unbounded content,
+when the atoms it retains exceed the read-storage ceiling.
 
 **Recorded evidence.** A recording frame bound to a typed footprint law
 evaluates graph reads and witnesses them in its read image. The law is the

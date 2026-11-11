@@ -7802,9 +7802,11 @@ fn a_dangling_closure_edge_is_malformed_storage_and_its_absence_is_witnessed() {
 /// An atom over the declared node-row bound is malformed storage under a
 /// recording frame exactly as over a plain view, even when the atom is larger
 /// than the frame's whole read budget: its payload is observed, not charged.
+/// Exporting the image would hash that payload, so an export whose retained
+/// atoms exceed the storage ceiling is refused instead of doing unbounded work.
 #[test]
 fn an_oversized_recorded_atom_is_malformed_storage_as_over_a_plain_view() {
-    use warp_core::edict_effects::{EffectFrameError, EffectReadSetView};
+    use warp_core::edict_effects::{EffectFrameError, EffectReadImageError};
     use warp_core::edict_read::{GraphReadObstruction, ReadError};
     let huge = vec![b'x'; 17 << 20];
     let (state, root) = graph_read::tree_state(|store| graph_read::put(store, "l2", "leaf", &huge));
@@ -7827,6 +7829,21 @@ fn an_oversized_recorded_atom_is_malformed_storage_as_over_a_plain_view() {
         matches!(&recorded, Err(EffectFrameError::BoundedRead(error)) if malformed(error)),
         "recorded: {recorded:?}"
     );
+    assert!(matches!(
+        frame.into_read_set_image(1 << 20),
+        Err(EffectReadImageError::ExportLimitExceeded)
+    ));
+}
+
+/// An atom just over the node-row bound is still witnessed in the image.
+#[test]
+fn a_slightly_oversized_recorded_atom_is_witnessed_in_the_image() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (state, root) =
+        graph_read::tree_state(|store| graph_read::put(store, "l2", "leaf", &[b'x'; 65]));
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, _, recorded) = recorded_boundary_closure(&host, head, root);
+    assert!(recorded.is_err(), "malformed storage: {recorded:?}");
     let image = frame
         .into_read_set_image(1 << 20)
         .expect("failed-frame prefix");

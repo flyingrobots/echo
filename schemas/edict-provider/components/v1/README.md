@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 583,093 bytes
+`wit-component` version recorded above. Its checked component is 583,101 bytes
 with SHA-256
-`c8764ed227ac7fa71787d2c0b0e6c21c609763157ac28996e8a184795771a068`.
+`196fd5b44f6b09378be091967a82660ccca9204762f60b0eb2e4a219329df6a8`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -57,8 +57,8 @@ an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
 The effect-program judgment component pair was independently reproduced by the
-two G4 candidate jobs in [CI run 42932147175](https://github.com/flyingrobots/echo/actions/runs/42932147175)
-at source commit `0cbe5f7796c6dff10a29a42008fae5ff8c7c4acb`. Both copies of
+two G4 candidate jobs in [CI run 42935735215](https://github.com/flyingrobots/echo/actions/runs/42935735215)
+at source commit `09302bd152e7cba03f402f294d3d4de42be2c036`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 

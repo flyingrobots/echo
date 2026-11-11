@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 556,380-byte checked lowerer component has SHA-256
-`5b30a2f40f2d78029a25e82e7755ee51bc4414428a0e3f66f1dd6c871c18f0c1` and has
+The refreshed 557,790-byte checked lowerer component has SHA-256
+`a8f41f3e5bb9aa6fc7d78fdc67e20e6b284fb58697708d2398683537571887a7` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT

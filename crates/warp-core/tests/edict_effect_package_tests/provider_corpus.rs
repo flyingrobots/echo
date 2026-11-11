@@ -8,7 +8,7 @@
 //! lowerer and verifier read the same retained bytes in their own tests.
 //! Regenerate with the ignored `regenerate_the_retained_provider_corpus` test.
 use super::abi_conformance::rename_read_failure;
-use super::execution::{host, limits};
+use super::execution::limits;
 use super::mutations::{fixture, fixture_with, repeat_emission, Shape};
 use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
@@ -247,32 +247,300 @@ fn failing_require_input() -> Vec<u8> {
     ]))
 }
 
+/// The `ensure-node` fixture with its Core type `name` redefined as a nominal
+/// wrapper around a fresh empty-record or same-shape representation.
+fn ensure_node_with_nominal(name: &str) -> V {
+    rebuild(&fixture("ensure-node", GRAPH_EFFECTS).0, |core, _, _| {
+        let types = value_field_mut(core, "types");
+        let representation = get(types, name).clone();
+        let inner = format!("{name}Representation");
+        add(types, &inner, representation);
+        set(
+            types,
+            name,
+            map([
+                ("kind", text("Nominal")),
+                ("contract", text(name)),
+                ("representation", text(&inner)),
+            ]),
+        );
+    })
+}
+
+/// The `ensure-node` fixture with an evaluation basis in Core and its
+/// lowered intent.
+fn ensure_node_with_basis(basis: V) -> V {
+    rebuild(
+        &fixture("ensure-node", GRAPH_EFFECTS).0,
+        |core, target, _| {
+            add(first_intent_mut(core), "basis", basis.clone());
+            add(selected_target_mut(target), "basis", basis);
+        },
+    )
+}
+
+fn ensure_node_input_field(name: &str) -> V {
+    map([
+        ("kind", text("field")),
+        (
+            "base",
+            map([
+                ("kind", text("local")),
+                (
+                    "ref",
+                    map([
+                        ("id", text("arg.0")),
+                        ("type", text("MutationInput")),
+                        ("alphaName", text("$arg0")),
+                    ]),
+                ),
+            ]),
+        ),
+        ("field", text(name)),
+    ])
+}
+
+/// The two-`let` body with its `U64` local retyped through a Core type-table
+/// entry `Count`, defined as `definition`.
+fn two_lets_with_count(definition: V) -> V {
+    rebuild(
+        &with_budget(
+            &package(
+                vec![at_most(input("at"), len(input("text")))],
+                vec![
+                    Node::Let(declared("local.size", "app.Count"), len(input("text"))),
+                    Node::Let(ok_binding(), prefix_is_utf8("text", input("at"))),
+                ],
+                local(&ok_binding()),
+            ),
+            AMPLE,
+        ),
+        |core, _, _| add(value_field_mut(core, "types"), "Count", definition),
+    )
+}
+
+/// The captured read's runtime cost for an `n`-byte atom on a root-warp
+/// node when its `require` fails: steps and allocated bytes. Pinned by
+/// `reads_cost_a_fixed_linear_law`.
+const fn read_cost(n: u64) -> (u64, u64) {
+    (67 + 2 * n, 3976 + 3 * n)
+}
+/// `read_and_return`'s runtime cost for an `n`-byte atom on a root-warp node.
+/// Pinned by `reads_cost_a_fixed_linear_law`.
+const fn read_and_return_cost(n: u64) -> (u64, u64) {
+    (55 + n, 3142 + 3 * n)
+}
+/// The atom `read-allocation-short` is run on: close to the largest a run can
+/// read under the frame's fixed 1,048,576-step ceiling, just below the
+/// read's declared 1 MiB maximum.
+const READ_WITNESS_ATOM: u64 = 1_048_000;
+
+/// The captured read with its input's `expected` bytes narrowed to one byte,
+/// so no input charge stands in for the read's own cost. The read's result
+/// type, and so its declared atom maximum, is unchanged.
+fn read_with_narrow_expected() -> V {
+    rebuild(
+        &with_budget(
+            &publication_for_lowering(&repinned_lowering_artifacts()),
+            READ_AMPLE,
+        ),
+        |core, _, _| {
+            set(
+                value_field_mut(
+                    value_field_mut(value_field_mut(core, "types"), "Input"),
+                    "fields",
+                ),
+                "expected",
+                text("Bytes<max=1>"),
+            );
+        },
+    )
+}
+
+/// The narrowed read with its `require` removed: it reads the atom and
+/// returns it, so its cost is the read's own and the result's.
+fn read_and_return() -> V {
+    rebuild(&read_with_narrow_expected(), |core, target, _| {
+        let V::Array(nodes) = value_field_mut(core_body_mut(core), "nodes") else {
+            panic!("nodes")
+        };
+        nodes.retain(|node| get(node, "kind") != &text("require"));
+        let selected = selected_target_mut(target);
+        let V::Array(requirements) = value_field_mut(selected, "requirements") else {
+            panic!("requirements")
+        };
+        let removed: Vec<V> = requirements
+            .drain(..)
+            .map(|requirement| get(&requirement, "id").clone())
+            .collect();
+        let V::Array(order) = value_field_mut(selected, "executionOrder") else {
+            panic!("order")
+        };
+        order.retain(|id| !removed.contains(id));
+        // Return the atom's length rather than the atom, which could not fit
+        // the 64 KiB output ceiling.
+        let actual = get(core_body_mut(core), "result").clone();
+        let length = map([
+            ("kind", text("call")),
+            ("callee", text("core.bytes.length")),
+            ("typeArgs", V::Array(vec![text("jedit.text@1.FactBytes")])),
+            ("args", V::Array(vec![actual])),
+        ]);
+        set(core_body_mut(core), "result", length.clone());
+        set(first_intent_mut(core), "output", text("U64"));
+        set(selected_target_mut(target), "result", length);
+    })
+}
+
 /// Runs a package's effect program once under frame limits far above any
 /// Core budget in this corpus, so only the package's own budget can refuse it.
 fn run(package: &V, input: &[u8]) -> Result<Vec<u8>, EffectFrameError> {
-    let prepared = prepare(package).expect("package prepares");
+    run_on(package, input, &Frame::default())
+}
+
+/// The runtime frame one execution witness runs in.
+struct Frame {
+    /// A root-warp node `[3;32]/[4;32]` carrying an atom of this many bytes,
+    /// read through a typed aperture, or no graph read at all.
+    atom: Option<usize>,
+    steps: u64,
+    write_bytes: u64,
+    limits: warp_core::edict_pure::EvaluationLimits,
+}
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            atom: None,
+            steps: 10_000,
+            write_bytes: 4096,
+            limits: limits(),
+        }
+    }
+}
+impl Frame {
+    /// The runtime frame's fixed ceilings, so only the package's own Core
+    /// budget can refuse a witness.
+    fn widest(atom: Option<usize>) -> Self {
+        let mut limits = limits();
+        limits.max_package_bytes = 4 * 1024 * 1024;
+        limits.max_steps = 1_048_576;
+        limits.max_allocated_bytes = 16 * 1024 * 1024;
+        Self {
+            atom,
+            steps: 1_048_576,
+            write_bytes: 16 * 1024 * 1024,
+            limits,
+        }
+    }
+}
+
+/// The captured read with the footprint law a typed atom read needs: a node
+/// slot and its attachment slot. The compiled program is unchanged.
+fn with_read_law(mut publication: V) -> V {
+    let V::Bytes(raw) = get(&publication, "program") else {
+        panic!("program")
+    };
+    let mut program = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("program");
+    let mut permissions = law();
+    set(&mut permissions, "max_reads", V::Integer(2));
+    set(
+        &mut program,
+        "footprint_law",
+        V::Bytes(encoded(&permissions)),
+    );
+    set(&mut publication, "program", V::Bytes(encoded(&program)));
+    set(
+        &mut publication,
+        "footprint_contract_identity",
+        footprint(&permissions),
+    );
+    publication
+}
+
+/// Runs a package's effect program once in `frame`, returning its result and
+/// the steps and bytes it consumed.
+fn run_metered(
+    package: &V,
+    input: &[u8],
+    frame: &Frame,
+) -> (Result<Vec<u8>, EffectFrameError>, u64, u64) {
+    use warp_core::edict_effects::TypedNodeRead;
+    use warp_core::{
+        AtomPayload, AttachmentValue, GraphStore, NodeId, NodeKey, NodeRecord, WarpId,
+    };
+    let package = if frame.atom.is_some() {
+        with_read_law(package.clone())
+    } else {
+        package.clone()
+    };
+    let prepared = prepare(&package).expect("package prepares");
     let program = prepared.program().as_effect_program().expect("effect");
-    let (host, head, _) = host();
+    let key = NodeKey {
+        warp_id: WarpId([3; 32]),
+        local_id: NodeId([4; 32]),
+    };
+    let mut store = GraphStore::new(key.warp_id);
+    store.insert_node(
+        key.local_id,
+        NodeRecord {
+            ty: TypeId([1; 32]),
+        },
+    );
+    store.set_node_attachment(
+        key.local_id,
+        Some(AttachmentValue::Atom(AtomPayload {
+            type_id: TypeId([2; 32]),
+            bytes: vec![0x61; frame.atom.unwrap_or(6)].into(),
+        })),
+    );
+    let (host, head, node) = super::execution::host_with_store(store, key);
     let basis = host
         .echo_operation_evaluation_basis_v1(
             head,
             EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
         )
         .expect("basis");
-    let mut frame = host
+    let mut evaluation = host
         .effect_evaluation_frame_v1(
             basis,
             &[],
             0,
-            EchoOperationBudgetV1::new(10_000, 4096, 4096),
-            limits(),
+            EchoOperationBudgetV1::new(frame.steps, 64 * 1024 * 1024, frame.write_bytes),
+            frame.limits,
         )
         .expect("frame")
         .with_footprint_law(program.footprint_law().clone())
         .expect("law");
-    frame
-        .evaluate_effect(program, input, &[])
-        .map(<[u8]>::to_vec)
+    let aperture = [TypedNodeRead {
+        node,
+        absent_node_type: TypeId([1; 32]),
+    }];
+    let reads: &[TypedNodeRead] = if frame.atom.is_some() { &aperture } else { &[] };
+    let result = evaluation
+        .evaluate_effect(program, input, reads)
+        .map(<[u8]>::to_vec);
+    (
+        result,
+        evaluation.consumed().steps(),
+        evaluation.allocated_bytes(),
+    )
+}
+
+fn run_on(package: &V, input: &[u8], frame: &Frame) -> Result<Vec<u8>, EffectFrameError> {
+    run_metered(package, input, frame).0
+}
+
+/// The captured read's input naming the witness node, expecting one byte, so
+/// the read runs at the atom's full size and its `require` fails.
+fn read_input() -> Vec<u8> {
+    use warp_core::{NodeId, NodeKey, WarpId};
+    super::execution::input(
+        NodeKey {
+            warp_id: WarpId([3; 32]),
+            local_id: NodeId([4; 32]),
+        },
+        b"b",
+    )
 }
 
 /// Names the package's Core as its canonical meaning, as Echo's lowerer
@@ -577,6 +845,81 @@ fn entries() -> Vec<Entry> {
             Runtime::Executes,
             without_constraint_field(&proven_slice(), "coordinate"),
         ),
+        // A nominal type may wrap an effect's input; its result must be the
+        // ABI's concrete type.
+        entry(
+            "mutation-input-nominal",
+            true,
+            Runtime::Accepts,
+            ensure_node_with_nominal("MutationInput"),
+        ),
+        entry(
+            "mutation-result-nominal",
+            false,
+            Runtime::Refuses,
+            ensure_node_with_nominal("MutationUnit"),
+        ),
+        // An evaluation basis is exactly 32 bytes.
+        entry(
+            "basis-control",
+            true,
+            Runtime::Accepts,
+            ensure_node_with_basis(ensure_node_input_field("nodeId")),
+        ),
+        entry(
+            "basis-not-bytes",
+            false,
+            Runtime::Executes,
+            ensure_node_with_basis(map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([("kind", text("bool")), ("value", V::Bool(true))]),
+                ),
+            ])),
+        ),
+        // A type table names an unsigned width directly; Core has no `Int`.
+        entry(
+            "type-table-width",
+            true,
+            Runtime::Accepts,
+            two_lets_with_count(map([("kind", text("U64"))])),
+        ),
+        entry(
+            "type-table-int",
+            false,
+            Runtime::Refuses,
+            two_lets_with_count(map([("kind", text("Int")), ("width", text("U64"))])),
+        ),
+        // Siblings: the same failure payload with room for it, and the same
+        // repeated emission at two mutations.
+        entry(
+            "require-payload-fits",
+            true,
+            Runtime::Accepts,
+            with_output(&require_with_text_payload(), 65536),
+        ),
+        entry(
+            "mutation-count-control",
+            true,
+            Runtime::Accepts,
+            with_budget(
+                &repeat_emission(&fixture("ensure-node", GRAPH_EFFECTS).0, 2),
+                AMPLE,
+            ),
+        ),
+        // A read that returns its atom's length, one byte under its runtime
+        // cost on a 1,048,000-byte atom. That cost includes the read's
+        // recorded observations, authorizations and retained payload.
+        entry(
+            "read-allocation-short",
+            false,
+            Runtime::Executes,
+            with_allocation(
+                &read_and_return(),
+                read_and_return_cost(READ_WITNESS_ATOM).1 - 1,
+            ),
+        ),
         entry(
             "read-captured-budget",
             false,
@@ -624,6 +967,15 @@ const RETAINED: &[(&str, &str)] = retained![
     "mutation-count-over",
     "local-name-empty",
     "constraint-without-coordinate",
+    "mutation-input-nominal",
+    "mutation-result-nominal",
+    "basis-control",
+    "basis-not-bytes",
+    "type-table-width",
+    "type-table-int",
+    "require-payload-fits",
+    "mutation-count-control",
+    "read-allocation-short",
     "read-captured-budget",
 ];
 const VERDICTS: &str = include_str!(
@@ -713,40 +1065,143 @@ fn ensure_node_needs_exactly_its_worst_case_allocation() {
     );
 }
 
-/// The runtime's own refusals for the corpus entries it refuses only when it
-/// executes: each one fails on an input its types and constraints admit.
+fn evaluation(error: EvaluationError) -> Result<Vec<u8>, EffectFrameError> {
+    Err(EffectFrameError::BoundedRead(ReadError::Evaluation(error)))
+}
+
+/// The runtime prepares each `Executes` entry and refuses it when it runs, on
+/// an input its types and constraints admit. Each assertion names the exact
+/// refusal; each refused run has an accepted control beside it.
 #[test]
 fn the_runtime_refuses_each_executed_entry_when_it_runs() {
-    let output = |package: &V| run(package, &failing_require_input());
-    assert!(
-        matches!(
-            output(&with_output(&require_with_text_payload(), 65536)),
-            Err(EffectFrameError::AuthoredObstruction { .. })
-        ),
-        "with room, the failing require reports its own obstruction"
-    );
-    assert_eq!(
-        output(&with_output(
-            &require_with_text_payload(),
-            REQUIRE_PAYLOAD_OUTPUT
-        )),
-        Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
-            EvaluationError::OutputBudgetExceeded
-        ))),
-        "the payload does not fit the output ceiling the corpus declares"
-    );
     let slice_input = encoded(&map([
         ("at", V::Integer(0)),
         ("other", V::Bytes(Vec::new())),
         ("text", V::Bytes(Vec::new())),
     ]));
-    run(&proven_slice(), &slice_input).expect("the coordinated control runs");
-    assert!(
+    run(&proven_slice(), &slice_input).expect("the slice control runs");
+    assert_eq!(
+        run(&with_budget(&proven_slice(), 1), &slice_input),
+        evaluation(EvaluationError::StepBudgetExceeded),
+        "over-budget"
+    );
+    assert_eq!(
         run(
             &without_constraint_field(&proven_slice(), "coordinate"),
             &slice_input
-        )
-        .is_err(),
-        "a constraint without a coordinate cannot run"
+        ),
+        evaluation(EvaluationError::InvalidArtifact),
+        "constraint-without-coordinate"
     );
+    let payload = |output| {
+        run(
+            &with_output(&require_with_text_payload(), output),
+            &failing_require_input(),
+        )
+    };
+    assert!(
+        matches!(
+            payload(65536),
+            Err(EffectFrameError::AuthoredObstruction { .. })
+        ),
+        "require-payload-fits reports its own obstruction"
+    );
+    assert_eq!(
+        payload(REQUIRE_PAYLOAD_OUTPUT),
+        evaluation(EvaluationError::OutputBudgetExceeded),
+        "require-payload-over-output"
+    );
+    let (_, ensure_input) = fixture("ensure-node", GRAPH_EFFECTS);
+    run(
+        &ensure_node_with_basis(ensure_node_input_field("nodeId")),
+        &ensure_input,
+    )
+    .expect("basis-control runs");
+    assert_eq!(
+        run(
+            &ensure_node_with_basis(map([
+                ("kind", text("const")),
+                (
+                    "value",
+                    map([("kind", text("bool")), ("value", V::Bool(true))]),
+                ),
+            ])),
+            &ensure_input
+        ),
+        evaluation(EvaluationError::InvalidArtifact),
+        "basis-not-bytes"
+    );
+    let repeated = |count| {
+        run_on(
+            &with_budget(
+                &repeat_emission(&fixture("ensure-node", GRAPH_EFFECTS).0, count),
+                AMPLE,
+            ),
+            &ensure_input,
+            &Frame::widest(None),
+        )
+    };
+    repeated(2).expect("mutation-count-control runs");
+    assert_eq!(
+        repeated(1025),
+        Err(EffectFrameError::BudgetExceeded),
+        "mutation-count-over"
+    );
+    assert_eq!(
+        run_on(
+            &publication_for_lowering(&repinned_lowering_artifacts()),
+            &read_input(),
+            &Frame::widest(Some(600_000)),
+        ),
+        evaluation(EvaluationError::StepBudgetExceeded),
+        "read-captured-budget, on an atom whose cost exceeds its 1 MiB steps"
+    );
+    let read_witness = |allocation| {
+        run_on(
+            &with_allocation(&read_and_return(), allocation),
+            &read_input(),
+            &Frame::widest(Some(1_048_000)),
+        )
+    };
+    let need = read_and_return_cost(READ_WITNESS_ATOM).1;
+    read_witness(need).expect("the read fits its exact cost");
+    assert_eq!(
+        read_witness(need - 1),
+        evaluation(EvaluationError::AllocationBudgetExceeded),
+        "read-allocation-short"
+    );
+}
+
+/// A root-warp read's runtime cost is linear in its atom's size, for the
+/// captured read whose `require` fails and for `read_and_return`.
+#[test]
+fn reads_cost_a_fixed_linear_law() {
+    let captured = with_budget(
+        &publication_for_lowering(&repinned_lowering_artifacts()),
+        1_048_576,
+    );
+    let returned = with_budget(&read_and_return(), 1_048_576);
+    // The captured read spends two steps a byte, so the frame's step ceiling
+    // stops it near 524,000 bytes.
+    for n in [1_u64, 4096, 65_536, 400_000] {
+        let atom = usize::try_from(n).expect("atom size");
+        let (result, steps, bytes) =
+            run_metered(&captured, &read_input(), &Frame::widest(Some(atom)));
+        assert!(
+            matches!(result, Err(EffectFrameError::AuthoredObstruction { .. })),
+            "n={n}: the captured read runs and its require fails"
+        );
+        assert_eq!((steps, bytes), read_cost(n), "captured read, n={n}");
+    }
+    for n in [1_u64, 4096, 65_536, READ_WITNESS_ATOM] {
+        let atom = usize::try_from(n).expect("atom size");
+        let (result, steps, bytes) =
+            run_metered(&returned, &read_input(), &Frame::widest(Some(atom)));
+        assert_eq!(result, Ok(encoded(&V::Integer(i128::from(n)))), "n={n}");
+        assert_eq!(
+            (steps, bytes),
+            read_and_return_cost(n),
+            "read_and_return, n={n}"
+        );
+    }
 }

@@ -42,6 +42,15 @@ const RETAINED: &[(&str, &str)] = retained![
     "mutation-count-over",
     "local-name-empty",
     "constraint-without-coordinate",
+    "mutation-input-nominal",
+    "mutation-result-nominal",
+    "basis-control",
+    "basis-not-bytes",
+    "type-table-width",
+    "type-table-int",
+    "require-payload-fits",
+    "mutation-count-control",
+    "read-allocation-short",
     "read-captured-budget",
 ];
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");

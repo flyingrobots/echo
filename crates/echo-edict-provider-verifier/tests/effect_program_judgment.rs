@@ -43,6 +43,15 @@ const RETAINED: &[(&str, &str)] = retained![
     "mutation-count-over",
     "local-name-empty",
     "constraint-without-coordinate",
+    "mutation-input-nominal",
+    "mutation-result-nominal",
+    "basis-control",
+    "basis-not-bytes",
+    "type-table-width",
+    "type-table-int",
+    "require-payload-fits",
+    "mutation-count-control",
+    "read-allocation-short",
     "read-captured-budget",
 ];
 const VERDICTS: &str =
@@ -292,7 +301,45 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
             "an allocation ceiling above 16 MiB",
             program(&|p| *field_mut(p, "max_allocated_bytes") = V::Integer(16_777_217)),
         ),
+        (
+            "an empty application schema coordinate",
+            package(&|p| {
+                *field_mut(
+                    field_mut(p, "semantic_closure"),
+                    "application_schema_coordinate",
+                ) = V::Text(String::new());
+            }),
+        ),
+        (
+            "an undecodable graph schema",
+            program(&|p| *field_mut(p, "graph_schema") = V::Bytes(Vec::new())),
+        ),
+        (
+            "an undecodable footprint law",
+            program(&|p| *field_mut(p, "footprint_law") = V::Bytes(Vec::new())),
+        ),
+        (
+            "an unknown budget field",
+            package(&|p| insert(field_mut(p, "budget_ceiling"), "unexpected", V::Integer(0))),
+        ),
     ];
+    let mut cases = cases.to_vec();
+    // Every fixed package profile and schema identity names the effect
+    // profile the runtime supports.
+    for field in [
+        "target_profile_identity",
+        "interpreter_profile_identity",
+        "intrinsic_profile_identity",
+        "input_schema_identity",
+        "result_schema_identity",
+        "obstruction_schema_identity",
+        "result_interpretation_identity",
+        "obstruction_interpretation_identity",
+        "application_basis_schema_identity",
+        "evaluation_basis_schema_identity",
+    ] {
+        cases.push((field, package(&|p| flip(field_mut(p, field)))));
+    }
     let admitted: Vec<_> = cases
         .into_iter()
         .filter(|(_, package)| {

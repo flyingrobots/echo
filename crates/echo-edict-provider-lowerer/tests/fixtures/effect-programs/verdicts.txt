@@ -22,4 +22,13 @@ require-payload-over-output refuse
 mutation-count-over refuse
 local-name-empty refuse
 constraint-without-coordinate refuse
+mutation-input-nominal accept
+mutation-result-nominal refuse
+basis-control accept
+basis-not-bytes refuse
+type-table-width accept
+type-table-int refuse
+require-payload-fits accept
+mutation-count-control accept
+read-allocation-short refuse
 read-captured-budget refuse

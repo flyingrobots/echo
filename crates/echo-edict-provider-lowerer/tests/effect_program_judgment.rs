@@ -50,6 +50,7 @@ const RETAINED: &[(&str, &str)] = retained![
     "type-table-int",
     "require-payload-fits",
     "mutation-count-control",
+    "read-and-return-control",
     "read-allocation-short",
     "read-captured-budget",
 ];

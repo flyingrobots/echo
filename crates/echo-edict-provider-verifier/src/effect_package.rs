@@ -45,11 +45,25 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
     use EffectPackageRefusal::{InvalidBinding as B, InvalidEnvelope as E};
     let package = canonical(package)?;
     exact_fields(&package, &PACKAGE_FIELDS)?;
-    exact_fields(get(&package, "semantic_closure", E)?, &CLOSURE_FIELDS)?;
+    let closure = get(&package, "semantic_closure", E)?;
+    exact_fields(closure, &CLOSURE_FIELDS)?;
+    let ceiling = get(&package, "budget_ceiling", E)?;
+    exact_fields(ceiling, &["read_bytes", "steps", "write_bytes"])?;
+    for field in ["read_bytes", "write_bytes"] {
+        unsigned(get(ceiling, field, E)?)?;
+    }
     if text(get(&package, "schema", E)?, E)? != "echo.operation-package/v1"
-        || unsigned(get(get(&package, "budget_ceiling", E)?, "steps", E)?)? == 0
+        || unsigned(get(ceiling, "steps", E)?)? == 0
+        || text(get(closure, "application_schema_coordinate", E)?, E)?.is_empty()
     {
         return Err(E);
+    }
+    // Every fixed profile and schema identity names the effect profile the
+    // runtime supports.
+    for (field, label) in PACKAGE_PROFILES {
+        if bytes(get(&package, field, E)?, E)? != profile_identity(label) {
+            return Err(E);
+        }
     }
     let program = canonical(bytes(get(&package, "program", E)?, E)?)?;
     envelope(&program)?;
@@ -143,6 +157,50 @@ const PROGRAM_FIELDS: [&str; 13] = [
     "schema",
     "target_ir_identity",
 ];
+/// The package's fixed profile and schema identities, each the runtime's
+/// identity for the effect profile it names.
+const PACKAGE_PROFILES: [(&str, &str); 10] = [
+    (
+        "target_profile_identity",
+        "echo.operation-target.edict-effect/v1",
+    ),
+    (
+        "interpreter_profile_identity",
+        "echo.operation-interpreter.edict-effect/v1",
+    ),
+    (
+        "intrinsic_profile_identity",
+        "echo.operation-intrinsics.edict-effect/v1",
+    ),
+    (
+        "input_schema_identity",
+        "echo.operation.input.edict-effect/v1",
+    ),
+    (
+        "result_schema_identity",
+        "echo.operation.result.edict-effect/v1",
+    ),
+    (
+        "obstruction_schema_identity",
+        "echo.operation.obstruction.edict-effect/v1",
+    ),
+    (
+        "result_interpretation_identity",
+        "echo.operation.result-interpretation.edict-effect/v1",
+    ),
+    (
+        "obstruction_interpretation_identity",
+        "echo.operation.obstruction-interpretation.edict-effect/v1",
+    ),
+    (
+        "application_basis_schema_identity",
+        "echo.operation.basis.edict-effect/v1",
+    ),
+    (
+        "evaluation_basis_schema_identity",
+        "echo.operation.evaluation-basis/v1",
+    ),
+];
 /// The runtime's fixed ceilings on an effect program's declared limits.
 const MAX_INPUT_BYTES: u64 = 65_536;
 const MAX_RESULT_BYTES: u64 = 65_536;
@@ -177,6 +235,11 @@ fn envelope(program: &Value) -> Result<(), EffectPackageRefusal> {
         if bytes(get(program, field, E)?, E)? != profile_identity(label) {
             return Err(E);
         }
+    }
+    // The runtime parses both; the verifier requires each to be one canonical
+    // value. Their contents are the runtime's to admit.
+    for field in ["graph_schema", "footprint_law"] {
+        canonical(bytes(get(program, field, E)?, E)?)?;
     }
     Ok(())
 }

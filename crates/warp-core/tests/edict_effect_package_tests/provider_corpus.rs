@@ -690,8 +690,9 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             read_with_exports(undeclared),
         ),
-        // The catalog-named adapter's unedited failure table. The unknown and
-        // duplicate entries below edit only that table; the tag-spelled entry
+        // The catalog-named adapter's unedited failure table. The duplicate
+        // entry below edits only that table; the unknown entry renames one
+        // failure in both the table and the catalog; the tag-spelled entry
         // spells the same table by runtime tag instead of by name.
         entry(
             "read-adapter-control",
@@ -912,6 +913,12 @@ fn entries() -> Vec<Entry> {
         // cost on a 1,048,000-byte atom. That cost includes the read's
         // recorded observations, authorizations and retained payload.
         entry(
+            "read-and-return-control",
+            true,
+            Runtime::Accepts,
+            read_and_return(),
+        ),
+        entry(
             "read-allocation-short",
             false,
             Runtime::Executes,
@@ -975,6 +982,7 @@ const RETAINED: &[(&str, &str)] = retained![
     "type-table-int",
     "require-payload-fits",
     "mutation-count-control",
+    "read-and-return-control",
     "read-allocation-short",
     "read-captured-budget",
 ];

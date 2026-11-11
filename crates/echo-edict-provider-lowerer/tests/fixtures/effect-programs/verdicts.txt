@@ -30,5 +30,6 @@ type-table-width accept
 type-table-int refuse
 require-payload-fits accept
 mutation-count-control accept
+read-and-return-control accept
 read-allocation-short refuse
 read-captured-budget refuse

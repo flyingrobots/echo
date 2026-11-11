@@ -20,6 +20,9 @@ const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
 const EMISSION_RESERVATION: u64 = 280;
 /// The most mutations one runtime evaluation emits.
 const EFFECT_COUNT_CEILING: usize = 1024;
+/// What one root-warp atom read records beside its payload, in bytes: two
+/// 128-byte observations, two 64-byte authorizations and the 64-byte value.
+const READ_RECORDS: u64 = 448;
 
 /// What the lowering relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
@@ -35,6 +38,14 @@ pub(in crate::executable_operation) fn judge(
     intent: &Value,
     sites: &BTreeMap<usize, EffectSite>,
 ) -> Check<()> {
+    // Core names an unsigned width directly; the runtime has no `Int` kind.
+    if let Some(types) = super::super::map_field(core, "types") {
+        for (_, definition) in members(types)? {
+            if super::super::map_field(definition, "kind") == Some(&Value::Text("Int".into())) {
+                return Err(());
+            }
+        }
+    }
     judgment(core, exports)?.effect_intent(intent, sites)
 }
 
@@ -77,7 +88,12 @@ impl<'a> Judgment<'a> {
             bytes: 0,
         })?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
-            cost = cost.plus(self.expression(basis, &scope, true, 0)?.cost)?;
+            let fact = self.expression(basis, &scope, true, 0)?;
+            // The runtime refuses any evaluation basis but exactly 32 bytes.
+            if fact.ty.representation() != &Ty::Bytes(32, 32) {
+                return Err(());
+            }
+            cost = cost.plus(fact.cost)?;
         }
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
@@ -263,7 +279,9 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
             Some(Ty::Bytes(0, max)) if *max > 0 && *max <= STORAGE_CEILING
         )
     };
-    let unit = matches!(output.representation(), Ty::Record(fields) if fields.is_empty());
+    // The runtime requires the result itself to be the ABI's type, not a
+    // nominal wrapper around it.
+    let unit = matches!(output, Ty::Record(fields) if fields.is_empty());
     let mutation = |names: &[&str]| -> Check<Cost> {
         let conforming = fields.len() == names.len()
             && names.iter().all(|name| {
@@ -284,7 +302,7 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
     };
     match intrinsic {
         "echo.dpo@1.node-atom-read" => {
-            let Ty::Bytes(0, max) = output.representation() else {
+            let Ty::Bytes(0, max) = output else {
                 return Err(());
             };
             if fields.len() != 3
@@ -296,7 +314,12 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
             }
             Ok(Cost {
                 steps: max.checked_add(1).ok_or(())?,
-                bytes: max.checked_add(64).ok_or(())?,
+                // The payload is retained as read evidence and copied into
+                // the value, beside the read's fixed records.
+                bytes: max
+                    .checked_mul(2)
+                    .and_then(|bytes| bytes.checked_add(READ_RECORDS))
+                    .ok_or(())?,
             })
         }
         "echo.dpo@1.ensure-node" | "echo.dpo@1.create-node" => {

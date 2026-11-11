@@ -20,6 +20,9 @@ const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
 const EMISSION_RESERVATION: u64 = 280;
 /// The most mutations one runtime evaluation emits.
 const EFFECT_COUNT_CEILING: usize = 1024;
+/// What one root-warp atom read records beside its payload, in bytes: two
+/// 128-byte observations, two 64-byte authorizations and the 64-byte value.
+const READ_RECORDS: u128 = 448;
 
 /// What the verifier's relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
@@ -35,6 +38,14 @@ pub(in crate::executable_operation) fn judge(
     intent: &Value,
     sites: &BTreeMap<usize, EffectSite>,
 ) -> Check<()> {
+    // Core names an unsigned width directly; the runtime has no `Int` kind.
+    if let Some(types) = super::super::map_field(core, "types") {
+        for (_, definition) in members(types)? {
+            if super::super::map_field(definition, "kind") == Some(&Value::Text("Int".into())) {
+                return Err(());
+            }
+        }
+    }
     let mut types = Types::new(core);
     let (definitions, summaries) = prepare(core, exports, &mut types)?;
     Checker {
@@ -80,7 +91,12 @@ impl<'a> Checker<'a, '_> {
         })?;
         frame.define(input, input_type)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
-            charge.append(self.expression(basis, &frame, 0)?.charge)?;
+            let checked = self.expression(basis, &frame, 0)?;
+            // The runtime refuses any evaluation basis but exactly 32 bytes.
+            if checked.schema.representation() != &(Schema::Blob { low: 32, high: 32 }) {
+                return Err(());
+            }
+            charge.append(checked.charge)?;
         }
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
@@ -274,7 +290,9 @@ fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
             Some(Schema::Blob { low: 0, high }) if *high > 0 && *high <= STORAGE_CEILING
         )
     };
-    let unit = matches!(output.representation(), Schema::Fields(fields) if fields.is_empty());
+    // The runtime requires the result itself to be the ABI's type, not a
+    // nominal wrapper around it.
+    let unit = matches!(output, Schema::Fields(fields) if fields.is_empty());
     let mutation = |names: &[&str]| -> Check<Charge> {
         if fields.len() == names.len()
             && names.iter().all(|name| {
@@ -296,7 +314,7 @@ fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
     };
     match intrinsic {
         "echo.dpo@1.node-atom-read" => {
-            let Schema::Blob { low: 0, high } = output.representation() else {
+            let Schema::Blob { low: 0, high } = output else {
                 return Err(());
             };
             if fields.len() != 3
@@ -310,7 +328,9 @@ fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
             }
             Ok(Charge {
                 ticks: u128::from(*high) + 1,
-                storage: u128::from(*high) + 64,
+                // The payload is retained as read evidence and copied into
+                // the value, beside the read's fixed records.
+                storage: 2 * u128::from(*high) + READ_RECORDS,
             })
         }
         "echo.dpo@1.ensure-node" | "echo.dpo@1.create-node" => {

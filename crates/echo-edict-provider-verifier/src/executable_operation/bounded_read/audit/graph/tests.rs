@@ -160,14 +160,17 @@ fn a_graph_declaration_names_its_selector_only_when_present() {
     let plain = configuration(Some(map(ceilings(8, 0, 0))));
     assert!(matches!(
         declaration(&plain),
-        Ok(Some(Declaration { selector: None }))
+        Ok(Some(Declaration {
+            selector: None,
+            max_edge_scans: 8
+        }))
     ));
     let mut fields = ceilings(8, 4, 2);
     fields.push(("closureSelector", text_value("choose")));
     let guided = configuration(Some(map(fields)));
     let declared = declaration(&guided);
     assert!(
-        matches!(declared, Ok(Some(Declaration { selector: Some(ref name) })) if name == "choose")
+        matches!(declared, Ok(Some(Declaration { selector: Some(ref name), max_edge_scans: 8 })) if name == "choose")
     );
 }
 
@@ -248,7 +251,10 @@ fn a_closure_signature_yields_the_node_and_guide_it_shares() {
         &walk_output(node(64), guide(), [4, 8, 8]),
         64,
     );
-    assert!(matches!(guided, Ok(ref guided) if guided.node == node(64) && guided.guide == guide()));
+    // Four nodes, plus two edge types for each of eight occurrences.
+    assert!(matches!(guided, Ok(ref guided) if guided.node == node(64)
+        && guided.guide == guide()
+        && guided.attempts == 4 + 8 * 2));
 }
 
 #[test]
@@ -297,6 +303,7 @@ fn a_selector_is_accepted_only_over_the_closure_node_and_guide() {
     let guided = Guided {
         node: node(64),
         guide: guide(),
+        attempts: 0,
     };
     assert!(selector_signature(&candidate(guide(), node(64)), &decision(guide()), &guided).is_ok());
     let other_guide = table(&[("left", word())]);
@@ -314,6 +321,7 @@ fn a_selector_missing_a_decision_flag_is_rejected() {
     let guided = Guided {
         node: node(64),
         guide: guide(),
+        attempts: 0,
     };
     let partial = table(&[
         ("expand", Schema::Boolean),

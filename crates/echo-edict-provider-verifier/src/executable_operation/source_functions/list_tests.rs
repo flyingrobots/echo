@@ -58,7 +58,7 @@ fn bounded_lists_join_record_elements_and_conditional_results() -> Result<(), St
                 ("fields", map([("payload", text("Bytes<max=4>"))])),
             ]),
         )]);
-        validate(&core, &exports, false)
+        validate(&core, &exports, false, 0)
             .map_err(|refusal| format!("record list refused: {refusal:?}"))?;
     }
     Ok(())
@@ -76,7 +76,7 @@ fn bounded_lists_refuse_malformed_literals() {
         ]),
     ] {
         let (core, exports) = fixture(value, "List<U64,max=65537>");
-        assert!(validate(&core, &exports, false).is_err());
+        assert!(validate(&core, &exports, false, 0).is_err());
     }
 }
 
@@ -137,7 +137,7 @@ fn bounded_lists_accept_empty_nonempty_and_nested_values() {
         ),
     ] {
         let (core, exports) = fixture(value, result);
-        assert!(validate(&core, &exports, false).is_ok(), "{result}");
+        assert!(validate(&core, &exports, false, 0).is_ok(), "{result}");
     }
 }
 #[test]
@@ -149,7 +149,7 @@ fn bounded_lists_refuse_overflow_wrong_elements_and_noncanonical_bounds() {
         (list(vec![integer(1)]), "List<U64,max=18446744073709551615>"),
     ] {
         let (core, exports) = fixture(value, result);
-        assert!(validate(&core, &exports, false).is_err(), "{result}");
+        assert!(validate(&core, &exports, false, 0).is_err(), "{result}");
     }
 }
 
@@ -203,7 +203,7 @@ fn bounded_lists_without_helpers_enforce_whole_intent_budget() {
             ("intents", map([("make", intent)])),
         ]);
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             accepted,
             "{steps}/{allocation}/{output}"
         );
@@ -262,6 +262,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         path: vec![],
         bound: vec![],
         proven_sum: None,
+        edge_scans: 0,
     };
     let frame = super::Frame {
         declared: super::BTreeMap::new(),

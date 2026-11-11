@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Worst-case static cost of one bounded read's delivered result.
+//! Worst-case static cost of one bounded read, as the runtime meter charges it.
 //!
-//! A node-atom read copies at most its byte bound. A graph read materializes
-//! at most its declared result. A closure read also offers every edge row it
-//! may hold to its selector once, each time with a fresh candidate record.
+//! A node-atom read copies at most its byte bound. A typed edge read pays its
+//! declared scan allowance and its result. A guided closure pays, on top of
+//! its scans, every node it may materialize, every occurrence it may record,
+//! and for every edge row it may hold: that row, the candidate the selector is
+//! offered (built from copies, then copied again as the call argument and
+//! validated), the selector itself and the guide it returns. Each copy costs
+//! what `shape` says a maximal value of that type costs.
 use super::{shape, Check, Cost, Fact, Ty};
 use std::collections::BTreeMap;
 
-pub(super) fn read_cost(declared: &Ty, completed: &BTreeMap<String, Fact>) -> Check<Cost> {
+/// Bytes the runtime reserves for each edge in a scanned bucket.
+const SCANNED_EDGE_BYTES: u64 = 128;
+/// The four value cells of the closure result record.
+const RESULT_CELLS_BYTES: u64 = 4 * 64;
+
+pub(super) fn read_cost(
+    declared: &Ty,
+    completed: &BTreeMap<String, Fact>,
+    edge_scans: u64,
+) -> Check<Cost> {
     if let Ty::Bytes(_, max) = declared.representation() {
         return Ok(Cost {
             steps: max.checked_add(1).ok_or(())?,
@@ -16,34 +29,98 @@ pub(super) fn read_cost(declared: &Ty, completed: &BTreeMap<String, Fact>) -> Ch
         });
     }
     let (copy, validations, _, _) = shape(declared)?;
-    let result = copy.plus(Cost {
+    let scans = Cost {
+        steps: edge_scans,
+        bytes: edge_scans.checked_mul(SCANNED_EDGE_BYTES).ok_or(())?,
+    };
+    let validation = Cost {
         steps: validations,
         bytes: 0,
-    })?;
-    let Some((node, edges, guide)) = closure_parts(declared)? else {
-        return Ok(result);
     };
+    let Some(parts) = closure_parts(declared)? else {
+        // A typed edge read charges its scans, then its whole result.
+        return scans.plus(copy)?.plus(validation);
+    };
+    closure_cost(&parts, completed)?
+        .plus(scans)?
+        .plus(validation)
+}
+
+/// The capacities and row types of a closure result.
+struct Parts<'a> {
+    node: &'a Ty,
+    nodes: u64,
+    atom: u64,
+    edge: &'a Ty,
+    edges: u64,
+    occurrence: &'a Ty,
+    occurrences: u64,
+    guide: &'a Ty,
+}
+
+fn times(cost: Cost, count: u64) -> Check<Cost> {
+    Ok(Cost {
+        steps: cost.steps.checked_mul(count).ok_or(())?,
+        bytes: cost.bytes.checked_mul(count).ok_or(())?,
+    })
+}
+
+fn copy(ty: &Ty) -> Check<Cost> {
+    Ok(shape(ty)?.0)
+}
+
+fn closure_cost(parts: &Parts<'_>, completed: &BTreeMap<String, Fact>) -> Check<Cost> {
+    let guide = copy(parts.guide)?;
+    let node = copy(parts.node)?;
+    let candidate_ty = Ty::Record(BTreeMap::from([
+        ("guide".to_owned(), parts.guide.clone()),
+        ("depth".to_owned(), Ty::Word(u64::MAX)),
+        ("slot".to_owned(), Ty::Word(u64::MAX)),
+        ("parent".to_owned(), parts.node.clone()),
+        ("child".to_owned(), parts.node.clone()),
+    ]));
+    let (candidate, candidate_validations, _, _) = shape(&candidate_ty)?;
     // Any source helper may be the declared selector; charge the costliest.
     let selector = completed
         .values()
         .fold(Cost::default(), |worst, fact| worst.maximum(fact.cost));
-    let word = shape(&Ty::Word(u64::MAX))?.0;
-    let node = shape(node)?.0;
-    let candidate = node
+    // The start guide is validated, then copied into the root occurrence.
+    let start = Cost {
+        steps: shape(parts.guide)?.1,
+        bytes: 0,
+    }
+    .plus(guide)?;
+    // Atom bytes are charged before they are copied, then again in the row.
+    let per_node = Cost {
+        steps: parts.atom,
+        bytes: parts.atom.checked_add(64).ok_or(())?,
+    }
+    .plus(node)?;
+    let per_occurrence = Cost { steps: 1, bytes: 0 }
+        .plus(guide)?
+        .plus(copy(parts.occurrence)?)?;
+    let per_edge = copy(parts.edge)?
+        .plus(guide)?
         .plus(node)?
-        .plus(shape(guide)?.0)?
-        .plus(word)?
-        .plus(word)?;
-    let offer = selector.plus(candidate)?;
-    result.plus(Cost {
-        steps: offer.steps.checked_mul(edges).ok_or(())?,
-        bytes: offer.bytes.checked_mul(edges).ok_or(())?,
-    })
+        .plus(node)?
+        .plus(candidate)?
+        .plus(Cost {
+            steps: candidate_validations.checked_add(2).ok_or(())?,
+            bytes: 0,
+        })?
+        .plus(selector)?
+        .plus(guide)?;
+    start
+        .plus(times(per_node, parts.nodes)?)?
+        .plus(times(per_occurrence, parts.occurrences)?)?
+        .plus(times(per_edge, parts.edges)?)?
+        .plus(Cost {
+            steps: 0,
+            bytes: RESULT_CELLS_BYTES,
+        })
 }
 
-/// The node row, edge-row capacity and guide of a closure result, if
-/// `declared` is one.
-fn closure_parts(declared: &Ty) -> Check<Option<(&Ty, u64, &Ty)>> {
+fn closure_parts(declared: &Ty) -> Check<Option<Parts<'_>>> {
     let Ty::Record(fields) = declared.representation() else {
         return Ok(None);
     };
@@ -51,111 +128,30 @@ fn closure_parts(declared: &Ty) -> Check<Option<(&Ty, u64, &Ty)>> {
         Some(Ty::List(Some(item), max)) => Some((item.as_ref(), *max)),
         _ => None,
     };
-    let (Some((node, _)), Some((_, edges)), Some((occurrence, _))) =
+    let (Some((node, nodes)), Some((edge, edges)), Some((occurrence, occurrences))) =
         (list("nodes"), list("edges"), list("occurrences"))
     else {
         return Ok(None);
     };
-    let Ty::Record(occurrence) = occurrence.representation() else {
+    let (Ty::Record(row), Ty::Record(position)) =
+        (node.representation(), occurrence.representation())
+    else {
         return Err(());
     };
-    Ok(Some((node, edges, occurrence.get("guide").ok_or(())?)))
+    let Some(Ty::Bytes(_, atom)) = row.get("atomBytes").map(Ty::representation) else {
+        return Err(());
+    };
+    Ok(Some(Parts {
+        node,
+        nodes,
+        atom: *atom,
+        edge,
+        edges,
+        occurrence,
+        occurrences,
+        guide: position.get("guide").ok_or(())?,
+    }))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(fields: &[(&str, Ty)]) -> Ty {
-        Ty::Record(
-            fields
-                .iter()
-                .map(|(name, ty)| ((*name).to_owned(), ty.clone()))
-                .collect(),
-        )
-    }
-    fn list(item: Ty, max: u64) -> Ty {
-        Ty::List(Some(Box::new(item)), max)
-    }
-    fn word() -> Ty {
-        Ty::Word(u64::MAX)
-    }
-    fn closure(edges: u64) -> (Ty, Ty, Ty) {
-        let node = record(&[
-            ("nodeId", Ty::Bytes(32, 32)),
-            ("atomBytes", Ty::Bytes(0, 8)),
-        ]);
-        let guide = record(&[("reach", word())]);
-        let result = record(&[
-            ("nodes", list(node.clone(), 2)),
-            ("edges", list(record(&[("from", word())]), edges)),
-            (
-                "occurrences",
-                list(record(&[("guide", guide.clone()), ("node", word())]), 3),
-            ),
-        ]);
-        (result, node, guide)
-    }
-    fn helper(steps: u64, bytes: u64) -> BTreeMap<String, Fact> {
-        BTreeMap::from([(
-            "app@1.select".to_owned(),
-            Fact {
-                ty: Ty::Bool,
-                cost: Cost { steps, bytes },
-                depth: 1,
-            },
-        )])
-    }
-
-    #[test]
-    fn a_node_atom_read_still_costs_its_byte_bound() -> Check<()> {
-        let cost = read_cost(&Ty::Bytes(0, 10), &helper(1000, 1000))?;
-        assert_eq!((cost.steps, cost.bytes), (11, 74));
-        Ok(())
-    }
-
-    #[test]
-    fn an_edge_read_costs_its_declared_result_only() -> Check<()> {
-        let edges = list(record(&[("edgeId", Ty::Bytes(32, 32))]), 4);
-        let (copy, validations, _, _) = shape(&edges)?;
-        let cost = read_cost(&edges, &helper(1000, 1000))?;
-        assert_eq!(
-            (cost.steps, cost.bytes),
-            (copy.steps + validations, copy.bytes)
-        );
-        Ok(())
-    }
-
-    /// Oracle: result shape, plus one selector evaluation and one fresh
-    /// candidate (two node rows, the guide, depth and slot) per edge row.
-    #[test]
-    fn a_closure_read_charges_its_selector_once_per_possible_edge_row() -> Check<()> {
-        for edges in [4, 5] {
-            let (result, node, guide) = closure(edges);
-            let (copy, validations, _, _) = shape(&result)?;
-            let node = shape(&node)?.0;
-            let guide = shape(&guide)?.0;
-            let word = shape(&word())?.0;
-            let candidate_steps = 2 * node.steps + guide.steps + 2 * word.steps;
-            let candidate_bytes = 2 * node.bytes + guide.bytes + 2 * word.bytes;
-            let cost = read_cost(&result, &helper(7, 11))?;
-            assert_eq!(
-                cost.steps,
-                copy.steps + validations + edges * (7 + candidate_steps),
-                "{edges}"
-            );
-            assert_eq!(
-                cost.bytes,
-                copy.bytes + edges * (11 + candidate_bytes),
-                "{edges}"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn an_overflowing_closure_charge_is_refused() {
-        let (result, _, _) = closure(u64::MAX);
-        assert!(read_cost(&result, &helper(u64::MAX / 2, 1)).is_err());
-    }
-}
+mod tests;

@@ -1480,7 +1480,7 @@ echo-bounded-read-graph-reads = {
   maxEdgeScans: 1..65536,
   maxClosureNodes: 0..4096,
   maxClosureDepth: 0..256,
-  ? closureSelector: echo-nonempty-tstr,
+  ? closureSelector: tstr .size (1..1024),
 }
 
 ; This declares the current effect kind; schema admission grants no runtime authority.

@@ -147,11 +147,13 @@ fn a_closure_read_shares_one_node_and_guide_type_with_its_occurrences() {
     let input = closure_input(guide(), 2);
     let output = closure_output(node(64), guide(), [8, 16, 16]);
     let (node, guide) = (node(64), guide());
+    // Eight nodes, plus two edge types for each of sixteen occurrences.
     assert_eq!(
         closure_read(&input, &output, 64),
         Ok(ClosureTypes {
             node: &node,
             guide: &guide,
+            attempts: 8 + 16 * 2,
         })
     );
 }
@@ -237,6 +239,7 @@ fn the_selector_decides_over_the_closure_node_and_guide_types() {
     let closure = ClosureTypes {
         node: &node,
         guide: &guide,
+        attempts: 0,
     };
     let accepted = selector_conforms(
         &candidate(guide.clone(), node.clone()),
@@ -252,6 +255,7 @@ fn a_selector_over_another_node_or_guide_type_is_refused() {
     let closure = ClosureTypes {
         node: &node,
         guide: &guide,
+        attempts: 0,
     };
     let foreign_guide = fields(&[("offset", WORD)]);
     let foreign_node = self::node(32);
@@ -280,6 +284,7 @@ fn a_selector_must_return_every_decision_flag() {
     let closure = ClosureTypes {
         node: &node,
         guide: &guide,
+        attempts: 0,
     };
     let silent = fields(&[
         ("expand", ReadType::Bool),

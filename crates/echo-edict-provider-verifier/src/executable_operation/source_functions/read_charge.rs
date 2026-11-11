@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Verifier-owned worst-case charge for the value one bounded read delivers.
+//! Verifier-owned worst-case charge for one bounded read, as the runtime pays.
 //!
-//! Node-atom bytes cost their bound. A graph result costs its declared
-//! layout. A guided closure additionally evaluates its selector once per edge
-//! row it can hold, building a candidate from two node rows, the guide, a
-//! depth and a slot each time.
+//! Node-atom bytes cost their bound. A typed edge read pays its declared scan
+//! allowance, then its layout. A guided closure pays its scans and, for each
+//! node it may resolve, the atom twice (precharged, then in the row); for each
+//! occurrence, one step, the guide and the row; and for each edge row it may
+//! hold, the row, the candidate's parts, the candidate again as the selector's
+//! argument with its validation, the selector and the guide it returns.
 use super::types::{Charge, Schema};
 use super::{Check, Summary};
 use std::collections::BTreeMap;
 
+/// Bytes the runtime reserves per edge of a scanned bucket.
+const EDGE_SCAN_STORAGE: u128 = 128;
+/// The closure result's own four value cells.
+const RESULT_CELL_STORAGE: u128 = 256;
+
 pub(super) fn read_charge(
     delivered: &Schema,
     summaries: &BTreeMap<String, Summary>,
+    edge_scans: u64,
 ) -> Check<Charge> {
     if let Schema::Blob { high, .. } = delivered.representation() {
         return Ok(Charge {
@@ -21,136 +29,127 @@ pub(super) fn read_charge(
         });
     }
     let layout = delivered.measure()?;
-    let mut total = layout.copy;
-    total.append(Charge {
-        ticks: layout.checks,
-        storage: 0,
-    })?;
-    let Schema::Fields(fields) = delivered.representation() else {
-        return Ok(total);
+    let mut total = Charge {
+        ticks: u128::from(edge_scans) + layout.checks,
+        storage: u128::from(edge_scans) * EDGE_SCAN_STORAGE,
     };
-    let rows = |name: &str| match fields.get(name).map(Schema::representation) {
-        Some(Schema::Sequence {
-            element: Some(element),
-            bound,
-        }) => Some((element.as_ref(), *bound)),
-        _ => None,
-    };
-    let (Some((node, _)), Some((_, edge_rows)), Some((occurrence, _))) =
-        (rows("nodes"), rows("edges"), rows("occurrences"))
-    else {
-        return Ok(total);
-    };
-    let Schema::Fields(occurrence) = occurrence.representation() else {
-        return Err(());
-    };
-    let guide = occurrence.get("guide").ok_or(())?;
-    // The declared selector is one of these helpers; the dearest bounds it.
-    let selector = summaries
-        .values()
-        .fold(Charge::default(), |dearest, summary| {
-            Charge::choice(dearest, summary.charge)
-        });
-    let mut offer = selector;
-    for part in [
-        node,
-        node,
-        guide,
-        &Schema::Word(u64::MAX),
-        &Schema::Word(u64::MAX),
-    ] {
-        offer.append(part.measure()?.copy)?;
+    match Walk::of(delivered)? {
+        None => total.append(layout.copy)?,
+        Some(walk) => total.append(walk.charge(summaries)?)?,
     }
-    total.append(Charge {
-        ticks: offer.ticks.checked_mul(u128::from(edge_rows)).ok_or(())?,
-        storage: offer.storage.checked_mul(u128::from(edge_rows)).ok_or(())?,
-    })?;
     Ok(total)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Row schemas and capacities of a closure result.
+struct Walk<'s> {
+    node: &'s Schema,
+    node_bound: u64,
+    atom_high: u64,
+    edge: &'s Schema,
+    edge_bound: u64,
+    occurrence: &'s Schema,
+    occurrence_bound: u64,
+    guide: &'s Schema,
+}
 
-    fn fields(entries: &[(&str, Schema)]) -> Schema {
-        Schema::Fields(
-            entries
-                .iter()
-                .map(|(name, schema)| ((*name).to_owned(), schema.clone()))
-                .collect(),
-        )
+fn scaled(charge: Charge, count: u64) -> Check<Charge> {
+    Ok(Charge {
+        ticks: charge.ticks.checked_mul(u128::from(count)).ok_or(())?,
+        storage: charge.storage.checked_mul(u128::from(count)).ok_or(())?,
+    })
+}
+
+impl<'s> Walk<'s> {
+    fn of(delivered: &'s Schema) -> Check<Option<Self>> {
+        let Schema::Fields(fields) = delivered.representation() else {
+            return Ok(None);
+        };
+        let rows = |name: &str| match fields.get(name).map(Schema::representation) {
+            Some(Schema::Sequence {
+                element: Some(element),
+                bound,
+            }) => Some((element.as_ref(), *bound)),
+            _ => None,
+        };
+        let (
+            Some((node, node_bound)),
+            Some((edge, edge_bound)),
+            Some((occurrence, occurrence_bound)),
+        ) = (rows("nodes"), rows("edges"), rows("occurrences"))
+        else {
+            return Ok(None);
+        };
+        let (Schema::Fields(node_fields), Schema::Fields(position)) =
+            (node.representation(), occurrence.representation())
+        else {
+            return Err(());
+        };
+        let Some(Schema::Blob {
+            high: atom_high, ..
+        }) = node_fields.get("atomBytes").map(Schema::representation)
+        else {
+            return Err(());
+        };
+        Ok(Some(Self {
+            node,
+            node_bound,
+            atom_high: *atom_high,
+            edge,
+            edge_bound,
+            occurrence,
+            occurrence_bound,
+            guide: position.get("guide").ok_or(())?,
+        }))
     }
-    fn rows(element: Schema, bound: u64) -> Schema {
-        Schema::Sequence {
-            element: Some(Box::new(element)),
-            bound,
+
+    fn charge(&self, summaries: &BTreeMap<String, Summary>) -> Check<Charge> {
+        let guide = self.guide.measure()?;
+        let node = self.node.measure()?.copy;
+        let argument = Schema::Fields(BTreeMap::from([
+            ("guide".to_owned(), self.guide.clone()),
+            ("depth".to_owned(), Schema::Word(u64::MAX)),
+            ("slot".to_owned(), Schema::Word(u64::MAX)),
+            ("parent".to_owned(), self.node.clone()),
+            ("child".to_owned(), self.node.clone()),
+        ]))
+        .measure()?;
+        // The declared selector is one of these helpers; the dearest bounds it.
+        let selector = summaries
+            .values()
+            .fold(Charge::default(), |dearest, summary| {
+                Charge::choice(dearest, summary.charge)
+            });
+        let atom = u128::from(self.atom_high);
+        let mut each_node = Charge {
+            ticks: atom,
+            storage: atom + 64,
+        };
+        each_node.append(node)?;
+        let mut each_occurrence = Charge {
+            ticks: 1,
+            storage: 0,
+        };
+        each_occurrence.append(guide.copy)?;
+        each_occurrence.append(self.occurrence.measure()?.copy)?;
+        let mut each_edge = self.edge.measure()?.copy;
+        for part in [guide.copy, node, node, argument.copy, selector, guide.copy] {
+            each_edge.append(part)?;
         }
-    }
-    fn walk(edge_rows: u64) -> (Schema, Schema, Schema) {
-        let node = fields(&[("atomBytes", Schema::Blob { low: 0, high: 8 })]);
-        let guide = fields(&[("reach", Schema::Word(u64::MAX))]);
-        let delivered = fields(&[
-            ("nodes", rows(node.clone(), 2)),
-            (
-                "edges",
-                rows(fields(&[("slot", Schema::Word(u64::MAX))]), edge_rows),
-            ),
-            ("occurrences", rows(fields(&[("guide", guide.clone())]), 3)),
-        ]);
-        (delivered, node, guide)
-    }
-    fn selector(ticks: u128, storage: u128) -> BTreeMap<String, Summary> {
-        BTreeMap::from([(
-            "app@1.choose".to_owned(),
-            Summary {
-                charge: Charge { ticks, storage },
-                height: 1,
-            },
-        )])
-    }
-
-    #[test]
-    fn atom_bytes_keep_their_existing_charge() -> Check<()> {
-        let charge = read_charge(&Schema::Blob { low: 0, high: 10 }, &selector(9, 9))?;
-        assert_eq!((charge.ticks, charge.storage), (11, 74));
-        Ok(())
-    }
-
-    /// Oracle: the delivered layout, plus per edge row one selector charge
-    /// and one candidate of two node rows, the guide and two words.
-    #[test]
-    fn a_closure_pays_its_selector_once_per_edge_row() -> Check<()> {
-        for edge_rows in [4_u64, 5] {
-            let (delivered, node, guide) = walk(edge_rows);
-            let layout = delivered.measure()?;
-            let word = Schema::Word(u64::MAX).measure()?.copy;
-            let node = node.measure()?.copy;
-            let guide = guide.measure()?.copy;
-            let candidate_ticks = 2 * node.ticks + guide.ticks + 2 * word.ticks;
-            let candidate_storage = 2 * node.storage + guide.storage + 2 * word.storage;
-            let charge = read_charge(&delivered, &selector(7, 11))?;
-            let n = u128::from(edge_rows);
-            assert_eq!(
-                charge.ticks,
-                layout.copy.ticks + layout.checks + n * (7 + candidate_ticks)
-            );
-            assert_eq!(
-                charge.storage,
-                layout.copy.storage + n * (11 + candidate_storage)
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn an_edge_list_pays_only_its_layout() -> Check<()> {
-        let delivered = rows(fields(&[("toId", Schema::Blob { low: 32, high: 32 })]), 4);
-        let layout = delivered.measure()?;
-        let charge = read_charge(&delivered, &selector(1000, 1000))?;
-        assert_eq!(
-            (charge.ticks, charge.storage),
-            (layout.copy.ticks + layout.checks, layout.copy.storage)
-        );
-        Ok(())
+        each_edge.append(Charge {
+            ticks: argument.checks + 2,
+            storage: 0,
+        })?;
+        let mut total = Charge {
+            ticks: guide.checks,
+            storage: RESULT_CELL_STORAGE,
+        };
+        total.append(guide.copy)?;
+        total.append(scaled(each_node, self.node_bound)?)?;
+        total.append(scaled(each_occurrence, self.occurrence_bound)?)?;
+        total.append(scaled(each_edge, self.edge_bound)?)?;
+        Ok(total)
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -24,6 +24,13 @@ const FAILURES: [(&str, &str); 4] = [
     ("echo.atom-byte-bound-exceeded/v1", "integrityFault"),
 ];
 
+/// What one read step can do: its worst-case read attempts, and whether it
+/// reads graph material.
+struct ReadStep {
+    attempts: u64,
+    graph: bool,
+}
+
 pub(super) struct ReadRelation<'a> {
     pub core: &'a Value,
     pub exports: &'a Value,
@@ -126,7 +133,7 @@ impl ReadRelation<'_> {
             return Err(invalid());
         }
         let mut producers = BTreeMap::new();
-        let mut reads = 0;
+        let mut reads = 0_u64;
         let mut graph_reads = 0_u64;
         for (node, id) in nodes.iter().zip(order) {
             let Value::Text(id) = id else {
@@ -148,11 +155,14 @@ impl ReadRelation<'_> {
                     producers.insert(id.as_str(), ("pureBinding", field(node, "binding")?));
                 }
                 "effect" => {
-                    reads += 1;
-                    if reads > self.max_reads {
-                        return Err(invalid());
-                    }
-                    if self.read(node, lowered, profile, &mut scope)? {
+                    let step = self.read(node, lowered, profile, &mut scope)?;
+                    // Every read attempt a step can make must fit the declared count.
+                    reads = step
+                        .attempts
+                        .checked_add(reads)
+                        .filter(|reads| *reads <= self.max_reads)
+                        .ok_or_else(invalid)?;
+                    if step.graph {
                         graph_reads += 1;
                     }
                     producers.insert(id.as_str(), ("capabilityResult", field(node, "binding")?));
@@ -239,7 +249,7 @@ impl ReadRelation<'_> {
         lowered: &Value,
         profile: &Value,
         scope: &mut Scope<'a>,
-    ) -> Result<bool, ProviderRefusalV1> {
+    ) -> Result<ReadStep, ProviderRefusalV1> {
         require_exact_fields(
             node,
             &["kind", "binding", "effect", "input", "obstructionMap"],
@@ -292,15 +302,15 @@ impl ReadRelation<'_> {
             return Err(invalid());
         }
         let output = scope.ty(text(effect, "outputType")?)?;
-        let failures: &[(&str, &str)] = match intrinsic {
+        let (failures, attempts): (&[(&str, &str)], u64) = match intrinsic {
             INTRINSIC => {
                 self.node_atom(effect, &input, &output)?;
-                &FAILURES
+                (&FAILURES, 1)
             }
             graph::EDGE_READ if self.graph.is_some() => {
                 self.exported_signature(effect, scope, &input, &output)?;
                 graph::edge_read(&input, &output)?;
-                &graph::EDGE_FAILURES
+                (&graph::EDGE_FAILURES, 1)
             }
             graph::CLOSURE_READ => {
                 // Without a declared selector there is nothing to guide the read.
@@ -308,7 +318,7 @@ impl ReadRelation<'_> {
                 self.exported_signature(effect, scope, &input, &output)?;
                 let closure = graph::closure_read(&input, &output, self.max_bytes)?;
                 graph::selector(self.core, scope, declared.selector, &closure)?;
-                &graph::CLOSURE_FAILURES
+                (&graph::CLOSURE_FAILURES, closure.attempts)
             }
             _ => return Err(invalid()),
         };
@@ -322,7 +332,10 @@ impl ReadRelation<'_> {
             scope,
         )?;
         scope.introduce(field(node, "binding")?, Some(output))?;
-        Ok(intrinsic != INTRINSIC)
+        Ok(ReadStep {
+            attempts,
+            graph: intrinsic != INTRINSIC,
+        })
     }
 
     /// A node-atom read takes the exact typed node address and returns bounded bytes.

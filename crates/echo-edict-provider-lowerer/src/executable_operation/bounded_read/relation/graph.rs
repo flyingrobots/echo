@@ -93,6 +93,9 @@ pub(super) fn edge_read(input: &ReadType, output: &ReadType) -> Result<(), Provi
 pub(super) struct ClosureTypes<'a> {
     pub node: &'a ReadType,
     pub guide: &'a ReadType,
+    /// Worst-case read attempts: every node it may materialize, and one typed
+    /// range per declared edge type for every occurrence it may record.
+    pub attempts: u64,
 }
 
 /// A closure read takes `{ warpId, nodeId, edgeTypes, maxNodes, maxDepth,
@@ -118,10 +121,10 @@ pub(super) fn closure_read<'a>(
     exactly(start, &ID)?;
     exactly(max_nodes, &WORD)?;
     exactly(max_depth, &WORD)?;
-    let (edge_type, _) = list(edge_types, MAX_EDGE_TYPES)?;
+    let (edge_type, edge_type_count) = list(edge_types, MAX_EDGE_TYPES)?;
     exactly(edge_type, &ID)?;
     let [nodes, edges, occurrences] = record(output, ["nodes", "edges", "occurrences"])?;
-    let (node, _) = list(nodes, MAX_RESULT_NODES)?;
+    let (node, node_count) = list(nodes, MAX_RESULT_NODES)?;
     let [id, node_type, atom_type, atom] =
         record(node, ["nodeId", "nodeType", "atomType", "atomBytes"])?;
     exactly(id, &ID)?;
@@ -134,7 +137,7 @@ pub(super) fn closure_read<'a>(
     let (edge, _) = list(edges, MAX_RESULT_EDGES)?;
     let [from, slot, edge_id, target] = record(edge, ["from", "slot", "edgeId", "node"])?;
     exactly(edge_id, &ID)?;
-    let (occurrence, _) = list(occurrences, MAX_RESULT_EDGES)?;
+    let (occurrence, occurrence_count) = list(occurrences, MAX_RESULT_EDGES)?;
     let [index, via, depth, carried] = record(occurrence, ["node", "edge", "depth", "guide"])?;
     for word in [from, slot, target, index, via, depth] {
         exactly(word, &WORD)?;
@@ -142,7 +145,15 @@ pub(super) fn closure_read<'a>(
     if carried != guide {
         return Err(invalid());
     }
-    Ok(ClosureTypes { node, guide })
+    let attempts = occurrence_count
+        .checked_mul(edge_type_count)
+        .and_then(|ranges| ranges.checked_add(node_count))
+        .ok_or_else(invalid)?;
+    Ok(ClosureTypes {
+        node,
+        guide,
+        attempts,
+    })
 }
 
 /// The selector is one source helper `{ guide, depth, slot, parent, child }

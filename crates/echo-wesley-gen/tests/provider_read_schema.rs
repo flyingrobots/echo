@@ -252,6 +252,7 @@ fn read_configuration_admits_an_optional_bounded_graph_read_declaration() {
         graph_reads(1, 0, 0, None),
         graph_reads(64, 16, 8, Some("select")),
         graph_reads(65_536, 4096, 256, Some("select")),
+        graph_reads(1, 0, 0, Some(&"s".repeat(1024))),
     ] {
         generated
             .schema()
@@ -285,6 +286,7 @@ fn graph_read_declaration_refuses_values_one_above_each_ceiling_and_unknown_fiel
         graph_reads(1, 0, 257, None),
         graph_reads(1, -1, 0, None),
         graph_reads(1, 1, 1, Some("")),
+        graph_reads(1, 1, 1, Some(&"s".repeat(1025))),
         unknown,
         incomplete,
     ] {

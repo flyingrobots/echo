@@ -24,6 +24,8 @@ const NODE_ATOM_OUTCOMES: [(&str, &str); 4] = [
 pub(super) struct Inverted {
     pub node: Value,
     pub graph_read: bool,
+    /// Worst-case read attempts this step can make.
+    pub attempts: u64,
 }
 
 pub(super) fn invert(
@@ -77,21 +79,21 @@ pub(super) fn invert(
         return Err(());
     }
     let read_bytes = number(get(&e.configuration, "maxReadBytes")?)?;
-    let outcomes: &[(&str, &str)] = match intrinsic {
+    let (outcomes, attempts): (&[(&str, &str)], u64) = match intrinsic {
         NODE_ATOM => {
             node_atom(e, input_name, output_name, &input, &output, read_bytes)?;
-            &NODE_ATOM_OUTCOMES
+            (&NODE_ATOM_OUTCOMES, 1)
         }
         graph::EDGE_INTRINSIC if declared.is_some() => {
             definitions(e, symbols, [(input_name, &input), (output_name, &output)])?;
             graph::edge_signature(&input, &output)?;
-            &graph::EDGE_OUTCOMES
+            (&graph::EDGE_OUTCOMES, 1)
         }
         graph::CLOSURE_INTRINSIC if declared.is_some() => {
             definitions(e, symbols, [(input_name, &input), (output_name, &output)])?;
             let guided = graph::closure_signature(&input, &output, read_bytes)?;
             graph::selector(&e.core, symbols, declared, &guided)?;
-            &graph::CLOSURE_OUTCOMES
+            (&graph::CLOSURE_OUTCOMES, guided.attempts)
         }
         _ => return Err(()),
     };
@@ -106,6 +108,7 @@ pub(super) fn invert(
             ("obstructionMap", Value::Map(original_arms)),
         ]),
         graph_read: intrinsic != NODE_ATOM,
+        attempts,
     })
 }
 

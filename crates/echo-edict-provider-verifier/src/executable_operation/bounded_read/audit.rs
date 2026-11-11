@@ -37,7 +37,11 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     }
     exact(&e.core, &fields)?;
     super::super::capabilities::validate(&e.core).map_err(|_| ())?;
-    super::super::source_functions::validate(&e.core, &e.exports, true).map_err(|_| ())?;
+    let edge_scans = declared
+        .as_ref()
+        .map_or(0, |declared| declared.max_edge_scans);
+    super::super::source_functions::validate(&e.core, &e.exports, true, edge_scans)
+        .map_err(|_| ())?;
     if text(&e.core, "apiVersion")? != "edict.core/v1"
         || text(&e.core, "coordinate")? != e.request.core.reference.coordinate
     {
@@ -189,16 +193,17 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     }
     let mut reconstructed = Vec::new();
     let mut projection_locals = BTreeMap::new();
-    let mut reads = 0;
+    let mut reads = 0_u64;
     let mut graph_reads = 0_u64;
     for id in order {
         let id = string(id)?;
         let (category, instruction) = instructions.remove(id).ok_or(())?;
         let node = match category {
             "steps" => {
-                reads += 1;
                 let inverted =
                     reads::invert(e, profile, instruction, declared.as_ref(), &mut symbols)?;
+                // Every read attempt a step can make counts against `maxReads`.
+                reads = inverted.attempts.checked_add(reads).ok_or(())?;
                 if inverted.graph_read {
                     graph_reads += 1;
                 }

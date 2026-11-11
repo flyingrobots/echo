@@ -92,13 +92,13 @@ fn fixture(bound: Option<u64>) -> (Value, Value) {
 fn source_fold_accepts_invariant_state_for_zero_and_nonzero_counts() {
     let (core, exports) = fixture(None);
     assert!(
-        super::validate(&core, &exports, false).is_ok(),
+        super::validate(&core, &exports, false, 0).is_ok(),
         "nonfold control"
     );
     for bound in [0, 1, 2, 3] {
         let (core, exports) = fixture(Some(bound));
         assert!(
-            super::validate(&core, &exports, false).is_ok(),
+            super::validate(&core, &exports, false, 0).is_ok(),
             "fold bound {bound}"
         );
     }
@@ -185,13 +185,16 @@ fn malformed_folds() -> Vec<(&'static str, Value, Value)> {
 #[test]
 fn source_fold_refuses_invalid_authority_scope_type_and_zero_count_cycles() {
     for (name, core, exports) in malformed_folds() {
-        assert!(super::validate(&core, &exports, false).is_err(), "{name}");
+        assert!(
+            super::validate(&core, &exports, false, 0).is_err(),
+            "{name}"
+        );
     }
 }
 #[test]
 fn source_fold_refuses_unrepresentable_execution_charges() {
     let (core, exports) = fixture(Some(u64::MAX));
-    assert!(super::validate(&core, &exports, false).is_err());
+    assert!(super::validate(&core, &exports, false, 0).is_err());
 }
 
 fn nested_fixture(outer: u64, inner: u64) -> (Value, Value) {
@@ -225,10 +228,10 @@ fn nested_fixture(outer: u64, inner: u64) -> (Value, Value) {
 #[test]
 fn source_fold_multiplies_nested_costs_without_unrolling_the_bound() {
     let (core, exports) = nested_fixture(3, 2);
-    assert!(super::validate(&core, &exports, false).is_ok());
+    assert!(super::validate(&core, &exports, false, 0).is_ok());
     let (core, exports) = nested_fixture(1 << 32, 1 << 32);
     assert!(
-        super::validate(&core, &exports, false).is_err(),
+        super::validate(&core, &exports, false, 0).is_err(),
         "nested cost exceeds u64 even though each bound fits"
     );
 }

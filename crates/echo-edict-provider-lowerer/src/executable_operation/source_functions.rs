@@ -17,6 +17,8 @@ mod matches;
 mod order;
 mod read_cost;
 #[cfg(test)]
+mod read_cost_soundness_tests;
+#[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
 #[cfg(test)]
@@ -96,17 +98,50 @@ struct Judgment<'a> {
     /// The refined cap of the addition `expression` last proved, keyed by the
     /// node's address, so the binding that holds it reuses the proof.
     proven_sum: Option<(usize, u64)>,
+    /// Declared graph scan allowance charged by every graph read.
+    edge_scans: u64,
 }
 
-pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    run(core, exports, read).map_err(|()| {
+/// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
+/// the module declares no graph reads.
+pub(super) fn validate(
+    core: &Value,
+    exports: &Value,
+    read: bool,
+    edge_scans: u64,
+) -> Result<(), ProviderRefusalV1> {
+    run(core, exports, read, edge_scans).map_err(|()| {
         super::super::unsupported_semantics(
             "core.source-functions",
             "Core source functions are outside the checked pure-function profile",
         )
     })
 }
-fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
+fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
+    let mut proof = judged(core, exports, edge_scans)?;
+    // A graph read always needs its whole-intent budget judged.
+    if super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        proof.intent(intent, read)?;
+    }
+    Ok(())
+}
+/// The worst-case cost of each read intent, for measuring it against the runtime.
+#[cfg(test)]
+fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
+    let mut proof = judged(core, exports, edge_scans)?;
+    members(get(core, "intents")?)?
+        .iter()
+        .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
+        .collect()
+}
+/// Inventories the module's helpers and judges every one of them.
+fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Judgment<'a>> {
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -193,17 +228,12 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
+        edge_scans,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
     }
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
-        return Ok(());
-    }
-    for (_, intent) in members(get(core, "intents")?)? {
-        proof.intent(intent, read)?;
-    }
-    Ok(())
+    Ok(proof)
 }
 impl<'a> Judgment<'a> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -869,6 +899,18 @@ impl<'a> Judgment<'a> {
         ))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        let (cost, output) = self.intent_cost(intent, read)?;
+        let budget = get(intent, "coreEvaluationBudget")?;
+        if cost.steps > number(get(budget, "maxSteps")?)?
+            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
+            || output > number(get(budget, "maxOutputBytes")?)?
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+    /// The worst-case whole-intent cost and output bytes, before the budget.
+    fn intent_cost(&mut self, intent: &'a Value, read: bool) -> Check<(Cost, u64)> {
         self.proven.clear();
         self.path.clear();
         self.bound.clear();
@@ -942,7 +984,11 @@ impl<'a> Judgment<'a> {
                     cost =
                         cost.plus(self.expression(get(node, "input")?, &scope, true, 0)?.cost)?;
                     let declared = self.declaration(get(node, "binding")?, &mut scope)?;
-                    cost = cost.plus(read_cost::read_cost(&declared, &self.completed)?)?;
+                    cost = cost.plus(read_cost::read_cost(
+                        &declared,
+                        &self.completed,
+                        self.edge_scans,
+                    )?)?;
                 }
                 "require" if read => {
                     cost =
@@ -966,14 +1012,7 @@ impl<'a> Judgment<'a> {
             steps: validations,
             bytes: 0,
         })?;
-        let budget = get(intent, "coreEvaluationBudget")?;
-        if cost.steps > number(get(budget, "maxSteps")?)?
-            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
-            || output > number(get(budget, "maxOutputBytes")?)?
-        {
-            return Err(());
-        }
-        Ok(())
+        Ok((cost, output))
     }
 }
 fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
@@ -1226,7 +1265,7 @@ mod tests {
                 Value::Array(vec![map([("source", Value::Text("component".into()))])]),
             ),
         ]);
-        assert!(validate(&core, &exports, true).is_err());
+        assert!(validate(&core, &exports, true, 0).is_err());
     }
 
     #[test]
@@ -1236,7 +1275,7 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, true).is_ok());
+        assert!(validate(&core, &exports, true, 0).is_ok());
     }
     #[test]
     fn source_functions_accept_named_unsigned_int_aliases() {
@@ -1287,6 +1326,6 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
     }
 }

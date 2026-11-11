@@ -42,6 +42,8 @@ const ROW_CEILING: u64 = 65_536;
 pub(super) struct Declaration {
     /// Module-local selector helper, present when closures may be read.
     pub selector: Option<String>,
+    /// Bucket edges one evaluation may inspect across all its graph reads.
+    pub max_edge_scans: u64,
 }
 
 /// Reads the configuration's exact fields; `None` is the node-only form.
@@ -89,7 +91,10 @@ pub(super) fn declaration(configuration: &Value) -> Check<Option<Declaration>> {
     {
         return Err(());
     }
-    Ok(Some(Declaration { selector }))
+    Ok(Some(Declaration {
+        selector,
+        max_edge_scans: scans,
+    }))
 }
 
 /// What one field of an expected row must be.
@@ -171,6 +176,14 @@ fn elements(schema: &Schema, ceiling: u64) -> Check<&Schema> {
     }
 }
 
+/// The declared capacity of a sequence schema.
+fn capacity(schema: &Schema) -> Check<u64> {
+    match schema.representation() {
+        Schema::Sequence { maximum, .. } => Ok(*maximum),
+        _ => Err(()),
+    }
+}
+
 /// `{ warpId, nodeId, edgeType } -> List<{ edgeId, toId }>`.
 pub(super) fn edge_signature(input: &Schema, output: &Schema) -> Check<()> {
     row(
@@ -192,6 +205,9 @@ pub(super) fn edge_signature(input: &Schema, output: &Schema) -> Check<()> {
 pub(super) struct Guided {
     pub node: Schema,
     pub guide: Schema,
+    /// Worst-case read attempts: each node it may resolve, plus one typed range
+    /// per declared edge type for each occurrence it may record.
+    pub attempts: u64,
 }
 
 /// `{ warpId, nodeId, edgeTypes, maxNodes, maxDepth, guide } ->
@@ -255,9 +271,15 @@ pub(super) fn closure_signature(
             ("node", Demand::Word),
         ],
     )?;
+    let resolved = capacity(member(output, "nodes")?)?;
+    let attempts = capacity(member(output, "occurrences")?)?
+        .checked_mul(capacity(member(input, "edgeTypes")?)?)
+        .and_then(|ranges| ranges.checked_add(resolved))
+        .ok_or(())?;
     Ok(Guided {
         node: node.clone(),
         guide: guide.clone(),
+        attempts,
     })
 }
 

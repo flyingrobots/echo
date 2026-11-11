@@ -81,8 +81,9 @@ pub(super) fn lower(
     }
     require_exact_fields(&core, &core_fields, SUBJECT)?;
     super::capabilities::validate(&core)?;
-    super::source_functions::validate(&core, &exports, true)?;
     let graph = graph_configuration::parse(&configuration)?;
+    let edge_scans = graph.map_or(0, |graph| graph.max_edge_scans);
+    super::source_functions::validate(&core, &exports, true, edge_scans)?;
     let max_reads = required_u64(&configuration, "maxReads", SUBJECT)?;
     let max_bytes = required_u64(&configuration, "maxReadBytes", SUBJECT)?;
     if !(1..=MAX_READS).contains(&max_reads) || !(1..=MAX_READ_BYTES).contains(&max_bytes) {

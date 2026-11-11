@@ -12,7 +12,7 @@ use corpus::{cases, guarded_intent, largest_accepted, unneeded_branch_facts, Int
 fn the_verifier_reaches_every_shared_branch_fact_verdict() {
     let mismatched: Vec<_> = cases()
         .into_iter()
-        .filter(|case| validate(&case.core, &case.exports, false).is_ok() != case.accepted)
+        .filter(|case| validate(&case.core, &case.exports, false, 0).is_ok() != case.accepted)
         .map(|case| (case.name, case.accepted))
         .collect();
     assert_eq!(mismatched, Vec::<(&str, bool)>::new(), "(case, expected)");
@@ -32,7 +32,7 @@ fn a_branch_predicate_bounds_an_intent_addition_in_its_then_arm() {
     .into_iter()
     .map(|shape| {
         let (core, exports) = guarded_intent(shape);
-        (shape, validate(&core, &exports, false).is_ok())
+        (shape, validate(&core, &exports, false, 0).is_ok())
     })
     .collect();
     assert_eq!(
@@ -49,7 +49,7 @@ fn unneeded_branch_facts_cost_a_sum_nothing() {
     let largest = |guarded: bool| {
         largest_accepted(8192, |size| {
             let (core, exports) = unneeded_branch_facts(guarded, size);
-            validate(&core, &exports, false).is_ok()
+            validate(&core, &exports, false, 0).is_ok()
         })
     };
     let outside = largest(false);

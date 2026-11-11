@@ -5,6 +5,7 @@
 mod bounded_read;
 mod capabilities;
 pub(crate) mod effect_program;
+mod effect_verification;
 mod record_type;
 mod source_functions;
 
@@ -226,6 +227,10 @@ pub(super) fn verify(
         RESULT_PROJECTION_DOMAIN,
     )?;
     let source = validate_source(&source, closure.source, &request.core)?;
+
+    if effect_verification::is_configuration(&configuration) {
+        return effect_verification::verify(request, &closure, source_domain(closure.source)?);
+    }
 
     if bounded_read::selected(&configuration) {
         return bounded_read::verify(request, &closure);

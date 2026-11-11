@@ -144,16 +144,17 @@ The native lowerer rejects absent, empty, oversized, malformed, or digest-mismat
 catalogs before body lowering. Catalogs use `edict.target-profile.intrinsics/v1`
 and the selected profile's `echo.dpo.intrinsics/v1` owner-framed reference.
 This transport check does not validate individual native signatures, authorize
-execution, or enable the unfinished authored-effect producer. Existing exact
+execution, or replace the effect-program judgment that follows it. Existing exact
 profile admission and catalog-to-export nominal checks remain required.
 
 The pure `effect_publication::encode_effect_publication` API constructs the
 current operation-package/program wire shapes for untrusted effect proposals.
 It preserves the embedded compiler bundle, derives artifact identities and
 uses the current read/write/step budget fields. Native synthetic controls
-round-trip through the current runtime decoder. The public lowerer does not yet
-call this factory; compiler correspondence, graph-law semantics, independent
-verification, authority admission and execution remain separate obligations.
+round-trip through the current runtime decoder. The public lowerer component
+calls this factory, after its own effect-program judgment, for an
+`edict-effect-program/v1` configuration; graph-law semantics, authority
+admission and execution remain separate obligations.
 
 The provider's `echo-operation-package` owning root also admits this current
 effect envelope. Anchored and effect envelopes share the current package field
@@ -1114,9 +1115,26 @@ An authored effect package carries no `obstruction_coordinate`. Its program can 
 
 This schema crossing validates the configuration's shape and bounds. It does
 not validate the embedded law/schema semantics, produce an effect package, or
-provide runtime authority. The public lowerer/verifier effect branch and target
-resource declarations remain unfinished. Runtime preparation and private
-execution evidence above do not establish that producer path.
+provide runtime authority.
+
+The public lowerer component emits an effect package for that configuration
+and the separate verifier component judges it against the compiler request:
+it rebuilds the package the request determines and accepts only that package,
+and only when its own effect-program judgment accepts it. Both bind the
+request's lawpack, adapter and configuration to the single-intent Core and its
+Target IR. A flat program compiled from public source travels this path and
+runs on the generic runtime (`crates/warp-core/tests/fixtures/edict-effect-program`).
+The checked `echo.dpo@1` target profile is not yet an effect target resource
+declaration: its catalog declares only `echo.dpo@1.replace` and it names
+`echo.span-ir/v1`, while an effect step requires the catalog to declare the
+intrinsic and the profile's Target IR to equal the adapter's accepted ordered
+IR. Through the checked profile, therefore, only programs without effect steps
+are published; effect steps fail closed at the judgment. Those flat programs
+pass only because the judgment and the runtime compare the profile's Target IR
+with the adapter's accepted ordered IR for effect steps alone, the tolerance the
+bounded-read route already relies on. The verifier report names the compiler's
+result projection by digest, but the effect route does not judge it: an effect
+package carries no projection, and its result is the Core intent's own.
 
 The `compiled_program` payload uses one current
 `echo.compiler-produced-effect-program/v1` artifact bundle with exactly

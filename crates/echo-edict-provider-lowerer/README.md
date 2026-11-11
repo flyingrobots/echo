@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 563,659-byte checked lowerer component has SHA-256
-`218c4ab6df3add7ace149413501c5481de4fcbaa40a4cdd196a4d2759f7a59f4` and has
+The refreshed 644,733-byte checked lowerer component has SHA-256
+`f4c6e64f819daf5417ad57eb2bb0a249f02e77da7b11c6dcd01b700815d85fe3` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -232,6 +232,27 @@ independently in `effect_package::verify_effect_package`.
 
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
-features are dev dependencies only. The public lowerer's component interface
-does not yet produce effect packages, and publication does not change the frozen
-WIT interface or enable installed effect execution.
+features are dev dependencies only. Publication does not change the frozen WIT
+interface or enable installed effect execution.
+
+## Public effect route
+
+When the request's target configuration is `edict-effect-program/v1`, the
+component's generic executable-operation route lowers through this producer. It
+requires the bound single-intent Core, binds the request's lawpack, adapter and
+configuration to that Core and its ordered Target IR (the Target IR must name
+the bound profile, Core and single lawpack, and the Core must import exactly that
+lawpack), checks the adapter selects the configuration as the bounded-read and
+pure routes do, and assembles the compiler bundle from the request's own
+artifacts. Lowering artifacts (source, lawpack, adapter, the exact checked
+target profile and the configuration's catalog) are carried only when the
+program has effect steps. The checked `echo.dpo@1` profile pins a catalog whose
+only intrinsic is `echo.dpo@1.replace` and names `echo.span-ir/v1` as its
+Target IR, so the judgment refuses any effect step through the component
+today; flat programs without effect steps are published. The public compiler
+witness under `crates/warp-core/tests/fixtures/edict-effect-program` compiles
+one such program through the checked components. It passes because the effect
+judgment, like Echo's runtime, compares the profile's Target IR with the
+adapter's accepted ordered IR only for programs with effect steps; the checked
+profile names `echo.span-ir/v1` while effect adapters accept `echo.span-ir/v2`,
+the same tolerance the bounded-read route already has.

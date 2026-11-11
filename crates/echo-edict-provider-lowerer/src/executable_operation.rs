@@ -4,6 +4,7 @@
 
 mod bounded_read;
 mod capabilities;
+mod effect_lowering;
 pub(crate) mod effect_program;
 mod effect_resources;
 mod record_type;
@@ -217,6 +218,7 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
 
     if effect_resources::is_configuration(&configuration) {
         effect_resources::validate(&configuration, &request.target_profile)?;
+        return effect_lowering::lower(request, &closure, source_domain(closure.source)?);
     }
 
     if bounded_read::is_configuration(&configuration) {

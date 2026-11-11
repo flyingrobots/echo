@@ -325,6 +325,19 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
             "an unknown budget field",
             package(&|p| insert(field_mut(p, "budget_ceiling"), "unexpected", V::Integer(0))),
         ),
+        // The verifier binds neither identity to a value, but each must be
+        // the 32-byte hash the runtime decodes.
+        (
+            "an authority profile that is not a hash",
+            package(&|p| *field_mut(p, "authority_profile_identity") = V::Null),
+        ),
+        (
+            "a source identity that is not a hash",
+            package(&|p| {
+                *field_mut(field_mut(p, "semantic_closure"), "edict_source_identity") =
+                    V::Bytes(vec![7; 31]);
+            }),
+        ),
     ];
     let mut cases = cases.to_vec();
     // Every fixed package profile and schema identity names the effect

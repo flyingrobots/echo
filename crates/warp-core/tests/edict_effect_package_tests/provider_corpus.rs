@@ -23,12 +23,16 @@ use warp_core::{EchoOperationApplicationBasisV1, EchoOperationBudgetV1};
 const GRAPH_EFFECTS: &str = "continuum.profile.graph-effects/v1";
 const READ: &str = "jedit.text@1.readFact";
 
-/// What the runtime says when it prepares the package. `None` means the
-/// refusal is a static judgment the runtime makes only when it executes.
+/// What the runtime says about the package.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Runtime {
+    /// It prepares and runs the package.
     Accepts,
+    /// It refuses the package at preparation.
     Refuses,
+    /// It prepares the package and refuses it only when it runs;
+    /// `the_runtime_refuses_each_executed_entry_when_it_runs` and
+    /// `ensure_node_needs_exactly_its_worst_case_allocation` run each one.
     Executes,
 }
 
@@ -452,7 +456,7 @@ impl Default for Frame {
 }
 impl Frame {
     /// The runtime frame's fixed ceilings, so only the package's own Core
-    /// budget can refuse a witness.
+    /// budget, or a cost beyond those ceilings, can refuse a witness.
     fn widest(atom: Option<usize>) -> Self {
         let mut limits = limits();
         limits.max_package_bytes = 4 * 1024 * 1024;
@@ -957,9 +961,10 @@ fn entries() -> Vec<Entry> {
                 AMPLE,
             ),
         ),
-        // A read that returns its atom's length, one byte under its runtime
-        // cost on a 1,048,521-byte atom. That cost includes the read's
-        // recorded observations, authorizations and retained payload.
+        // A read that returns its atom's length, with an ample allocation
+        // budget, then the same read one byte under its runtime cost on a
+        // 1,048,521-byte atom. That cost includes the read's recorded
+        // observations, authorizations and retained payload.
         entry(
             "read-and-return-control",
             true,
@@ -1111,11 +1116,10 @@ fn regenerate_the_retained_provider_corpus() {
 
 #[test]
 fn ensure_node_needs_exactly_its_worst_case_allocation() {
-    let control = fixture("ensure-node", GRAPH_EFFECTS).0;
-    run_largest_ensure_node(&with_allocation(&control, ENSURE_NODE_WORST_ALLOCATION))
+    run_largest_ensure_node(&retained("mutation-allocation-exact"))
         .expect("the worst case fits its exact allocation");
     assert_eq!(
-        run_largest_ensure_node(&with_allocation(&control, ENSURE_NODE_WORST_ALLOCATION - 1)),
+        run_largest_ensure_node(&retained("mutation-allocation-short")),
         Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
             EvaluationError::AllocationBudgetExceeded
         ))),
@@ -1127,9 +1131,21 @@ fn evaluation(error: EvaluationError) -> Result<Vec<u8>, EffectFrameError> {
     Err(EffectFrameError::BoundedRead(ReadError::Evaluation(error)))
 }
 
+/// A retained corpus package, decoded from its checked-in bytes, so a
+/// witness runs exactly what the providers judge.
+fn retained(name: &str) -> V {
+    let hex = RETAINED
+        .iter()
+        .find_map(|(entry, hex)| (*entry == name).then_some(*hex))
+        .unwrap_or_else(|| panic!("{name} is retained"));
+    echo_edict_canonical::decode_canonical_cbor_v1(&hex::decode(hex.trim()).expect("hex"))
+        .expect("canonical package")
+}
+
 /// The runtime prepares each `Executes` entry and refuses it when it runs, on
-/// an input its types and constraints admit. Each assertion names the exact
-/// refusal; each refused run has an accepted control beside it.
+/// an input its types and constraints admit. Every run uses the retained
+/// package itself. Each assertion names the exact refusal; each refused run
+/// has an accepted control beside it.
 #[test]
 fn the_runtime_refuses_each_executed_entry_when_it_runs() {
     let slice_input = encoded(&map([
@@ -1137,94 +1153,80 @@ fn the_runtime_refuses_each_executed_entry_when_it_runs() {
         ("other", V::Bytes(Vec::new())),
         ("text", V::Bytes(Vec::new())),
     ]));
-    run(&proven_slice(), &slice_input).expect("the slice control runs");
+    run(&retained("slice-proven"), &slice_input).expect("the slice control runs");
     assert_eq!(
-        run(&with_budget(&proven_slice(), 1), &slice_input),
+        run(&retained("over-budget"), &slice_input),
         evaluation(EvaluationError::StepBudgetExceeded),
         "over-budget"
     );
     assert_eq!(
-        run(
-            &without_constraint_field(&proven_slice(), "coordinate"),
-            &slice_input
-        ),
+        run(&retained("constraint-without-coordinate"), &slice_input),
         evaluation(EvaluationError::InvalidArtifact),
         "constraint-without-coordinate"
     );
-    let payload = |output| {
-        run(
-            &with_output(&require_with_text_payload(), output),
-            &failing_require_input(),
-        )
-    };
     assert!(
         matches!(
-            payload(65536),
+            run(&retained("require-payload-fits"), &failing_require_input()),
             Err(EffectFrameError::AuthoredObstruction { .. })
         ),
         "require-payload-fits reports its own obstruction"
     );
     assert_eq!(
-        payload(REQUIRE_PAYLOAD_OUTPUT),
+        run(
+            &retained("require-payload-over-output"),
+            &failing_require_input()
+        ),
         evaluation(EvaluationError::OutputBudgetExceeded),
         "require-payload-over-output"
     );
     let (_, ensure_input) = fixture("ensure-node", GRAPH_EFFECTS);
-    run(
-        &ensure_node_with_basis(ensure_node_input_field("nodeId")),
-        &ensure_input,
-    )
-    .expect("basis-control runs");
+    run(&retained("basis-control"), &ensure_input).expect("basis-control runs");
     assert_eq!(
-        run(
-            &ensure_node_with_basis(map([
-                ("kind", text("const")),
-                (
-                    "value",
-                    map([("kind", text("bool")), ("value", V::Bool(true))]),
-                ),
-            ])),
-            &ensure_input
-        ),
+        run(&retained("basis-not-bytes"), &ensure_input),
         evaluation(EvaluationError::InvalidArtifact),
         "basis-not-bytes"
     );
-    let repeated = |count| {
-        run_on(
-            &with_budget(
-                &repeat_emission(&fixture("ensure-node", GRAPH_EFFECTS).0, count),
-                AMPLE,
-            ),
-            &ensure_input,
-            &Frame::widest(None),
-        )
-    };
-    repeated(2).expect("mutation-count-control runs");
+    run_on(
+        &retained("mutation-count-control"),
+        &ensure_input,
+        &Frame::widest(None),
+    )
+    .expect("mutation-count-control runs");
     assert_eq!(
-        repeated(1025),
+        run_on(
+            &retained("mutation-count-over"),
+            &ensure_input,
+            &Frame::widest(None)
+        ),
         Err(EffectFrameError::BudgetExceeded),
         "mutation-count-over"
     );
+    // The captured read declares 1,048,576 steps, the same as the frame's
+    // fixed step ceiling, so here the declared budget and the ceiling refuse
+    // together; `read-control` runs this atom only up to the same ceiling.
     assert_eq!(
         run_on(
-            &publication_for_lowering(&repinned_lowering_artifacts()),
+            &retained("read-captured-budget"),
             &read_input(),
             &Frame::widest(Some(600_000)),
         ),
         evaluation(EvaluationError::StepBudgetExceeded),
-        "read-captured-budget, on an atom whose cost exceeds its 1 MiB steps"
+        "read-captured-budget"
     );
-    let read_witness = |allocation| {
+    let read_witness = |package: &V| {
         run_on(
-            &with_allocation(&read_and_return(), allocation),
+            package,
             &read_input(),
-            &Frame::widest(Some(1_048_521)),
+            &Frame::widest(Some(usize::try_from(READ_WITNESS_ATOM).expect("atom"))),
         )
     };
-    let need = read_and_return_cost(READ_WITNESS_ATOM).1;
-    read_witness(need).expect("the read fits its exact cost");
+    let exact = with_allocation(
+        &read_and_return(),
+        read_and_return_cost(READ_WITNESS_ATOM).1,
+    );
+    read_witness(&exact).expect("the read fits its exact cost");
     assert_eq!(
-        read_witness(need - 1),
+        read_witness(&retained("read-allocation-short")),
         evaluation(EvaluationError::AllocationBudgetExceeded),
         "read-allocation-short"
     );

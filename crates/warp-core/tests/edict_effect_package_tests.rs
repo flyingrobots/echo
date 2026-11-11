@@ -1716,3 +1716,7 @@ mod proven_ranges;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/provider_corpus.rs"]
 mod provider_corpus;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/public_flat_effect.rs"]
+mod public_flat_effect;

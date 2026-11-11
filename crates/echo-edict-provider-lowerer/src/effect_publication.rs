@@ -60,12 +60,15 @@ pub fn judge_effect_program(compiled_program: &[u8]) -> Result<(), EffectPublica
 
 /// Serializes the single current operation-package and effect-program formats.
 ///
-/// This constructs an untrusted proposal. Callers must independently verify
-/// compiler correspondence, policy and authority before any runtime admission.
+/// This constructs an untrusted proposal. It first runs the lowerer's own
+/// effect-program judgment (`judge_effect_program`), which includes Core and
+/// Target IR correspondence; the verifier and the runtime still judge the
+/// package independently, and policy and authority remain the caller's.
 /// # Errors
-/// Refuses malformed artifact/configuration envelopes, unsupported source
-/// domains, undeclared coordinates and invalid limit fields. Graph-law semantics,
-/// compiler correspondence and authority remain independent checks.
+/// Refuses programs outside the lowerer's judgment, malformed
+/// artifact/configuration envelopes, unsupported source domains, undeclared
+/// coordinates and invalid limit fields. Graph-law semantics and authority
+/// remain independent checks.
 #[allow(
     clippy::too_many_lines,
     reason = "Keep the current wire projection and its identity recipes visible together."

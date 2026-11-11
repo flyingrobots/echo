@@ -18,6 +18,8 @@ const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
 /// The row the runtime reserves for each emitted mutation, in bytes, beside
 /// the 64-byte unit value the effect binds.
 const EMISSION_RESERVATION: u64 = 280;
+/// The most mutations one runtime evaluation emits.
+const EFFECT_COUNT_CEILING: usize = 1024;
 
 /// What the lowering relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
@@ -82,6 +84,9 @@ impl<'a> Judgment<'a> {
         // proves another.
         let constraints = list(get(intent, "inputConstraints")?)?;
         for constraint in constraints {
+            // The runtime names each constraint by its coordinate when it fails.
+            exact(constraint, &["coordinate", "predicate"])?;
+            string(get(constraint, "coordinate")?)?;
             cost = cost.plus(
                 self.predicate(get(constraint, "predicate")?, &scope, true, 0)?
                     .0,
@@ -94,6 +99,10 @@ impl<'a> Judgment<'a> {
         if sites.keys().any(|index| *index >= nodes.len()) {
             return Err(());
         }
+        // The largest obstruction payload a failure path encodes, and the
+        // mutations the body emits.
+        let mut obstruction_output = 0_u64;
+        let mut mutations = 0_usize;
         for (index, node) in nodes.iter().enumerate() {
             cost = cost.plus(Cost { steps: 1, bytes: 0 })?;
             let mut claim = |local: &'a Value| -> Check<()> {
@@ -139,9 +148,28 @@ impl<'a> Judgment<'a> {
                     if string(get(reason, "reasonKind")?)?.is_empty() {
                         return Err(());
                     }
-                    for (_, value) in members(get(reason, "payload")?)? {
-                        cost = cost.plus(self.expression(value, &scope, true, 0)?.cost)?;
+                    // On failure the runtime builds this record and encodes it
+                    // as the obstruction payload, under the result's output
+                    // ceiling.
+                    let mut fields = BTreeMap::new();
+                    let mut payload = Cost {
+                        steps: 1,
+                        bytes: 64,
+                    };
+                    for (name, value) in members(get(reason, "payload")?)? {
+                        let name = string(name)?;
+                        let fact = self.expression(value, &scope, true, 0)?;
+                        payload = payload.plus(fact.cost)?.plus(Cost {
+                            steps: 0,
+                            bytes: 64_u64.checked_add(name.len() as u64).ok_or(())?,
+                        })?;
+                        if fields.insert(name.to_owned(), fact.ty).is_some() {
+                            return Err(());
+                        }
                     }
+                    let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
+                    cost = cost.plus(payload)?.plus(scratch)?;
+                    obstruction_output = obstruction_output.max(encoded);
                 }
                 "effect" => {
                     exact(
@@ -156,7 +184,17 @@ impl<'a> Judgment<'a> {
                     }
                     let output = self.ty(&site.output, 0)?;
                     let charge = abi(&site.intrinsic, &expected, &output)?;
-                    for (_, arm) in members(get(node, "obstructionMap")?)? {
+                    if site.intrinsic != "echo.dpo@1.node-atom-read" {
+                        mutations = mutations.checked_add(1).ok_or(())?;
+                    }
+                    let arms = members(get(node, "obstructionMap")?)?;
+                    if !arms.is_empty() {
+                        // A mapped read failure encodes an empty payload.
+                        let (scratch, _, encoded, _) = shape(&Ty::Record(BTreeMap::new()))?;
+                        cost = cost.plus(scratch)?;
+                        obstruction_output = obstruction_output.max(encoded);
+                    }
+                    for (_, arm) in arms {
                         exact(arm, &["binder", "value"])?;
                         claim(get(arm, "binder")?)?;
                         let reason = get(arm, "value")?;
@@ -199,9 +237,12 @@ impl<'a> Judgment<'a> {
         })?;
         let budget = get(intent, "coreEvaluationBudget")?;
         exact(budget, &["maxSteps", "maxAllocatedBytes", "maxOutputBytes"])?;
+        let max_output = number(get(budget, "maxOutputBytes")?)?;
         if cost.steps > number(get(budget, "maxSteps")?)?
             || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
-            || output > number(get(budget, "maxOutputBytes")?)?
+            || output > max_output
+            || obstruction_output > max_output
+            || mutations > EFFECT_COUNT_CEILING
         {
             return Err(());
         }

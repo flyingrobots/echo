@@ -312,30 +312,46 @@ judge the same bodies independently with input-constraint facts and `let`
 ceilings, and the three judgments must agree. They differ in one way today:
 the providers let a constraint use the constraints before it, where Edict and
 Echo check each alone, so a package whose later constraint needs an earlier
-one passes the providers and is refused here (#960). The graph-effects route
-has no provider judgment yet.
+one passes the providers and is refused here (#960). On the graph-effects route
+the providers judge each constraint alone, as the runtime does.
 
 The provider lowerer and verifier each judge an authored effect program
-themselves, sharing no code with the runtime or each other. Each establishes
-the program's binding to its own Core, Target IR and exports; the pinned
-lawpack, adapter, target profile and intrinsic catalog that authorize each
-effect; each effect's runtime ABI, write class and failure contract through
-the intrinsic-scoped failure table; one declared obstruction per failure arm
-with a matching authority class; node-for-node Core and Target IR
-correspondence; and the body's types, proven ranges and declared budget under
-its own cost model. As in the runtime, each input constraint is judged with no
+themselves, sharing no code with the runtime. Each establishes the program's
+binding to its own Core, Target IR and exports; the pinned lawpack, adapter,
+target profile and intrinsic catalog that authorize each effect; each
+effect's runtime ABI, write class and failure contract through the
+intrinsic-scoped failure table; one declared obstruction per failure arm with
+a matching authority class; node-for-node Core and Target IR correspondence;
+and the body's types, proven ranges and declared Core budget under its own
+static cost model. As in the runtime, each input constraint is judged with no
 facts, and only then do all of them dominate the body, so one constraint never
-proves another. Each emitted mutation is charged the row the runtime reserves
-for it. The lowerer runs this judgment before it serializes an effect
-publication, and the verifier runs it, then binds every identity the package
-claims, including its canonical meaning, to the program it carries, before
-installation. Both reach the
-runtime's verdict on a retained corpus of accepted programs and forgeries that
-warp-core generates and pins. Their cost models are stricter than the runtime's
-meter: a program whose declared step budget cannot cover its worst case, such
-as the captured node-atom read's 1 MiB budget for a 1 MiB read and scan, is
-refused before installation, where the runtime would refuse it only when it
-executes.
+proves another. The budget judgment charges each emitted mutation the row the
+runtime reserves for it, bounds every failure payload by the output ceiling,
+and allows at most 1,024 mutations. The lowerer runs this judgment before it
+serializes an effect publication. The verifier runs it, checks the package
+and program envelopes the runtime admits, and binds the Core, canonical
+meaning, Target IR, exports, operation, output type and footprint contract
+the package claims to the program it carries, before installation. The
+verifier does not bind the source identity, authority profile or schema
+identities, which the runtime admits itself.
+
+The two providers' copies of the program-level checks are near-identical, so
+they are independent of the runtime, not of each other. All three judges reach
+the same verdict on a retained corpus of accepted programs, forgeries and
+accepted siblings that differ from a forgery by the one edit it targets,
+which warp-core generates and pins. For the corpus entries the runtime
+refuses only when it runs, the runtime test executes each one and observes
+the refusal; one entry, the captured read's 1 MiB step budget, is refused by
+the providers' cost model only.
+
+The providers' budget judgment is a static model over declared types, not a
+bound on the runtime's meter. The runtime meters every evaluation and refuses
+whatever exceeds its budget. A read's metered cost depends on graph state the
+providers cannot see: an atom larger than its declared maximum is charged in
+full before it is refused, a read below the root warp or through a portal
+costs more, and a frame's fixed ceilings can bind first. Package-level limits
+and ceilings are also enforced by the runtime, not judged against the Core
+budget.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and the current pinned publication containing an authored arithmetic helper.

@@ -224,8 +224,9 @@ refuses an unsafe program with `UnsupportedProgram`. The judgment establishes
 the program's binding to its own artifacts, the pinned lawpack, adapter,
 profile and catalog that authorize each effect, each effect's intrinsic ABI and
 failure contract, declared obstructions, Core and Target IR correspondence, and
-the body's types, proven ranges and declared budget. It does not judge
-graph-law semantics or grant authority. The verifier judges the same programs
+the body's types, proven ranges and declared Core budget, under a static cost
+model over declared types that does not bound the runtime's meter. It does not
+judge graph-law semantics or grant authority. The verifier judges the same programs
 independently in `effect_package::verify_effect_package`.
 
 The witness uses synthetic crate-local inputs and the current runtime decoder

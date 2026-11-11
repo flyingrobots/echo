@@ -18,6 +18,8 @@ const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
 /// The row the runtime reserves for each emitted mutation, in bytes, beside
 /// the 64-byte unit value the effect binds.
 const EMISSION_RESERVATION: u64 = 280;
+/// The most mutations one runtime evaluation emits.
+const EFFECT_COUNT_CEILING: usize = 1024;
 
 /// What the verifier's relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
@@ -85,6 +87,9 @@ impl<'a> Checker<'a, '_> {
         // proves another.
         let constraints = sequence(get(intent, "inputConstraints")?)?;
         for constraint in constraints {
+            // The runtime names each constraint by its coordinate when it fails.
+            exact(constraint, &["coordinate", "predicate"])?;
+            string(get(constraint, "coordinate")?)?;
             charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
         }
         for constraint in constraints {
@@ -94,6 +99,10 @@ impl<'a> Checker<'a, '_> {
         if sites.keys().any(|index| *index >= nodes.len()) {
             return Err(());
         }
+        // The largest obstruction payload a failure path encodes, and the
+        // mutations the body emits.
+        let mut obstruction_output = 0_u128;
+        let mut mutations = 0_usize;
         for (index, node) in nodes.iter().enumerate() {
             charge.append(Charge {
                 ticks: 1,
@@ -134,9 +143,29 @@ impl<'a> Checker<'a, '_> {
                     if string(get(reason, "reasonKind")?)?.is_empty() {
                         return Err(());
                     }
-                    for (_, value) in members(get(reason, "payload")?)? {
-                        charge.append(self.expression(value, &frame, 0)?.charge)?;
+                    // On failure the runtime builds this record and encodes it
+                    // as the obstruction payload, under the result's output
+                    // ceiling.
+                    let mut fields = BTreeMap::new();
+                    charge.append(Charge {
+                        ticks: 1,
+                        storage: 64,
+                    })?;
+                    for (name, value) in members(get(reason, "payload")?)? {
+                        let name = string(name)?;
+                        let checked = self.expression(value, &frame, 0)?;
+                        charge.append(checked.charge)?;
+                        charge.append(Charge {
+                            ticks: 0,
+                            storage: 64 + name.len() as u128,
+                        })?;
+                        if fields.insert(name.to_owned(), checked.schema).is_some() {
+                            return Err(());
+                        }
                     }
+                    let payload = Schema::Fields(fields).measure()?;
+                    charge.append(payload.copy)?;
+                    obstruction_output = obstruction_output.max(payload.encoded);
                 }
                 _ => {
                     exact(
@@ -151,7 +180,17 @@ impl<'a> Checker<'a, '_> {
                     }
                     let output = self.types.resolve(&site.output, 0)?;
                     let cost = abi(&site.intrinsic, &input, &output)?;
-                    for (_, arm) in members(get(node, "obstructionMap")?)? {
+                    if site.intrinsic != "echo.dpo@1.node-atom-read" {
+                        mutations = mutations.checked_add(1).ok_or(())?;
+                    }
+                    let arms = members(get(node, "obstructionMap")?)?;
+                    if !arms.is_empty() {
+                        // A mapped read failure encodes an empty payload.
+                        let payload = Schema::Fields(BTreeMap::new()).measure()?;
+                        charge.append(payload.copy)?;
+                        obstruction_output = obstruction_output.max(payload.encoded);
+                    }
+                    for (_, arm) in arms {
                         exact(arm, &["binder", "value"])?;
                         let binder = get(arm, "binder")?;
                         let id = string(get(binder, "id")?)?;
@@ -207,9 +246,12 @@ impl<'a> Checker<'a, '_> {
             ceiling,
             &["maxSteps", "maxAllocatedBytes", "maxOutputBytes"],
         )?;
+        let max_output = u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?);
         if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
             || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
-            || size.encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
+            || size.encoded > max_output
+            || obstruction_output > max_output
+            || mutations > EFFECT_COUNT_CEILING
         {
             return Err(());
         }

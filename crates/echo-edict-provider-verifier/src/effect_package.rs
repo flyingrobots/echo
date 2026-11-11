@@ -44,17 +44,15 @@ impl std::error::Error for EffectPackageRefusal {}
 pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal> {
     use EffectPackageRefusal::{InvalidBinding as B, InvalidEnvelope as E};
     let package = canonical(package)?;
+    exact_fields(&package, &PACKAGE_FIELDS)?;
+    exact_fields(get(&package, "semantic_closure", E)?, &CLOSURE_FIELDS)?;
     if text(get(&package, "schema", E)?, E)? != "echo.operation-package/v1"
-        || map_field(&package, "obstruction_coordinate").is_some()
+        || unsigned(get(get(&package, "budget_ceiling", E)?, "steps", E)?)? == 0
     {
         return Err(E);
     }
     let program = canonical(bytes(get(&package, "program", E)?, E)?)?;
-    if text(get(&program, "schema", E)?, E)? != "echo.operation-program/v1"
-        || text(get(&program, "kind", E)?, E)? != "edict-effect-program/v1"
-    {
-        return Err(E);
-    }
+    envelope(&program)?;
     let compiled = bytes(get(&program, "compiled_program", E)?, E)?;
     let judged = crate::executable_operation::effect_program::judge(compiled)
         .map_err(|()| EffectPackageRefusal::UnsupportedProgram)?;
@@ -98,6 +96,118 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
         return Err(B);
     }
     Ok(())
+}
+
+/// The fields Echo's runtime admits in an authored effect package. An effect
+/// package names no obstruction coordinate and projects no result.
+const PACKAGE_FIELDS: [&str; 17] = [
+    "application_basis_schema_identity",
+    "authority_profile_identity",
+    "budget_ceiling",
+    "evaluation_basis_schema_identity",
+    "footprint_contract_identity",
+    "input_schema_identity",
+    "interpreter_profile_identity",
+    "intrinsic_profile_identity",
+    "obstruction_interpretation_identity",
+    "obstruction_schema_identity",
+    "operation_coordinate",
+    "program",
+    "result_interpretation_identity",
+    "result_schema_identity",
+    "schema",
+    "semantic_closure",
+    "target_profile_identity",
+];
+/// An effect package's semantic closure binds no lawpack.
+const CLOSURE_FIELDS: [&str; 6] = [
+    "application_schema_coordinate",
+    "application_schema_identity",
+    "canonical_meaning_identity",
+    "core_identity",
+    "edict_source_identity",
+    "target_ir_identity",
+];
+const PROGRAM_FIELDS: [&str; 13] = [
+    "compiled_program",
+    "footprint_law",
+    "graph_schema",
+    "identity_law",
+    "interpreter_profile_identity",
+    "intrinsic_profile_identity",
+    "kind",
+    "max_allocated_bytes",
+    "max_input_bytes",
+    "max_result_bytes",
+    "output_type",
+    "schema",
+    "target_ir_identity",
+];
+/// The runtime's fixed ceilings on an effect program's declared limits.
+const MAX_INPUT_BYTES: u64 = 65_536;
+const MAX_RESULT_BYTES: u64 = 65_536;
+const MAX_ALLOCATED_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_OUTPUT_TYPE_BYTES: usize = 1024;
+
+/// Checks the effect program's envelope as the runtime admits it: its exact
+/// fields, schema, identity law, profiles and declared limits.
+fn envelope(program: &Value) -> Result<(), EffectPackageRefusal> {
+    use EffectPackageRefusal::InvalidEnvelope as E;
+    exact_fields(program, &PROGRAM_FIELDS)?;
+    if text(get(program, "schema", E)?, E)? != "echo.operation-program/v1"
+        || text(get(program, "kind", E)?, E)? != "edict-effect-program/v1"
+        || unsigned(get(program, "identity_law", E)?)? != 1
+        || unsigned(get(program, "max_input_bytes", E)?)? > MAX_INPUT_BYTES
+        || unsigned(get(program, "max_result_bytes", E)?)? > MAX_RESULT_BYTES
+        || unsigned(get(program, "max_allocated_bytes", E)?)? > MAX_ALLOCATED_BYTES
+        || text(get(program, "output_type", E)?, E)?.len() > MAX_OUTPUT_TYPE_BYTES
+    {
+        return Err(E);
+    }
+    for (field, label) in [
+        (
+            "interpreter_profile_identity",
+            "echo.operation-interpreter.edict-effect/v1",
+        ),
+        (
+            "intrinsic_profile_identity",
+            "echo.operation-intrinsics.edict-effect/v1",
+        ),
+    ] {
+        if bytes(get(program, field, E)?, E)? != profile_identity(label) {
+            return Err(E);
+        }
+    }
+    Ok(())
+}
+/// The runtime's identity for a named operation profile.
+fn profile_identity(label: &str) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:operation-profile:v1\0");
+    hasher.update(&(label.len() as u64).to_le_bytes());
+    hasher.update(label.as_bytes());
+    hasher.finalize().into()
+}
+fn exact_fields(value: &Value, expected: &[&str]) -> Result<(), EffectPackageRefusal> {
+    let Value::Map(fields) = value else {
+        return Err(EffectPackageRefusal::InvalidEnvelope);
+    };
+    if fields.len() != expected.len()
+        || fields
+            .iter()
+            .any(|(key, _)| !matches!(key, Value::Text(name) if expected.contains(&name.as_str())))
+    {
+        return Err(EffectPackageRefusal::InvalidEnvelope);
+    }
+    Ok(())
+}
+fn unsigned(value: &Value) -> Result<u64, EffectPackageRefusal> {
+    match value {
+        Value::Integer(number) => {
+            u64::try_from(*number).map_err(|_| EffectPackageRefusal::InvalidEnvelope)
+        }
+        _ => Err(EffectPackageRefusal::InvalidEnvelope),
+    }
 }
 
 fn canonical(bytes: &[u8]) -> Result<Value, EffectPackageRefusal> {

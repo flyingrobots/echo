@@ -294,6 +294,7 @@ mod branch_fact_corpus;
 #[test]
 fn branch_fact_corpus_helpers_lower_and_verify_with_the_corpus_verdict() {
     let mut checked = 0;
+    let mut skipped = Vec::new();
     for case in branch_fact_corpus::cases() {
         let CanonicalValueV1::Map(functions) = map_field(&case.core, "functions") else {
             panic!("{}: functions", case.name)
@@ -301,6 +302,7 @@ fn branch_fact_corpus_helpers_lower_and_verify_with_the_corpus_verdict() {
         // A multi-helper case names its callee by the corpus module's
         // coordinate, which this fixture does not share.
         let [(CanonicalValueV1::Text(name), helper)] = functions.as_slice() else {
+            skipped.push(case.name);
             continue;
         };
         let name = format!("branch_{name}");
@@ -326,10 +328,11 @@ fn branch_fact_corpus_helpers_lower_and_verify_with_the_corpus_verdict() {
         checked += 1;
     }
     assert_eq!(
-        checked,
-        branch_fact_corpus::cases()
-            .iter()
-            .filter(|case| matches!(map_field(&case.core, "functions"), CanonicalValueV1::Map(f) if f.len() == 1))
-            .count()
+        skipped,
+        [
+            "a caller's branch does not reach its helper",
+            "a caller keeps its branch facts after a helper call",
+        ]
     );
+    assert_eq!(checked + skipped.len(), branch_fact_corpus::cases().len());
 }

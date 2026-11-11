@@ -326,8 +326,8 @@ constraint no node needs therefore costs only its own size. An addition is
 likewise first judged without the facts of its enclosing conjunct prefixes, so
 an unneeded earlier conjunct changes neither its proof-budget cost nor its
 depth. The predicates of enclosing `then` arms are read last: only after every
-earlier run of the node refuses, the input-constraint run included, does a last
-run read them, so a node that needs a constraint but no branch fact costs what
+earlier run of the node refuses, including the input-constraint run when there
+is one, does a last run read them, so a node that needs a constraint but no branch fact costs what
 it did before.
 
 On the bounded-read route the provider lowerer

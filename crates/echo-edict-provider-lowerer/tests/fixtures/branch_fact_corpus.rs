@@ -4,8 +4,8 @@
 //!
 //! warp-core, the provider lowerer and the provider verifier each include this
 //! file and must reach `accepted` for every case. Each case is a Core module
-//! with one source helper and no intents, so every judgment checks the same
-//! body. Inside the `then` arm of an `if`, the predicate is a fact for
+//! of source helpers and no intents, so every judgment checks the same
+//! bodies; all but two cases have exactly one helper. Inside the `then` arm of an `if`, the predicate is a fact for
 //! additions, subtractions and slices, as in Amblicit's totality rule. The
 //! `else` arm, disjunctions, negations and the predicate itself gain nothing.
 //! Facts are read with the forms the judgments read before: an addition bound
@@ -401,8 +401,9 @@ pub(crate) fn cases() -> Vec<Case> {
         },
         {
             // The caller's branch facts are back after it first calls a
-            // helper: `x + 1` is judged after `z_same(x)` in the same `then`
-            // arm, and only the outer `x <= 2` bounds it.
+            // helper. A judgment that judges a helper at its first call (the
+            // lowerer) judges `x + 1` after `z_same(x)` in the same `then` arm,
+            // and only the outer `x <= 2` bounds it.
             let x = param(0, "U64");
             let same = function(vec![x.clone()], "U64", read(&x));
             let caller = function(

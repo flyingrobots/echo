@@ -23,6 +23,8 @@ const OUTPUTS: [&str; 2] = [
 const VENDOR: &str = "vendor/graph-read";
 const IMPORT: &str = "use lawpack consumer.graph@1 digest \"";
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+/// A compiler executable is far larger than any authored or generated file.
+const MAX_COMPILER_BYTES: u64 = 256 * 1024 * 1024;
 
 struct Arguments {
     compiler: PathBuf,
@@ -68,11 +70,15 @@ fn arguments() -> Result<Arguments> {
 }
 
 fn read(path: &Path) -> Result<Vec<u8>> {
+    read_bounded(path, MAX_FILE_BYTES)
+}
+
+fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>> {
     let metadata = path
         .symlink_metadata()
         .with_context(|| format!("missing {}", path.display()))?;
     ensure!(
-        metadata.is_file() && metadata.len() <= MAX_FILE_BYTES,
+        metadata.is_file() && metadata.len() <= max,
         "unbounded or nonregular input {}",
         path.display()
     );
@@ -284,7 +290,7 @@ fn main() -> Result<()> {
 
     let mut receipt = serde_json::json!({
         "schema": "echo.graph-read-publication/v1",
-        "compilerSha256": sha256(&read(&arguments.compiler)?),
+        "compilerSha256": sha256(&read_bounded(&arguments.compiler, MAX_COMPILER_BYTES)?),
         "providerManifestSha256":
             sha256(&read(&arguments.provider.join("provider-manifest.echo.json"))?),
         "lawpackDigest": pin,
@@ -341,6 +347,17 @@ fn main() -> Result<()> {
         evidence.join("evidence.json"),
         format!("{}\n", serde_json::to_string_pretty(&receipt)?),
     )?;
+    // Report the retained-fixture comparison before judging the refusal, so
+    // one run shows every difference.
+    let retained = if arguments.check {
+        compare(&evidence, &arguments.fixtures)
+    } else {
+        Ok(())
+    };
+    println!(
+        "PUBLIC_GRAPH_READ_REFUSAL exit={} kinds={kinds:?}",
+        refused.exit_code
+    );
     if refused.exit_code != 2
         || kinds.first().map(String::as_str) != Some("InvalidProviderInvocation")
         || root.join("application-output").exists()
@@ -348,9 +365,8 @@ fn main() -> Result<()> {
         bail!("predecessor provider did not refuse at its schema boundary: {kinds:?}");
     }
     println!("PUBLIC_GRAPH_READ_REFUSAL_OK old-provider");
-
+    retained?;
     if arguments.check {
-        compare(&evidence, &arguments.fixtures)?;
         println!("PUBLIC_GRAPH_READ_RETAINED_OK");
     }
     Ok(())

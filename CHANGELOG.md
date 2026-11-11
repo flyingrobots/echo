@@ -196,6 +196,17 @@
 
 ### Fixed
 
+- `warp-core` and `echo-wesley-gen` require cap-std and cap-fs-ext 4.0.3, and
+  the locked rustix is 1.1.6, fixing RUSTSEC-2026-0482 (a cap-primitives
+  sandbox escape through a trailing slash) and RUSTSEC-2026-0486 (unsound
+  rustix extended-attribute calls). rustix 1.1.6 requires libc 0.2.182 and
+  linux-raw-sys 0.12. The isolated Echo–Keep experiment pins Keep
+  `27d5c38c1d13`, which requires rustix 1.1.6, cap-std 4.0.3 and blake3
+  1.8.7. The provider-host test lockfile takes the same patched releases. No
+  advisory exceptions are added. The provider package's `provider.digest`
+  changes; consumers that pin it must update the pin. Component bytes are
+  unchanged.
+
 - pulldown-cmark is updated to 0.13.6, and `xtask` requires at least that
   version, fixing RUSTSEC-2026-0433 (quadratic parsing of nested image
   wikilinks). No advisory exceptions are added. The provider package's

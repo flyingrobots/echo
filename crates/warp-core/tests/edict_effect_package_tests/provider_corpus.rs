@@ -267,6 +267,38 @@ fn ensure_node_with_nominal(name: &str) -> V {
     })
 }
 
+/// `ensure_node_with_nominal("MutationInput")` with one field the runtime's
+/// nominal type entry does not have.
+fn ensure_node_with_annotated_nominal() -> V {
+    rebuild(&ensure_node_with_nominal("MutationInput"), |core, _, _| {
+        add(
+            value_field_mut(value_field_mut(core, "types"), "MutationInput"),
+            "note",
+            text("x"),
+        );
+    })
+}
+
+/// The captured read with its Target IR naming one declared failure twice.
+fn read_with_repeated_failure() -> V {
+    rebuild(
+        &with_budget(
+            &publication_for_lowering(&repinned_lowering_artifacts()),
+            READ_AMPLE,
+        ),
+        |_, target, _| {
+            let V::Array(steps) = value_field_mut(selected_target_mut(target), "steps") else {
+                panic!("steps")
+            };
+            let V::Array(failures) = value_field_mut(&mut steps[0], "obstructionFailures") else {
+                panic!("failures")
+            };
+            let first = failures[0].clone();
+            failures.push(first);
+        },
+    )
+}
+
 /// The `ensure-node` fixture with an evaluation basis in Core and its
 /// lowered intent.
 fn ensure_node_with_basis(basis: V) -> V {
@@ -860,6 +892,21 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             ensure_node_with_nominal("MutationUnit"),
         ),
+        // A nominal type entry has exactly its kind, contract and
+        // representation.
+        entry(
+            "nominal-extra-field",
+            false,
+            Runtime::Refuses,
+            ensure_node_with_annotated_nominal(),
+        ),
+        // Each declared failure is listed once.
+        entry(
+            "failure-declared-twice",
+            false,
+            Runtime::Refuses,
+            read_with_repeated_failure(),
+        ),
         // An evaluation basis is exactly 32 bytes.
         entry(
             "basis-control",
@@ -976,6 +1023,8 @@ const RETAINED: &[(&str, &str)] = retained![
     "constraint-without-coordinate",
     "mutation-input-nominal",
     "mutation-result-nominal",
+    "nominal-extra-field",
+    "failure-declared-twice",
     "basis-control",
     "basis-not-bytes",
     "type-table-width",

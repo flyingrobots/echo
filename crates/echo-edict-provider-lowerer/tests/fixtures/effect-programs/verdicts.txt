@@ -24,6 +24,8 @@ local-name-empty refuse
 constraint-without-coordinate refuse
 mutation-input-nominal accept
 mutation-result-nominal refuse
+nominal-extra-field refuse
+failure-declared-twice refuse
 basis-control accept
 basis-not-bytes refuse
 type-table-width accept

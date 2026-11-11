@@ -44,6 +44,8 @@ const RETAINED: &[(&str, &str)] = retained![
     "constraint-without-coordinate",
     "mutation-input-nominal",
     "mutation-result-nominal",
+    "nominal-extra-field",
+    "failure-declared-twice",
     "basis-control",
     "basis-not-bytes",
     "type-table-width",

@@ -18,6 +18,7 @@ mod failure_names;
 mod imported_types;
 mod instruction_relation;
 mod intrinsic_contract;
+mod intrinsic_names;
 mod lowering_relation;
 mod mutations;
 pub use mutations::EffectMutation;

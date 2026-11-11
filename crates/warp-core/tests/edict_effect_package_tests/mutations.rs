@@ -73,11 +73,15 @@ impl Shape {
     /// The conforming shape: the catalog names Echo's ABI coordinates and the
     /// application declares its own type names over the ABI representation.
     pub(super) fn conforming(name: &str) -> Self {
+        Self::conforming_in(name, "echo.dpo@1")
+    }
+    /// The conforming shape under the intrinsic namespace `namespace`.
+    pub(super) fn conforming_in(name: &str, namespace: &str) -> Self {
         Self {
             input_name: "MutationInput",
             output_name: "MutationUnit",
-            catalog_argument: format!("echo.dpo@1.{name}.input"),
-            catalog_return: format!("echo.dpo@1.{name}.result"),
+            catalog_argument: format!("{namespace}.{name}.input"),
+            catalog_return: format!("{namespace}.{name}.result"),
             fields: layout(name),
             output: map([("kind", text("Record")), ("fields", map([]))]),
             effect_kind: effect_kind(name).to_owned(),
@@ -89,6 +93,25 @@ pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
     fixture_with(name, profile, &Shape::conforming(name))
 }
 pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<u8>) {
+    fixture_in("echo.dpo@1", name, profile, shape)
+}
+/// [`fixture_with`] under the target profile and intrinsic namespace `namespace`.
+pub(super) fn fixture_in(
+    namespace: &str,
+    name: &str,
+    profile: &str,
+    shape: &Shape,
+) -> (V, Vec<u8>) {
+    fixture_calling(namespace, &format!("{namespace}.{name}"), profile, shape)
+}
+/// A one-mutation program whose pins all follow the target profile `namespace`
+/// names, calling the intrinsic `intrinsic_name` through its adapter and step.
+fn fixture_calling(
+    namespace: &str,
+    intrinsic_name: &str,
+    profile: &str,
+    shape: &Shape,
+) -> (V, Vec<u8>) {
     let artifacts = repinned_lowering_artifacts();
     let decode = |key| {
         let V::Bytes(raw) = get(&artifacts, key) else {
@@ -109,11 +132,7 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
         value_field_mut(&mut adapter, "effectImplementations"),
         "jedit.text@1.readFact",
     );
-    set(
-        implementation,
-        "targetIntrinsic",
-        text(&format!("echo.dpo@1.{name}")),
-    );
+    set(implementation, "targetIntrinsic", text(intrinsic_name));
     set(implementation, "writeClass", text(&shape.write_class));
     set(implementation, "failureMappings", map([]));
     let V::Map(profiles) = value_field_mut(&mut adapter, "operationProfiles") else {
@@ -135,9 +154,14 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
     set(
         &mut catalog,
         "intrinsics",
-        V::Map(vec![(text(&format!("echo.dpo@1.{name}")), intrinsic)]),
+        V::Map(vec![(text(intrinsic_name), intrinsic)]),
     );
-    let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
+    let lowering = lowering_fixture_in(
+        namespace,
+        Some(catalog),
+        Some(exports.clone()),
+        Some(adapter),
+    );
     let (mut core, mut target, _) = compiler_fixture(&lowering);
     let fields = shape.fields.clone();
     let input_type = map([
@@ -205,7 +229,7 @@ pub(super) fn fixture_with(name: &str, profile: &str, shape: &Shape) -> (V, Vec<
             ("binding", local),
             ("effect", text("text.readFact")),
             ("input", input),
-            ("targetIntrinsic", text(&format!("echo.dpo@1.{name}"))),
+            ("targetIntrinsic", text(intrinsic_name)),
             ("obstructionArms", map([])),
             ("obstructionFailures", V::Array(vec![])),
         ])]),
@@ -500,6 +524,81 @@ fn all_five_compiled_mutation_emitters_prepare_and_run_without_writing_the_front
             if name.ends_with("edge") { 128 } else { 71 }
         );
         assert_eq!(frame.evaluation_basis(), Some(basis));
+    }
+}
+/// Prepares and runs the one-mutation program for `name` under the target
+/// profile `namespace` names, returning its output, buffered effects and
+/// write charge.
+fn run_in(namespace: &str, name: &str) -> (Vec<u8>, Vec<EffectMutation>, u64) {
+    let shape = Shape::conforming_in(name, namespace);
+    let (publication, input) = fixture_in(
+        namespace,
+        name,
+        "continuum.profile.graph-effects/v1",
+        &shape,
+    );
+    let package = prepare(&publication).unwrap_or_else(|e| panic!("{namespace}.{name}: {e:?}"));
+    let program = package.program().as_effect_program().expect("program");
+    let (host, head, _) = host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(
+            head,
+            EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+        )
+        .expect("basis");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 4096),
+            limits(),
+        )
+        .expect("frame")
+        .with_footprint_law(program.footprint_law().clone())
+        .expect("law");
+    let output = frame.evaluate_effect(program, &input, &[]).expect(name);
+    (
+        output.to_vec(),
+        frame.buffered_mutations().to_vec(),
+        frame.consumed().write_bytes(),
+    )
+}
+/// Issue #985: `echo.dpo@2` names the same runtime intrinsics as `echo.dpo@1`.
+/// Oracle: the `echo.dpo@1` run of the same program, whose effects the test
+/// above pins by hand; each `echo.dpo@2` run must buffer exactly those.
+#[test]
+fn each_mutation_buffers_the_same_effect_under_either_profile_coordinate() {
+    for name in NAMES {
+        let first = run_in("echo.dpo@1", name);
+        let second = run_in("echo.dpo@2", name);
+        assert_eq!(first.1.len(), 1, "{name}: one buffered effect");
+        assert_eq!(first, second, "{name}: echo.dpo@1 and echo.dpo@2 differ");
+    }
+}
+/// A program may not call an intrinsic outside the namespace of the profile
+/// it selects, whichever of the two coordinates that is.
+#[test]
+fn an_intrinsic_must_belong_to_the_selected_profile_namespace() {
+    for (profile, foreign) in [("echo.dpo@1", "echo.dpo@2"), ("echo.dpo@2", "echo.dpo@1")] {
+        let shape = Shape::conforming_in("ensure-node", foreign);
+        let call = format!("{foreign}.ensure-node");
+        // Every pin follows `profile`; only the called intrinsic, its catalog
+        // entry and its ABI names are in the other namespace.
+        let (publication, _) =
+            fixture_calling(profile, &call, "continuum.profile.graph-effects/v1", &shape);
+        assert!(prepare(&publication).is_err(), "{profile} calling {call}");
+        let own = Shape::conforming_in("ensure-node", profile);
+        let (control, _) = fixture_calling(
+            profile,
+            &format!("{profile}.ensure-node"),
+            "continuum.profile.graph-effects/v1",
+            &own,
+        );
+        assert!(
+            prepare(&control).is_ok(),
+            "{profile} calling its own intrinsic"
+        );
     }
 }
 fn parts(publication: &V) -> (V, V, V, V) {

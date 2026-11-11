@@ -12,12 +12,12 @@ pub(super) enum MutationKind {
 }
 impl MutationKind {
     pub(super) fn from_intrinsic(name: &str) -> Option<Self> {
-        match name {
-            "echo.dpo@1.ensure-node" => Some(Self::EnsureNode),
-            "echo.dpo@1.create-node" => Some(Self::CreateNode),
-            "echo.dpo@1.replace-atom" => Some(Self::ReplaceAtom),
-            "echo.dpo@1.ensure-edge" => Some(Self::EnsureEdge),
-            "echo.dpo@1.replace-edge" => Some(Self::ReplaceEdge),
+        match super::intrinsic_names::operation(name)? {
+            "ensure-node" => Some(Self::EnsureNode),
+            "create-node" => Some(Self::CreateNode),
+            "replace-atom" => Some(Self::ReplaceAtom),
+            "ensure-edge" => Some(Self::EnsureEdge),
+            "replace-edge" => Some(Self::ReplaceEdge),
             _ => None,
         }
     }

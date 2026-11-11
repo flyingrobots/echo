@@ -237,6 +237,28 @@ pub fn lowering_fixture_inputs(
     exports_override: Option<V>,
     adapter_override: Option<V>,
 ) -> V {
+    lowering_fixture_in("echo.dpo@1", catalog, exports_override, adapter_override)
+}
+/// The profile version and intrinsic-catalog coordinate each of Echo's two
+/// effect target profiles names (`echo.dpo@2` is the issue #985 exception).
+pub fn profile_names(namespace: &str) -> (&'static str, &'static str) {
+    match namespace {
+        "echo.dpo@1" => ("1", "echo.dpo.intrinsics/v1"),
+        "echo.dpo@2" => ("2", "echo.dpo.intrinsics/v2"),
+        _ => panic!("fixture namespace"),
+    }
+}
+/// [`lowering_fixture_inputs`] under the target profile `namespace` names: the
+/// captured profile takes that coordinate, intrinsic namespace and catalog
+/// coordinate, and the adapter accepts it. Intrinsic names inside the supplied
+/// catalog and adapter are the caller's.
+pub fn lowering_fixture_in(
+    namespace: &str,
+    catalog: Option<V>,
+    exports_override: Option<V>,
+    adapter_override: Option<V>,
+) -> V {
+    let (profile_version, catalog_id) = profile_names(namespace);
     let captured = |value: &str| {
         echo_edict_canonical::decode_canonical_cbor_v1(
             &hex::decode(value.trim()).expect("captured bytes"),
@@ -319,13 +341,16 @@ pub fn lowering_fixture_inputs(
     let mut target_profile = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/profile.hex"
     ));
+    set(&mut target_profile, "version", text(profile_version));
+    set(&mut target_profile, "intrinsicNamespace", text(namespace));
     let mut intrinsics_ref = get(&target_profile, "intrinsics").clone();
+    set(&mut intrinsics_ref, "id", text(catalog_id));
     set(
         &mut intrinsics_ref,
         "digest",
         V::Array(vec![
             text("sha256"),
-            artifact_identity("echo.dpo.intrinsics/v1", &catalog),
+            artifact_identity(catalog_id, &catalog),
         ]),
     );
     set(&mut target_profile, "intrinsics", intrinsics_ref);
@@ -347,6 +372,7 @@ pub fn lowering_fixture_inputs(
         get(&entries[0], "acceptedTargetIr").clone(),
     );
     let mut target_profile_ref = get(&entries[0], "acceptedTargetProfile").clone();
+    set(&mut target_profile_ref, "id", text(namespace));
     set(
         &mut target_profile_ref,
         "digest",

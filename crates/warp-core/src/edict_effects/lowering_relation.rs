@@ -63,11 +63,15 @@ pub(super) fn validate<'a>(
         return Err(Error::UnsupportedProgram);
     }
     require_text(&target_profile, "intrinsicNamespace", &profile_coordinate)?;
+    // Only Echo's two effect namespaces name runtime intrinsics; each pins
+    // its own catalog coordinate, which is also the catalog's digest domain.
+    let namespace =
+        super::intrinsic_names::namespace(&profile_coordinate).ok_or(Error::UnsupportedProgram)?;
     let catalog_reference = field(&target_profile, "intrinsics")?;
-    require_text(catalog_reference, "id", "echo.dpo.intrinsics/v1")?;
+    require_text(catalog_reference, "id", namespace.catalog)?;
     pinned(
         catalog_reference,
-        digest("echo.dpo.intrinsics/v1", &catalog).map_err(|_| Error::InvalidArtifact)?,
+        digest(namespace.catalog, &catalog).map_err(|_| Error::InvalidArtifact)?,
     )?;
     exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
     require_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;

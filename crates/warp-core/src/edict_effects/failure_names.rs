@@ -50,13 +50,11 @@ const NODE_ATOM_READ_V1: [FailureName; 4] = [
 /// The complete failure set of an exact runtime intrinsic identity, or `None`
 /// for an identity that is not a runtime intrinsic. Mutations declare none.
 pub(super) fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
-    match intrinsic {
-        "echo.dpo@1.node-atom-read" => Some(&NODE_ATOM_READ_V1),
-        "echo.dpo@1.ensure-node"
-        | "echo.dpo@1.create-node"
-        | "echo.dpo@1.replace-atom"
-        | "echo.dpo@1.ensure-edge"
-        | "echo.dpo@1.replace-edge" => Some(&[]),
+    match super::intrinsic_names::operation(intrinsic)? {
+        "node-atom-read" => Some(&NODE_ATOM_READ_V1),
+        "ensure-node" | "create-node" | "replace-atom" | "ensure-edge" | "replace-edge" => {
+            Some(&[])
+        }
         _ => None,
     }
 }

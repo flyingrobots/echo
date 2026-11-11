@@ -525,11 +525,13 @@ fn arms(
     {
         return Err(());
     }
-    let declared_failures = list(get(step, "obstructionFailures")?)?
+    let listed_failures = list(get(step, "obstructionFailures")?)?;
+    let declared_failures = listed_failures
         .iter()
         .map(string)
         .collect::<Check<BTreeSet<_>>>()?;
-    if declared_failures.len() != mappings.len() {
+    // Each failure is declared once, as the runtime requires.
+    if declared_failures.len() != mappings.len() || listed_failures.len() != mappings.len() {
         return Err(());
     }
     for (failure, catalog_name) in mappings {

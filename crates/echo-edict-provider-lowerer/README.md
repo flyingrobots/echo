@@ -209,8 +209,9 @@ The native Rust API `effect_publication::encode_effect_publication` serializes
 proposals using the current `echo.operation-package/v1` and
 `echo.operation-program/v1` effect kind. It preserves the compiler bundle's
 exact bytes, derives embedded Core/Target-IR/exports identities, and carries
-explicit limits and graph/footprint data. The program's own exports declare
-every obstruction it can return.
+explicit limits and graph/footprint data. Each failure arm maps to an
+obstruction the program's own exports declare; a `require`'s reason kind is not
+checked against the exports.
 Its requested `authority_profile_identity` is derived only from the
 configuration's required `authorityProfile` label, by the same label digest
 fixed operations use; no caller supplies it.

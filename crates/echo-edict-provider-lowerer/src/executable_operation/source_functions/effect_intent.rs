@@ -39,10 +39,15 @@ pub(in crate::executable_operation) fn judge(
     sites: &BTreeMap<usize, EffectSite>,
 ) -> Check<()> {
     // Core names an unsigned width directly; the runtime has no `Int` kind.
+    // A nominal entry has exactly its kind, contract and representation.
     if let Some(types) = super::super::map_field(core, "types") {
         for (_, definition) in members(types)? {
-            if super::super::map_field(definition, "kind") == Some(&Value::Text("Int".into())) {
-                return Err(());
+            match super::super::map_field(definition, "kind") {
+                Some(Value::Text(kind)) if kind == "Int" => return Err(()),
+                Some(Value::Text(kind)) if kind == "Nominal" => {
+                    exact(definition, &["kind", "contract", "representation"])?;
+                }
+                _ => {}
             }
         }
     }

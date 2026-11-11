@@ -350,7 +350,8 @@ intrinsic-scoped failure table, with an effect's result exactly the ABI's
 type rather than a nominal wrapper; one declared obstruction per failure arm
 with a matching authority class; node-for-node Core and Target IR
 correspondence; a 32-byte evaluation basis; type tables that name unsigned
-widths directly, as Core has no `Int` kind; and the body's types, proven
+widths directly, as Core has no `Int` kind, and nominal entries with exactly
+their kind, contract and representation; and the body's types, proven
 ranges and declared Core budget under its own static cost model. As in the
 runtime, each input constraint is judged with no facts, and only then do all
 of them dominate the body, so one constraint never proves another. The budget
@@ -380,8 +381,9 @@ whatever exceeds its budget. The model charges a read at its declared
 maximum on a root-warp node. Graph state the providers cannot see can cost
 more: an atom larger than its declared maximum is charged in full before it
 is refused, a read below the root warp or through a portal costs more, and a
-frame's fixed ceilings can bind first. Package-level limits and ceilings are
-also enforced by the runtime, not judged against the Core budget.
+frame's fixed ceilings can bind first. Package-level limits and ceilings,
+including the package size, and the runtime parser's work budget are also
+enforced by the runtime, not judged by the providers.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and the current pinned publication containing an authored arithmetic helper.

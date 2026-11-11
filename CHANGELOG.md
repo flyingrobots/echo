@@ -751,7 +751,9 @@
   operation, output type or footprint contract names another program. As in
   the runtime, each input constraint is judged with no facts before any of
   them proves the body; an effect's result is exactly its ABI type; an
-  evaluation basis is 32 bytes; a type table has no `Int` kind; every emitted
+  evaluation basis is 32 bytes; a type table has no `Int` kind and its nominal
+  entries have exactly their kind, contract and representation; each failure
+  is declared once; every emitted
   mutation is charged the 280-byte row the runtime reserves for it and every
   read the records it keeps; every failure payload must fit the output
   ceiling; and a body emits at most 1,024 mutations. A retained corpus

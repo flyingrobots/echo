@@ -372,8 +372,10 @@ they are independent of the runtime, not of each other. All three judges reach
 the same verdict on a retained corpus of accepted programs, forgeries and
 accepted siblings that differ from a forgery by the edit it targets, which
 warp-core generates and pins. For each corpus entry the runtime refuses only
-when it runs, the runtime test executes it beside an accepted control and
-observes the exact refusal.
+when it runs, the runtime test executes it and observes the exact refusal,
+beside an accepted control for every entry except the captured read's own
+1 MiB step budget, which equals the frame's fixed step ceiling, so the two
+refuse together.
 
 The providers' budget judgment is a static model over declared types, not a
 bound on the runtime's meter. The runtime meters every evaluation and refuses

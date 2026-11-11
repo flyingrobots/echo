@@ -33,7 +33,7 @@ Each refused entry is a well-formed package that reaches one specific check. Eac
 | `read-allocation-short`                                       | an allocation budget one byte under a read's runtime cost on a 1,048,521-byte atom                 | `read-and-return-control`                                      |
 | `read-captured-budget`                                        | the captured read's own 1 MiB step budget                                                          | `read-control`                                                 |
 
-The runtime prepares eight of these and refuses them only when it runs. `the_runtime_refuses_each_executed_entry_when_it_runs` executes each one beside its accepted control and asserts the exact refusal; `ensure_node_needs_exactly_its_worst_case_allocation` does the same for `mutation-allocation-short`.
+The runtime prepares eight of these and refuses them only when it runs. `the_runtime_refuses_each_executed_entry_when_it_runs` executes each one and asserts the exact refusal, beside an accepted control for every entry but `read-captured-budget`; `ensure_node_needs_exactly_its_worst_case_allocation` does the same for `mutation-allocation-short`. `read-captured-budget` declares 1,048,576 steps, which equals the frame's fixed step ceiling, so on a large enough atom the declared budget and the ceiling refuse together.
 
 `reads_cost_a_fixed_linear_law` pins what a read costs the runtime on a root-warp node. The captured read, whose `require` fails, costs 67 + 2n steps and 3,976 + 3n bytes for an n-byte atom. `read_and_return` costs 55 + n steps and 3,142 + 3n bytes. A run is capped at 1,048,576 steps, so the captured read exceeds its declared 1 MiB step budget once the atom is larger than 524,254 bytes.
 

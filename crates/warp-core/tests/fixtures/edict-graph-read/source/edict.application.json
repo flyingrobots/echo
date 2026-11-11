@@ -1,0 +1,20 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "consumer.graph.read@1",
+  "sources": [
+    "src/Program.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/graph-read/manifest.cbor",
+      "exports": "vendor/graph-read/exports.cbor",
+      "adapter": "vendor/graph-read/adapter.cbor",
+      "targetConfiguration": "vendor/graph-read/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@1",
+    "providerPackage": "provider"
+  },
+  "outputDirectory": "application-output"
+}

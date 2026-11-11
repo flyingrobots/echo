@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use super::{
-    model::{Instruction, Program, ReadInstruction},
-    NodeAtomAccess, ReadError, ReadObstruction, ReadResult, ReadView,
+    graph::{self, Session, Usage},
+    model::{Instruction, Program, ReadInstruction, ReadKind},
+    GraphReadObstruction, NodeAtomAccess, ReadError, ReadObstruction, ReadResult, ReadView,
 };
 use crate::edict_pure::{
     evaluate::{expression, predicate, validate, Meter, VALUE_CELL_BYTES},
@@ -63,39 +64,35 @@ fn run_body<A: NodeAtomAccess>(
             return Err(Error::InputConstraintFailed(coordinate.clone()).into());
         }
     }
-    let mut reads = 0_u64;
-    let mut read_bytes = 0_u64;
+    let mut usage = Usage::default();
     for instruction in &program.instructions {
         meter.step(0)?;
         match instruction {
             Instruction::Read(read) => {
-                let address = expression(&read.input, &locals, helpers, meter, 0)?;
-                let (node, expected_type) = address_value(&address)?;
-                if !view.contains(node) {
-                    return Err(ReadError::OutsideAperture(node).into());
-                }
-                reads = reads.checked_add(1).ok_or(ReadError::ReadCountExceeded)?;
-                if reads > program.limits.max_reads {
-                    return Err(ReadError::ReadCountExceeded.into());
-                }
-                let bytes = view
-                    .atom(node, expected_type, read.max_bytes, meter)?
-                    .map_err(|cause| obstructed(read, cause))?;
-                let count = bytes.len() as u64;
-                read_bytes = read_bytes
-                    .checked_add(count)
-                    .ok_or(ReadError::ReadBytesExceeded)?;
-                if read_bytes > program.limits.max_read_bytes {
-                    return Err(ReadError::ReadBytesExceeded.into());
-                }
-                // Charge deterministic I/O work and storage BEFORE copying atom bytes.
-                meter.charge_steps(count)?;
-                meter.allocate(
-                    VALUE_CELL_BYTES
-                        .checked_add(count)
-                        .ok_or(Error::AllocationBudgetExceeded)?,
-                )?;
-                let value = meter.copy_precharged_read_bytes(bytes)?;
+                let input = expression(&read.input, &locals, helpers, meter, 0)?;
+                let value = match &read.kind {
+                    ReadKind::NodeAtom { max_bytes } => {
+                        node_atom(program, read, *max_bytes, &input, view, meter, &mut usage)?
+                    }
+                    kind => {
+                        let mut session = Session {
+                            graph: program.graph.as_ref().ok_or(Error::InvalidArtifact)?,
+                            helpers,
+                            view: &mut *view,
+                            meter: &mut *meter,
+                            usage: &mut usage,
+                            limits: &program.limits,
+                        };
+                        let outcome = if let ReadKind::Closure(shape) = kind {
+                            graph::closure(shape, &input, &mut session)?
+                        } else if let ReadKind::OutgoingEdges { max_edges } = kind {
+                            graph::edges(*max_edges, &input, &mut session)?
+                        } else {
+                            return Err(Error::InvalidArtifact.into());
+                        };
+                        outcome.map_err(|cause| graph_obstructed(read, cause))?
+                    }
+                };
                 validate(&value, &read.ty, meter, 0)?;
                 locals.insert(read.binding.as_str(), value);
             }
@@ -132,8 +129,9 @@ fn run_body<A: NodeAtomAccess>(
         application_basis,
         steps,
         allocated_bytes,
-        reads,
-        read_bytes,
+        reads: usage.reads,
+        read_bytes: usage.read_bytes,
+        edge_scans: usage.edge_scans,
     })
 }
 
@@ -154,15 +152,57 @@ fn address_value(value: &Value) -> Result<(NodeKey, TypeId), Error> {
 }
 
 fn obstructed(read: &ReadInstruction, cause: ReadObstruction) -> ReadError {
-    let coordinate = match cause {
-        ReadObstruction::Missing => &read.missing,
-        ReadObstruction::AtomRequired => &read.not_atom,
-        ReadObstruction::TypeMismatch => &read.type_mismatch,
-        ReadObstruction::AtomTooLarge => &read.too_large,
+    let tag = match cause {
+        ReadObstruction::Missing => "echo.atom-missing/v1",
+        ReadObstruction::AtomRequired => "echo.atom-required/v1",
+        ReadObstruction::TypeMismatch => "echo.atom-type-mismatch/v1",
+        ReadObstruction::AtomTooLarge => "echo.atom-byte-bound-exceeded/v1",
         ReadObstruction::Guard => return Error::InvalidArtifact.into(),
     };
-    ReadError::Obstructed {
-        coordinate: coordinate.clone(),
-        cause,
+    read.arms.get(tag).map_or_else(
+        || Error::InvalidArtifact.into(),
+        |coordinate| ReadError::Obstructed {
+            coordinate: coordinate.clone(),
+            cause,
+        },
+    )
+}
+
+fn graph_obstructed(read: &ReadInstruction, cause: GraphReadObstruction) -> ReadError {
+    read.arms.get(cause.runtime_tag()).map_or_else(
+        || Error::InvalidArtifact.into(),
+        |coordinate| ReadError::GraphObstructed {
+            coordinate: coordinate.clone(),
+            cause,
+        },
+    )
+}
+
+fn node_atom<A: NodeAtomAccess>(
+    program: &Program,
+    read: &ReadInstruction,
+    max_bytes: u64,
+    address: &Value,
+    view: &mut A,
+    meter: &mut Meter,
+    usage: &mut Usage,
+) -> Result<Value, A::Error> {
+    let (node, expected_type) = address_value(address)?;
+    if !view.contains(node) {
+        return Err(ReadError::OutsideAperture(node).into());
     }
+    usage.attempt(&program.limits)?;
+    let bytes = view
+        .atom(node, expected_type, max_bytes, meter)?
+        .map_err(|cause| obstructed(read, cause))?;
+    let count = bytes.len() as u64;
+    usage.deliver(count, &program.limits)?;
+    // Charge deterministic I/O work and storage BEFORE copying atom bytes.
+    meter.charge_steps(count)?;
+    meter.allocate(
+        VALUE_CELL_BYTES
+            .checked_add(count)
+            .ok_or(Error::AllocationBudgetExceeded)?,
+    )?;
+    Ok(meter.copy_precharged_read_bytes(bytes)?)
 }

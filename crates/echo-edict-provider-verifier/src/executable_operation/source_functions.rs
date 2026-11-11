@@ -17,6 +17,9 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod read_charge;
+#[cfg(test)]
+mod read_charge_soundness_tests;
 mod types;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -86,15 +89,44 @@ impl<'a> Frame<'a> {
     }
 }
 
-pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    audit(core, exports, read).map_err(|()| {
+/// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
+/// the module declares no graph reads.
+pub(super) fn validate(
+    core: &Value,
+    exports: &Value,
+    read: bool,
+    edge_scans: u64,
+) -> Result<(), ProviderRefusalV1> {
+    audit(core, exports, read, edge_scans).map_err(|()| {
         super::super::unsupported_semantics(
             "core.source-functions-verification",
             "Core source functions are outside the checked pure-function profile",
         )
     })
 }
-fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
+fn audit(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
+    each_intent(core, exports, edge_scans, |checker, intent| {
+        checker.intent(intent, read)
+    })
+}
+/// The conservative charge of each read intent, for measuring it at runtime.
+#[cfg(test)]
+fn read_intent_charges(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Charge>> {
+    let mut charges = Vec::new();
+    each_intent(core, exports, edge_scans, |checker, intent| {
+        charges.push(checker.intent_charge(intent, true)?.0);
+        Ok(())
+    })?;
+    Ok(charges)
+}
+/// Audits every helper, then hands each intent that needs a whole-intent
+/// judgment to `judge`.
+fn each_intent<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
+) -> Check<()> {
     let mut types = Types::new(core);
     let definitions = inventory(core, exports, &mut types)?;
     let mut pending = BTreeMap::new();
@@ -203,6 +235,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             path: Vec::new(),
             bound: Vec::new(),
             proven_sum: None,
+            edge_scans,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -231,12 +264,17 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
+        edge_scans,
     };
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
+    // A graph read always needs its whole-intent charge judged.
+    if super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
         return Ok(());
     }
     for (_, intent) in members(get(core, "intents")?)? {
-        checker.intent(intent, read)?;
+        judge(&mut checker, intent)?;
     }
     Ok(())
 }
@@ -351,6 +389,8 @@ struct Checker<'a, 'b> {
     /// The refined cap of the addition `expression` last proved, keyed by the
     /// node's address, so the binding that holds it reuses the proof.
     proven_sum: Option<(usize, u64)>,
+    /// Declared graph scan allowance charged by every graph read.
+    edge_scans: u64,
 }
 impl<'a> Checker<'a, '_> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -803,6 +843,18 @@ impl<'a> Checker<'a, '_> {
         Ok((charge, height))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        let (charge, encoded) = self.intent_charge(intent, read)?;
+        let ceiling = get(intent, "coreEvaluationBudget")?;
+        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
+            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
+            || encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+    /// The conservative whole-intent charge and encoded output, before the budget.
+    fn intent_charge(&mut self, intent: &'a Value, read: bool) -> Check<(Charge, u128)> {
         self.proven.clear();
         self.branch.clear();
         self.path.clear();
@@ -864,13 +916,11 @@ impl<'a> Checker<'a, '_> {
                     charge.append(self.expression(get(node, "input")?, &frame, 0)?.charge)?;
                     let local = get(node, "binding")?;
                     let expected = self.types.local(local)?;
-                    let Schema::Blob { high, .. } = expected.representation() else {
-                        return Err(());
-                    };
-                    charge.append(Charge {
-                        ticks: u128::from(*high) + 1,
-                        storage: u128::from(*high) + 64,
-                    })?;
+                    charge.append(read_charge::read_charge(
+                        &expected,
+                        self.summaries,
+                        self.edge_scans,
+                    )?)?;
                     frame.define(local, expected)?;
                 }
                 _ => return Err(()),
@@ -891,14 +941,7 @@ impl<'a> Checker<'a, '_> {
             ticks: size.checks,
             storage: 0,
         })?;
-        let ceiling = get(intent, "coreEvaluationBudget")?;
-        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
-            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
-            || size.encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
-        {
-            return Err(());
-        }
-        Ok(())
+        Ok((charge, size.encoded))
     }
 }
 /// A count's needle is a Core constant of exactly one byte, checked
@@ -1156,7 +1199,7 @@ mod tests {
                 Value::Array(vec![map([("source", Value::Text("component".into()))])]),
             ),
         ]);
-        assert!(validate(&core, &exports, true).is_err());
+        assert!(validate(&core, &exports, true, 0).is_err());
     }
 
     #[test]
@@ -1166,7 +1209,7 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, true).is_ok());
+        assert!(validate(&core, &exports, true, 0).is_ok());
     }
     #[test]
     fn source_functions_accept_named_unsigned_int_aliases() {
@@ -1217,6 +1260,6 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
     }
 }

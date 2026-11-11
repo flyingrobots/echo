@@ -18,6 +18,9 @@ use echo_edict_provider_verifier as verifier;
 #[path = "bounded_read/source_functions.rs"]
 mod source_functions;
 
+#[path = "bounded_read/graph_reads.rs"]
+mod graph_reads;
+
 const PACKAGE: &str = "echo.operation-package/v1";
 
 fn bound(coordinate: &str, domain: &str, bytes: Vec<u8>) -> BoundArtifact {
@@ -263,9 +266,17 @@ fn change_package(request: &mut verifier::VerificationRequestV1, edit: impl FnOn
 }
 
 fn changed_target(request: &mut verifier::VerificationRequestV1, edit: impl FnOnce(&mut Value)) {
+    changed_target_named(request, "replaceRange", edit);
+}
+
+fn changed_target_named(
+    request: &mut verifier::VerificationRequestV1,
+    intent: &str,
+    edit: impl FnOnce(&mut Value),
+) {
     let mut target = decode(&request.target_ir.artifact.bytes).expect("target");
     mutate(&mut target, "intents", |intents| {
-        mutate(intents, "replaceRange", edit);
+        mutate(intents, intent, edit);
     });
     bind_target(request, &target);
 }

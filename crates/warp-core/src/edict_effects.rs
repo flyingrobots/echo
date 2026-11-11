@@ -42,6 +42,7 @@ mod law;
 mod typed_reads;
 pub use law::{EffectFootprintLaw, EffectLawError};
 pub use typed_reads::TypedNodeRead;
+mod graph_reads;
 mod node_reads;
 pub use frame::{EffectEvaluationFrame, EffectFrameError, EffectFrameSetupError};
 pub(crate) use node_reads::{NodeAperture, RecordedNodeAccess};

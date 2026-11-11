@@ -7,6 +7,27 @@
 
 ### Added
 
+- The bounded-read runtime evaluates two generic graph-read intrinsics:
+  `echo.dpo@1.outgoing-edge-read` returns a node's outgoing edges of one type,
+  and `echo.dpo@1.closure-read` reads the bounded closure a declared pure
+  selector helper asks for, with `maxNodes` and `maxDepth`. Closure material is
+  deduplicated by node identity while every selected position keeps its own
+  edge path and guide. Node, depth, scan and work bounds, an insufficient
+  selector and malformed storage are distinct authored failures; bucket scans
+  count edges of other types. A package declares the capability with a
+  `graphReads` lowering-configuration record and the
+  `typed-graph-read-aperture/v1` footprint contract, and the host grants edge
+  and node types through `ReadView::with_graph_aperture`. Packages that do not
+  declare it refuse graph reads; existing
+  node-read packages are unchanged. Typed recording frames witness graph reads in
+  their read image; untyped recording frames refuse them. The provider lowerer
+  and separate verifier judge both intrinsics, their signatures, the selector
+  and the authority class of every failure arm, and the reproducibly promoted
+  components accept them. Authored source compiles through the unmodified
+  public compiler, and CI recompiles it to the retained packages and reports.
+  `ReadResult` gains `edge_scans`; `ReadError` gains
+  `OutsideGraphAperture` and `GraphObstructed`.
+
 - Branch facts in range proofs (#979). warp-core, the provider lowerer and the
   provider verifier assume an `if` predicate inside its `then` arm when they
   prove an addition, subtraction or slice, as Edict's totality rule does. So

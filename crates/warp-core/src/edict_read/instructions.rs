@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-use super::model::{Instruction, ReadInstruction};
+use super::graph;
+use super::model::{Instruction, ReadInstruction, ReadKind};
 use crate::edict_pure::{
     model::{RuntimeType, MAX_PROGRAM_NODES},
     syntax::Parser,
@@ -20,6 +21,7 @@ pub(super) fn parse(
     target: &Value,
     parser: &mut Parser<'_>,
     input_id: &str,
+    graph_reads: bool,
 ) -> Result<Instructions, Error> {
     let mut pending = BTreeMap::new();
     let mut pure_producers = BTreeMap::new();
@@ -40,7 +42,7 @@ pub(super) fn parse(
             let id = text_field(value, "id")?.to_owned();
             let instruction = match kind {
                 "read" => {
-                    let read = read(value, parser)?;
+                    let read = read(value, parser, graph_reads)?;
                     if !locals.insert(read.binding.clone()) {
                         return Err(Error::InvalidArtifact);
                     }
@@ -98,7 +100,18 @@ pub(super) fn parse(
     })
 }
 
-fn read(value: &Value, parser: &mut Parser<'_>) -> Result<ReadInstruction, Error> {
+const NODE_ATOM_FAILURES: [&str; 4] = [
+    "echo.atom-missing/v1",
+    "echo.atom-required/v1",
+    "echo.atom-type-mismatch/v1",
+    "echo.atom-byte-bound-exceeded/v1",
+];
+
+fn read(
+    value: &Value,
+    parser: &mut Parser<'_>,
+    graph_reads: bool,
+) -> Result<ReadInstruction, Error> {
     exact_fields(
         value,
         &[
@@ -111,34 +124,54 @@ fn read(value: &Value, parser: &mut Parser<'_>) -> Result<ReadInstruction, Error
             "obstructionFailures",
         ],
     )?;
-    require_text(value, "targetIntrinsic", "echo.dpo@1.node-atom-read")?;
     let binding = field(value, "binding")?;
     let ty = parser.ty(text_field(binding, "type")?, 0)?;
-    let RuntimeType::Bytes { min: 0, max } = ty else {
-        return Err(Error::UnsupportedProgram);
+    let intrinsic = text_field(value, "targetIntrinsic")?;
+    let (kind, failures): (_, Vec<&'static str>) = match intrinsic {
+        "echo.dpo@1.node-atom-read" => {
+            let RuntimeType::Bytes { min: 0, max } = ty else {
+                return Err(Error::UnsupportedProgram);
+            };
+            if max == 0 || max > 67_108_864 {
+                return Err(Error::UnsupportedProgram);
+            }
+            (
+                ReadKind::NodeAtom { max_bytes: max },
+                NODE_ATOM_FAILURES.to_vec(),
+            )
+        }
+        // A graph read is a declared capability of the lowering
+        // configuration; a package that does not declare it cannot use one.
+        graph::EDGE_READ if graph_reads => (
+            ReadKind::OutgoingEdges {
+                max_edges: graph::edge_shape(&ty)?,
+            },
+            graph::EDGE_FAILURES
+                .iter()
+                .map(|failure| failure.runtime_tag())
+                .collect(),
+        ),
+        graph::CLOSURE_READ if graph_reads => (
+            ReadKind::Closure(graph::closure_shape(&ty)?),
+            graph::CLOSURE_FAILURES
+                .iter()
+                .map(|failure| failure.runtime_tag())
+                .collect(),
+        ),
+        _ => return Err(Error::UnsupportedProgram),
     };
-    if max == 0 || max > 67_108_864 {
-        return Err(Error::UnsupportedProgram);
+    let declared = field(value, "obstructionArms")?;
+    exact_fields(declared, &failures)?;
+    let mut arms = BTreeMap::new();
+    for failure in failures {
+        arms.insert(failure, obstruction(declared, failure)?);
     }
-    let arms = field(value, "obstructionArms")?;
-    exact_fields(
-        arms,
-        &[
-            "echo.atom-missing/v1",
-            "echo.atom-required/v1",
-            "echo.atom-type-mismatch/v1",
-            "echo.atom-byte-bound-exceeded/v1",
-        ],
-    )?;
     Ok(ReadInstruction {
         binding: text_field(binding, "id")?.to_owned(),
         ty,
         input: parser.expr(field(value, "input")?, 0)?,
-        max_bytes: max,
-        missing: obstruction(arms, "echo.atom-missing/v1")?,
-        not_atom: obstruction(arms, "echo.atom-required/v1")?,
-        type_mismatch: obstruction(arms, "echo.atom-type-mismatch/v1")?,
-        too_large: obstruction(arms, "echo.atom-byte-bound-exceeded/v1")?,
+        kind,
+        arms,
     })
 }
 

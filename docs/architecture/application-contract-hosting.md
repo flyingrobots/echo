@@ -1181,6 +1181,158 @@ establish installation, public request authorization, a causal Tick, WAL
 retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
 [#740](https://github.com/flyingrobots/echo/issues/740).
 
+#### Typed outgoing-edge and guided closure reads
+
+The bounded-read route carries two graph-read intrinsics end to end. Authored
+Amblicit source compiles through the unmodified public compiler, the provider
+lowerer, the structurally separate verifier and the promoted checked
+components, and the generic bounded-read runtime evaluates the exact resulting
+packages. The retained public packages, reports and authored source live in
+`crates/warp-core/tests/fixtures/edict-graph-read/`. The
+[isolated host witness](../../scripts/verify-edict-provider-host-v1.sh)
+recompiles that source in CI with the pinned compiler and requires
+byte-identical output. It also requires the predecessor provider package to refuse
+the same source, and, as a control, to still compile an existing node-read
+program. The semantic edge-case witnesses in
+`crates/warp-core/tests/edict_node_read/graph_reads.rs` use explicitly
+synthetic packages; the public packages are evaluated separately.
+Graph reads remain bounded-read observations only. Authored effect programs
+do not yet carry them; that route is owned by
+[#978](https://github.com/flyingrobots/echo/issues/978).
+
+**Provider judgments.** The lowerer and the separate verifier accept either
+intrinsic only when the configuration declares `graphReads`, and refuse a
+declaration that no step uses. Both check the exact structural signatures
+below, that a closure's occurrences carry exactly the guide type it was started
+with, and that the declared selector helper decides over that closure's node
+and guide types. Each runtime failure must map to exactly one authored arm of a
+fixed authority class. Resource limits map to `resourceFault`, an insufficient
+selector maps to `domainMappable`, and malformed storage maps to
+`integrityFault`. A graph-read package binds the typed footprint contract
+below. A package relabelled with the node-aperture contract, a step re-bound to
+another intrinsic, or swapped selector and storage arms is rejected.
+
+Each side also proves, independently, that the declared budgets cover the
+worst case. A typed edge read counts as one read attempt; a closure counts every
+node it may resolve plus one typed range per declared edge type for every
+occurrence it may record. The sum must fit `maxReads`. The whole-intent
+charge includes the declared `maxEdgeScans` (one step and 128 bytes per
+scanned edge). For a closure it also covers:
+
+- each node: its atom, charged once when read and again in its row;
+- each occurrence: one step, its guide and its row;
+- each possible edge row: the row, the candidate's parts, the candidate again
+  as the selector's argument with its validation, the costliest source helper
+  and the returned guide.
+
+Tests in each provider evaluate the public closure package with the runtime
+over a plain view and require the meter's actual spend to stay within that
+charge. The proof covers evaluation over a plain view only. A recording frame
+also charges its observation storage, permission records and per-range
+bookkeeping to the same frame meter, as it already does for node-atom reads,
+so a package near its declared budget can still be refused by a recording
+frame. The static proof does not include that overhead yet. The read-image
+export refuses with `ExportLimitExceeded`, instead of hashing unbounded content,
+when the atoms it retains exceed the read-storage ceiling.
+
+**Recorded evidence.** A recording frame bound to a typed footprint law
+evaluates graph reads and witnesses them in its read image. The law is the
+graph aperture: range edge types, read node types, atom types and portal
+owners are authorized as for node and range reads. A typed range records the
+source node and the range with its matching edge pairs; a bucket over the
+remaining scan allowance records the source observation that decided the
+authored scan bound and inspects no edge. A materialized node records the node
+and its alpha slot; an empty slot is retained as typeless absence. A node named
+by an edge but not stored records its absence under the type of the node whose
+edge named it and keeps the malformed-storage outcome. An untyped recording
+frame grants no graph read. A scan charges every edge in the source's bucket, of any
+type, but the read image records only the requested ranges: the bucket size
+that decides the scan bound is not yet witnessed. Graph reads therefore must
+not enter authored effect programs until the image witnesses it. A read image carrying a second, conflicting
+observation of one slot is refused as `InvalidImage`; a stale basis refuses
+with `BasisMismatch` before any read.
+
+A package declares graph reads in its lowering configuration. The optional
+`graphReads` record has exactly `maxEdgeScans` (1 to 65,536), `maxClosureNodes`
+(at most 4,096) and `maxClosureDepth` (at most 256), plus `closureSelector` when
+the program uses a closure read. A package with that declaration carries the
+footprint contract `echo.operation.footprint.typed-graph-read-aperture/v1`; a
+package without it keeps `explicit-node-read-aperture/v1`. A graph-read step in
+a package that does not declare `graphReads`, or either declaration under the
+other footprint contract, refuses with `UnsupportedProgram`. Existing node-read
+packages are unchanged.
+
+The host adds a `GraphReadAperture` to its `ReadView`: the edge types whose
+ranges may be read, the actual node types a discovered node may have, and the
+bucket edges one evaluation may inspect. The explicit node aperture still
+selects every edge-read source and closure start. A view without a graph
+aperture grants no graph read. An ungranted edge type or discovered node type
+refuses with `OutsideGraphAperture` before its value reaches the program.
+
+`echo.dpo@1.outgoing-edge-read` takes exactly `warpId`, `nodeId` and `edgeType`,
+each 32 bytes, and returns a list of `{ edgeId, toId }` in edge-identifier
+order. A present source with no matching edge yields the empty list. Its three
+failures are distinct authored arms:
+
+| Runtime tag                        | Meaning                                              |
+| ---------------------------------- | ---------------------------------------------------- |
+| `echo.edge-source-missing/v1`      | the source node is absent                            |
+| `echo.edge-bound-exceeded/v1`      | more edges match than the declared result list holds |
+| `echo.edge-scan-bound-exceeded/v1` | the source bucket exceeds the remaining scan bound   |
+
+`echo.dpo@1.closure-read` takes exactly `warpId`, `nodeId`, `edgeTypes` (at
+most 16 distinct types, in the order children are offered), `maxNodes`,
+`maxDepth` and an application-typed `guide`. It returns exactly `nodes`,
+`edges` and `occurrences`:
+
+- a node row is `{ nodeId, nodeType, atomType, atomBytes }`, present once per
+  distinct node identity, in first-discovery order. `atomType` is empty when
+  the node has no alpha atom;
+- an edge row is `{ from, slot, edgeId, node }`: the expanded occurrence it
+  leaves, the index of its type in `edgeTypes`, and the node row it reaches;
+- an occurrence row is `{ node, edge, depth, guide }`: one selected position,
+  the edge row it arrived by, and the guide the selector assigned to it. The
+  start is occurrence 0 at depth 0, where `edge` carries no meaning.
+
+Material is deduplicated by node identity; traversal meaning is not. A leaf
+reached through both children of one branch is one node row and two
+occurrences, each with its own edge row and guide.
+
+The selector is the source helper the configuration names. Its one parameter
+is exactly `{ guide, depth, slot, parent, child }` over the closure's own guide
+and node-row types, and it returns exactly `{ expand, guide, wellFormed,
+sufficient }`. The runtime calls it once for every child of every expanded
+occurrence, in declared edge-type order and then edge-identifier order, and
+expands occurrences breadth-first in selection order. Echo interprets none of
+the guide or atom bytes; path and interval meaning live in the guide the
+selector computes. A helper of another shape, an undeclared selector, or a
+selector the module does not define refuses the package.
+
+The closure's seven failures are distinct authored arms:
+
+| Runtime tag                             | Raised when                                                                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `echo.closure-start-missing/v1`         | the start node is absent                                                                                                                                            |
+| `echo.closure-node-bound-exceeded/v1`   | another distinct node would exceed `maxNodes`, the declared node list, or `maxClosureNodes`                                                                         |
+| `echo.closure-depth-bound-exceeded/v1`  | a selected child lies deeper than `maxDepth` or `maxClosureDepth`                                                                                                   |
+| `echo.closure-scan-bound-exceeded/v1`   | a bucket exceeds the remaining `maxEdgeScans` or host scan allowance                                                                                                |
+| `echo.closure-work-bound-exceeded/v1`   | the declared edge or occurrence list is full                                                                                                                        |
+| `echo.closure-selector-insufficient/v1` | the selector returns `sufficient: false`                                                                                                                            |
+| `echo.closure-storage-malformed/v1`     | the selector returns `wellFormed: false`; an edge leads to an absent node; a node's alpha attachment is a portal; or an atom exceeds the declared `atomBytes` bound |
+
+`wellFormed` is tested before `sufficient`. Bounds apply to the traversal that
+actually happens. Each typed range read inspects the source's whole bucket and
+counts every edge in it, matching or not, before any edge is copied. A child
+the selector declines is still materialized, charged and returned. Each node
+materialization and each typed range read is one read attempt against
+`maxReads`; atom bytes count against `maxReadBytes`. Exhausting a host read,
+step or allocation ceiling remains the generic `ReadCountExceeded`,
+`ReadBytesExceeded` or evaluation refusal, not an authored arm.
+`ReadResult::edge_scans` reports the inspected bucket edges.
+
+A stale expected basis refuses at `ReadView::new` before any read. Graph reads
+borrow the frontier immutably and have no mutation path.
+
 Primary artifact generation also compares the supplied pack's exact schema and
 manifest with the source materials bound into its generation input. This
 defensive identity check returns `ContractPackInputMismatch` on disagreement;

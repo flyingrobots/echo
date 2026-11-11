@@ -75,3 +75,43 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     --all-targets \
     -- \
     -D warnings
+
+# Public compiler witness for typed outgoing-edge and guided closure reads.
+# The unmodified Amblicit compiler, built from a pinned public revision,
+# compiles authored source through the checked provider package and its
+# separate verifier; the predecessor package must refuse the same source.
+# Building the compiler is heavy, so a local run must opt in explicitly.
+if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
+  readonly AMBLICIT_REVISION=66bf6bac369f67e32ddaee099c3198bd30f885a1
+  readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
+  readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
+  readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"
+
+  if [[ ! -x "$AMBLICIT_ROOT/bin/amblicit" ]]; then
+    cargo +1.96.0 install --locked \
+      --git https://github.com/flyingrobots/amblicit \
+      --rev "$AMBLICIT_REVISION" \
+      --root "$AMBLICIT_ROOT" \
+      --bin amblicit \
+      amblicit-cli
+  fi
+
+  if ! git -C "$ROOT" cat-file -e "$OLD_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_PROVIDER_REVISION"
+  fi
+  mkdir -p "$ROOT/target"
+  witness_dir="$(mktemp -d "$ROOT/target/graph-read-witness.XXXXXX")"
+  readonly witness_dir
+  mkdir "$witness_dir/old-provider"
+  git -C "$ROOT" archive "$OLD_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-provider"
+
+  cargo +1.96.0 run --locked -p xtask --example graph_read_publication -- \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$GRAPH_READ_FIXTURES" \
+    --control "$ROOT/crates/echo-edict-provider-lowerer/tests/fixtures/node-atom-read/source" \
+    --work-root "$witness_dir/run" \
+    --check
+fi

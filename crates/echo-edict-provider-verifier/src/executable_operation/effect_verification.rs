@@ -24,7 +24,6 @@ const SUBJECT: &str = "edict-effect-program";
 const BUNDLE_SCHEMA: &str = "echo.compiler-produced-effect-program/v1";
 const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
 const PROGRAM_KIND: &str = "edict-effect-program/v1";
-const CATALOG_DOMAIN: &str = "echo.dpo.intrinsics/v1";
 const MAX_POLICY_BYTES: usize = 16 * 1024 * 1024;
 const MISMATCH: &str = "echo.verifier.effect-package-mismatch";
 const REFUSED: &str = "echo.verifier.effect-program-refused";
@@ -282,12 +281,22 @@ fn configuration<'a>(
         return Err(unsupported("configuration step ceiling is zero"));
     }
     let profile = validate_bound(profile, "edict.target-profile/v1")?;
+    // The catalog coordinate, which is also its digest domain, is the one the
+    // selected profile's namespace pins.
+    let coordinate = format!(
+        "{}@{}",
+        text_field(&profile, "id").unwrap_or_default(),
+        text_field(&profile, "version").unwrap_or_default()
+    );
+    let catalog_domain = super::intrinsic_names::namespace(&coordinate)
+        .ok_or_else(|| unsupported("the target profile names no effect intrinsic namespace"))?
+        .catalog;
     let catalog = decode_canonical_cbor_v1(configuration.catalog)
         .map_err(|_| unsupported("configuration catalog is not canonical"))?;
-    let identity = digest_canonical_value_bytes_v1(CATALOG_DOMAIN, &catalog)
+    let identity = digest_canonical_value_bytes_v1(catalog_domain, &catalog)
         .map_err(|_| unsupported("configuration catalog identity cannot be computed"))?;
     let pinned = canonical_map([
-        ("id", canonical_text(CATALOG_DOMAIN)),
+        ("id", canonical_text(catalog_domain)),
         (
             "digest",
             Value::Array(vec![

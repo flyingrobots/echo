@@ -11,6 +11,7 @@ use super::{
     exact, get, includes, judged, list, members, number, shape, string, Check, Cost, Judgment, Ty,
     Value,
 };
+use crate::executable_operation::intrinsic_names::operation;
 use std::collections::BTreeMap;
 
 /// The largest atom an authored effect may read or write, in bytes.
@@ -206,7 +207,7 @@ impl<'a> Judgment<'a> {
                     }
                     let output = self.ty(&site.output, 0)?;
                     let charge = abi(&site.intrinsic, &expected, &output)?;
-                    if site.intrinsic != "echo.dpo@1.node-atom-read" {
+                    if operation(&site.intrinsic) != Some("node-atom-read") {
                         mutations = mutations.checked_add(1).ok_or(())?;
                     }
                     let arms = members(get(node, "obstructionMap")?)?;
@@ -306,8 +307,8 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
             Err(())
         }
     };
-    match intrinsic {
-        "echo.dpo@1.node-atom-read" => {
+    match operation(intrinsic).ok_or(())? {
+        "node-atom-read" => {
             let Ty::Bytes(0, max) = output else {
                 return Err(());
             };
@@ -328,18 +329,18 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
                     .ok_or(())?,
             })
         }
-        "echo.dpo@1.ensure-node" | "echo.dpo@1.create-node" => {
+        "ensure-node" | "create-node" => {
             mutation(&["warpId", "nodeId", "nodeType", "atomType", "atomBytes"])
         }
-        "echo.dpo@1.replace-atom" => mutation(&[
+        "replace-atom" => mutation(&[
             "warpId",
             "nodeId",
             "expectedAtomDigest",
             "atomType",
             "atomBytes",
         ]),
-        "echo.dpo@1.ensure-edge" => mutation(&["warpId", "edgeId", "fromId", "toId", "edgeType"]),
-        "echo.dpo@1.replace-edge" => mutation(&["warpId", "edgeId", "expectedToId", "toId"]),
+        "ensure-edge" => mutation(&["warpId", "edgeId", "fromId", "toId", "edgeType"]),
+        "replace-edge" => mutation(&["warpId", "edgeId", "expectedToId", "toId"]),
         _ => Err(()),
     }
 }

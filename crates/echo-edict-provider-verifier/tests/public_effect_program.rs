@@ -220,7 +220,14 @@ fn transport(artifact: BoundArtifact) -> verifier::BoundArtifact {
 
 /// The verification request for `package` against the public compiler request.
 fn verification_request(package: Vec<u8>) -> verifier::VerificationRequestV1 {
-    let mut source = lowering_request();
+    verification_request_for(lowering_request(), package)
+}
+
+/// The verification request for `package` against the lowering request `source`.
+fn verification_request_for(
+    mut source: LoweringRequestV1,
+    package: Vec<u8>,
+) -> verifier::VerificationRequestV1 {
     let target = source.semantic_inputs.remove(5).artifact;
     let mut inputs: Vec<_> = source
         .semantic_inputs
@@ -693,4 +700,256 @@ fn both_routes_refuse_a_target_ir_naming_two_lawpacks() {
         "echo.span-ir/v2",
         "Target IR names exactly one lawpack",
     );
+}
+
+// The `echo.dpo@2` effect target profile (flyingrobots/echo#985).
+//
+// Until the public compiler can target `echo.dpo@2`, these requests are the
+// public flat request re-pinned, artifact by artifact, to that profile: the
+// configuration carries its catalog, the adapter selects that configuration,
+// the lawpack accepts the profile and its Target IR, and Core, Target IR and
+// source name that lawpack. Oracles: the profile's own pins, and the binding
+// law that each profile admits only the catalog it pins.
+
+const EFFECT_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo-2.cbor");
+const EFFECT_CATALOG: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+);
+const EFFECT_PROFILE_ONLY: &str = "echo.dpo@2 admits only authored effect programs";
+
+fn pin(domain: &str, value: &Value) -> Value {
+    Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(digest(domain, value).expect("identity").to_vec()),
+    ])
+}
+
+/// The public flat lowering request re-pinned to `echo.dpo@2`.
+#[allow(clippy::too_many_lines)]
+fn echo_dpo_2_request() -> LoweringRequestV1 {
+    let profile = decode(EFFECT_PROFILE).expect("profile");
+    let profile_reference = Value::Map(vec![
+        (
+            Value::Text("id".to_owned()),
+            Value::Text("echo.dpo@2".to_owned()),
+        ),
+        (
+            Value::Text("digest".to_owned()),
+            pin("edict.target-profile/v1", &profile),
+        ),
+    ]);
+    let configuration = decode(&configuration_with(|configuration| {
+        *field_mut(configuration, "intrinsicCatalog") = Value::Bytes(EFFECT_CATALOG.to_vec());
+    }))
+    .expect("configuration");
+    let mut adapter = decode(&retained!("flat-adapter.hex")).expect("adapter");
+    let Value::Map(profiles) = field_mut(&mut adapter, "operationProfiles") else {
+        panic!("operation profiles")
+    };
+    for (_, operation) in profiles.iter_mut() {
+        *field_mut(field_mut(operation, "targetConfiguration"), "digest") =
+            pin("echo.operation-lowering-configuration/v1", &configuration);
+    }
+    let mut lawpack = decode(&retained!("flat-lawpack.hex")).expect("lawpack");
+    let old_lawpack = echo_edict_canonical::digest_canonical_value_v1("edict.lawpack/v1", &lawpack)
+        .expect("lawpack identity");
+    let Value::Array(entries) = field_mut(&mut lawpack, "targetAdapters") else {
+        panic!("target adapters")
+    };
+    // The lawpack pins its adapter under the adapter's own coordinate.
+    let adapter_reference = field_mut(&mut entries[0], "adapter");
+    let Value::Text(owner) = field(adapter_reference, "id").clone() else {
+        panic!("adapter id")
+    };
+    *field_mut(adapter_reference, "digest") = pin(&owner, &adapter);
+    *field_mut(&mut entries[0], "acceptedTargetProfile") = profile_reference.clone();
+    *field_mut(&mut entries[0], "acceptedTargetIr") = field(&profile, "targetIr").clone();
+    let lawpack_pin = pin("edict.lawpack/v1", &lawpack);
+    let new_lawpack = echo_edict_canonical::digest_canonical_value_v1("edict.lawpack/v1", &lawpack)
+        .expect("lawpack identity");
+
+    let bundle = bundle();
+    let mut core = decode(bytes(field(&bundle, "core_artifact"))).expect("Core");
+    let Value::Array(imports) = field_mut(&mut core, "imports") else {
+        panic!("imports")
+    };
+    for import in imports
+        .iter_mut()
+        .filter(|import| field(import, "kind") == &Value::Text("lawpack".to_owned()))
+    {
+        *field_mut(field_mut(import, "ref"), "digest") = lawpack_pin.clone();
+    }
+    let mut target = decode(bytes(field(&bundle, "target_ir_artifact"))).expect("IR");
+    *field_mut(&mut target, "targetProfile") = profile_reference;
+    let closure = field_mut(&mut target, "semanticClosure");
+    *field_mut(field_mut(closure, "sourceCore"), "digest") = pin("edict.core.module/v1", &core);
+    let Value::Array(lawpacks) = field_mut(closure, "lawpacks") else {
+        panic!("lawpacks")
+    };
+    *field_mut(&mut lawpacks[0], "digest") = lawpack_pin;
+    assert!(SOURCE.contains(&old_lawpack), "the source pins the lawpack");
+    let source = encode(&Value::Bytes(
+        SOURCE.replace(&old_lawpack, &new_lawpack).into_bytes(),
+    ))
+    .expect("source");
+
+    let mut request = lowering_request();
+    let rebind = |artifact: &BoundArtifact, bytes: Vec<u8>| {
+        bound(
+            &artifact.reference.coordinate,
+            &artifact.artifact.domain,
+            bytes,
+        )
+    };
+    request.core = rebind(&request.core, encode(&core).expect("Core"));
+    request.target_profile = bound(
+        "echo.dpo@2",
+        "edict.target-profile/v1",
+        EFFECT_PROFILE.to_vec(),
+    );
+    let inputs = &mut request.semantic_inputs;
+    for (index, bytes) in [
+        (0, encode(&adapter).expect("adapter")),
+        (2, encode(&lawpack).expect("lawpack")),
+        (3, source),
+        (4, encode(&configuration).expect("configuration")),
+        (5, encode(&target).expect("IR")),
+    ] {
+        inputs[index].artifact = rebind(&inputs[index].artifact, bytes);
+    }
+    request
+}
+
+/// The package the native lowerer emits for `request`.
+fn lowered(request: LoweringRequestV1) -> Vec<u8> {
+    lower(request)
+        .expect("the request lowers")
+        .outputs
+        .remove(0)
+        .artifact
+        .bytes
+}
+
+#[test]
+fn a_program_bound_to_echo_dpo_2_lowers_and_verifies() {
+    let package = lowered(echo_dpo_2_request());
+    assert_ne!(
+        package,
+        public_package(),
+        "the package binds the new profile"
+    );
+    let response = verifier::verify(verification_request_for(echo_dpo_2_request(), package))
+        .expect("bound request");
+    let report = decode(&response.outputs[0].artifact.bytes).expect("report");
+    assert_eq!(
+        field(&report, "outcome"),
+        &Value::Text("accepted".to_owned())
+    );
+}
+
+#[test]
+fn under_echo_dpo_2_both_routes_refuse_a_target_ir_bound_under_another_coordinate() {
+    let expected = "Target IR is not bound as the ordered echo.span-ir/v2";
+    let package = lowered(echo_dpo_2_request());
+    let mut lowering = echo_dpo_2_request();
+    let mut verification = verification_request_for(echo_dpo_2_request(), package);
+    let target = lowering.semantic_inputs[5].artifact.artifact.bytes.clone();
+    lowering.semantic_inputs[5].artifact = bound(
+        "echo.span-ir/v1",
+        "edict.target-ir.artifact/v1",
+        target.clone(),
+    );
+    verification.target_ir = transport(bound(
+        "echo.span-ir/v1",
+        "edict.target-ir.artifact/v1",
+        target,
+    ));
+    assert!(lowerer_refusal(lowering).contains(expected));
+    assert!(verifier_refusal(verification).contains(expected));
+}
+
+#[test]
+fn each_profile_refuses_the_catalog_the_other_pins() {
+    // echo.dpo@1 with the echo.dpo@2 catalog, which declares the runtime's
+    // effect intrinsics.
+    let foreign = configuration_with(|configuration| {
+        *field_mut(configuration, "intrinsicCatalog") = Value::Bytes(EFFECT_CATALOG.to_vec());
+    });
+    let mut lowering = lowering_request();
+    lowering.semantic_inputs[4].artifact = bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        foreign.clone(),
+    );
+    assert!(lowerer_refusal(lowering).contains("must match the selected target profile"));
+    let mut verification = verification_request(public_package());
+    replace_input(&mut verification, "05-target-configuration", foreign);
+    assert!(
+        verifier_refusal(verification).contains("catalog is not the one the target profile pins")
+    );
+
+    // echo.dpo@2 with the echo.dpo@1 catalog.
+    let own = retained!("flat-configuration.hex");
+    let mut lowering = echo_dpo_2_request();
+    lowering.semantic_inputs[4].artifact = bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        own.clone(),
+    );
+    assert!(lowerer_refusal(lowering).contains("must match the selected target profile"));
+    let mut verification =
+        verification_request_for(echo_dpo_2_request(), lowered(echo_dpo_2_request()));
+    replace_input(&mut verification, "05-target-configuration", own);
+    assert!(
+        verifier_refusal(verification).contains("catalog is not the one the target profile pins")
+    );
+}
+
+#[test]
+fn echo_dpo_2_admits_only_authored_effect_programs() {
+    // Another executable-operation program kind under echo.dpo@2.
+    let bounded_read = encode(&Value::Map(vec![
+        (
+            Value::Text("apiVersion".to_owned()),
+            Value::Text("echo.operation-lowering-configuration/v1".to_owned()),
+        ),
+        (
+            Value::Text("programKind".to_owned()),
+            Value::Text("compiler-produced-bounded-read/v1".to_owned()),
+        ),
+        (Value::Text("maxReadBytes".to_owned()), Value::Integer(64)),
+        (Value::Text("maxReads".to_owned()), Value::Integer(1)),
+    ]))
+    .expect("configuration");
+    let mut lowering = echo_dpo_2_request();
+    lowering.semantic_inputs[4].artifact = bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        bounded_read.clone(),
+    );
+    assert!(lowerer_refusal(lowering).contains(EFFECT_PROFILE_ONLY));
+    let mut verification =
+        verification_request_for(echo_dpo_2_request(), lowered(echo_dpo_2_request()));
+    replace_input(&mut verification, "05-target-configuration", bounded_read);
+    assert!(verifier_refusal(verification).contains(EFFECT_PROFILE_ONLY));
+
+    // The original target-IR route under echo.dpo@2.
+    let mut lowering = echo_dpo_2_request();
+    lowering.requested_outputs[0] = LoweringOutputRequest {
+        role: "target-ir.echo-dpo".to_owned(),
+        kind: LoweringOutputKind::TargetIr,
+        domain: "edict.target-ir.artifact/v1".to_owned(),
+    };
+    assert!(lowerer_refusal(lowering).contains(EFFECT_PROFILE_ONLY));
+    let mut verification =
+        verification_request_for(echo_dpo_2_request(), lowered(echo_dpo_2_request()));
+    verification.requested_outputs[0] = verifier::VerificationOutputRequest {
+        role: "verifier-report.echo-dpo".to_owned(),
+        kind: verifier::VerificationOutputKind::VerifierReport,
+        domain: "echo.verifier-report/v1".to_owned(),
+    };
+    verification
+        .semantic_inputs
+        .retain(|input| input.role != "executable-operation-package.echo");
+    assert!(verifier_refusal(verification).contains(EFFECT_PROFILE_ONLY));
 }

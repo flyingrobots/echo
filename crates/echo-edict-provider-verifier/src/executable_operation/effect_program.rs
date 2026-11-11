@@ -52,27 +52,25 @@ const NODE_ATOM_READ_V1: [FailureName; 4] = [
     },
 ];
 
-/// The failure contract of each runtime intrinsic, keyed by its versioned
-/// coordinate. An intrinsic outside this table is refused.
+/// The failure contract of each runtime intrinsic, keyed by its operation
+/// below either effect namespace. An intrinsic outside this table is refused.
 fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
-    match intrinsic {
-        "echo.dpo@1.node-atom-read" => Some(&NODE_ATOM_READ_V1),
-        "echo.dpo@1.ensure-node"
-        | "echo.dpo@1.create-node"
-        | "echo.dpo@1.replace-atom"
-        | "echo.dpo@1.ensure-edge"
-        | "echo.dpo@1.replace-edge" => Some(&[]),
+    match super::intrinsic_names::operation(intrinsic)? {
+        "node-atom-read" => Some(&NODE_ATOM_READ_V1),
+        "ensure-node" | "create-node" | "replace-atom" | "ensure-edge" | "replace-edge" => {
+            Some(&[])
+        }
         _ => None,
     }
 }
 
 /// The effect kind, which is also the write class, of each intrinsic.
 fn effect_kind(intrinsic: &str) -> Option<&'static str> {
-    Some(match intrinsic {
-        "echo.dpo@1.node-atom-read" => "read",
-        "echo.dpo@1.create-node" => "create",
-        "echo.dpo@1.ensure-node" | "echo.dpo@1.ensure-edge" => "ensure",
-        "echo.dpo@1.replace-atom" | "echo.dpo@1.replace-edge" => "replace",
+    Some(match super::intrinsic_names::operation(intrinsic)? {
+        "node-atom-read" => "read",
+        "create-node" => "create",
+        "ensure-node" | "ensure-edge" => "ensure",
+        "replace-atom" | "replace-edge" => "replace",
         _ => return None,
     })
 }
@@ -305,12 +303,12 @@ fn relation<'a>(
         return Err(());
     }
     equal_text(&profile, "intrinsicNamespace", &profile_coordinate)?;
+    // Only Echo's two effect namespaces name runtime intrinsics; each pins
+    // its own catalog coordinate, which is also the catalog's digest domain.
+    let namespace = super::intrinsic_names::namespace(&profile_coordinate).ok_or(())?;
     let catalog_reference = get(&profile, "intrinsics")?;
-    equal_text(catalog_reference, "id", "echo.dpo.intrinsics/v1")?;
-    pinned(
-        catalog_reference,
-        identity("echo.dpo.intrinsics/v1", &catalog)?,
-    )?;
+    equal_text(catalog_reference, "id", namespace.catalog)?;
+    pinned(catalog_reference, identity(namespace.catalog, &catalog)?)?;
     exact(&catalog, &["apiVersion", "intrinsics"])?;
     equal_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;
     let catalog = get(&catalog, "intrinsics")?;

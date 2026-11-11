@@ -56,7 +56,7 @@ pub(in crate::edict_effects) fn export(
     })?;
     let size = rows
         .len()
-        .checked_mul(192)
+        .checked_mul(200)
         .and_then(|n| {
             pair_count
                 .checked_mul(64)
@@ -123,11 +123,15 @@ fn prepare<'a>(
     row.slot = EffectSlotRow::from_slot(slot)?;
     row.read_type = ty.0;
     match (slot, value) {
-        (SlotId::Node(_), SlotReading::Node(Some(record))) if record.ty == ty => {
+        (SlotId::Node(key), SlotReading::Node(Some(record))) if record.ty == ty => {
             let mut hash = blake3::Hasher::new();
             hash.update(b"echo.bridge.node-value.v1\0");
             hash.update(&record.ty.0);
             row.subject = hash.finalize().into();
+            if let Some(length) = source.observed_buckets.get(&key) {
+                row.bucket = 1;
+                row.bucket_len_le = length.to_le();
+            }
         }
         (SlotId::Node(_), SlotReading::Node(None))
         | (SlotId::Edge(_), SlotReading::Edge(None))

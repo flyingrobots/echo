@@ -1246,9 +1246,14 @@ and its alpha slot; an empty slot is retained as typeless absence. A node named
 by an edge but not stored records its absence under the type of the node whose
 edge named it and keeps the malformed-storage outcome. An untyped recording
 frame grants no graph read. A scan charges every edge in the source's bucket, of any
-type, but the read image records only the requested ranges: the bucket size
-that decides the scan bound is not yet witnessed. Graph reads therefore must
-not enter authored effect programs until the image witnesses it. A read image carrying a second, conflicting
+type, and the read image witnesses that bucket's size on the source's node row,
+whether the scan ran or was refused at the scan bound. The size that decided
+each scan's bound and charge is therefore evidence, and `confirm_bucket_sizes`
+refuses an image whose recorded size differs from the bucket at its basis with
+`BucketSizeMismatch`; the layout is in
+[Generated Rules](../topics/GeneratedRules.md). Admitting graph reads into
+authored effect programs is separate work
+([#982](https://github.com/flyingrobots/echo/issues/982)). A read image carrying a second, conflicting
 observation of one slot is refused as `InvalidImage`; a stale basis refuses
 with `BasisMismatch` before any read.
 

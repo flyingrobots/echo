@@ -8,7 +8,7 @@ use crate::EchoOperationEvaluationBasisV1;
 pub use rows::{EffectEdgePairRow, EffectReadRow, EffectSlotRow};
 pub use validate::EffectReadSetView;
 
-const DOMAIN: &[u8] = b"echo.bridge.read-set.v1\0";
+const DOMAIN: &[u8] = b"echo.bridge.read-set.v2\0";
 
 #[repr(C, align(8))]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -31,6 +31,9 @@ pub enum EffectReadImageError {
     /// The image violates its framing, tags, fields, ordering or packed ranges.
     #[error("invalid canonical read-set image")]
     InvalidImage,
+    /// A recorded source-bucket length differs from the bucket at the basis.
+    #[error("recorded bucket size differs from the observed basis")]
+    BucketSizeMismatch,
     /// Zero-copy row access requires an eight-byte-aligned input buffer.
     #[error("read-set image buffer is not eight-byte aligned")]
     UnalignedImage,
@@ -42,7 +45,7 @@ pub enum EffectReadImageError {
 /// Owned, aligned export of a runtime frame's completed typed observations.
 ///
 /// The bytes are the read-set digest preimage after its domain: row count,
-/// 192-byte rows, pair count, then 64-byte edge pairs. This carries the actual
+/// 200-byte rows, pair count, then 64-byte edge pairs. This carries the actual
 /// runtime parent separately; neither the image nor a structural view is an
 /// installation, policy-authentication or historical-decision capability.
 #[derive(Debug)]

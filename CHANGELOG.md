@@ -157,6 +157,19 @@
 
 ### Changed
 
+- Breaking: read images witness the size of every outgoing bucket a read
+  consulted (#981). Typed range reads, outgoing-edge reads and closure reads
+  record the number of edges of every type in the source's bucket on its node
+  row, whether the scan ran or was refused, because that size decides the
+  scan's bound and charge. `EffectReadSetView::confirm_bucket_sizes` refuses an
+  image whose recorded size differs from the bucket at its basis with the new
+  `EffectReadImageError::BucketSizeMismatch`. Parsing refuses a range without
+  its source's node row, a present source without its bucket, and ranges from
+  one source that together retain more pairs than its bucket holds. The read
+  row grows from 192 to 200 bytes (public `bucket` and `bucket_len_le` fields)
+  and the read-set digest domain becomes `echo.bridge.read-set.v2`; version-1
+  images are not read. Evaluation outcomes and charges are unchanged.
+
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
   `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;

@@ -338,8 +338,54 @@ judge the same bodies independently with input-constraint facts and `let`
 ceilings, and the three judgments must agree. They differ in one way today:
 the providers let a constraint use the constraints before it, where Edict and
 Echo check each alone, so a package whose later constraint needs an earlier
-one passes the providers and is refused here (#960). The graph-effects route
-has no provider judgment yet.
+one passes the providers and is refused here (#960). On the graph-effects route
+the providers judge each constraint alone, as the runtime does.
+
+The provider lowerer and verifier each judge an authored effect program
+themselves, sharing no code with the runtime. Each establishes the program's
+binding to its own Core, Target IR and exports; the pinned lawpack, adapter,
+target profile and intrinsic catalog that authorize each effect; each
+effect's runtime ABI, write class and failure contract through the
+intrinsic-scoped failure table, with an effect's result exactly the ABI's
+type rather than a nominal wrapper; one declared obstruction per failure arm
+with a matching authority class; node-for-node Core and Target IR
+correspondence; a 32-byte evaluation basis; type tables that name unsigned
+widths directly, as Core has no `Int` kind, and nominal entries with exactly
+their kind, contract and representation; and the body's types, proven
+ranges and declared Core budget under its own static cost model. As in the
+runtime, each input constraint is judged with no facts, and only then do all
+of them dominate the body, so one constraint never proves another. The budget
+judgment charges each emitted mutation the row the runtime reserves for it,
+charges each read the records it keeps and its retained payload, bounds every
+failure payload by the output ceiling, and allows at most 1,024 mutations.
+The lowerer runs this judgment before it serializes an effect publication.
+The verifier runs it, checks the package and program envelopes the runtime
+admits, including every fixed profile and schema identity, and binds the
+Core, canonical meaning, Target IR, exports, operation, output type and
+footprint contract the package claims to the program it carries, before
+installation. The verifier requires the source identity and the authority
+profile to be 32-byte hashes but does not bind them, and it requires the graph schema and footprint law only
+to be canonical values; the runtime admits their contents.
+
+The two providers' copies of the program-level checks are near-identical, so
+they are independent of the runtime, not of each other. All three judges reach
+the same verdict on a retained corpus of accepted programs, forgeries and
+accepted siblings that differ from a forgery by the edit it targets, which
+warp-core generates and pins. For each corpus entry the runtime refuses only
+when it runs, the runtime test executes it and observes the exact refusal,
+beside an accepted control for every entry except the captured read's own
+1 MiB step budget, which equals the frame's fixed step ceiling, so the two
+refuse together.
+
+The providers' budget judgment is a static model over declared types, not a
+bound on the runtime's meter. The runtime meters every evaluation and refuses
+whatever exceeds its budget. The model charges a read at its declared
+maximum on a root-warp node. Graph state the providers cannot see can cost
+more: an atom larger than its declared maximum is charged in full before it
+is refused, a read below the root warp or through a portal costs more, and a
+frame's fixed ceilings can bind first. Package-level limits and ceilings,
+including the package size, and the runtime parser's work budget are also
+enforced by the runtime, not judged by the providers.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and the current pinned publication containing an authored arithmetic helper.

@@ -9,6 +9,7 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod effect_intent;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -28,6 +29,7 @@ mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 
 type Check<T> = Result<T, ()>;
@@ -363,6 +365,11 @@ impl<'a> Judgment<'a> {
         match string(get(definition, "kind")?)? {
             "Bool" => Ok(Ty::Bool),
             "Int" => self.ty(string(get(definition, "width")?)?, depth + 1),
+            // A table entry may also name an unsigned width directly, as Core does.
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                exact(definition, &["kind"])?;
+                self.ty(kind, depth + 1)
+            }
             "Nominal" => {
                 if string(get(definition, "contract")?)? != key {
                     return Err(());

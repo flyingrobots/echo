@@ -9,6 +9,7 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod effect_intent;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -29,6 +30,7 @@ mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 use types::{Charge, Schema, Types};
 type Check<T> = Result<T, ()>;
@@ -128,7 +130,39 @@ fn each_intent<'a>(
     mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
 ) -> Check<()> {
     let mut types = Types::new(core);
-    let definitions = inventory(core, exports, &mut types)?;
+    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans)?;
+    let mut checker = Checker {
+        types: &mut types,
+        definitions: &definitions,
+        summaries: &summaries,
+        proven: Vec::new(),
+        branch: Vec::new(),
+        path: Vec::new(),
+        bound: Vec::new(),
+        proven_sum: None,
+        edge_scans,
+    };
+    // A graph read always needs its whole-intent charge judged.
+    if super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        judge(&mut checker, intent)?;
+    }
+    Ok(())
+}
+/// Inventories every helper and summarizes each one after its dependencies.
+type Prepared<'a> = (BTreeMap<String, Definition<'a>>, BTreeMap<String, Summary>);
+fn prepare<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    types: &mut Types<'a>,
+    edge_scans: u64,
+) -> Check<Prepared<'a>> {
+    let definitions = inventory(core, exports, types)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, definition) in &definitions {
@@ -167,7 +201,7 @@ fn each_intent<'a>(
                 }
                 "if" => {
                     let predicate = get(expression, "predicate")?;
-                    predicate_expressions(predicate, depth + 1, &mut types, &mut expressions)?;
+                    predicate_expressions(predicate, depth + 1, types, &mut expressions)?;
                     expressions.push((get(expression, "then")?, depth + 1));
                     expressions.push((get(expression, "else")?, depth + 1));
                 }
@@ -216,19 +250,31 @@ fn each_intent<'a>(
             callers.entry(edge).or_default().push(name);
         }
     }
-    let mut ready: BTreeSet<&str> = pending
+    let summaries = summarize(&definitions, types, pending, &callers, edge_scans)?;
+    Ok((definitions, summaries))
+}
+/// Summarizes every helper after its dependencies, so callers see complete
+/// summaries. No native recursion crosses a function edge.
+fn summarize<'a, 'n>(
+    definitions: &BTreeMap<String, Definition<'a>>,
+    types: &mut Types<'a>,
+    mut pending: BTreeMap<&'n str, usize>,
+    callers: &BTreeMap<&'n str, Vec<&'n str>>,
+    edge_scans: u64,
+) -> Check<BTreeMap<String, Summary>> {
+    let mut ready: BTreeSet<&'n str> = pending
         .iter()
         .filter_map(|(name, degree)| (*degree == 0).then_some(*name))
         .collect();
     let mut summaries = BTreeMap::new();
-    // No native recursion crosses a function edge. Dependencies receive their
-    // own complete summary before any caller can use it, in either name order.
+    // Dependencies receive their own complete summary before any caller can
+    // use it, in either name order.
     while let Some(name) = ready.pop_first() {
         types.step(0)?;
         let definition = definitions.get(name).ok_or(())?;
         let summary = Checker {
-            types: &mut types,
-            definitions: &definitions,
+            types: &mut *types,
+            definitions,
             summaries: &summaries,
             proven: Vec::new(),
             branch: Vec::new(),
@@ -255,28 +301,7 @@ fn each_intent<'a>(
     if summaries.len() != definitions.len() {
         return Err(());
     }
-    let mut checker = Checker {
-        types: &mut types,
-        definitions: &definitions,
-        summaries: &summaries,
-        proven: Vec::new(),
-        branch: Vec::new(),
-        path: Vec::new(),
-        bound: Vec::new(),
-        proven_sum: None,
-        edge_scans,
-    };
-    // A graph read always needs its whole-intent charge judged.
-    if super::map_field(core, "functions").is_none()
-        && !unsigned_addition::present(core)?
-        && edge_scans == 0
-    {
-        return Ok(());
-    }
-    for (_, intent) in members(get(core, "intents")?)? {
-        judge(&mut checker, intent)?;
-    }
-    Ok(())
+    Ok(summaries)
 }
 fn inventory<'a>(
     core: &'a Value,

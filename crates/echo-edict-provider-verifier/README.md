@@ -123,9 +123,9 @@ route's fixed 64 KiB output ceiling.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 594,556-byte checked
+transport-to-model conversion. Its reproducibly built 595,484-byte checked
 component has SHA-256
-`af68e3676b6a387947ed88f15d751125cc3af5e959152954c26756dbf1d631c6`.
+`026020fadf9676e8a40970490b947d8c17e39fcd066740aefe869aeba6aa07a9`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted
@@ -156,3 +156,7 @@ from the digest-locked package assembled by the next campaign goalpost, which
 binds the static inputs and verifier component together. Neither proposition
 has an Echo causal site or witnessed hologram, and neither grants Echo runtime
 installation, execution, or consequence authority.
+
+## Authored effect packages
+
+The native Rust API `effect_package::verify_effect_package` judges an authored effect package before installation, without trusting the lowerer that produced it or the runtime that will execute it. It judges the compiled effect program itself: its binding to its own Core, Target IR and exports; the pinned lawpack, adapter, target profile and intrinsic catalog that authorize each effect; each effect's intrinsic ABI and version-scoped failure contract; one declared obstruction per failure arm; Core and Target IR correspondence; and the body's types, proven ranges and declared budget under the verifier's own cost model. It checks the package and program envelopes Echo's runtime admits: exact fields, schema constants, every fixed package and program profile and schema identity, declared limits, a nonzero step ceiling, a non-empty application schema coordinate, and a canonical graph schema and footprint law. It then requires the package's Core, canonical meaning, Target IR and exports identities, its operation, its output type and its footprint contract to name the program it carries. It requires the source identity and the authority profile to be 32-byte hashes but does not bind them to values, and it does not admit the graph schema's and footprint law's contents; the runtime admits those itself. Its budget judgment is a static model over declared types, not a bound on the runtime's meter. It refuses with `InvalidEnvelope`, `InvalidBinding` or `UnsupportedProgram`. It does not judge graph-law semantics or grant authority, and the verifier component's interface does not yet call it.

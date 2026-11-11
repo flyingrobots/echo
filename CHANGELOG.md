@@ -7,6 +7,18 @@
 
 ### Added
 
+- Read images witness the size of every outgoing bucket a read consulted
+  (#981). Typed range reads, outgoing-edge reads and closure reads record the
+  number of edges of every type in the source's bucket on its node row,
+  whether the scan ran or was refused, because that size decides the scan's
+  bound and charge. `EffectReadSetView::confirm_bucket_sizes` refuses an image
+  whose recorded size differs from the bucket at its basis with the new
+  `EffectReadImageError::BucketSizeMismatch`, and parsing refuses a range that
+  retains more pairs than its source's bucket holds. The read row grows from
+  192 to 200 bytes (`bucket`, `bucket_len_le`) and the read-set digest domain
+  becomes `echo.bridge.read-set.v2`; version-1 images are not read. Evaluation
+  outcomes and charges are unchanged.
+
 - The bounded-read runtime evaluates two generic graph-read intrinsics:
   `echo.dpo@1.outgoing-edge-read` returns a node's outgoing edges of one type,
   and `echo.dpo@1.closure-read` reads the bounded closure a declared pure

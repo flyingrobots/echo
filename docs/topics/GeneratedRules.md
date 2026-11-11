@@ -855,10 +855,11 @@ separately from the image bytes. Consuming the frame prevents further evaluation
 against an already-exported read set.
 
 The image is the read-set digest preimage after its domain: a little-endian
-`u64` row count, the 192-byte `EffectReadRow`s, a little-endian `u64` pair count,
+`u64` row count, the 200-byte `EffectReadRow`s, a little-endian `u64` pair count,
 and the 64-byte `EffectEdgePairRow`s. There is no new retained-history record
-magic. A read row contains a 104-byte `EffectSlotRow`, outcome and zero padding,
-a 32-byte authorizing type, a 32-byte subject digest and a WSC range descriptor.
+magic. A read row contains a 104-byte `EffectSlotRow`, outcome, a bucket tag and
+zero padding, a 32-byte authorizing type, a 32-byte subject digest, a WSC range
+descriptor and a little-endian `u64` bucket length.
 All rows are `repr(C, align(8))`, `Pod` and `Zeroable`, with explicit padding.
 The slot classes are node `0`, attachment `1`, edge `2`, range `3`. Their wire
 order is explicit and differs from native `SlotId` ordering. Slots sort by
@@ -875,7 +876,18 @@ IDs. Absent subjects are zero. Range subjects and read types are zero; the range
 slot already names its edge type. Matching edge/target pairs are packed in
 range-row order, sorted and unique by edge local ID within each run. Separate
 source-node rows distinguish an absent source from a present empty bucket.
-The read-set digest hashes `echo.bridge.read-set.v1\0` and the exact image.
+
+A bucket's size decides a scan's bound and charge, so the image witnesses it.
+`GraphStore` keeps one outgoing bucket per source, so the size is recorded once,
+on the source's present node row: bucket tag `1` and the number of edges of
+every type in that bucket. A typed range read, an outgoing-edge read and each
+range a closure reads set it, whether the scan then runs or is refused by the
+scan bound, the range bound or the budget; a refused scan leaves the source row
+with its bucket and no range row. Every other row carries tag `0` and length zero. The read-set
+digest hashes `echo.bridge.read-set.v2\0` and the exact image. Version 2
+replaced the 192-byte row of version 1 in place, with no compatibility reader.
+A version-1 image does not frame as version 2 (a one-row image is refused as
+`InvalidImage`), and the two versions' digests use different domains.
 The parent and accounting metadata are not part of this read-set digest; an
 admitted proposal/decision must separately bind them.
 
@@ -883,12 +895,20 @@ admitted proposal/decision must separately bind them.
 buffer. Its structural validator allocates no collections and checks exact
 framing, checked size arithmetic, tag legality, zero padding/unused fields,
 canonical order, duplicate rules, pair bounds, strict edge order and contiguous
-complete pair-section coverage. A suffix, an orphan pair or overlapping range
+complete pair-section coverage. Each range must follow its source's node row: a
+present source must witness its bucket with at least the range's pair count, and
+an absent source yields no pairs. A suffix, an orphan pair or overlapping range
 is invalid. The fixed ceiling is 4096 read rows and 65536 pairs per range, with
 an image no larger than 16 MiB. The total pair section can exceed 65536 when
 individual ranges and the image limit permit it. This view proves canonical
 structure only; it does not authenticate a law, parent, dependency completeness
 or historical Action decision.
+
+`EffectReadSetView::confirm_bucket_sizes(state)` checks every witnessed bucket
+length against the source's whole bucket in the state the caller supplies for
+the image's basis. A differing length, or a source absent there, refuses with
+`BucketSizeMismatch`, distinct from a malformed image. It checks bucket sizes
+only, not values or the basis identity, and allocates nothing.
 
 Export is bounded host retention work, outside the consumed evaluation budget.
 The caller's output limit intersects the fixed 16 MiB ceiling; the temporary

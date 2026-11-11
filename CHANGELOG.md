@@ -7,6 +7,23 @@
 
 ### Added
 
+- Branch facts in range proofs (#979). warp-core, the provider lowerer and the
+  provider verifier assume an `if` predicate inside its `then` arm when they
+  prove an addition, subtraction or slice, as Edict's totality rule does. So
+  `if index <= 2 then index + 1 else index`,
+  `if start <= end then end - start else 0` and
+  `if start <= end && end <= len(bytes) then slice(bytes, start, end) else b""`
+  are accepted by all three.
+  - The `else` arm, disjunctions, negations and the predicate itself gain
+    nothing, and branch facts do not cross into helper frames.
+  - Branch facts use the same comparison forms as other facts: an addition
+    still reads only `term <= c`, `term == c` and `c == term`, so
+    `index < 3` does not bound `index + 1` (#960).
+  - Each judgment reads them only when the operation is refused without them,
+    so programs accepted before keep their cost and depth.
+  - A shared corpus fixes the verdicts all three must reach. The checked
+    lowerer and verifier components are re-promoted.
+
 - `warp-core`: authored effect programs are prepared with proven-range facts,
   so a runtime `slice`, `subtract`, byte lookup or list lookup verifies when
   the facts prove its range (#934). For example, under the input constraint

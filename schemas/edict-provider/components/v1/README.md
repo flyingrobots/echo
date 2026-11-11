@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 543,739 bytes with SHA-256
-`ef19713ee82ff67bb72d2ff08f1483d256c79fbd8a74b5546daa13bfccacab7d`.
+The checked component is 544,402 bytes with SHA-256
+`e412fbc27372a45703fc6786c2c64234f149b445bf0880570423a1de1108f853`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 583,101 bytes
+`wit-component` version recorded above. Its checked component is 583,436 bytes
 with SHA-256
-`196fd5b44f6b09378be091967a82660ccca9204762f60b0eb2e4a219329df6a8`.
+`7f89fb71a0a330af73916f24a1428eef1554cdf942454d1887b6deede7c33dfd`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,10 +56,13 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The effect-program judgment component pair was independently reproduced by the
-two G4 candidate jobs in [CI run 42935735215](https://github.com/flyingrobots/echo/actions/runs/42935735215)
-at source commit `09302bd152e7cba03f402f294d3d4de42be2c036`. Both copies of
-each component matched byte-for-byte before promotion. Component publication,
+The branch-fact component pair (echo#979) was independently reproduced by the
+two G4 candidate jobs in [CI run 42929621287](https://github.com/flyingrobots/echo/actions/runs/42929621287)
+at source commit `f27b456ee47f220136f8d89ab751f7d7a7862e34`. Both copies of
+each component matched byte-for-byte before promotion. That run's comparison
+job failed only because the checked bytes were not yet promoted; after
+promotion the same comparison passed in
+[CI run 42930597810](https://github.com/flyingrobots/echo/actions/runs/42930597810). Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 
 Rebuild and check the artifact without rewriting it:

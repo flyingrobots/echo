@@ -296,34 +296,47 @@ impl<'a> Scope<'a> {
     /// The judgment first runs with no facts and no carried ceilings. Only
     /// when that refuses does it carry the earlier ceilings and run again
     /// with the input constraints, so a node that needs no fact spends no
-    /// proof budget on facts.
+    /// proof budget on facts. Only when that also refuses does a last run
+    /// read the predicates of enclosing `then` arms, so a node that needs no
+    /// branch fact spends nothing on them.
     fn data_type(&mut self, value: &Value) -> Result<RuntimeType, Error> {
-        let none = functions::Caps::new();
-        let actual = match functions::infer(
-            value,
-            &self.available,
-            functions::Proof::new(&none, &[]),
-            &self.definitions,
-            true,
-            &mut self.parser,
-            0,
-        ) {
-            Err(Error::UnsupportedProgram) if !self.facts.is_empty() || !self.lets.is_empty() => {
-                self.carry_ceilings()?;
-                functions::infer(
-                    value,
-                    &self.available,
-                    functions::Proof::new(&self.caps, &self.facts),
-                    &self.definitions,
-                    true,
-                    &mut self.parser,
-                    0,
-                )?
-            }
-            judged => judged?,
-        };
+        let actual = self.judged(|scope, proof| {
+            functions::infer(
+                value,
+                &scope.available,
+                proof,
+                &scope.definitions,
+                true,
+                &mut scope.parser,
+                0,
+            )
+        })?;
         self.expressions.push(self.parser.expr(value, 0)?);
         Ok(actual)
+    }
+    /// Runs `judge` without facts, then, after a refusal, with the carried
+    /// ceilings and input constraints, then, after another refusal, with the
+    /// branch facts as well. An earlier attempt never reads what a later one
+    /// adds.
+    fn judged<T>(
+        &mut self,
+        judge: impl Fn(&mut Self, functions::Proof<'_, '_>) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let none = functions::Caps::new();
+        let facts = match judge(self, functions::Proof::new(&none, &[])) {
+            Err(Error::UnsupportedProgram) if !self.facts.is_empty() || !self.lets.is_empty() => {
+                self.carry_ceilings()?;
+                let (caps, facts) = (self.caps.clone(), self.facts.clone());
+                match judge(self, functions::Proof::new(&caps, &facts)) {
+                    Err(Error::UnsupportedProgram) => Some((caps, facts)),
+                    judged => return judged,
+                }
+            }
+            Err(Error::UnsupportedProgram) => None,
+            judged => return judged,
+        };
+        let (caps, facts) = facts.unwrap_or_default();
+        judge(self, functions::Proof::with_branch_facts(&caps, &facts))
     }
     /// Carries the ceilings of the `let` bindings not yet carried, in body
     /// order. An unsigned binding whose value is proven below its width
@@ -363,30 +376,17 @@ impl<'a> Scope<'a> {
     /// references it reads. As in `data_type`, the facts and carried ceilings
     /// are used only when the judgment without them refuses.
     fn predicate(&mut self, value: &Value) -> Result<(), Error> {
-        let none = functions::Caps::new();
-        match functions::check_predicate(
-            value,
-            &self.available,
-            functions::Proof::new(&none, &[]),
-            &self.definitions,
-            true,
-            &mut self.parser,
-            0,
-        ) {
-            Err(Error::UnsupportedProgram) if !self.facts.is_empty() || !self.lets.is_empty() => {
-                self.carry_ceilings()?;
-                functions::check_predicate(
-                    value,
-                    &self.available,
-                    functions::Proof::new(&self.caps, &self.facts),
-                    &self.definitions,
-                    true,
-                    &mut self.parser,
-                    0,
-                )?;
-            }
-            judged => judged?,
-        }
+        self.judged(|scope, proof| {
+            functions::check_predicate(
+                value,
+                &scope.available,
+                proof,
+                &scope.definitions,
+                true,
+                &mut scope.parser,
+                0,
+            )
+        })?;
         self.predicates.push(self.parser.predicate(value, 0)?);
         self.references(value, None, 0)
     }

@@ -60,6 +60,7 @@ impl<'a> Judgment<'a> {
         sites: &BTreeMap<usize, EffectSite>,
     ) -> Check<()> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;

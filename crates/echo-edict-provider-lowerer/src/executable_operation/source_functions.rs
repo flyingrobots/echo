@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+#[cfg(test)]
+mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
 mod byte_at_tests;
@@ -91,6 +93,10 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    /// Predicates of the enclosing `if`s whose `then` arm is being judged,
+    /// outermost first. A range proof reads them only when it is refused
+    /// without them.
+    branch: Vec<&'a Value>,
     path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
@@ -203,6 +209,7 @@ fn judgment<'a>(core: &'a Value, exports: &'a Value) -> Check<Judgment<'a>> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        branch: Vec::new(),
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
@@ -241,6 +248,13 @@ impl<'a> Judgment<'a> {
             self.bound.push((local, cap));
         }
         Ok(())
+    }
+    /// Whether `left >= right` holds here: first from the dominating facts,
+    /// then, only if they do not prove it, from the `then`-arm predicates.
+    fn ordered(&mut self, left: &Value, right: &Value) -> Check<bool> {
+        Ok(order::proven(left, right, &self.proven, &mut self.work)?
+            || (!self.branch.is_empty()
+                && order::proven(left, right, &self.branch, &mut self.work)?))
     }
     /// The byte maximum of every counted operand an addition proof can reach,
     /// resolved through this module's type table so named byte types count.
@@ -404,10 +418,12 @@ impl<'a> Judgment<'a> {
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_branch = std::mem::take(&mut self.branch);
         let caller_path = std::mem::take(&mut self.path);
         let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.branch = caller_branch;
         self.path = caller_path;
         self.bound = caller_bounds;
         self.active.remove(name);
@@ -608,7 +624,11 @@ impl<'a> Judgment<'a> {
                     self.predicate(get(value, "predicate")?, scope, source, prefix + 1)?;
                 let checkpoint = self.path.len();
                 self.path.push((get(value, "predicate")?, true));
+                // As in Edict, the predicate is a fact inside the `then` arm.
+                let branch = self.branch.len();
+                self.branch.push(get(value, "predicate")?);
                 let yes = self.expression(get(value, "then")?, scope, source, prefix + 1)?;
+                self.branch.truncate(branch);
                 self.path.truncate(checkpoint);
                 self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, scope, source, prefix + 1)?;
@@ -738,8 +758,32 @@ impl<'a> Judgment<'a> {
                                 locals: &self.bound,
                                 counts: &counts,
                             };
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
                             let cap =
-                                unsigned_addition::prove(value, *max, &facts, &mut self.work)?;
+                                match unsigned_addition::prove(value, *max, &facts, &mut self.work)
+                                {
+                                    Err(()) if !self.branch.is_empty() => {
+                                        let predicates: Vec<&Value> = self
+                                            .proven
+                                            .iter()
+                                            .chain(&self.branch)
+                                            .copied()
+                                            .collect();
+                                        let facts = unsigned_addition::Facts {
+                                            predicates: &predicates,
+                                            locals: &self.bound,
+                                            counts: &counts,
+                                        };
+                                        unsigned_addition::prove(
+                                            value,
+                                            *max,
+                                            &facts,
+                                            &mut self.work,
+                                        )?
+                                    }
+                                    judged => judged?,
+                                };
                             self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                             cost = cost.plus(Cost {
                                 steps: 3,
@@ -752,12 +796,7 @@ impl<'a> Judgment<'a> {
                                 && includes(expected, right)
                                 && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            if !order::proven(
-                                &arguments[0],
-                                &arguments[1],
-                                &self.proven,
-                                &mut self.work,
-                            )? {
+                            if !self.ordered(&arguments[0], &arguments[1])? {
                                 return Err(());
                             }
                             cost = cost.plus(Cost {
@@ -777,17 +816,9 @@ impl<'a> Judgment<'a> {
                                 (Ok(start), Ok(end)) if start <= end && end <= *min => end - start,
                                 _ => {
                                     let length = order::length_of(&types[0], &arguments[0]);
-                                    if !order::proven(
-                                        &arguments[2],
-                                        &arguments[1],
-                                        &self.proven,
-                                        &mut self.work,
-                                    )? || !order::proven(
-                                        &length,
-                                        &arguments[2],
-                                        &self.proven,
-                                        &mut self.work,
-                                    )? {
+                                    if !self.ordered(&arguments[2], &arguments[1])?
+                                        || !self.ordered(&length, &arguments[2])?
+                                    {
                                         return Err(());
                                     }
                                     *max
@@ -882,6 +913,7 @@ impl<'a> Judgment<'a> {
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;

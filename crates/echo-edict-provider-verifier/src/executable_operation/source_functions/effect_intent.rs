@@ -53,6 +53,7 @@ pub(in crate::executable_operation) fn judge(
         definitions: &definitions,
         summaries: &summaries,
         proven: Vec::new(),
+        branch: Vec::new(),
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
@@ -71,6 +72,7 @@ impl<'a> Checker<'a, '_> {
         sites: &BTreeMap<usize, EffectSite>,
     ) -> Check<()> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;

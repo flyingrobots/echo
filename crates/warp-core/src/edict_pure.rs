@@ -136,4 +136,7 @@ mod byte_utf8_tests;
 mod proven_range_tests;
 
 #[cfg(test)]
+mod branch_fact_tests;
+
+#[cfg(test)]
 mod byte_at_tests;

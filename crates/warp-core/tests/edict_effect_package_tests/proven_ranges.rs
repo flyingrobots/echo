@@ -820,3 +820,288 @@ fn an_input_constraint_bounds_a_nested_sum() {
     prepare(&program(u64::MAX - 11)).expect("at + 1 is at most 11");
     refused(&program(u64::MAX - 10));
 }
+
+fn branch(predicate: V, then: V, otherwise: V) -> V {
+    map([
+        ("kind", text("if")),
+        ("predicate", predicate),
+        ("then", then),
+        ("else", otherwise),
+    ])
+}
+fn truth(value: bool) -> V {
+    map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([("kind", text("bool")), ("value", V::Bool(value))]),
+        ),
+    ])
+}
+
+/// A program whose one `let` computes `value` as a `U64` and returns whether
+/// it equals itself.
+fn computing(value: V) -> V {
+    let n = declared("local.n", "U64");
+    package(
+        Vec::new(),
+        vec![
+            Node::Let(n.clone(), value),
+            Node::Let(ok_binding(), is_true_value(at_most(local(&n), local(&n)))),
+        ],
+        local(&ok_binding()),
+    )
+}
+
+/// As in Edict, an `if` predicate is a fact inside its `then` arm:
+/// `if at <= 2 then at + 1 else at` is the Core of Jedit's
+/// `intent-guarded-add.edict`. The `else` arm gains nothing.
+#[test]
+fn a_branch_predicate_bounds_an_addition_in_its_then_arm() {
+    let bound = || at_most(input("at"), int(2));
+    let incremented = || add(input("at"), int(1));
+    prepare(&computing(branch(bound(), incremented(), input("at"))))
+        .expect("at <= 2 bounds at + 1 in the then arm");
+    refused(&computing(branch(bound(), input("at"), incremented())));
+}
+
+/// `if at <= len(text) then len(text) - at else 0` proves the subtraction in
+/// its `then` arm only, and a bound on another operand proves nothing.
+#[test]
+fn a_branch_predicate_orders_a_subtraction_in_its_then_arm() {
+    let rest = || {
+        call(
+            "core.integer.subtract",
+            &["U64"],
+            vec![len(input("text")), input("at")],
+        )
+    };
+    prepare(&computing(branch(
+        at_most(input("at"), len(input("text"))),
+        rest(),
+        int(0),
+    )))
+    .expect("at <= len(text) orders the subtraction in the then arm");
+    refused(&computing(branch(
+        at_most(input("at"), len(input("text"))),
+        int(0),
+        rest(),
+    )));
+    refused(&computing(branch(
+        at_most(input("at"), len(input("other"))),
+        rest(),
+        int(0),
+    )));
+}
+
+/// `size` sums that fit by their own literals, judged in an inner `if`
+/// predicate that sits in the `then` arm of 64 bounds on `at` it never needs,
+/// or in the `else` arm, where those bounds are not facts.
+fn sums_under_a_branch(guarded: bool, size: usize) -> V {
+    let sums = branch(
+        all(std::iter::repeat_n(at_most(add(int(1), int(1)), int(2)), size).collect()),
+        truth(true),
+        truth(false),
+    );
+    let guards = all(unread_guards(64));
+    let value = if guarded {
+        branch(guards, sums, truth(false))
+    } else {
+        branch(guards, truth(false), sums)
+    };
+    package(
+        Vec::new(),
+        vec![Node::Let(ok_binding(), value)],
+        local(&ok_binding()),
+    )
+}
+
+/// A sum that fits without the branch facts never reads them, so the same
+/// sums fit the same proof budget in either arm.
+#[test]
+fn unneeded_branch_facts_cost_a_sum_nothing() {
+    let outside = largest_accepted(4096, |size| sums_under_a_branch(false, size));
+    assert!(
+        (2..4096).contains(&outside),
+        "the bisection found a real limit: {outside}"
+    );
+    let inside = largest_accepted(4096, |size| sums_under_a_branch(true, size));
+    assert_eq!(inside, outside, "unneeded branch facts changed the budget");
+}
+
+/// The sum `1 + 0` under `depth` negations, in the `then` arm of an unneeded
+/// bound on `at` or in its `else` arm. The bound sits under 20 single-conjunct
+/// `all`s, so reading it from the sum would reach past the depth ceiling long
+/// before the sum itself does.
+fn deep_sum_under_a_branch(guarded: bool, depth: usize) -> V {
+    let mut sum = at_most(add(int(1), int(0)), int(1));
+    for _ in 0..depth {
+        sum = map([("kind", text("not")), ("value", sum)]);
+    }
+    let sum = branch(sum, truth(true), truth(false));
+    let mut guard = at_most(input("at"), int(10));
+    for _ in 0..20 {
+        guard = all(vec![guard]);
+    }
+    let value = if guarded {
+        branch(guard, sum, truth(false))
+    } else {
+        branch(guard, truth(false), sum)
+    };
+    package(
+        Vec::new(),
+        vec![Node::Let(ok_binding(), value)],
+        local(&ok_binding()),
+    )
+}
+
+/// An unneeded branch fact neither deepens nor enlarges the judgment of a
+/// deeply nested sum.
+#[test]
+fn an_unneeded_branch_fact_leaves_a_deep_sum_its_depth() {
+    let outside = largest_accepted(90, |depth| deep_sum_under_a_branch(false, depth));
+    assert!(
+        (2..90).contains(&outside),
+        "the bisection found a real limit below 90: {outside}"
+    );
+    let inside = largest_accepted(90, |depth| deep_sum_under_a_branch(true, depth));
+    assert_eq!(inside, outside, "an unneeded branch fact changed the depth");
+}
+
+/// `size` lets `at + 1`, each needing the input constraint `at <= 10`, inside
+/// the `then` arm of `at != 5`, which bounds nothing, or inside its `else` arm.
+fn constrained_sums_under_a_branch(guarded: bool, size: usize) -> V {
+    let mut nodes = Vec::new();
+    for index in 0..size {
+        let binding = declared(&format!("local.s{index}"), "U64");
+        let sum = add(input("at"), int(1));
+        let unrelated = map([
+            ("kind", text("compare")),
+            ("op", text("!=")),
+            ("left", input("at")),
+            ("right", int(5)),
+        ]);
+        let value = if guarded {
+            branch(unrelated, sum, int(0))
+        } else {
+            branch(unrelated, int(0), sum)
+        };
+        nodes.push(Node::Let(binding, value));
+    }
+    nodes.push(Node::Let(ok_binding(), truth(true)));
+    package(
+        vec![at_most(input("at"), int(10))],
+        nodes,
+        local(&ok_binding()),
+    )
+}
+
+/// A node judged again with the input constraints never pays for branch facts
+/// first: sums that need a constraint, not a branch fact, fit the same proof
+/// budget in either arm, as they did before branch facts existed.
+#[test]
+fn constraint_proven_sums_pay_nothing_for_branch_facts() {
+    let outside = largest_accepted(4096, |size| constrained_sums_under_a_branch(false, size));
+    assert!(
+        (2..4096).contains(&outside),
+        "the bisection found a real limit: {outside}"
+    );
+    let inside = largest_accepted(4096, |size| constrained_sums_under_a_branch(true, size));
+    assert_eq!(inside, outside, "branch facts changed the budget");
+}
+
+/// The last attempt keeps the input constraints: under `at <= 10`,
+/// `if len(text) <= 5 then at + len(text) else 0` needs both the constraint
+/// and the branch fact, and is refused without either.
+#[test]
+fn a_branch_fact_combines_with_an_input_constraint() {
+    let program = |constraints: Vec<V>, predicate: V| {
+        package(
+            constraints,
+            vec![
+                Node::Let(
+                    declared("local.n", "U64"),
+                    branch(predicate, add(input("at"), len(input("text"))), int(0)),
+                ),
+                Node::Let(ok_binding(), truth(true)),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    let short = || at_most(len(input("text")), int(5));
+    let bounded = || vec![at_most(input("at"), int(10))];
+    prepare(&program(bounded(), short())).expect("the constraint and the branch fact");
+    refused(&program(Vec::new(), short()));
+    refused(&program(bounded(), at_most(len(input("other")), int(5))));
+}
+
+/// The last attempt keeps carried `let` ceilings: a newline count of text of
+/// at most 64 bytes carries the ceiling 64, and under `at <= u64::MAX - 64`
+/// the sum `count + at` fits. One more in the bound is refused.
+#[test]
+fn a_branch_fact_combines_with_a_carried_ceiling() {
+    let count = declared("local.count", "U64");
+    let program = |bound: u64| {
+        package(
+            Vec::new(),
+            vec![
+                Node::Let(
+                    count.clone(),
+                    call(
+                        "core.bytes.count",
+                        &[BYTES],
+                        vec![
+                            input("text"),
+                            map([
+                                ("kind", text("const")),
+                                (
+                                    "value",
+                                    map([
+                                        ("kind", text("bytes")),
+                                        ("value", V::Bytes(vec![b'\n'])),
+                                    ]),
+                                ),
+                            ]),
+                        ],
+                    ),
+                ),
+                Node::Let(
+                    declared("local.n", "U64"),
+                    branch(
+                        at_most(input("at"), int(bound)),
+                        add(local(&count), input("at")),
+                        int(0),
+                    ),
+                ),
+                Node::Let(ok_binding(), truth(true)),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(u64::MAX - 64)).expect("the ceiling and the branch fact");
+    refused(&program(u64::MAX - 63));
+}
+
+/// `if at <= len(text) then isUtf8(slice(text, 0, at)) else false` proves its
+/// slice from the branch fact; the same slice in the `else` arm is refused.
+#[test]
+fn a_branch_predicate_proves_a_slice_in_its_then_arm() {
+    let program = |then_arm: bool| {
+        let bound = at_most(input("at"), len(input("text")));
+        let checked = prefix_is_utf8("text", input("at"));
+        package(
+            Vec::new(),
+            vec![Node::Let(
+                ok_binding(),
+                if then_arm {
+                    branch(bound, checked, truth(false))
+                } else {
+                    branch(bound, truth(false), checked)
+                },
+            )],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(true)).expect("the branch fact proves the slice");
+    refused(&program(false));
+}

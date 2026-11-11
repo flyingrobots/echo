@@ -3,9 +3,10 @@
 //! Verifier-owned order proofs for partial byte slicing and unsigned subtraction.
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
-//! constants, or a dominating fact: an input constraint or an earlier
-//! conjunct of an enclosing `all`. Conditional predicates, negations and
-//! later conjuncts prove nothing.
+//! constants, or a dominating fact: an input constraint, an earlier
+//! conjunct of an enclosing `all`, or, inside the `then` arm of an `if`, its
+//! predicate. The `else` arm, negations, disjunctions and later conjuncts
+//! prove nothing.
 use super::{get, sequence, string, unsigned, Check, Types, Value};
 
 pub(super) fn proven(

@@ -16,8 +16,8 @@ impl<'a> EffectReadSetView<'a> {
     /// Checks counts, exact sizes, alignment, tags, unused fields, sorting and packing.
     ///
     /// It also checks each range against its source's node row: a present
-    /// source must witness its bucket with at least the range's pair count,
-    /// and an absent source yields no pairs. Input must be eight-byte aligned.
+    /// source must witness its bucket, holding at least the pairs all of its
+    /// ranges retain together, and an absent source yields no pairs. Input must be eight-byte aligned.
     /// Validation walks borrowed rows without allocating, copying the image,
     /// or hydrating owned collections; each range adds one binary search.
     /// # Errors
@@ -80,7 +80,7 @@ impl<'a> EffectReadSetView<'a> {
     /// size equals the source's whole outgoing bucket in `state`. The caller
     /// supplies the state at the image's evaluation basis; this checks bucket
     /// sizes only, not values, provenance or the basis identity. It walks the
-    /// borrowed rows once, does one constant-time bucket lookup per witnessed
+    /// borrowed rows once, does one logarithmic bucket lookup per witnessed
     /// bucket and allocates nothing.
     ///
     /// # Errors
@@ -113,6 +113,9 @@ fn word(bytes: &[u8]) -> Result<u64, Error> {
 fn validate_rows(rows: &[EffectReadRow], pairs: &[EffectEdgePairRow]) -> Result<(), Error> {
     let mut previous: Option<&EffectReadRow> = None;
     let mut cursor = 0_usize;
+    // Pairs retained so far by the ranges of the current source. Ranges sort
+    // by class, warp and source, so one source's ranges are adjacent.
+    let mut source_pairs: Option<(&crate::Hash, &crate::Hash, usize)> = None;
     for (index, row) in rows.iter().enumerate() {
         if !row.valid() {
             return Err(Error::InvalidImage);
@@ -140,9 +143,19 @@ fn validate_rows(rows: &[EffectReadRow], pairs: &[EffectEdgePairRow]) -> Result<
             {
                 return Err(Error::InvalidImage);
             }
-            // Rows before this one are already checked and sorted, so its
-            // source's node rows, which sort first, lie among them.
-            source_bucket_holds(&rows[..index], row, len)?;
+            // Edge types partition one bucket, so the source's ranges together
+            // retain at most its size. Rows before this one are already
+            // checked and sorted, and its source's node rows sort among them.
+            let total = match source_pairs {
+                Some((warp, local, sum))
+                    if *warp == row.slot.warp_id && *local == row.slot.local_id =>
+                {
+                    sum.checked_add(len).ok_or(Error::InvalidImage)?
+                }
+                _ => len,
+            };
+            source_pairs = Some((&row.slot.warp_id, &row.slot.local_id, total));
+            source_bucket_holds(&rows[..index], row, total)?;
         }
         previous = Some(row);
     }
@@ -154,7 +167,7 @@ fn validate_rows(rows: &[EffectReadRow], pairs: &[EffectEdgePairRow]) -> Result<
 /// Checks a range row against its source's node row among the sorted `before`.
 ///
 /// A range scans its source's whole bucket, so a present source must witness
-/// that bucket and hold at least the range's `pairs`; an absent source has no
+/// that bucket and hold at least `pairs`, its ranges' total so far; an absent source has no
 /// bucket and yields no pairs. A range without its source's row is refused.
 fn source_bucket_holds(
     before: &[EffectReadRow],

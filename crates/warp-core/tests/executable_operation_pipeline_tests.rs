@@ -8126,6 +8126,11 @@ fn a_typed_range_read_image_records_its_whole_source_bucket() {
     frame.read_typed_range(range, ty).expect("real range");
     let image = frame.into_read_set_image(4096).expect("real range image");
     let view = EffectReadSetView::parse(image.as_bytes()).expect("range view");
+    // Wire oracle: the source row's bucket tag at byte 105 and its
+    // little-endian length at bytes 192..200 of the row.
+    let row = &image.as_bytes()[8..208];
+    assert_eq!(row[105], 1);
+    assert_eq!(row[192..200], 3_u64.to_le_bytes());
     assert_eq!((view.rows()[0].bucket, view.rows()[0].bucket_len()), (1, 3));
     assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
 
@@ -8209,6 +8214,17 @@ fn a_read_image_whose_recorded_bucket_size_differs_from_its_basis_is_refused() {
         view.confirm_bucket_sizes(&grown),
         Err(EffectReadImageError::BucketSizeMismatch)
     );
+    let (elsewhere, other, _) = fixture_host();
+    let elsewhere = elsewhere
+        .runtime()
+        .worldlines()
+        .get(&other.worldline_id)
+        .expect("unrelated frontier");
+    assert_eq!(
+        view.confirm_bucket_sizes(elsewhere.state()),
+        Err(EffectReadImageError::BucketSizeMismatch),
+        "a basis without the source node has no bucket of that size"
+    );
 }
 
 /// An image that contradicts itself is malformed before any basis is
@@ -8249,9 +8265,22 @@ fn a_read_image_whose_bucket_sizes_conflict_with_its_own_rows_is_malformed() {
         "lower's left range retains one pair, more than an empty bucket holds"
     );
     assert_eq!(
-        malformed(&|bytes| bytes[8 + lower * 200 + 105] = 0),
+        malformed(&|bytes| {
+            let row = 8 + lower * 200;
+            bytes[row + 105] = 0;
+            bytes[row + 192..row + 200].fill(0);
+        }),
         Err(EffectReadImageError::InvalidImage),
         "lower's ranges were read, so its bucket must be witnessed"
+    );
+    let root = position("root");
+    assert_eq!(
+        malformed(&|bytes| {
+            let at = bucket_len_offset(root);
+            bytes[at..at + 8].copy_from_slice(&1_u64.to_le_bytes());
+        }),
+        Err(EffectReadImageError::InvalidImage),
+        "root's left and right ranges retain one pair each, two in one bucket"
     );
     assert_eq!(
         malformed(&|bytes| {

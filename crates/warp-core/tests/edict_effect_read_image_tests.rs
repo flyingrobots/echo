@@ -141,7 +141,7 @@ fn edge_pairs_are_sorted_unique_and_packed_in_range_row_order() {
     b[72..104].fill(0x44);
     let mut pair = [0; 64];
     pair[..32].fill(1);
-    let words = image(&[source(1), a, b], &[pair, pair]);
+    let words = image(&[source(2), a, b], &[pair, pair]);
     assert_eq!(
         parse(&words)
             .expect("same edge ID in separate ranges")
@@ -152,7 +152,7 @@ fn edge_pairs_are_sorted_unique_and_packed_in_range_row_order() {
     b[176..184].fill(0);
     let mut distinct = pair;
     distinct[..32].fill(2);
-    invalid(&[source(1), a, b], &[pair, distinct]);
+    invalid(&[source(2), a, b], &[pair, distinct]);
     let two = range(0, 2);
     invalid(&[source(2), two], &[pair, pair]);
     let mut higher = pair;
@@ -178,6 +178,13 @@ fn a_range_requires_its_source_row_and_cannot_outnumber_its_bucket() {
     invalid(&[row(0, 0, 1), range(0, 0)], &[]);
     valid(&[row(0, 1, 1), range(0, 0)], &[]);
     invalid(&[row(0, 1, 1), range(0, 1)], &[pair]);
+    // Edge types partition one bucket: two ranges from a one-edge bucket
+    // cannot each retain a pair.
+    let mut left = range(0, 1);
+    left[72..104].fill(0x30);
+    let right = range(1, 1);
+    invalid(&[source(1), left, right], &[pair, pair]);
+    valid(&[source(2), left, right], &[pair, pair]);
     let mut other = source(1);
     other[40..72].fill(0x44);
     invalid(&[other, range(0, 1)], &[pair]);
@@ -286,7 +293,9 @@ fn pair_limit_is_per_range_and_does_not_shrink_the_total_pair_section() {
     invalid(&[source(65537), range(0, 65537)], &pairs);
     let mut next = range(65536, 1);
     next[72..104].fill(0x44);
-    let total = image(&[source(65536), one, next], &pairs);
+    // One bucket holds every type, so it must hold both ranges' pairs.
+    invalid(&[source(65536), one, next], &pairs);
+    let total = image(&[source(65537), one, next], &pairs);
     assert_eq!(
         parse(&total)
             .expect("two individually bounded ranges")

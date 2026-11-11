@@ -22,6 +22,9 @@ const OUTPUTS: [&str; 2] = [
 ];
 const VENDOR: &str = "vendor/graph-read";
 const IMPORT: &str = "use lawpack consumer.graph@1 digest \"";
+/// The node-read control program's lawpack import.
+const CONTROL_IMPORT: &str = "use lawpack jedit.text@1 digest \"";
+const CONTROL_VENDOR: &str = "vendor/atom-read";
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 /// A compiler executable is far larger than any authored or generated file.
 const MAX_COMPILER_BYTES: u64 = 256 * 1024 * 1024;
@@ -31,6 +34,7 @@ struct Arguments {
     provider: PathBuf,
     old_provider: PathBuf,
     fixtures: PathBuf,
+    control: PathBuf,
     work_root: PathBuf,
     check: bool,
 }
@@ -62,6 +66,7 @@ fn arguments() -> Result<Arguments> {
         provider: take("--provider")?,
         old_provider: take("--old-provider")?,
         fixtures: take("--fixtures")?,
+        control: take("--control")?,
         work_root: take("--work-root")?,
         check,
     };
@@ -179,19 +184,77 @@ fn accepted(result: &Build, what: &str) -> Result<()> {
 
 /// The authored program with its lawpack import pinned to the built lawpack.
 fn pinned_source(authored: &str, pin: &str) -> Result<String> {
+    pinned_import(authored, IMPORT, pin)
+}
+
+fn pinned_import(authored: &str, import: &str, pin: &str) -> Result<String> {
     let start = authored
-        .find(IMPORT)
+        .find(import)
         .context("authored program has no pinned lawpack import")?
-        + IMPORT.len();
+        + import.len();
     let end = start
         + authored[start..]
             .find('"')
             .context("unterminated lawpack digest")?;
     ensure!(
-        authored[end..].matches(IMPORT).count() == 0,
+        authored[end..].matches(import).count() == 0,
         "authored program imports the lawpack twice"
     );
     Ok(format!("{}{pin}{}", &authored[..start], &authored[end..]))
+}
+
+/// The digest of a lawpack the public compiler built into `vendor`.
+fn lawpack_pin(vendor: &Path) -> Result<String> {
+    let pin = String::from_utf8(read(&vendor.join("manifest.sha256"))?)?
+        .trim()
+        .to_owned();
+    ensure!(
+        pin.len() == 71
+            && pin.starts_with("sha256:")
+            && pin[7..]
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')),
+        "invalid public lawpack digest {pin}"
+    );
+    Ok(pin)
+}
+
+/// Positive control: the predecessor provider still compiles an existing
+/// node-read program, so its refusal of the closure program is about the
+/// graph-read configuration rather than a provider that refuses everything.
+fn predecessor_control(arguments: &Arguments) -> Result<()> {
+    let source = &arguments.control;
+    let root = arguments.work_root.join("old-provider-control");
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(
+        root.join("edict.lawpack.json"),
+        read(&source.join("edict.lawpack.json"))?,
+    )?;
+    accepted(
+        &build(&arguments.compiler, &root, "lawpack")?,
+        "the control lawpack",
+    )?;
+    let pin = lawpack_pin(&root.join(CONTROL_VENDOR))?;
+    let mut application: serde_json::Value =
+        serde_json::from_slice(&read(&source.join("edict.application.json"))?)?;
+    application["target"]["providerPackage"] = "provider".into();
+    application["outputDirectory"] = "application-output".into();
+    fs::write(
+        root.join("edict.application.json"),
+        serde_json::to_vec_pretty(&application)?,
+    )?;
+    copy_tree(&arguments.old_provider, &root.join("provider"))?;
+    let authored = String::from_utf8(read(&source.join("ReplaceRange.edict"))?)?;
+    fs::write(
+        root.join("src/ReplaceRange.edict"),
+        pinned_import(&authored, CONTROL_IMPORT, &pin)?,
+    )?;
+    accepted(
+        &build(&arguments.compiler, &root, "application")?,
+        "the predecessor control",
+    )?;
+    outputs(&root)?;
+    Ok(())
 }
 
 fn application_root(arguments: &Arguments, name: &str, provider: &Path) -> Result<PathBuf> {
@@ -276,17 +339,7 @@ fn main() -> Result<()> {
         &build(&arguments.compiler, &lawpack, "lawpack")?,
         "the lawpack",
     )?;
-    let pin = String::from_utf8(read(&lawpack.join(VENDOR).join("manifest.sha256"))?)?
-        .trim()
-        .to_owned();
-    ensure!(
-        pin.len() == 71
-            && pin.starts_with("sha256:")
-            && pin[7..]
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')),
-        "invalid public lawpack digest {pin}"
-    );
+    let pin = lawpack_pin(&lawpack.join(VENDOR))?;
 
     let mut receipt = serde_json::json!({
         "schema": "echo.graph-read-publication/v1",
@@ -328,6 +381,8 @@ fn main() -> Result<()> {
         println!("PUBLIC_GRAPH_READ_COMPILE_OK {name}");
     }
 
+    predecessor_control(&arguments)?;
+    println!("PUBLIC_GRAPH_READ_CONTROL_OK old-provider");
     // The predecessor provider must refuse the new configuration explicitly.
     let (_, closure) = PROGRAMS[1];
     let program = pinned_source(&String::from_utf8(read(&source.join(closure))?)?, &pin)?;

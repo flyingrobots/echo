@@ -247,3 +247,50 @@ fn swapping_the_selector_and_storage_failure_arms_is_rejected() {
     });
     assert_rejected(swapped);
 }
+
+fn assert_accepted(request: verifier::VerificationRequestV1) {
+    let response = verifier::verify(request).expect("verification");
+    let report = decode(&response.outputs[0].artifact.bytes).expect("report");
+    assert_eq!(
+        field(&report, "outcome"),
+        &Value::Text("accepted".to_owned())
+    );
+}
+
+/// Positive controls: each rejection above goes through the same re-encoding
+/// and re-binding path as these no-op substitutions, which are accepted. The
+/// rejections are therefore caused by the substituted content itself.
+#[test]
+fn the_same_substitutions_with_the_genuine_values_are_accepted() {
+    for (_, package, _) in programs() {
+        let mut genuine = request(lowering_request(package));
+        change_package(&mut genuine, |package| {
+            mutate(package, "footprint_contract_identity", |identity| {
+                let mut hash = blake3::Hasher::new();
+                hash.update(b"echo:operation-profile:v1\0");
+                let profile = b"echo.operation.footprint.typed-graph-read-aperture/v1";
+                hash.update(&(profile.len() as u64).to_le_bytes());
+                hash.update(profile);
+                *identity = Value::Bytes(hash.finalize().as_bytes().to_vec());
+            });
+        });
+        assert_accepted(genuine);
+    }
+    for (intent, package, own) in [
+        ("readEdges", EDGE_PACKAGE, "echo.dpo@1.outgoing-edge-read"),
+        ("readClosure", CLOSURE_PACKAGE, "echo.dpo@1.closure-read"),
+    ] {
+        let mut same = request(lowering_request(package));
+        changed_target_named(&mut same, intent, |intent| {
+            mutate(intent, "steps", |steps| {
+                let Value::Array(steps) = steps else {
+                    panic!("steps")
+                };
+                mutate(&mut steps[0], "targetIntrinsic", |intrinsic| {
+                    *intrinsic = Value::Text(own.to_owned());
+                });
+            });
+        });
+        assert_accepted(same);
+    }
+}

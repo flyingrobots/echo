@@ -1191,8 +1191,9 @@ packages. The retained public packages, reports and authored source live in
 `crates/warp-core/tests/fixtures/edict-graph-read/`. The
 [isolated host witness](../../scripts/verify-edict-provider-host-v1.sh)
 recompiles that source in CI with the pinned compiler and requires
-byte-identical output, and requires the predecessor provider package to refuse
-the same source. The semantic edge-case witnesses in
+byte-identical output. It also requires the predecessor provider package to refuse
+the same source, and, as a control, to still compile an existing node-read
+program. The semantic edge-case witnesses in
 `crates/warp-core/tests/edict_node_read/graph_reads.rs` use explicitly
 synthetic packages; the public packages are evaluated separately.
 Graph reads remain bounded-read observations only. Authored effect programs
@@ -1210,6 +1211,22 @@ selector maps to `domainMappable`, and malformed storage maps to
 `integrityFault`. A graph-read package binds the typed footprint contract
 below. A package relabelled with the node-aperture contract, a step re-bound to
 another intrinsic, or swapped selector and storage arms is rejected.
+
+Each side also proves, independently, that the declared budgets cover the
+worst case. A typed edge read counts as one read attempt; a closure counts every
+node it may resolve plus one typed range per declared edge type for every
+occurrence it may record. The sum must fit `maxReads`. The whole-intent
+charge includes the declared `maxEdgeScans` (one step and 128 bytes per
+scanned edge). For a closure it also covers:
+
+- each node: its atom, charged once when read and again in its row;
+- each occurrence: one step, its guide and its row;
+- each possible edge row: the row, the candidate's parts, the candidate again
+  as the selector's argument with its validation, the costliest source helper
+  and the returned guide.
+
+Tests in each provider evaluate the public closure package with the runtime
+and require the meter's actual spend to stay within that charge.
 
 **Recorded evidence.** A recording frame bound to a typed footprint law
 evaluates graph reads and witnesses them in its read image. The law is the

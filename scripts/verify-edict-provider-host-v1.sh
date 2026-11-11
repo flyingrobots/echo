@@ -111,6 +111,7 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --old-provider "$witness_dir/old-provider/schemas/edict-provider/package/v1" \
     --fixtures "$GRAPH_READ_FIXTURES" \
+    --control "$ROOT/crates/echo-edict-provider-lowerer/tests/fixtures/node-atom-read/source" \
     --work-root "$witness_dir/run" \
     --check
 fi

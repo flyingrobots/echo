@@ -25,6 +25,24 @@
   exists. `ReadResult` gains `edge_scans`; `ReadError` gains
   `OutsideGraphAperture` and `GraphObstructed`.
 
+- `warp-core`: authored effect programs are prepared with proven-range facts,
+  so a runtime `slice`, `subtract`, byte lookup or list lookup verifies when
+  the facts prove its range (#934). For example, under the input constraint
+  `at <= len(text)` a program may compute `isUtf8(slice(text, 0, at))` or
+  `len(text) - at`.
+  - Input constraints hold for the whole body.
+  - An unsigned `let` proven below its width carries that ceiling to later
+    additions.
+  - A dominating `term <= c`, `term == c` or `c == term` bounds an addition,
+    in effect bodies and, newly, in pure helpers' conjunct prefixes.
+  - A `require` still adds no fact, matching Edict's totality rule.
+  - A node, and each addition, is first judged without these facts, as
+    before; the facts and carried ceilings are read, and their encoding
+    charged to the proof budget, only when that judgment refuses. Unread
+    constraints and unneeded conjuncts therefore cost only their own size.
+  - Differences from the provider lowerer and verifier and from Edict are
+    tracked in #960.
+
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation
   under `core.list/v1`. Synthetic tests cover strict domains, capability and

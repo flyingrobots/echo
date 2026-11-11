@@ -257,6 +257,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         active: super::BTreeSet::new(),
         work,
         proven: vec![],
+        branch: Vec::new(),
         path: vec![],
         bound: vec![],
         proven_sum: None,

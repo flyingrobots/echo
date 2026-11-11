@@ -820,3 +820,150 @@ fn an_input_constraint_bounds_a_nested_sum() {
     prepare(&program(u64::MAX - 11)).expect("at + 1 is at most 11");
     refused(&program(u64::MAX - 10));
 }
+
+fn branch(predicate: V, then: V, otherwise: V) -> V {
+    map([
+        ("kind", text("if")),
+        ("predicate", predicate),
+        ("then", then),
+        ("else", otherwise),
+    ])
+}
+fn truth(value: bool) -> V {
+    map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([("kind", text("bool")), ("value", V::Bool(value))]),
+        ),
+    ])
+}
+
+/// A program whose one `let` computes `value` as a `U64` and returns whether
+/// it equals itself.
+fn computing(value: V) -> V {
+    let n = declared("local.n", "U64");
+    package(
+        Vec::new(),
+        vec![
+            Node::Let(n.clone(), value),
+            Node::Let(ok_binding(), is_true_value(at_most(local(&n), local(&n)))),
+        ],
+        local(&ok_binding()),
+    )
+}
+
+/// As in Edict, an `if` predicate is a fact inside its `then` arm:
+/// `if at <= 2 then at + 1 else at` is the Core of Jedit's
+/// `intent-guarded-add.edict`. The `else` arm gains nothing.
+#[test]
+fn a_branch_predicate_bounds_an_addition_in_its_then_arm() {
+    let bound = || at_most(input("at"), int(2));
+    let incremented = || add(input("at"), int(1));
+    prepare(&computing(branch(bound(), incremented(), input("at"))))
+        .expect("at <= 2 bounds at + 1 in the then arm");
+    refused(&computing(branch(bound(), input("at"), incremented())));
+}
+
+/// `if at <= len(text) then len(text) - at else 0` proves the subtraction in
+/// its `then` arm only, and a bound on another operand proves nothing.
+#[test]
+fn a_branch_predicate_orders_a_subtraction_in_its_then_arm() {
+    let rest = || {
+        call(
+            "core.integer.subtract",
+            &["U64"],
+            vec![len(input("text")), input("at")],
+        )
+    };
+    prepare(&computing(branch(
+        at_most(input("at"), len(input("text"))),
+        rest(),
+        int(0),
+    )))
+    .expect("at <= len(text) orders the subtraction in the then arm");
+    refused(&computing(branch(
+        at_most(input("at"), len(input("text"))),
+        int(0),
+        rest(),
+    )));
+    refused(&computing(branch(
+        at_most(input("at"), len(input("other"))),
+        rest(),
+        int(0),
+    )));
+}
+
+/// `size` sums that fit by their own literals, judged in an inner `if`
+/// predicate that sits in the `then` arm of 64 bounds on `at` it never needs,
+/// or in the `else` arm, where those bounds are not facts.
+fn sums_under_a_branch(guarded: bool, size: usize) -> V {
+    let sums = branch(
+        all(std::iter::repeat_n(at_most(add(int(1), int(1)), int(2)), size).collect()),
+        truth(true),
+        truth(false),
+    );
+    let guards = all(unread_guards(64));
+    let value = if guarded {
+        branch(guards, sums, truth(false))
+    } else {
+        branch(guards, truth(false), sums)
+    };
+    package(
+        Vec::new(),
+        vec![Node::Let(ok_binding(), value)],
+        local(&ok_binding()),
+    )
+}
+
+/// A sum that fits without the branch facts never reads them, so the same
+/// sums fit the same proof budget in either arm.
+#[test]
+fn unneeded_branch_facts_cost_a_sum_nothing() {
+    let outside = largest_accepted(4096, |size| sums_under_a_branch(false, size));
+    assert!(
+        (2..4096).contains(&outside),
+        "the bisection found a real limit: {outside}"
+    );
+    let inside = largest_accepted(4096, |size| sums_under_a_branch(true, size));
+    assert_eq!(inside, outside, "unneeded branch facts changed the budget");
+}
+
+/// The sum `1 + 0` under `depth` negations, in the `then` arm of an unneeded
+/// bound on `at` or in its `else` arm. The bound sits under 20 single-conjunct
+/// `all`s, so reading it from the sum would reach past the depth ceiling long
+/// before the sum itself does.
+fn deep_sum_under_a_branch(guarded: bool, depth: usize) -> V {
+    let mut sum = at_most(add(int(1), int(0)), int(1));
+    for _ in 0..depth {
+        sum = map([("kind", text("not")), ("value", sum)]);
+    }
+    let sum = branch(sum, truth(true), truth(false));
+    let mut guard = at_most(input("at"), int(10));
+    for _ in 0..20 {
+        guard = all(vec![guard]);
+    }
+    let value = if guarded {
+        branch(guard, sum, truth(false))
+    } else {
+        branch(guard, truth(false), sum)
+    };
+    package(
+        Vec::new(),
+        vec![Node::Let(ok_binding(), value)],
+        local(&ok_binding()),
+    )
+}
+
+/// An unneeded branch fact neither deepens nor enlarges the judgment of a
+/// deeply nested sum.
+#[test]
+fn an_unneeded_branch_fact_leaves_a_deep_sum_its_depth() {
+    let outside = largest_accepted(90, |depth| deep_sum_under_a_branch(false, depth));
+    assert!(
+        (2..90).contains(&outside),
+        "the bisection found a real limit below 90: {outside}"
+    );
+    let inside = largest_accepted(90, |depth| deep_sum_under_a_branch(true, depth));
+    assert_eq!(inside, outside, "an unneeded branch fact changed the depth");
+}

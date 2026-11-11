@@ -184,6 +184,7 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    branch: &[],
                     path: &[],
                 },
                 &definitions,
@@ -218,6 +219,7 @@ pub(crate) fn decode(
             Proof {
                 caps: &caps,
                 facts: &[],
+                branch: &[],
                 path: &[],
             },
             &definitions,
@@ -265,6 +267,7 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    branch: &[],
                     path: &[],
                 },
                 &definitions,
@@ -359,12 +362,17 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
 pub(super) type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
 /// dominating facts (an intent's input constraints and earlier conjuncts of
-/// enclosing `all`s), plus signed branch/lazy-prefix truths used only by the
+/// enclosing `all`s), the predicates of the enclosing `if`s whose `then` arm
+/// this point is in, plus signed branch/lazy-prefix truths used only by the
 /// strict lookup judgment.
 #[derive(Clone, Copy)]
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
     facts: &'c [&'v Value],
+    /// `then`-arm predicates, outermost first. An addition, subtraction or
+    /// slice reads them only when it is refused without them, so a node that
+    /// needs no branch fact pays nothing for one.
+    branch: &'c [&'v Value],
     path: &'c [(&'v Value, bool)],
 }
 impl<'c, 'v> Proof<'c, 'v> {
@@ -373,8 +381,21 @@ impl<'c, 'v> Proof<'c, 'v> {
         Self {
             caps,
             facts,
+            branch: &[],
             path: &[],
         }
+    }
+    /// Whether `left >= right` holds here: first from the dominating facts,
+    /// then, only if they do not prove it, from the `then`-arm predicates.
+    fn ordered(
+        &self,
+        left: &Value,
+        right: &Value,
+        parser: &mut Parser<'_>,
+        depth: usize,
+    ) -> Result<bool, Error> {
+        Ok(proven(left, right, self.facts, parser, depth)?
+            || (!self.branch.is_empty() && proven(left, right, self.branch, parser, depth)?))
     }
 }
 /// Proven upper bounds of earlier unsigned bindings in the same helper or
@@ -559,10 +580,14 @@ pub(crate) fn infer<'v>(
             )?;
             let mut path = proof.path.to_vec();
             path.push((field(value, "predicate")?, true));
+            // As in Edict, the predicate is a fact inside the `then` arm.
+            let mut branch = proof.branch.to_vec();
+            branch.push(field(value, "predicate")?);
             let left = infer(
                 field(value, "then")?,
                 scope,
                 Proof {
+                    branch: &branch,
                     path: &path,
                     ..proof
                 },
@@ -735,11 +760,26 @@ pub(crate) fn infer<'v>(
                     // A nested sum that overflows without facts is refused
                     // as `UnsupportedProgram`; that is "does not fit", not a
                     // final answer.
-                    let fits_without = match fits(&[], parser) {
-                        Err(Error::UnsupportedProgram) => false,
-                        judged => judged?,
-                    };
-                    if !fits_without && (proof.facts.is_empty() || !fits(proof.facts, parser)?) {
+                    let fits_or_not =
+                        |facts: &[&Value], parser: &mut Parser<'_>| match fits(facts, parser) {
+                            Err(Error::UnsupportedProgram) => Ok(false),
+                            judged => judged,
+                        };
+                    // Then with the dominating facts, and only when those do
+                    // not suffice, with the `then`-arm predicates as well.
+                    if !fits_or_not(&[], parser)?
+                        && (proof.facts.is_empty() || !fits_or_not(proof.facts, parser)?)
+                        && (proof.branch.is_empty()
+                            || !fits(
+                                &proof
+                                    .facts
+                                    .iter()
+                                    .chain(proof.branch)
+                                    .copied()
+                                    .collect::<Vec<_>>(),
+                                parser,
+                            )?)
+                    {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
@@ -749,7 +789,7 @@ pub(crate) fn infer<'v>(
                 ("core.integer.subtract", [left, right], [expected @ RuntimeType::Unsigned(_)])
                     if accepts(expected, left) && accepts(expected, right) =>
                 {
-                    if !proven(&arguments[0], &arguments[1], proof.facts, parser, depth + 1)? {
+                    if !proof.ordered(&arguments[0], &arguments[1], parser, depth + 1)? {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
@@ -767,8 +807,8 @@ pub(crate) fn infer<'v>(
                     );
                     let length = length_of(&types[0], &arguments[0]);
                     if !literal
-                        && (!proven(&arguments[2], &arguments[1], proof.facts, parser, depth + 1)?
-                            || !proven(&length, &arguments[2], proof.facts, parser, depth + 1)?)
+                        && (!proof.ordered(&arguments[2], &arguments[1], parser, depth + 1)?
+                            || !proof.ordered(&length, &arguments[2], parser, depth + 1)?)
                     {
                         return Err(Error::UnsupportedProgram);
                     }
@@ -905,6 +945,7 @@ pub(crate) fn check_predicate<'v>(
                     Proof {
                         caps: proof.caps,
                         facts: &prefix,
+                        branch: proof.branch,
                         path: proof.path,
                     },
                     definitions,
@@ -1289,6 +1330,7 @@ mod predicate_validation_tests {
             Proof {
                 caps: &BTreeMap::new(),
                 facts: &[],
+                branch: &[],
                 path: &[],
             },
             &BTreeMap::new(),
@@ -1362,6 +1404,7 @@ mod predicate_validation_tests {
                 Proof {
                     caps: &BTreeMap::new(),
                     facts: &[],
+                    branch: &[],
                     path: &[],
                 },
                 &BTreeMap::new(),
@@ -1422,6 +1465,7 @@ mod predicate_validation_tests {
                     Proof {
                         caps: &BTreeMap::new(),
                         facts: &[],
+                        branch: &[],
                         path: &[],
                     },
                     &BTreeMap::new(),

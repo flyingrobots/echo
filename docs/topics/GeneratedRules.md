@@ -245,9 +245,10 @@ Partial `core.bytes.slice` and `core.integer.subtract` calls accept runtime
 operands under Edict's proven-range rules. A slice needs `start <= end` and
 `end <= len(bytes)` over that same operand: its actual length, not its declared
 maximum. A subtraction needs `right <= left`. Each order holds for equal terms, a
-zero right side, ordered constants, an input constraint, or an earlier conjunct
-of the same `all`. Conditional predicates, negations, later conjuncts and
-helper callers prove nothing. Literal slice offsets within the operand's
+zero right side, ordered constants, an input constraint, an earlier conjunct
+of the same `all`, or the predicate of an enclosing `if` inside its `then` arm.
+The `else` arm, negations, disjunctions, later conjuncts and helper callers
+prove nothing. Literal slice offsets within the operand's
 guaranteed minimum length still need no fact. The lowerer, the verifier and the
 native helper checker each implement this independently, comparing terms by
 canonical encoding within their work ceilings. Every slice is typed
@@ -261,10 +262,30 @@ is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
 literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
-fact from its own conjunct prefixes that compares the term with a constant
-(`term <= c`, `term == c` or `c == term`). Other terms retain their full
-unsigned width, so zero identity is total and an unbounded parameter plus one
-refuses. Caller constraints do not cross into a helper frame.
+fact from its own conjunct prefixes or enclosing `then` arms that compares the
+term with a constant (`term <= c`, `term == c` or `c == term`). Other terms
+retain their full unsigned width, so zero identity is total and an unbounded
+parameter plus one refuses. Caller constraints and caller branches do not cross
+into a helper frame.
+
+### Branch facts
+
+As in Edict's totality rule, the predicate of an `if` expression is a fact
+inside its `then` arm, in the lowerer, the verifier and warp-core alike. So
+`if index <= 2 then index + 1 else index`,
+`if start <= end then end - start else 0`, and
+`if start <= end && end <= len(bytes) then slice(bytes, start, end) else b""`
+are each accepted. Nested `then` arms accumulate their predicates, and a branch
+fact joins the input constraints and conjunct prefixes in force at that point.
+The `else` arm gains nothing, and the predicate is not a fact for itself or
+outside its `if`. A branch fact is read with the same operators as every other
+fact, so `if index < 3 then index + 1 else index` is still refused (#960).
+
+Each judgment reads the branch facts only when an addition, subtraction or
+slice is refused without them, so a program that needs no branch fact is
+judged at exactly its earlier cost and depth. The shared corpus
+`crates/echo-edict-provider-lowerer/tests/fixtures/branch_fact_corpus.rs`
+holds the cases all three judgments must decide alike.
 
 Every authored effect program is judged by warp-core when its package is
 prepared. Besides the helper bounds above, the
@@ -277,6 +298,8 @@ judgment may assume these facts:
   earlier conjuncts.
 - **Earlier conjuncts of one `all`**, for the slices, subtractions and
   additions inside its later conjuncts.
+- **The predicate of an enclosing `if`**, for the slices, subtractions and
+  additions inside its `then` arm, as described under branch facts above.
 - **Carried `let` ceilings.** An unsigned `let` proven below its width carries
   that ceiling, from counts, literals, sums or a constraint such as
   `at <= 10`. A ceiling narrows later additions only.
@@ -290,10 +313,10 @@ nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.r
 in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
 evaluation when it fails, so its predicate does hold at later nodes, but the
 rule does not assume it, and Echo follows the rule. State such a bound as an
-input constraint or inside the same `all`. Edict also assumes an `if`
-predicate inside its `then` branch, and reads the strict and reversed
-comparison forms; all three Echo judgments do not yet (#960). A program
-that needs a fact the judgment lacks is refused when its package is prepared.
+input constraint, inside the same `all`, or as the predicate of an `if` whose
+`then` arm uses it. Edict also reads the strict and reversed comparison forms;
+all three Echo judgments do not yet (#960). A program that needs a fact the
+judgment lacks is refused when its package is prepared.
 
 warp-core judges each node first without these facts or carried ceilings, at
 the cost the judgment had before facts existed. Only when that refuses does
@@ -302,7 +325,8 @@ comparing facts encodes their terms, which is charged to the proof budget. A
 constraint no node needs therefore costs only its own size. An addition is
 likewise first judged without the facts of its enclosing conjunct prefixes, so
 an unneeded earlier conjunct changes neither its proof-budget cost nor its
-depth.
+depth. The predicates of enclosing `then` arms are read last, only when an
+addition, subtraction or slice is refused without them.
 
 On the bounded-read route the provider lowerer
 (`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)

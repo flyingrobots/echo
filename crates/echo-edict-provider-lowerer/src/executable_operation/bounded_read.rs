@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Data-only compilation of explicitly selected bounded atom reads.
 
+mod graph_configuration;
 mod relation;
 
 use super::{
@@ -80,12 +81,9 @@ pub(super) fn lower(
     }
     require_exact_fields(&core, &core_fields, SUBJECT)?;
     super::capabilities::validate(&core)?;
-    super::source_functions::validate(&core, &exports, true)?;
-    require_exact_fields(
-        &configuration,
-        &["apiVersion", "programKind", "maxReads", "maxReadBytes"],
-        SUBJECT,
-    )?;
+    let graph = graph_configuration::parse(&configuration)?;
+    let edge_scans = graph.map_or(0, |graph| graph.max_edge_scans);
+    super::source_functions::validate(&core, &exports, true, edge_scans)?;
     let max_reads = required_u64(&configuration, "maxReads", SUBJECT)?;
     let max_bytes = required_u64(&configuration, "maxReadBytes", SUBJECT)?;
     if !(1..=MAX_READS).contains(&max_reads) || !(1..=MAX_READ_BYTES).contains(&max_bytes) {
@@ -136,6 +134,7 @@ pub(super) fn lower(
         closure,
         max_reads,
         max_bytes,
+        graph,
     };
     context.validate(intent, target_intent, &projection, &coordinate)?;
     let program = canonical_map([
@@ -173,7 +172,11 @@ pub(super) fn lower(
         CompilerPackageProfile {
             kind: KIND,
             authority: "echo.operation.authority.explicit-read-view/v1",
-            footprint: "echo.operation.footprint.explicit-node-read-aperture/v1",
+            footprint: if graph.is_some() {
+                graph_configuration::GRAPH_FOOTPRINT
+            } else {
+                graph_configuration::NODE_FOOTPRINT
+            },
             interpreter: "echo.operation-interpreter.compiler-produced-bounded-read/v1",
         },
     )?;

@@ -46,7 +46,7 @@ fn byte_literals_accept_empty_nul_and_non_utf8_octets_in_source_helpers() {
     for value in [vec![], vec![0], vec![b'\n', b'\r', 0], vec![0xff, 0x80]] {
         let result = format!("Bytes<exact={}>", value.len());
         let (core, exports) = fixture(bytes(Value::Bytes(value)), &result);
-        assert!(validate(&core, &exports, false).is_ok(), "{result}");
+        assert!(validate(&core, &exports, false, 0).is_ok(), "{result}");
     }
 }
 
@@ -64,7 +64,7 @@ fn byte_literals_refuse_wrong_payload_extra_fields_and_narrow_results() {
     ] {
         let (core, exports) = fixture(literal, result);
         assert!(matches!(
-            validate(&core, &exports, false),
+            validate(&core, &exports, false, 0),
             Err(refusal) if refusal.kind == crate::ProviderRefusalKind::UnsupportedSemantics
         ));
     }

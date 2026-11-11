@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 545,053 bytes with SHA-256
-`9dfbbdf7664f8a2e606c05b4f356a521169f8d0d4a670a373004d4a2211c2a5e`.
+The checked component is 563,128 bytes with SHA-256
+`6563decda7b4d08132ab6cb7daa91ee764f5f25df109a8db6c9e70240f7cb74a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 584,441 bytes
+`wit-component` version recorded above. Its checked component is 594,556 bytes
 with SHA-256
-`a061744faf76806fa4795e26577af959ada5068fa59c8834c95067b8ea216454`.
+`af68e3676b6a387947ed88f15d751125cc3af5e959152954c26756dbf1d631c6`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,14 +56,11 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#977's source after #979 merged,
-was independently reproduced by the two G4 candidate jobs in
-[CI run 42938972970](https://github.com/flyingrobots/echo/actions/runs/42938972970)
-at source commit `51fa31826f0ca05622e7f00c09769b917e29054a`. Both copies of
-each component matched byte-for-byte before promotion. That run's comparison
-job fails only because the checked bytes were not yet promoted. Component
-publication, runtime interpretation, and public compiler witnesses are separate
-checks. Neither component's interface calls the effect-program judgment yet.
+The graph-read component pair (echo#926) was independently reproduced by the
+two G4 candidate jobs in [CI run 42939056993](https://github.com/flyingrobots/echo/actions/runs/42939056993)
+at source commit `a8989999ef53a896fe2eb1af87cb57d3085fbcbf`. Both copies of
+each component matched byte-for-byte before promotion. Component publication,
+runtime interpretation, and public compiler witnesses are separate checks.
 
 Rebuild and check the artifact without rewriting it:
 

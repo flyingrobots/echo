@@ -678,6 +678,7 @@ dependencies = [
  "echo-edict-provider-lowerer",
  "hex",
  "sha2",
+ "warp-core",
  "wit-bindgen 0.58.0",
 ]
 

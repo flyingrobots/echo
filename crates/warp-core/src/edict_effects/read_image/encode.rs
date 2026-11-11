@@ -24,6 +24,19 @@ pub(in crate::edict_effects) fn export(
     if limit < 16 {
         return Err(Error::ExportLimitExceeded);
     }
+    // Atom rows hash their whole payload. A recording frame may retain an
+    // atom it refused to deliver without charging its payload, so the content
+    // this export would hash is bounded here by the same storage ceiling.
+    let mut hashed = 0_u64;
+    for value in source.readings.values() {
+        if let SlotReading::Attachment(Some(AttachmentValue::Atom(atom))) = value {
+            hashed = u64::try_from(atom.bytes.len())
+                .ok()
+                .and_then(|length| hashed.checked_add(length))
+                .filter(|total| *total <= super::super::EFFECT_READ_STORAGE_CEILING_V1)
+                .ok_or(Error::ExportLimitExceeded)?;
+        }
+    }
     let mut rows = Vec::new();
     rows.try_reserve_exact(source.authorized_reads.len())
         .map_err(|_| Error::HostAllocationFailed)?;

@@ -109,7 +109,7 @@ fn fixture(result: Value, ty: &str) -> (Value, Value) {
 }
 fn refused(core: &Value, exports: &Value) {
     assert!(
-        matches!(validate(core,exports,false),Err(refusal) if refusal.kind==crate::ProviderRefusalKind::UnsupportedSemantics)
+        matches!(validate(core, exports, false, 0),Err(refusal) if refusal.kind==crate::ProviderRefusalKind::UnsupportedSemantics)
     );
 }
 
@@ -130,7 +130,7 @@ fn variants_accept_named_payloadless_payload_and_nested_constructors() {
         ),
     ] {
         let (core, exports) = fixture(value, ty);
-        assert!(validate(&core, &exports, false).is_ok(), "{ty}");
+        assert!(validate(&core, &exports, false, 0).is_ok(), "{ty}");
     }
 }
 
@@ -236,7 +236,7 @@ fn variant_payloads_cannot_hide_cycles_capture_or_partial_calls() {
         function(integer("U8", 7), "U8"),
     );
     assert!(
-        validate(&core, &exports, false).is_ok(),
+        validate(&core, &exports, false, 0).is_ok(),
         "payload dependency precedes caller"
     );
 }
@@ -286,7 +286,7 @@ fn variant_maximum_payload_bounds_participate_in_the_whole_operation_budget() {
         ]);
         put(&mut core, "intents", map([("run", intent)]));
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             accepted,
             "{payload}"
         );
@@ -298,7 +298,7 @@ fn variants_preserve_original_imported_and_nominal_payload_identities() {
     let foreign = "shared.union@2.Choice";
     let (mut core, exports) = fixture(construct(foreign, "Empty", None), foreign);
     put(get_mut(&mut core, "types"), foreign, union("U8"));
-    assert!(validate(&core, &exports, false).is_ok());
+    assert!(validate(&core, &exports, false, 0).is_ok());
     put(
         get_mut(get_mut(&mut core, "functions"), "make"),
         "returnType",
@@ -332,7 +332,7 @@ fn variants_preserve_original_imported_and_nominal_payload_identities() {
             "params",
             array(vec![parameter]),
         );
-        assert_eq!(validate(&core, &exports, false).is_ok(), accepted);
+        assert_eq!(validate(&core, &exports, false, 0).is_ok(), accepted);
     }
 }
 
@@ -354,7 +354,7 @@ fn variant_case_work_and_combined_expansion_depth_remain_bounded() {
             );
         }
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             accepted,
             "{levels}"
         );
@@ -401,7 +401,7 @@ fn matched() -> Value {
 #[test]
 fn matches_accept_exhaustive_payload_binding() {
     let (core, exports) = fixture(matched(), "U8");
-    assert!(validate(&core, &exports, false).is_ok());
+    assert!(validate(&core, &exports, false, 0).is_ok());
 }
 
 #[test]
@@ -487,7 +487,7 @@ fn matches_require_intent_budget_even_without_a_function_table() {
         };
         fields.retain(|(key, _)| key != &text("functions"));
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             accepted,
             "budget {budget}"
         );
@@ -542,6 +542,7 @@ fn match_populated_frame_accounting() -> super::Check<()> {
                 path: vec![],
                 bound: vec![],
                 proven_sum: None,
+                edge_scans: 0,
             };
             let mut scope = super::Scope::new();
             for declaration in &f.declarations {
@@ -655,7 +656,7 @@ fn match_populated_frame_accounting_whole_intent_budgets() {
     let mut minimums = Vec::new();
     for binder in [false, true] {
         let (core, exports) = frame_intent(binder);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
         let mut minimum = [0; 2];
         for (index, axis) in ["maxSteps", "maxAllocatedBytes"].into_iter().enumerate() {
             // A bounded binary search observes the admission boundary without
@@ -665,7 +666,7 @@ fn match_populated_frame_accounting_whole_intent_budgets() {
             while low < high {
                 let middle = low + (high - low) / 2;
                 frame_budget(&mut candidate, axis, middle);
-                if validate(&candidate, &exports, false).is_ok() {
+                if validate(&candidate, &exports, false, 0).is_ok() {
                     high = middle;
                 } else {
                     low = middle + 1;
@@ -673,15 +674,15 @@ fn match_populated_frame_accounting_whole_intent_budgets() {
             }
             assert!(low > 0);
             frame_budget(&mut candidate, axis, low);
-            assert!(validate(&candidate, &exports, false).is_ok());
+            assert!(validate(&candidate, &exports, false, 0).is_ok());
             frame_budget(&mut candidate, axis, low - 1);
-            assert!(validate(&candidate, &exports, false).is_err());
+            assert!(validate(&candidate, &exports, false, 0).is_err());
             minimum[index] = low;
         }
         let mut exact = core.clone();
         frame_budget(&mut exact, "maxSteps", minimum[0]);
         frame_budget(&mut exact, "maxAllocatedBytes", minimum[1]);
-        assert!(validate(&exact, &exports, false).is_ok());
+        assert!(validate(&exact, &exports, false, 0).is_ok());
         minimums.push(minimum);
     }
     assert_eq!(
@@ -726,7 +727,10 @@ fn match_payload_may_reuse_pending_id_but_not_its_declaration() {
                 ("result", map([("kind", text("local")), ("ref", pending)])),
             ]),
         );
-        assert_eq!(validate(&core, &exports, false).is_ok(), !wrong_declaration);
+        assert_eq!(
+            validate(&core, &exports, false, 0).is_ok(),
+            !wrong_declaration
+        );
     }
 }
 
@@ -762,7 +766,7 @@ fn match_binder_bytes_require_declared_payload_equality() {
         let (mut core, exports) = fixture(value, "U8");
         put(get_mut(&mut core, "types"), "Choice", union("Bytes<max=8>"));
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             accepted,
             "binder max={width}"
         );

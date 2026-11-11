@@ -378,6 +378,16 @@ echo-compiler-produced-bounded-read-lowering-configuration = {
   programKind: "compiler-produced-bounded-read/v1",
   maxReads: 1..65536,
   maxReadBytes: 1..67108864,
+  ? graphReads: echo-bounded-read-graph-reads,
+}
+
+; Declares typed outgoing-edge and guided closure reads for a bounded-read program.
+; Schema admission grants no observation authority; the host still selects the aperture.
+echo-bounded-read-graph-reads = {
+  maxEdgeScans: 1..65536,
+  maxClosureNodes: 0..4096,
+  maxClosureDepth: 0..256,
+  ? closureSelector: tstr .size (1..1024),
 }
 
 ; This declares the current effect kind; schema admission grants no runtime authority.

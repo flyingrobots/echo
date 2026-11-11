@@ -322,7 +322,7 @@ fn lower_compiler_produced_pure(
         intent,
     )?;
     validate_pure_target_ir(target_ir, request, closure.lawpack, intent_name, intent)?;
-    source_functions::validate(core, exports, false)?;
+    source_functions::validate(core, exports, false, 0)?;
     validate_pure_result_projection(
         result_projection,
         closure.result_projection,

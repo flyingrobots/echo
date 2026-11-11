@@ -52,7 +52,7 @@ pub(in crate::executable_operation) fn judge(
         }
     }
     let mut types = Types::new(core);
-    let (definitions, summaries) = prepare(core, exports, &mut types)?;
+    let (definitions, summaries) = prepare(core, exports, &mut types, 0)?;
     Checker {
         types: &mut types,
         definitions: &definitions,
@@ -62,6 +62,7 @@ pub(in crate::executable_operation) fn judge(
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
+        edge_scans: 0,
     }
     .effect_intent(intent, sites)
 }

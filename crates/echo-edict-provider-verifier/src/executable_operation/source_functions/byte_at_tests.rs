@@ -123,7 +123,7 @@ fn byte_lookup_accepts_strict_own_arm_and_lazy_false_prefix() {
     ] {
         let (core, exports) = fixture(op, false, arm, lazy);
         assert!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             "{op} {arm} {lazy}"
         );
     }
@@ -138,7 +138,7 @@ fn byte_lookup_rejects_equal_length_unrelated_and_non_dominating_guards() {
     ] {
         let (core, exports) = fixture(op, wrong, arm, lazy);
         assert!(
-            validate(&core, &exports, false).is_err(),
+            validate(&core, &exports, false, 0).is_err(),
             "{op} {wrong} {arm} {lazy}"
         );
     }
@@ -191,7 +191,7 @@ fn byte_lookup_root_without_function_table_requires_a_real_presence_bound() {
             ("intents", map([("read", intent)])),
         ]);
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             ty == "Bytes<exact=1>",
             "{ty}"
         );
@@ -231,7 +231,7 @@ fn byte_lookup_mirrored_equal_terms_keep_both_strict_orientations() {
             vec![reference(&local("arg.0", "Bytes<max=8>"))],
         );
         replace_term(&mut core, &index, &length);
-        assert!(validate(&core, &exports, false).is_ok(), "{op}");
+        assert!(validate(&core, &exports, false, 0).is_ok(), "{op}");
     }
 }
 
@@ -280,7 +280,7 @@ fn byte_lookup_helper_cannot_borrow_a_guarded_callers_path() -> Result<(), Strin
         // parameter IDs so leaking its proof would falsely authorize the callee.
         entries.push((text("aaCaller"), caller));
         assert_eq!(
-            validate(&core, &exports, false).is_ok(),
+            validate(&core, &exports, false, 0).is_ok(),
             guarded_helper,
             "guarded_helper={guarded_helper}"
         );

@@ -8,8 +8,8 @@
 //! cap to later nodes, earlier conjuncts of one `all` prove later ones, and a
 //! `require` proves nothing.
 use super::{
-    exact, get, includes, judgment, list, members, number, shape, string, Check, Cost, Judgment,
-    Ty, Value,
+    exact, get, includes, judged, list, members, number, shape, string, Check, Cost, Judgment, Ty,
+    Value,
 };
 use std::collections::BTreeMap;
 
@@ -51,7 +51,7 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
-    judgment(core, exports)?.effect_intent(intent, sites)
+    judged(core, exports, 0)?.effect_intent(intent, sites)
 }
 
 impl<'a> Judgment<'a> {

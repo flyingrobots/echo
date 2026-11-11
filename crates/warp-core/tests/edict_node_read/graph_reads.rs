@@ -16,7 +16,7 @@
 
 #[allow(dead_code, clippy::unwrap_used, clippy::panic)]
 #[path = "../support/edict_graph_read.rs"]
-mod support;
+pub(super) mod support;
 
 use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, encode_canonical_cbor_v1 as encode,

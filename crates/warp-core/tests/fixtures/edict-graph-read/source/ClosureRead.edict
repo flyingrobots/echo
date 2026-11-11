@@ -1,5 +1,5 @@
 package consumer.graph.read@1;
-use lawpack consumer.graph@1 digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" as graph;
+use lawpack consumer.graph@1 digest "sha256:bcb80379655d8c422ec5b64ac11579e636c5dbe7911fcee468e287dc788acdf9" as graph;
 type Candidate = { guide: graph.Guide, depth: U64, slot: U64, parent: graph.NodeRow, child: graph.NodeRow };
 type Decision = { expand: Bool, guide: graph.Guide, wellFormed: Bool, sufficient: Bool };
 fn select(candidate: Candidate) -> Decision {

@@ -1,5 +1,5 @@
 package consumer.graph.read@1;
-use lawpack consumer.graph@1 digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" as graph;
+use lawpack consumer.graph@1 digest "sha256:bcb80379655d8c422ec5b64ac11579e636c5dbe7911fcee468e287dc788acdf9" as graph;
 type Input = { read: graph.EdgeQuery };
 intent readEdges(input: Input) returns graph.Edges
   profile graph.readGraph

@@ -108,35 +108,37 @@ mod tests {
     }
 
     #[test]
-    fn a_node_atom_read_still_costs_its_byte_bound() {
-        let cost = read_cost(&Ty::Bytes(0, 10), &helper(1000, 1000)).expect("bytes");
+    fn a_node_atom_read_still_costs_its_byte_bound() -> Check<()> {
+        let cost = read_cost(&Ty::Bytes(0, 10), &helper(1000, 1000))?;
         assert_eq!((cost.steps, cost.bytes), (11, 74));
+        Ok(())
     }
 
     #[test]
-    fn an_edge_read_costs_its_declared_result_only() {
+    fn an_edge_read_costs_its_declared_result_only() -> Check<()> {
         let edges = list(record(&[("edgeId", Ty::Bytes(32, 32))]), 4);
-        let (copy, validations, _, _) = shape(&edges).expect("shape");
-        let cost = read_cost(&edges, &helper(1000, 1000)).expect("edges");
+        let (copy, validations, _, _) = shape(&edges)?;
+        let cost = read_cost(&edges, &helper(1000, 1000))?;
         assert_eq!(
             (cost.steps, cost.bytes),
             (copy.steps + validations, copy.bytes)
         );
+        Ok(())
     }
 
     /// Oracle: result shape, plus one selector evaluation and one fresh
     /// candidate (two node rows, the guide, depth and slot) per edge row.
     #[test]
-    fn a_closure_read_charges_its_selector_once_per_possible_edge_row() {
+    fn a_closure_read_charges_its_selector_once_per_possible_edge_row() -> Check<()> {
         for edges in [4, 5] {
             let (result, node, guide) = closure(edges);
-            let (copy, validations, _, _) = shape(&result).expect("shape");
-            let node = shape(&node).expect("node").0;
-            let guide = shape(&guide).expect("guide").0;
-            let word = shape(&word()).expect("word").0;
+            let (copy, validations, _, _) = shape(&result)?;
+            let node = shape(&node)?.0;
+            let guide = shape(&guide)?.0;
+            let word = shape(&word())?.0;
             let candidate_steps = 2 * node.steps + guide.steps + 2 * word.steps;
             let candidate_bytes = 2 * node.bytes + guide.bytes + 2 * word.bytes;
-            let cost = read_cost(&result, &helper(7, 11)).expect("closure");
+            let cost = read_cost(&result, &helper(7, 11))?;
             assert_eq!(
                 cost.steps,
                 copy.steps + validations + edges * (7 + candidate_steps),
@@ -148,6 +150,7 @@ mod tests {
                 "{edges}"
             );
         }
+        Ok(())
     }
 
     #[test]

@@ -9,6 +9,10 @@
 #[path = "edict_node_read/graph_reads.rs"]
 mod graph_reads;
 
+/// The retained public compiler graph-read packages over the same runtime.
+#[path = "edict_node_read/public_graph_reads.rs"]
+mod public_graph_reads;
+
 use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1 as digest,
     encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value,

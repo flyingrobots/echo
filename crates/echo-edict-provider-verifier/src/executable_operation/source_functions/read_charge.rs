@@ -110,25 +110,25 @@ mod tests {
     }
 
     #[test]
-    fn atom_bytes_keep_their_existing_charge() {
-        let charge =
-            read_charge(&Schema::Blob { low: 0, high: 10 }, &selector(9, 9)).expect("atom bytes");
+    fn atom_bytes_keep_their_existing_charge() -> Check<()> {
+        let charge = read_charge(&Schema::Blob { low: 0, high: 10 }, &selector(9, 9))?;
         assert_eq!((charge.ticks, charge.storage), (11, 74));
+        Ok(())
     }
 
     /// Oracle: the delivered layout, plus per edge row one selector charge
     /// and one candidate of two node rows, the guide and two words.
     #[test]
-    fn a_closure_pays_its_selector_once_per_edge_row() {
+    fn a_closure_pays_its_selector_once_per_edge_row() -> Check<()> {
         for edge_rows in [4_u64, 5] {
             let (delivered, node, guide) = walk(edge_rows);
-            let layout = delivered.measure().expect("layout");
-            let word = Schema::Word(u64::MAX).measure().expect("word").copy;
-            let node = node.measure().expect("node").copy;
-            let guide = guide.measure().expect("guide").copy;
+            let layout = delivered.measure()?;
+            let word = Schema::Word(u64::MAX).measure()?.copy;
+            let node = node.measure()?.copy;
+            let guide = guide.measure()?.copy;
             let candidate_ticks = 2 * node.ticks + guide.ticks + 2 * word.ticks;
             let candidate_storage = 2 * node.storage + guide.storage + 2 * word.storage;
-            let charge = read_charge(&delivered, &selector(7, 11)).expect("closure");
+            let charge = read_charge(&delivered, &selector(7, 11))?;
             let n = u128::from(edge_rows);
             assert_eq!(
                 charge.ticks,
@@ -139,16 +139,18 @@ mod tests {
                 layout.copy.storage + n * (11 + candidate_storage)
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn an_edge_list_pays_only_its_layout() {
+    fn an_edge_list_pays_only_its_layout() -> Check<()> {
         let delivered = rows(fields(&[("toId", Schema::Blob { low: 32, high: 32 })]), 4);
-        let layout = delivered.measure().expect("layout");
-        let charge = read_charge(&delivered, &selector(1000, 1000)).expect("edges");
+        let layout = delivered.measure()?;
+        let charge = read_charge(&delivered, &selector(1000, 1000))?;
         assert_eq!(
             (charge.ticks, charge.storage),
             (layout.copy.ticks + layout.checks, layout.copy.storage)
         );
+        Ok(())
     }
 }

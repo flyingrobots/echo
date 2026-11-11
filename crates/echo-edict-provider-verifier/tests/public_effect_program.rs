@@ -641,3 +641,56 @@ fn both_routes_refuse_a_core_importing_another_lawpack() {
         "effect Core lawpack import reference does not match the bound artifact",
     );
 }
+
+fn target_with(edit: impl FnOnce(&mut Value)) -> Vec<u8> {
+    let mut target = decode(&public_target()).expect("IR");
+    edit(&mut target);
+    encode(&target).expect("IR")
+}
+
+#[test]
+fn both_routes_refuse_a_target_ir_lowering_another_core_coordinate() {
+    let target = target_with(|target| {
+        *field_mut(target, "sourceCoreCoordinate") = Value::Text("consumer.other@1".to_owned());
+    });
+    both_refuse(
+        None,
+        target,
+        "echo.span-ir/v2",
+        "Target IR lowers a different Core coordinate",
+    );
+}
+
+#[test]
+fn both_routes_refuse_a_target_ir_pinning_another_core() {
+    let target = target_with(|target| {
+        let source_core = field_mut(field_mut(target, "semanticClosure"), "sourceCore");
+        *field_mut(source_core, "digest") = Value::Array(vec![
+            Value::Text("sha256".to_owned()),
+            Value::Bytes(vec![3; 32]),
+        ]);
+    });
+    both_refuse(
+        None,
+        target,
+        "echo.span-ir/v2",
+        "effect Target IR source Core reference does not match the bound artifact",
+    );
+}
+
+#[test]
+fn both_routes_refuse_a_target_ir_naming_two_lawpacks() {
+    let target = target_with(|target| {
+        let Value::Array(lawpacks) = field_mut(field_mut(target, "semanticClosure"), "lawpacks")
+        else {
+            panic!("lawpacks")
+        };
+        lawpacks.push(lawpacks[0].clone());
+    });
+    both_refuse(
+        None,
+        target,
+        "echo.span-ir/v2",
+        "Target IR names exactly one lawpack",
+    );
+}

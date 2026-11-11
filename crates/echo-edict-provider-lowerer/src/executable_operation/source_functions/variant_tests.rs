@@ -538,6 +538,7 @@ fn match_populated_frame_accounting() -> super::Check<()> {
                 active: super::BTreeSet::new(),
                 work: super::WORK,
                 proven: vec![],
+                branch: Vec::new(),
                 path: vec![],
                 bound: vec![],
                 proven_sum: None,

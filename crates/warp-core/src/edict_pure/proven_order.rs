@@ -5,9 +5,10 @@
 //!
 //! `left >= right` holds for equal terms, a zero right side, ordered
 //! constants, or a dominating fact: an earlier conjunct of an enclosing
-//! `all`, or an authored effect program's input constraint. Conditional
-//! predicates, negations and later conjuncts prove nothing for this order
-//! judgment, and a `require` adds no fact for the nodes after it.
+//! `all`, an authored effect program's input constraint, or, inside the
+//! `then` arm of an `if`, its predicate. The `else` arm, negations,
+//! disjunctions and later conjuncts prove nothing for this order judgment,
+//! and a `require` adds no fact for the nodes after it.
 //! The separate strict lookup judgment below also uses signed conditional and
 //! lazy-prefix truths. Neither judgment trusts annotations in the artifact.
 use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1 as Value};

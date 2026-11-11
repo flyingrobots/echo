@@ -259,6 +259,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         definitions: &definitions,
         summaries: &summaries,
         proven: vec![],
+        branch: vec![],
         path: vec![],
         bound: vec![],
         proven_sum: None,

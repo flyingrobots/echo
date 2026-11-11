@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+#[cfg(test)]
+mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
 mod byte_at_tests;
@@ -229,6 +231,7 @@ fn each_intent<'a>(
             definitions: &definitions,
             summaries: &summaries,
             proven: Vec::new(),
+            branch: Vec::new(),
             path: Vec::new(),
             bound: Vec::new(),
             proven_sum: None,
@@ -257,6 +260,7 @@ fn each_intent<'a>(
         definitions: &definitions,
         summaries: &summaries,
         proven: Vec::new(),
+        branch: Vec::new(),
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
@@ -375,6 +379,10 @@ struct Checker<'a, 'b> {
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
     proven: Vec<&'a Value>,
+    /// Predicates of the enclosing `if`s whose `then` arm is being judged,
+    /// outermost first. A range proof reads them only when it is refused
+    /// without them.
+    branch: Vec<&'a Value>,
     path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
@@ -409,6 +417,10 @@ impl<'a> Checker<'a, '_> {
             self.bound.push((local, cap));
         }
         Ok(())
+    }
+    /// The dominating facts followed by the `then`-arm predicates.
+    fn with_branch(&self) -> Vec<&'a Value> {
+        self.proven.iter().chain(&self.branch).copied().collect()
     }
     fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
@@ -591,7 +603,11 @@ impl<'a> Checker<'a, '_> {
                     self.predicate(get(value, "predicate")?, frame, depth + 1)?;
                 let boundary = self.path.len();
                 self.path.push((get(value, "predicate")?, true));
+                // As in Edict, the predicate is a fact inside the `then` arm.
+                let branch = self.branch.len();
+                self.branch.push(get(value, "predicate")?);
                 let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                self.branch.truncate(branch);
                 self.path.truncate(boundary);
                 self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, frame, depth + 1)?;
@@ -653,13 +669,24 @@ impl<'a> Checker<'a, '_> {
                         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
                             return Err(());
                         }
-                        let cap = unsigned_addition::prove(
+                        // The `then`-arm predicates are read only when the
+                        // dominating facts do not prove the sum.
+                        let cap = match unsigned_addition::prove(
                             value,
                             *max,
                             &self.proven,
                             &self.bound,
                             self.types,
-                        )?;
+                        ) {
+                            Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
+                                value,
+                                *max,
+                                &self.with_branch(),
+                                &self.bound,
+                                self.types,
+                            )?,
+                            judged => judged?,
+                        };
                         self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                         true
                     } else {
@@ -674,6 +701,8 @@ impl<'a> Checker<'a, '_> {
                                 return Err(());
                             };
                             order::proven(left, right, &self.proven, self.types)?
+                                || (!self.branch.is_empty()
+                                    && order::proven(left, right, &self.branch, self.types)?)
                         }
                         "core.bytes.at" => {
                             let ([coordinate], [Schema::Blob { low, .. }]) =
@@ -695,6 +724,13 @@ impl<'a> Checker<'a, '_> {
                                 return Err(());
                             };
                             order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
+                                || (!self.branch.is_empty()
+                                    && order::slice_in_range(
+                                        coordinate,
+                                        arguments,
+                                        &self.with_branch(),
+                                        self.types,
+                                    )?)
                         }
                         _ => false,
                     };
@@ -820,6 +856,7 @@ impl<'a> Checker<'a, '_> {
     /// The conservative whole-intent charge and encoded output, before the budget.
     fn intent_charge(&mut self, intent: &'a Value, read: bool) -> Check<(Charge, u128)> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;

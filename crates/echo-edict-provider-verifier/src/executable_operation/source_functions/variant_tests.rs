@@ -544,6 +544,7 @@ fn match_populated_frame_accounting() -> super::Check<()> {
                 definitions: &definitions,
                 summaries: &summaries,
                 proven: vec![],
+                branch: vec![],
                 path: vec![],
                 bound: vec![],
                 proven_sum: None,

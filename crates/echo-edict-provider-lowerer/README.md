@@ -240,7 +240,9 @@ interface or enable installed effect execution.
 When the request's target configuration is `edict-effect-program/v1`, the
 component's generic executable-operation route lowers through this producer. It
 requires the bound single-intent Core, binds the request's lawpack, adapter and
-configuration to that Core and its ordered Target IR, as the bounded-read and
+configuration to that Core and its ordered Target IR (the Target IR must name
+the bound profile, Core and single lawpack, and the Core must import exactly that
+lawpack), checks the adapter selects the configuration as the bounded-read and
 pure routes do, and assembles the compiler bundle from the request's own
 artifacts. Lowering artifacts (source, lawpack, adapter, the exact checked
 target profile and the configuration's catalog) are carried only when the
@@ -249,4 +251,8 @@ only intrinsic is `echo.dpo@1.replace` and names `echo.span-ir/v1` as its
 Target IR, so the judgment refuses any effect step through the component
 today; flat programs without effect steps are published. The public compiler
 witness under `crates/warp-core/tests/fixtures/edict-effect-program` compiles
-one such program through the checked components.
+one such program through the checked components. It passes because the effect
+judgment, like Echo's runtime, compares the profile's Target IR with the
+adapter's accepted ordered IR only for programs with effect steps; the checked
+profile names `echo.span-ir/v1` while effect adapters accept `echo.span-ir/v2`,
+the same tolerance the bounded-read route already has.

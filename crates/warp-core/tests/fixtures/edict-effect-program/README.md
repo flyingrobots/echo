@@ -35,9 +35,10 @@ the predecessor provider package to refuse the program at its lowerer.
 | --- | --- |
 | `flat-executable-operation-package.hex` | `echo:operation-package:v1` `2ac246d890ee7c965878a43f4da21166f0a2dab81c677f2fe29c5e84ce5a47e8` |
 
-`crates/warp-core/tests/edict_effect_package_tests/public_flat_effect.rs`
-fixes that pin independently of the bytes, runs the package on the generic
-runtime, and refuses another package under the same pin. The provider tests in
+`crates/warp-core/tests/executable_operation_pipeline/public_flat_effect.rs`
+fixes that pin independently of the bytes, admits the package under the runtime
+owner's exact policy, installs it, runs the installed program, and refuses
+another package or a re-bound one under the same policy. The provider tests in
 `crates/echo-edict-provider-verifier/tests/public_effect_program.rs` rebuild
 the lowering request from these files and require the native lowerer to
 reproduce the package and the separate verifier to accept it and reject
@@ -45,5 +46,5 @@ substituted or re-bound packages. The compiler does not publish its result
 projection, so that request carries a stand-in, which the effect route binds by
 digest but never reads.
 
-This package is private execution evidence. It does not establish
-installation, an admission policy, a causal Tick, WAL retention or a receipt.
+This is admission, installation and private execution evidence. It does not
+establish an invocation Action, a causal Tick, WAL retention or a receipt.

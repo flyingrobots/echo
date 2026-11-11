@@ -422,3 +422,152 @@ fn the_lowerer_refuses_a_configuration_the_adapter_does_not_select() {
         Some("adapter.echo-pure-operation")
     );
 }
+
+/// Replaces one verification input, rebinding it under its own coordinate.
+fn replace_input(request: &mut verifier::VerificationRequestV1, role: &str, bytes: Vec<u8>) {
+    let input = request
+        .semantic_inputs
+        .iter_mut()
+        .find(|input| input.role == role)
+        .expect("input role");
+    input.artifact = transport(bound(
+        &input.artifact.reference.coordinate,
+        &input.artifact.artifact.domain,
+        bytes,
+    ));
+}
+
+/// The refusal message of a verification request the verifier must refuse.
+fn verifier_refusal(request: verifier::VerificationRequestV1) -> String {
+    let refusal = verifier::verify(request).expect_err("refused before any report");
+    refusal.diagnostics[0].message.clone()
+}
+
+/// The refusal message of a lowering request the lowerer must refuse.
+fn lowerer_refusal(request: LoweringRequestV1) -> String {
+    let refusal = lower(request).expect_err("refused");
+    refusal.diagnostics[0].message.clone()
+}
+
+fn configuration_with(edit: impl FnOnce(&mut Value)) -> Vec<u8> {
+    let mut configuration = decode(&retained!("flat-configuration.hex")).expect("configuration");
+    edit(&mut configuration);
+    encode(&configuration).expect("configuration")
+}
+
+#[test]
+fn the_verifier_refuses_a_configuration_the_adapter_does_not_select() {
+    let mut request = verification_request(public_package());
+    replace_input(
+        &mut request,
+        "05-target-configuration",
+        configuration_with(|configuration| {
+            *field_mut(configuration, "authorityProfile") =
+                Value::Text("consumer.effect.other-authority/v1".to_owned());
+        }),
+    );
+    let refusal = verifier::verify(request).expect_err("an unselected configuration");
+    assert_eq!(
+        refusal.subject.as_deref(),
+        Some("adapter.echo-pure-operation")
+    );
+}
+
+#[test]
+fn the_verifier_refuses_a_catalog_the_target_profile_does_not_pin() {
+    let mut request = verification_request(public_package());
+    let empty = encode(&Value::Map(vec![
+        (
+            Value::Text("apiVersion".to_owned()),
+            Value::Text("edict.target-profile.intrinsics/v1".to_owned()),
+        ),
+        (Value::Text("intrinsics".to_owned()), Value::Map(vec![])),
+    ]))
+    .expect("catalog");
+    replace_input(
+        &mut request,
+        "05-target-configuration",
+        configuration_with(|configuration| {
+            *field_mut(configuration, "intrinsicCatalog") = Value::Bytes(empty);
+        }),
+    );
+    assert!(verifier_refusal(request).contains("catalog is not the one the target profile pins"));
+}
+
+/// Target IR whose semantic closure names a lawpack other than the bound one.
+fn target_naming_another_lawpack() -> Vec<u8> {
+    let mut target = decode(bytes(field(&bundle(), "target_ir_artifact"))).expect("IR");
+    let Value::Array(lawpacks) = field_mut(field_mut(&mut target, "semanticClosure"), "lawpacks")
+    else {
+        panic!("lawpacks")
+    };
+    *field_mut(&mut lawpacks[0], "digest") = Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(vec![7; 32]),
+    ]);
+    encode(&target).expect("IR")
+}
+
+#[test]
+fn both_routes_refuse_a_target_ir_naming_another_lawpack() {
+    let expected = "effect Target IR lawpack reference does not match the bound artifact";
+    let mut lowering = lowering_request();
+    lowering.semantic_inputs[5].artifact = bound(
+        "echo.span-ir/v2",
+        "edict.target-ir.artifact/v1",
+        target_naming_another_lawpack(),
+    );
+    assert!(lowerer_refusal(lowering).contains(expected));
+    let mut verification = verification_request(public_package());
+    verification.target_ir = transport(bound(
+        "echo.span-ir/v2",
+        "edict.target-ir.artifact/v1",
+        target_naming_another_lawpack(),
+    ));
+    assert!(verifier_refusal(verification).contains(expected));
+}
+
+/// Core importing the lawpack twice, with the Target IR re-pinned to it.
+fn core_importing_twice() -> (Vec<u8>, Vec<u8>) {
+    let bundle = bundle();
+    let mut core = decode(bytes(field(&bundle, "core_artifact"))).expect("Core");
+    let Value::Array(imports) = field_mut(&mut core, "imports") else {
+        panic!("imports")
+    };
+    let lawpack = imports
+        .iter()
+        .find(|import| field(import, "kind") == &Value::Text("lawpack".to_owned()))
+        .expect("lawpack import")
+        .clone();
+    imports.push(lawpack);
+    let mut target = decode(bytes(field(&bundle, "target_ir_artifact"))).expect("IR");
+    let source_core = field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore");
+    *field_mut(source_core, "digest") = Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(digest("edict.core.module/v1", &core).expect("id").to_vec()),
+    ]);
+    (encode(&core).expect("Core"), encode(&target).expect("IR"))
+}
+
+#[test]
+fn both_routes_refuse_a_core_importing_the_lawpack_twice() {
+    let expected = "Core imports exactly one lawpack";
+    let (core, target) = core_importing_twice();
+    let module = "consumer.effect.program@1";
+    let mut lowering = lowering_request();
+    lowering.core = bound(module, "edict.core.module/v1", core.clone());
+    lowering.semantic_inputs[5].artifact = bound(
+        "echo.span-ir/v2",
+        "edict.target-ir.artifact/v1",
+        target.clone(),
+    );
+    assert!(lowerer_refusal(lowering).contains(expected));
+    let mut verification = verification_request(public_package());
+    verification.core = transport(bound(module, "edict.core.module/v1", core));
+    verification.target_ir = transport(bound(
+        "echo.span-ir/v2",
+        "edict.target-ir.artifact/v1",
+        target,
+    ));
+    assert!(verifier_refusal(verification).contains(expected));
+}

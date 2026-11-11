@@ -1129,7 +1129,12 @@ declaration: its catalog declares only `echo.dpo@1.replace` and it names
 `echo.span-ir/v1`, while an effect step requires the catalog to declare the
 intrinsic and the profile's Target IR to equal the adapter's accepted ordered
 IR. Through the checked profile, therefore, only programs without effect steps
-are published; effect steps fail closed at the judgment.
+are published; effect steps fail closed at the judgment. Those flat programs
+pass only because the judgment and the runtime compare the profile's Target IR
+with the adapter's accepted ordered IR for effect steps alone, the tolerance the
+bounded-read route already relies on. The verifier report names the compiler's
+result projection by digest, but the effect route does not judge it: an effect
+package carries no projection, and its result is the Core intent's own.
 
 The `compiled_program` payload uses one current
 `echo.compiler-produced-effect-program/v1` artifact bundle with exactly

@@ -7200,6 +7200,9 @@ fn recovery_index_binds_retained_sections_and_action_attribution_under_one_recip
 #[path = "common/edict_effect_publication.rs"]
 mod current_effect_publication_fixture;
 
+#[path = "executable_operation_pipeline/public_flat_effect.rs"]
+mod public_flat_effect;
+
 fn install_effect_catalog_fixture(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     use current_effect_publication_fixture as publication;
     let bytes = publication::encoded(&publication::package(&publication::program()));

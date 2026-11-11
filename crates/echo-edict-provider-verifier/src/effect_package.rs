@@ -59,7 +59,13 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
     let judged = crate::executable_operation::effect_program::judge(compiled)
         .map_err(|()| EffectPackageRefusal::UnsupportedProgram)?;
     let closure = get(&package, "semantic_closure", E)?;
+    // The lowerer names the judged Core as the canonical meaning; the runtime
+    // carries that claim into the installed operation and its receipts.
     for (value, expected) in [
+        (
+            get(closure, "canonical_meaning_identity", E)?,
+            &judged.core_identity,
+        ),
         (get(closure, "core_identity", E)?, &judged.core_identity),
         (
             get(closure, "target_ir_identity", E)?,

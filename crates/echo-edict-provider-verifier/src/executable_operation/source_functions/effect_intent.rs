@@ -3,9 +3,10 @@
 //! Verifier-owned typing, proof and charge audit of an authored effect
 //! program's body, independent of the lowerer and the runtime.
 //!
-//! Proofs follow Edict: the intent's input constraints dominate the whole
-//! body, an unsigned `let` carries its proven cap to later nodes, earlier
-//! conjuncts of one `all` prove later ones, and a `require` proves nothing.
+//! Proofs follow Edict: each input constraint is judged with no facts, then
+//! all of them dominate the whole body; an unsigned `let` carries its proven
+//! cap to later nodes, earlier conjuncts of one `all` prove later ones, and a
+//! `require` proves nothing.
 use super::{
     exact, get, members, prepare, sequence, string, unsigned, Charge, Check, Checker, Frame,
     Schema, Types, Value,
@@ -14,6 +15,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The largest atom an authored effect may read or write, in bytes.
 const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
+/// The row the runtime reserves for each emitted mutation, in bytes, beside
+/// the 64-byte unit value the effect binds.
+const EMISSION_RESERVATION: u64 = 280;
 
 /// What the verifier's relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
@@ -76,8 +80,14 @@ impl<'a> Checker<'a, '_> {
         if let Some(basis) = super::super::map_field(intent, "basis") {
             charge.append(self.expression(basis, &frame, 0)?.charge)?;
         }
-        for constraint in sequence(get(intent, "inputConstraints")?)? {
+        // Each input constraint is judged with no facts, as the runtime does;
+        // only then do they all dominate the body. One constraint never
+        // proves another.
+        let constraints = sequence(get(intent, "inputConstraints")?)?;
+        for constraint in constraints {
             charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
+        }
+        for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
         }
         let nodes = sequence(get(body, "nodes")?)?;
@@ -236,7 +246,7 @@ fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
         {
             Ok(Charge {
                 ticks: 1,
-                storage: 64,
+                storage: 64 + u128::from(EMISSION_RESERVATION),
             })
         } else {
             Err(())

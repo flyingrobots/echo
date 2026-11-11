@@ -3,9 +3,10 @@
 //! Lowerer-owned typing, proof and cost judgment of an authored effect
 //! program's body, independent of the runtime's own judgment.
 //!
-//! Proofs follow Edict: the intent's input constraints dominate the whole
-//! body, an unsigned `let` carries its proven cap to later nodes, earlier
-//! conjuncts of one `all` prove later ones, and a `require` proves nothing.
+//! Proofs follow Edict: each input constraint is judged with no facts, then
+//! all of them dominate the whole body; an unsigned `let` carries its proven
+//! cap to later nodes, earlier conjuncts of one `all` prove later ones, and a
+//! `require` proves nothing.
 use super::{
     exact, get, includes, judgment, list, members, number, shape, string, Check, Cost, Judgment,
     Ty, Value,
@@ -14,6 +15,9 @@ use std::collections::BTreeMap;
 
 /// The largest atom an authored effect may read or write, in bytes.
 const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
+/// The row the runtime reserves for each emitted mutation, in bytes, beside
+/// the 64-byte unit value the effect binds.
+const EMISSION_RESERVATION: u64 = 280;
 
 /// What the lowering relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
@@ -73,11 +77,17 @@ impl<'a> Judgment<'a> {
         if let Some(basis) = super::super::map_field(intent, "basis") {
             cost = cost.plus(self.expression(basis, &scope, true, 0)?.cost)?;
         }
-        for constraint in list(get(intent, "inputConstraints")?)? {
+        // Each input constraint is judged with no facts, as the runtime does;
+        // only then do they all dominate the body. One constraint never
+        // proves another.
+        let constraints = list(get(intent, "inputConstraints")?)?;
+        for constraint in constraints {
             cost = cost.plus(
                 self.predicate(get(constraint, "predicate")?, &scope, true, 0)?
                     .0,
             )?;
+        }
+        for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
         }
         let nodes = list(get(body, "nodes")?)?;
@@ -225,7 +235,7 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
         if conforming && unit {
             Ok(Cost {
                 steps: 1,
-                bytes: 64,
+                bytes: 64 + EMISSION_RESERVATION,
             })
         } else {
             Err(())

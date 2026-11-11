@@ -323,9 +323,13 @@ effect; each effect's runtime ABI, write class and failure contract through
 the intrinsic-scoped failure table; one declared obstruction per failure arm
 with a matching authority class; node-for-node Core and Target IR
 correspondence; and the body's types, proven ranges and declared budget under
-its own cost model. The lowerer runs this judgment before it serializes an
-effect publication, and the verifier runs it, then binds every identity the
-package claims to the program it carries, before installation. Both reach the
+its own cost model. As in the runtime, each input constraint is judged with no
+facts, and only then do all of them dominate the body, so one constraint never
+proves another. Each emitted mutation is charged the row the runtime reserves
+for it. The lowerer runs this judgment before it serializes an effect
+publication, and the verifier runs it, then binds every identity the package
+claims, including its canonical meaning, to the program it carries, before
+installation. Both reach the
 runtime's verdict on a retained corpus of accepted programs and forgeries that
 warp-core generates and pins. Their cost models are stricter than the runtime's
 meter: a program whose declared step budget cannot cover its worst case, such

@@ -6553,7 +6553,7 @@ fn typed_read_image_keeps_exact_node_bytes_digest_and_runtime_parent() {
         192,
         "export preserves evaluation accounting without refunding it"
     );
-    let mut want = vec![0_u8; 208];
+    let mut want = vec![0_u8; 216];
     want[0..8].copy_from_slice(&1_u64.to_le_bytes());
     want[16..48].copy_from_slice(&node.warp_id.0);
     want[48..80].copy_from_slice(&node.local_id.0);
@@ -6570,7 +6570,7 @@ fn typed_read_image_keeps_exact_node_bytes_digest_and_runtime_parent() {
         "rows borrow the image"
     );
     let want_digest =
-        blake3::hash(&[b"echo.bridge.read-set.v1\0".as_slice(), want.as_slice()].concat());
+        blake3::hash(&[b"echo.bridge.read-set.v2\0".as_slice(), want.as_slice()].concat());
     assert_eq!(image.digest(), *want_digest.as_bytes());
     assert_eq!(view.digest(), image.digest());
 }
@@ -6791,7 +6791,7 @@ fn typed_read_image_packs_actual_matching_edges_and_distinguishes_absent_sources
             .collect::<Vec<_>>(),
         vec![([1; 32], root.local_id.0), ([2; 32], root.local_id.0)]
     );
-    assert_eq!(image.as_bytes().len(), 528);
+    assert_eq!(image.as_bytes().len(), 16 + 2 * 200 + 2 * 64);
     assert_eq!(image.consumed(), EchoOperationBudgetV1::new(4, 256, 0));
     assert_eq!(image.allocated_bytes(), 1152);
     let absent = NodeKey {
@@ -7898,5 +7898,372 @@ fn a_recorded_scan_bound_matches_the_plain_view_and_retains_its_source() {
     assert!(
         view.pairs().is_empty(),
         "no edge of the over-allowance bucket is retained"
+    );
+}
+
+/// The row of node `name` in a graph-read image.
+fn node_row<'v>(
+    view: &warp_core::edict_effects::EffectReadSetView<'v>,
+    local_id: warp_core::NodeId,
+) -> &'v warp_core::edict_effects::EffectReadRow {
+    view.rows()
+        .iter()
+        .find(|row| row.slot.class == 0 && row.slot.local_id == local_id.0)
+        .expect("the node's row")
+}
+
+/// Image bytes copied into an eight-byte-aligned buffer, for forged variants.
+fn aligned_words(bytes: &[u8]) -> Vec<u64> {
+    bytes
+        .chunks_exact(8)
+        .map(|word| u64::from_ne_bytes(word.try_into().expect("eight bytes")))
+        .collect()
+}
+
+/// Byte offset of the bucket-length field in row `index` of a read image.
+const fn bucket_len_offset(index: usize) -> usize {
+    8 + index * 200 + 192
+}
+
+/// Oracle, by hand from the fixture tree: a bucket holds every edge leaving
+/// its source, of any type. Root holds left, right and the decoy (3); lower
+/// and upper hold two each; l1 and l4 hold none but were expanded, so their
+/// empty buckets were observed; l2 and l3 were materialized, never expanded.
+#[test]
+fn a_graph_read_image_records_the_size_of_every_bucket_it_scanned() {
+    use warp_core::edict_effects::EffectReadSetView;
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, control, recorded) = recorded_boundary_closure(&host, head, root);
+    let recorded = recorded.expect("recorded closure read");
+    assert_eq!(
+        Ok(recorded),
+        control,
+        "recording does not change the reading"
+    );
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("graph read image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical image");
+    let observed: Vec<_> = ["root", "lower", "upper", "l1", "l2", "l3", "l4"]
+        .iter()
+        .map(|name| {
+            let row = node_row(&view, graph_read::node(name));
+            (*name, row.bucket, row.bucket_len())
+        })
+        .collect();
+    assert_eq!(
+        observed,
+        vec![
+            ("root", 1, 3),
+            ("lower", 1, 2),
+            ("upper", 1, 2),
+            ("l1", 1, 0),
+            ("l2", 0, 0),
+            ("l3", 0, 0),
+            ("l4", 1, 0),
+        ]
+    );
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
+}
+
+/// A typed outgoing-edge read records the whole bucket it scanned, not the
+/// matching edges it returned: root's bucket is left, right and the decoy.
+#[test]
+fn a_typed_edge_read_image_records_its_whole_source_bucket() {
+    use warp_core::edict_effects::{EffectReadSetView, TypedNodeRead};
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (package, pin) = graph_read::package(&graph_read::edge_build(2));
+    let input = encode_canonical_cbor_v1(&graph_read::record([(
+        "read",
+        graph_read::edge_request(root, "left"),
+    )]))
+    .expect("canonical input");
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    let aperture = [root];
+    let (edge_types, node_types) = (
+        graph_read::sorted(&["left", "right"]),
+        graph_read::sorted(&["branch", "leaf"]),
+    );
+    let plain = warp_core::edict_read::ReadView::at(frontier, &aperture)
+        .expect("plain control")
+        .with_graph_aperture(warp_core::edict_read::GraphReadAperture {
+            edge_types: &edge_types,
+            node_types: &node_types,
+            max_edge_scans: 64,
+        })
+        .expect("graph aperture");
+    let control =
+        warp_core::edict_read::evaluate(&package, pin, &input, &plain, graph_read_limits())
+            .expect("plain edge read");
+    assert_eq!(
+        control.edge_scans, 3,
+        "the plain view scans the same bucket"
+    );
+    let mut frame = typed_graph_frame(&host, head);
+    let recorded = frame
+        .evaluate_typed_read(
+            &package,
+            pin,
+            &input,
+            &[TypedNodeRead {
+                node: root,
+                absent_node_type: graph_read::kind("branch"),
+            }],
+            graph_read_limits(),
+        )
+        .expect("recorded edge read");
+    assert_eq!(recorded, control.output);
+    let image = frame.into_read_set_image(1 << 20).expect("edge read image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical image");
+    let row = node_row(&view, root.local_id);
+    assert_eq!((row.bucket, row.bucket_len()), (1, 3));
+    assert_eq!(view.pairs().len(), 1, "one matching edge is retained");
+    assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
+}
+
+/// The bucket that decided an authored scan bound is witnessed with its
+/// size, though none of its edges is inspected: root's 3 edges plus 62 extras.
+#[test]
+fn a_recorded_scan_bound_witnesses_the_bucket_size_that_decided_it() {
+    use warp_core::edict_effects::{EffectFrameError, EffectReadSetView};
+    use warp_core::edict_read::{GraphReadObstruction, ReadError};
+    let (state, root) = graph_read::tree_state(|store| {
+        for index in 0..62 {
+            graph_read::link(store, "root", "decoy", &format!("extra-{index}"));
+        }
+    });
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, control, recorded) = recorded_boundary_closure(&host, head, root);
+    let scan_bound = |error: &ReadError| {
+        matches!(
+            error,
+            ReadError::GraphObstructed {
+                cause: GraphReadObstruction::ClosureScanBoundExceeded,
+                ..
+            }
+        )
+    };
+    assert!(
+        matches!(&control, Err(error) if scan_bound(error)),
+        "plain: {control:?}"
+    );
+    assert!(
+        matches!(&recorded, Err(EffectFrameError::BoundedRead(error)) if scan_bound(error)),
+        "recorded: {recorded:?}"
+    );
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("failed-frame prefix");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical prefix");
+    let row = node_row(&view, root.local_id);
+    assert_eq!((row.bucket, row.bucket_len()), (1, 65));
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
+}
+
+/// Existing typed range reads record their source bucket too, both when the
+/// scan completes (two matching edges and one nonmatching) and when the
+/// bucket exceeds the law's range bound and the read is refused unscanned.
+/// An absent source has no bucket to record.
+#[test]
+fn a_typed_range_read_image_records_its_whole_source_bucket() {
+    use warp_core::edict_effects::{EffectFrameError, EffectRangeReadError, EffectReadSetView};
+    let (host, head, root) = fixture_host();
+    let ty = make_type_id("operation-fixture-node");
+    let edge_ty = make_type_id("image-edge");
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("worldline")
+        .state()
+        .warp_state()
+        .clone();
+    for (id, edge_type) in [
+        (2, edge_ty),
+        (1, edge_ty),
+        (3, make_type_id("nonmatching-image-edge")),
+    ] {
+        state
+            .store_mut(&root.warp_id)
+            .expect("source store")
+            .insert_edge(
+                root.local_id,
+                warp_core::EdgeRecord {
+                    id: warp_core::EdgeId([id; 32]),
+                    from: root.local_id,
+                    to: root.local_id,
+                    ty: edge_type,
+                },
+            );
+    }
+    let (host, head) = fixture_runtime_host(WorldlineState::new(state, root).expect("range state"));
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    let range = warp_core::OutgoingEdgeRange {
+        source: root,
+        edge_type: edge_ty,
+    };
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 3);
+    frame.read_typed_range(range, ty).expect("real range");
+    let image = frame.into_read_set_image(4096).expect("real range image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("range view");
+    assert_eq!((view.rows()[0].bucket, view.rows()[0].bucket_len()), (1, 3));
+    assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
+
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 2);
+    assert_eq!(
+        frame.read_typed_range(range, ty),
+        Err(EffectFrameError::Read(EffectRangeReadError::BudgetExceeded))
+    );
+    let image = frame
+        .into_read_set_image(4096)
+        .expect("refused-range prefix");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("prefix view");
+    assert_eq!(
+        view.rows().len(),
+        1,
+        "the refused range itself is not retained"
+    );
+    assert_eq!((view.rows()[0].bucket, view.rows()[0].bucket_len()), (1, 3));
+    assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
+
+    let absent = NodeKey {
+        local_id: make_node_id("absent-image-source"),
+        ..root
+    };
+    let mut frame = typed_range_frame(&host, head, ty, edge_ty, 3);
+    let absent_range = warp_core::OutgoingEdgeRange {
+        source: absent,
+        edge_type: edge_ty,
+    };
+    assert_eq!(frame.read_typed_range(absent_range, ty), Ok(None));
+    let image = frame.into_read_set_image(4096).expect("absent range image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("absent range view");
+    assert_eq!((view.rows()[0].bucket, view.rows()[0].bucket_len()), (0, 0));
+    assert_eq!(view.confirm_bucket_sizes(frontier.state()), Ok(()));
+}
+
+/// A read image is evidence about one basis. A recorded bucket size one short
+/// of, or one over, the bucket at that basis is refused as a bucket-size
+/// mismatch, distinct from a malformed image; the exact size stands. The
+/// genuine image is likewise refused at a basis whose bucket gained an edge.
+#[test]
+fn a_read_image_whose_recorded_bucket_size_differs_from_its_basis_is_refused() {
+    use warp_core::edict_effects::{EffectReadImageError, EffectReadSetView};
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, _, recorded) = recorded_boundary_closure(&host, head, root);
+    recorded.expect("recorded closure read");
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("graph read image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical image");
+    let index = view
+        .rows()
+        .iter()
+        .position(|row| row.slot.class == 0 && row.slot.local_id == root.local_id.0)
+        .expect("root row");
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    for (size, want) in [
+        (3_u64, Ok(())),
+        (2, Err(EffectReadImageError::BucketSizeMismatch)),
+        (4, Err(EffectReadImageError::BucketSizeMismatch)),
+    ] {
+        let mut forged = image.as_bytes().to_vec();
+        let at = bucket_len_offset(index);
+        forged[at..at + 8].copy_from_slice(&size.to_le_bytes());
+        let words = aligned_words(&forged);
+        let forged = EffectReadSetView::parse(bytemuck::cast_slice(&words))
+            .expect("a size at or above the retained pairs is structurally canonical");
+        assert_eq!(
+            forged.confirm_bucket_sizes(frontier.state()),
+            want,
+            "recorded root bucket of {size}"
+        );
+    }
+    let (grown, _) = graph_read::tree_state(|store| graph_read::link(store, "root", "decoy", "l2"));
+    assert_eq!(
+        view.confirm_bucket_sizes(&grown),
+        Err(EffectReadImageError::BucketSizeMismatch)
+    );
+}
+
+/// An image that contradicts itself is malformed before any basis is
+/// consulted: a range cannot retain more pairs than its source bucket holds,
+/// a present source a range was read from must carry its bucket size, and a
+/// node whose bucket was not observed carries no size.
+#[test]
+fn a_read_image_whose_bucket_sizes_conflict_with_its_own_rows_is_malformed() {
+    use warp_core::edict_effects::{EffectReadImageError, EffectReadSetView};
+    let (state, root) = graph_read::tree_state(|_| {});
+    let (host, head) = fixture_runtime_host(state);
+    let (frame, _, recorded) = recorded_boundary_closure(&host, head, root);
+    recorded.expect("recorded closure read");
+    let image = frame
+        .into_read_set_image(1 << 20)
+        .expect("graph read image");
+    let view = EffectReadSetView::parse(image.as_bytes()).expect("canonical image");
+    let position = |name: &str| {
+        view.rows()
+            .iter()
+            .position(|row| row.slot.class == 0 && row.slot.local_id == graph_read::node(name).0)
+            .expect("node row")
+    };
+    let malformed = |edit: &dyn Fn(&mut [u8])| {
+        let mut forged = image.as_bytes().to_vec();
+        edit(&mut forged);
+        let words = aligned_words(&forged);
+        EffectReadSetView::parse(bytemuck::cast_slice(&words)).map(|view| view.rows().len())
+    };
+    let lower = position("lower");
+    let l2 = position("l2");
+    assert_eq!(
+        malformed(&|bytes| {
+            let at = bucket_len_offset(lower);
+            bytes[at..at + 8].copy_from_slice(&0_u64.to_le_bytes());
+        }),
+        Err(EffectReadImageError::InvalidImage),
+        "lower's left range retains one pair, more than an empty bucket holds"
+    );
+    assert_eq!(
+        malformed(&|bytes| bytes[8 + lower * 200 + 105] = 0),
+        Err(EffectReadImageError::InvalidImage),
+        "lower's ranges were read, so its bucket must be witnessed"
+    );
+    assert_eq!(
+        malformed(&|bytes| {
+            let at = bucket_len_offset(l2);
+            bytes[at..at + 8].copy_from_slice(&1_u64.to_le_bytes());
+        }),
+        Err(EffectReadImageError::InvalidImage),
+        "l2's bucket was not observed, so it carries no size"
+    );
+    assert_eq!(
+        malformed(&|bytes| bytes[8 + l2 * 200 + 105] = 2),
+        Err(EffectReadImageError::InvalidImage),
+        "the bucket tag is 0 or 1"
     );
 }

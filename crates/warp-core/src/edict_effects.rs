@@ -113,6 +113,11 @@ pub struct EffectRangeReadSession<'a> {
     law: Option<EffectFootprintLaw>,
     authorized_reads: BTreeSet<(SlotId, TypeId)>,
     validated_warps: BTreeSet<crate::WarpId>,
+    /// Length of every present source bucket a range or graph read consulted,
+    /// whether the read then scanned it or refused it unscanned. The read
+    /// image witnesses each on its source node row; the node's observation
+    /// reservation covers it.
+    observed_buckets: BTreeMap<crate::NodeKey, u64>,
 }
 
 impl<'a> EffectRangeReadSession<'a> {
@@ -180,6 +185,7 @@ impl<'a> EffectRangeReadSession<'a> {
             law: None,
             authorized_reads: BTreeSet::new(),
             validated_warps: BTreeSet::new(),
+            observed_buckets: BTreeMap::new(),
         }
     }
 
@@ -260,6 +266,11 @@ impl<'a> EffectRangeReadSession<'a> {
             .map(|store| store.edges_from(&range.source.local_id));
         let capacity = bucket.as_ref().map_or(0, ExactSizeIterator::len);
         let count = u64::try_from(capacity).map_err(|_| EffectRangeReadError::BudgetExceeded)?;
+        if bucket.is_some() {
+            // The length decides the bound and the charge below, so it is
+            // witnessed whether the scan then proceeds or is refused.
+            self.observed_buckets.insert(range.source, count);
+        }
         let bytes = count
             .checked_mul(64)
             .ok_or(EffectRangeReadError::BudgetExceeded)?;

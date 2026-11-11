@@ -55,6 +55,8 @@ impl<'a> EffectRangeReadSession<'a> {
         let inspected = u64::try_from(bucket.unwrap_or(0)).map_err(|_| Error::BudgetExceeded)?;
         if bucket.is_some() && inspected > allowance {
             self.typed_node(range.source, absent_type, meter)?;
+            // The refused bucket's length is the evidence for the bound.
+            self.observed_buckets.insert(range.source, inspected);
             return Ok(Outgoing::ScanBound);
         }
         Ok(

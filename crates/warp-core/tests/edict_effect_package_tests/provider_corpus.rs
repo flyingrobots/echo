@@ -362,10 +362,11 @@ const fn read_cost(n: u64) -> (u64, u64) {
 const fn read_and_return_cost(n: u64) -> (u64, u64) {
     (55 + n, 3142 + 3 * n)
 }
-/// The atom `read-allocation-short` is run on: close to the largest a run can
-/// read under the frame's fixed 1,048,576-step ceiling, just below the
-/// read's declared 1 MiB maximum.
-const READ_WITNESS_ATOM: u64 = 1_048_000;
+/// The atom `read-allocation-short` is run on: the largest a run can read under
+/// the frame's fixed 1,048,576-step ceiling (55 + n steps), 55 bytes below the
+/// read's declared 1 MiB maximum, so the providers' charge at that maximum
+/// leaves the runtime's cost too little slack to hide any read charge.
+const READ_WITNESS_ATOM: u64 = 1_048_521;
 
 /// The captured read with its input's `expected` bytes narrowed to one byte,
 /// so no input charge stands in for the read's own cost. The read's result
@@ -957,7 +958,7 @@ fn entries() -> Vec<Entry> {
             ),
         ),
         // A read that returns its atom's length, one byte under its runtime
-        // cost on a 1,048,000-byte atom. That cost includes the read's
+        // cost on a 1,048,521-byte atom. That cost includes the read's
         // recorded observations, authorizations and retained payload.
         entry(
             "read-and-return-control",
@@ -1217,7 +1218,7 @@ fn the_runtime_refuses_each_executed_entry_when_it_runs() {
         run_on(
             &with_allocation(&read_and_return(), allocation),
             &read_input(),
-            &Frame::widest(Some(1_048_000)),
+            &Frame::widest(Some(1_048_521)),
         )
     };
     let need = read_and_return_cost(READ_WITNESS_ATOM).1;

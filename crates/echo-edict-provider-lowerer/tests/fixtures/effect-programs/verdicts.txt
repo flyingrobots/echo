@@ -10,5 +10,9 @@ undeclared-obstruction refuse
 failure-mapping-tag-spelled refuse
 failure-mapping-unknown refuse
 failure-mapping-duplicate refuse
+constraint-proven-by-constraint refuse
+constraint-conjunct-proven accept
 over-budget refuse
+mutation-allocation-exact accept
+mutation-allocation-short refuse
 read-captured-budget refuse

@@ -31,7 +31,11 @@ const RETAINED: &[(&str, &str)] = retained![
     "failure-mapping-tag-spelled",
     "failure-mapping-unknown",
     "failure-mapping-duplicate",
+    "constraint-proven-by-constraint",
+    "constraint-conjunct-proven",
     "over-budget",
+    "mutation-allocation-exact",
+    "mutation-allocation-short",
     "read-captured-budget",
 ];
 const VERDICTS: &str =
@@ -98,6 +102,7 @@ fn package_identities_must_name_the_program_they_carry() {
     verify_effect_package(&accepted).expect("rebinding control");
     let original = decode(&accepted).expect("package");
     for key in [
+        "canonical_meaning_identity",
         "core_identity",
         "target_ir_identity",
         "application_schema_identity",

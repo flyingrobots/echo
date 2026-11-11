@@ -85,7 +85,7 @@ pub(super) fn at_most(left: V, right: V) -> V {
         ("right", right),
     ])
 }
-fn is_true(value: V) -> V {
+pub(super) fn is_true(value: V) -> V {
     map([
         ("kind", text("compare")),
         ("op", text("==")),
@@ -102,7 +102,7 @@ fn is_true(value: V) -> V {
         ),
     ])
 }
-fn all(values: Vec<V>) -> V {
+pub(super) fn all(values: Vec<V>) -> V {
     map([("kind", text("all")), ("values", V::Array(values))])
 }
 

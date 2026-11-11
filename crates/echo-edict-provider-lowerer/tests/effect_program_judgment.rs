@@ -30,7 +30,11 @@ const RETAINED: &[(&str, &str)] = retained![
     "failure-mapping-tag-spelled",
     "failure-mapping-unknown",
     "failure-mapping-duplicate",
+    "constraint-proven-by-constraint",
+    "constraint-conjunct-proven",
     "over-budget",
+    "mutation-allocation-exact",
+    "mutation-allocation-short",
     "read-captured-budget",
 ];
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");

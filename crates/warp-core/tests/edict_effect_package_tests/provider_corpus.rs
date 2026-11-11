@@ -8,11 +8,17 @@
 //! lowerer and verifier read the same retained bytes in their own tests.
 //! Regenerate with the ignored `regenerate_the_retained_provider_corpus` test.
 use super::abi_conformance::rename_read_failure;
+use super::execution::{host, limits};
 use super::mutations::{fixture, fixture_with, Shape};
 use super::proven_ranges::{
-    at_most, declared, input, len, local, ok_binding, package, prefix_is_utf8, slice_program, Node,
+    all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
+    slice_program, Node,
 };
 use super::*;
+use warp_core::edict_effects::EffectFrameError;
+use warp_core::edict_pure::EvaluationError;
+use warp_core::edict_read::ReadError;
+use warp_core::{EchoOperationApplicationBasisV1, EchoOperationBudgetV1};
 
 const GRAPH_EFFECTS: &str = "continuum.profile.graph-effects/v1";
 const READ: &str = "jedit.text@1.readFact";
@@ -104,6 +110,76 @@ const AMPLE: u64 = 1_000_000;
 /// find too small statically; the runtime meters it during execution.
 const READ_AMPLE: u64 = 4_194_304;
 
+/// Sets only the declared allocation budget, in Core and its lowered intent.
+fn with_allocation(package: &V, bytes: u64) -> V {
+    rebuild(package, |core, target, _| {
+        let bytes = V::Integer(i128::from(bytes));
+        set(
+            value_field_mut(first_intent_mut(core), "coreEvaluationBudget"),
+            "maxAllocatedBytes",
+            bytes.clone(),
+        );
+        set(
+            value_field_mut(selected_target_mut(target), "coreEvaluationBudget"),
+            "maxAllocatedBytes",
+            bytes,
+        );
+    })
+}
+
+/// What the runtime allocates to run `ensure-node-control` on its largest
+/// input, a 1,024-byte atom. Pinned by execution in
+/// `ensure_node_needs_exactly_its_worst_case_allocation`.
+const ENSURE_NODE_WORST_ALLOCATION: u64 = 4258;
+
+/// The `ensure-node` fixture's input with its atom at the type's 1,024-byte cap.
+fn largest_ensure_node_input() -> Vec<u8> {
+    let (_, input) = fixture("ensure-node", GRAPH_EFFECTS);
+    let mut input = echo_edict_canonical::decode_canonical_cbor_v1(&input).expect("input");
+    set(&mut input, "atomBytes", V::Bytes(vec![0x61; 1024]));
+    encoded(&input)
+}
+
+/// Runs an `ensure-node` package on its largest input under frame limits far
+/// above its own Core budget, so only that budget can refuse it.
+fn run_largest_ensure_node(package: &V) -> Result<Vec<u8>, EffectFrameError> {
+    let prepared = prepare(package).expect("ensure-node prepares");
+    let program = prepared.program().as_effect_program().expect("effect");
+    let (host, head, _) = host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(
+            head,
+            EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+        )
+        .expect("basis");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10_000, 4096, 4096),
+            limits(),
+        )
+        .expect("frame")
+        .with_footprint_law(program.footprint_law().clone())
+        .expect("law");
+    frame
+        .evaluate_effect(program, &largest_ensure_node_input(), &[])
+        .map(<[u8]>::to_vec)
+}
+
+/// Names the package's Core as its canonical meaning, as Echo's lowerer
+/// publishes every package. The shared test package names an unrelated one.
+fn as_published(mut package: V) -> V {
+    let core = get(get(&package, "semantic_closure"), "core_identity").clone();
+    set(
+        value_field_mut(&mut package, "semantic_closure"),
+        "canonical_meaning_identity",
+        core,
+    );
+    package
+}
+
 fn proven_slice() -> V {
     with_budget(
         &slice_program(vec![at_most(input("at"), len(input("text")))], "text"),
@@ -134,11 +210,11 @@ fn entries() -> Vec<Entry> {
     }
     let mut unknown = catalog_fixture();
     rename_read_failure(&mut unknown, "atomMissing", "atomAbsent");
-    let entry = |name, accept, runtime, package| Entry {
+    let entry = |name, accept, runtime, package: V| Entry {
         name,
         accept,
         runtime,
-        package,
+        package: as_published(package),
     };
     vec![
         entry("read-control", true, Runtime::Accepts, read_control.clone()),
@@ -272,11 +348,64 @@ fn entries() -> Vec<Entry> {
                 catalog_fixture(),
             ),
         ),
+        // Each input constraint is judged with no facts, so one constraint
+        // cannot prove another; the slice in the second is unproven.
+        entry(
+            "constraint-proven-by-constraint",
+            false,
+            Runtime::Refuses,
+            with_budget(
+                &slice_program(
+                    vec![
+                        at_most(input("at"), len(input("text"))),
+                        is_true(prefix_is_utf8("text", input("at"))),
+                    ],
+                    "text",
+                ),
+                AMPLE,
+            ),
+        ),
+        // Within one `all`, an earlier conjunct does prove a later one.
+        entry(
+            "constraint-conjunct-proven",
+            true,
+            Runtime::Accepts,
+            with_budget(
+                &slice_program(
+                    vec![all(vec![
+                        at_most(input("at"), len(input("text"))),
+                        is_true(prefix_is_utf8("text", input("at"))),
+                    ])],
+                    "text",
+                ),
+                AMPLE,
+            ),
+        ),
         entry(
             "over-budget",
             false,
             Runtime::Executes,
             with_budget(&proven_slice(), 1),
+        ),
+        // Exactly the runtime's worst case, which includes the emitted
+        // mutation's row reservation, and then one byte short of it.
+        entry(
+            "mutation-allocation-exact",
+            true,
+            Runtime::Accepts,
+            with_allocation(
+                &fixture("ensure-node", GRAPH_EFFECTS).0,
+                ENSURE_NODE_WORST_ALLOCATION,
+            ),
+        ),
+        entry(
+            "mutation-allocation-short",
+            false,
+            Runtime::Executes,
+            with_allocation(
+                &fixture("ensure-node", GRAPH_EFFECTS).0,
+                ENSURE_NODE_WORST_ALLOCATION - 1,
+            ),
         ),
         entry(
             "read-captured-budget",
@@ -313,7 +442,11 @@ const RETAINED: &[(&str, &str)] = retained![
     "failure-mapping-tag-spelled",
     "failure-mapping-unknown",
     "failure-mapping-duplicate",
+    "constraint-proven-by-constraint",
+    "constraint-conjunct-proven",
     "over-budget",
+    "mutation-allocation-exact",
+    "mutation-allocation-short",
     "read-captured-budget",
 ];
 const VERDICTS: &str = include_str!(
@@ -381,4 +514,18 @@ fn regenerate_the_retained_provider_corpus() {
         .expect("corpus entry");
     }
     std::fs::write(dir.join("verdicts.txt"), manifest(&entries)).expect("manifest");
+}
+
+#[test]
+fn ensure_node_needs_exactly_its_worst_case_allocation() {
+    let control = fixture("ensure-node", GRAPH_EFFECTS).0;
+    run_largest_ensure_node(&with_allocation(&control, ENSURE_NODE_WORST_ALLOCATION))
+        .expect("the worst case fits its exact allocation");
+    assert_eq!(
+        run_largest_ensure_node(&with_allocation(&control, ENSURE_NODE_WORST_ALLOCATION - 1)),
+        Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
+            EvaluationError::AllocationBudgetExceeded
+        ))),
+        "one byte less than the worst case must not be enough"
+    );
 }

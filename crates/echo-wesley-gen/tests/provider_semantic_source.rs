@@ -379,6 +379,12 @@ fn checked_echo_provider_semantic_source_validates() {
                 "echo.dpo@1",
                 "edict.target-profile/v1",
             ),
+            (
+                "target-profile.echo-dpo-2",
+                GeneratedArtifactKind::TargetProfile,
+                "echo.dpo@2",
+                "edict.target-profile/v1",
+            ),
         ]
     );
     let authority_fact_sources = source
@@ -443,7 +449,7 @@ fn checked_echo_provider_semantic_source_validates() {
         generation_review.contract_owner.as_deref(),
         Some("flyingrobots/wesley#728")
     );
-    assert_eq!(source.artifact_resources.len(), 19);
+    assert_eq!(source.artifact_resources.len(), 21);
     assert_eq!(
         source
             .artifact_resources
@@ -636,6 +642,7 @@ fn checked_echo_provider_semantic_source_validates() {
             ("echo.dpo.fixtures/v1", "echo-provider-conformance-corpus",),
             ("echo.dpo.footprint/v1", "echo-dpo-footprint"),
             ("echo.dpo.intrinsics/v1", "intrinsics-document"),
+            ("echo.dpo.intrinsics/v2", "intrinsics-document"),
             ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
             ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),
             (
@@ -659,6 +666,7 @@ fn checked_echo_provider_semantic_source_validates() {
             ("echo.operation-package/v1", "echo-operation-package"),
             ("echo.review-payload/v1", "review-payload"),
             ("echo.span-ir/v1", "echo-span-ir"),
+            ("echo.span-ir/v2", "echo-span-ir"),
             ("echo.verifier-report/v1", "verifier-report"),
             ("edict.authority-facts/v1", "authority-facts"),
             ("edict.core.module/v1", "core-module"),
@@ -2101,4 +2109,81 @@ fn current_semantic_source_refuses_the_historical_six_auxiliary_input_inventory(
             "auxiliary",
         ),
     );
+}
+
+/// An effect target profile is a further version of the selected profile with
+/// its own catalog and ordered Target IR, and a closed set of intrinsics.
+#[test]
+fn effect_target_profiles_refuse_shared_versions_ir_and_duplicate_intrinsics() {
+    type Case = (fn(&mut Value), &'static str, &'static str);
+    let role = "target-profile.echo-dpo-2";
+    let cases: [Case; 6] = [
+        (
+            |source| {
+                // A self-consistent profile that reuses the selected version.
+                source["effectTargetProfiles"][0]["version"] = json!("1");
+                for artifact in source["generatedArtifacts"]
+                    .as_array_mut()
+                    .expect("artifacts")
+                {
+                    if artifact["role"] == "target-profile.echo-dpo-2" {
+                        artifact["coordinate"] = json!("echo.dpo@1");
+                    }
+                }
+            },
+            "generatedArtifacts",
+            "echo.dpo@1",
+        ),
+        (
+            |source| source["effectTargetProfiles"][0]["id"] = json!("echo.other"),
+            role,
+            "echo.dpo@2",
+        ),
+        (
+            |source| source["effectTargetProfiles"][0]["targetIrDomain"] = json!("echo.span-ir/v1"),
+            role,
+            "echo.span-ir/v1",
+        ),
+        (
+            |source| {
+                let duplicate = source["effectTargetProfiles"][0]["intrinsics"][1].clone();
+                source["effectTargetProfiles"][0]["intrinsics"]
+                    .as_array_mut()
+                    .expect("intrinsics")
+                    .push(duplicate);
+            },
+            role,
+            "ensure-node",
+        ),
+        (
+            |source| {
+                source["effectTargetProfiles"][0]["intrinsics"][1]["operation"] =
+                    json!("ensure.node");
+            },
+            role,
+            "ensure.node",
+        ),
+        (
+            |source| {
+                let duplicate =
+                    source["effectTargetProfiles"][0]["intrinsics"][0]["failures"][0].clone();
+                source["effectTargetProfiles"][0]["intrinsics"][0]["failures"]
+                    .as_array_mut()
+                    .expect("failures")
+                    .push(duplicate);
+            },
+            role,
+            "atomMissing",
+        ),
+    ];
+    for (mutate, subject, reference) in cases {
+        let mut source = source_value();
+        mutate(&mut source);
+        let kind = if subject == role {
+            ProviderSemanticSourceErrorKind::ArtifactClosureMismatch
+        } else {
+            ProviderSemanticSourceErrorKind::DuplicateCoordinate
+        };
+        assert_source_failure_tuple(&source, (kind, subject, reference));
+    }
 }

@@ -48,10 +48,10 @@ const PROVIDER_MANIFEST_ROLE_V1: &str = "provider-manifest.echo";
 const PROVIDER_MANIFEST_COORDINATE_V1: &str = "echo.edict-provider-manifest@1";
 const SEMANTIC_SOURCE_COORDINATE_V1: &str = "echo.semantic-schema@1";
 const GENERATOR_COORDINATE_V1: &str = "echo-wesley-gen.provider-artifact-generator@1";
-const EXPECTED_ARTIFACT_COUNT: usize = 10;
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 32;
-const EXPECTED_MEMBER_COUNT: usize = 24;
-const EXPECTED_FILE_COUNT: usize = 25;
+const EXPECTED_ARTIFACT_COUNT: usize = 11;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 34;
+const EXPECTED_MEMBER_COUNT: usize = 27;
+const EXPECTED_FILE_COUNT: usize = 28;
 const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -68,6 +68,7 @@ const EXPECTED_PACKAGE_PATHS: [&str; EXPECTED_FILE_COUNT] = [
     "generated/primary/generated-artifact-profile.echo-dpo-registration.cbor",
     "generated/primary/lawpack.echo-dpo.cbor",
     "generated/primary/schema.echo-provider-artifacts.cddl",
+    "generated/primary/target-profile.echo-dpo-2.cbor",
     "generated/primary/target-profile.echo-dpo.cbor",
     "generated/resources/resource.conformance-corpus.cbor",
     "generated/resources/resource.lawpack-compatibility.cbor",
@@ -77,7 +78,9 @@ const EXPECTED_PACKAGE_PATHS: [&str; EXPECTED_FILE_COUNT] = [
     "generated/resources/resource.target-bundle-profile.cbor",
     "generated/resources/resource.target-cost-algebra.cbor",
     "generated/resources/resource.target-footprint-algebra.cbor",
+    "generated/resources/resource.target-intrinsics-2.cbor",
     "generated/resources/resource.target-intrinsics.cbor",
+    "generated/resources/resource.target-ir-2.cbor",
     "generated/resources/resource.target-ir.cbor",
     "generated/resources/resource.target-lowerer-contract.cbor",
     "generated/resources/resource.target-obstruction-taxonomy.cbor",
@@ -1465,6 +1468,7 @@ fn expected_projection_roles() -> Vec<String> {
         "lawpack.echo-dpo",
         "schema.echo-provider-artifacts",
         "target-profile.echo-dpo",
+        "target-profile.echo-dpo-2",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -1946,6 +1950,14 @@ fn artifact_specs() -> [ArtifactSpec; EXPECTED_ARTIFACT_COUNT] {
             component: false,
         },
         ArtifactSpec {
+            role: "target-profile.echo-dpo-2",
+            artifact_kind: ProviderManifestArtifactKindV1::TargetProfile,
+            coordinate: "echo.dpo@2",
+            path: "generated/primary/target-profile.echo-dpo-2.cbor",
+            digest_domain: Some("edict.target-profile/v1"),
+            component: false,
+        },
+        ArtifactSpec {
             role: "verifier.echo-dpo",
             artifact_kind: ProviderManifestArtifactKindV1::Verifier,
             coordinate: "echo.dpo.verifier/component@1",
@@ -1976,6 +1988,7 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
         ("echo.dpo.fixtures/v1", "echo-provider-conformance-corpus"),
         ("echo.dpo.footprint/v1", "echo-dpo-footprint"),
         ("echo.dpo.intrinsics/v1", "intrinsics-document"),
+        ("echo.dpo.intrinsics/v2", "intrinsics-document"),
         ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
         ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),
         (
@@ -1999,6 +2012,7 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
         ("echo.operation-package/v1", "echo-operation-package"),
         ("echo.review-payload/v1", "review-payload"),
         ("echo.span-ir/v1", "echo-span-ir"),
+        ("echo.span-ir/v2", "echo-span-ir"),
         ("echo.verifier-report/v1", "verifier-report"),
         ("edict.authority-facts/v1", "authority-facts"),
         ("edict.core.module/v1", "core-module"),

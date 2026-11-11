@@ -15,6 +15,7 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod read_charge;
 mod types;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -827,13 +828,7 @@ impl<'a> Checker<'a, '_> {
                     charge.append(self.expression(get(node, "input")?, &frame, 0)?.charge)?;
                     let local = get(node, "binding")?;
                     let expected = self.types.local(local)?;
-                    let Schema::Blob { high, .. } = expected.representation() else {
-                        return Err(());
-                    };
-                    charge.append(Charge {
-                        ticks: u128::from(*high) + 1,
-                        storage: u128::from(*high) + 64,
-                    })?;
+                    charge.append(read_charge::read_charge(&expected, self.summaries)?)?;
                     frame.define(local, expected)?;
                 }
                 _ => return Err(()),

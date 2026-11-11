@@ -15,6 +15,7 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod read_cost;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
@@ -941,13 +942,7 @@ impl<'a> Judgment<'a> {
                     cost =
                         cost.plus(self.expression(get(node, "input")?, &scope, true, 0)?.cost)?;
                     let declared = self.declaration(get(node, "binding")?, &mut scope)?;
-                    let Ty::Bytes(_, max) = declared.representation() else {
-                        return Err(());
-                    };
-                    cost = cost.plus(Cost {
-                        steps: max.checked_add(1).ok_or(())?,
-                        bytes: max.checked_add(64).ok_or(())?,
-                    })?;
+                    cost = cost.plus(read_cost::read_cost(&declared, &self.completed)?)?;
                 }
                 "require" if read => {
                     cost =

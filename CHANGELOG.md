@@ -7,6 +7,15 @@
 
 ### Added
 
+- A second, separately versioned target profile, `echo.dpo@2`, in the checked
+  provider package. Its catalog `echo.dpo.intrinsics/v2` declares the runtime's
+  six effect intrinsics as `echo.dpo@2.*` and it names the ordered
+  `echo.span-ir/v2`; every other reference is `echo.dpo@1`'s. Both components
+  admit it for authored effect programs only, each profile admits only the
+  catalog it pins, and the runtime recognises the same intrinsics under either
+  namespace through one implementation of each (an owner-approved exception to
+  "One Current Version", #985). `echo.dpo@1`, its digest and everything pinned
+  to it are unchanged.
 - The public provider components lower and verify authored effect programs.
   For an `edict-effect-program/v1` target configuration the lowerer component
   emits the judged effect package, and the separate verifier component accepts

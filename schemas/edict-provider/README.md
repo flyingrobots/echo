@@ -94,7 +94,10 @@ evidence only.
 Issue #652 now compiles the primary closure into the declared Edict lawpack,
 target profile, two source-partitioned authority-facts documents,
 generated-artifact profile, fourteen manifest subresources, and self-contained
-CDDL schema. Every canonical output passes its owning generated root, and every
+CDDL schema. Issue #985 adds the effect target profile `echo.dpo@2`
+(`target-profile.echo-dpo-2`), declared under `effectTargetProfiles`, with its
+catalog `echo.dpo.intrinsics/v2` and its `echo.span-ir/v2` declaration as two
+further subresources; `echo.dpo@1` and its subresources are unchanged. Every canonical output passes its owning generated root, and every
 Edict-owned output also passes the independently admitted upstream root. The
 Wesley-owned `generationProvenance` document binds exact source, settings,
 generator, and six primary output byte identities and immediately verifies all

@@ -256,3 +256,12 @@ judgment, like Echo's runtime, compares the profile's Target IR with the
 adapter's accepted ordered IR only for programs with effect steps; the checked
 profile names `echo.span-ir/v1` while effect adapters accept `echo.span-ir/v2`,
 the same tolerance the bounded-read route already has.
+
+The lowerer accepts exactly two target profiles: `echo.dpo@1` and the effect
+profile `echo.dpo@2` (#985). `echo.dpo@2` admits only this route; every other
+route refuses it with `echo.dpo@2 admits only authored effect programs`. Its
+catalog, `echo.dpo.intrinsics/v2`, declares the runtime's effect intrinsics as
+`echo.dpo@2.*` and it names `echo.span-ir/v2`, so effect steps can pass the
+judgment under it. The configuration's catalog must be the one the selected
+profile pins, and the judgment keys its intrinsic tables on the operation below
+either namespace.

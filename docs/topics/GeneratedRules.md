@@ -886,8 +886,10 @@ scan bound, the range bound or the budget; a refused scan leaves the source row
 with its bucket and no range row. Every other row carries tag `0` and length zero. The read-set
 digest hashes `echo.bridge.read-set.v2\0` and the exact image. Version 2
 replaced the 192-byte row of version 1 in place, with no compatibility reader.
-A version-1 image does not frame as version 2 (a one-row image is refused as
-`InvalidImage`), and the two versions' digests use different domains.
+The image bytes carry no version tag: the version is the digest domain, so no
+version-1 digest can match a version-2 image, and the 192-byte rows of a
+version-1 image do not generally frame as version 2 (a one-row image is refused
+as `InvalidImage`).
 The parent and accounting metadata are not part of this read-set digest; an
 admitted proposal/decision must separately bind them.
 
@@ -896,8 +898,9 @@ buffer. Its structural validator allocates no collections and checks exact
 framing, checked size arithmetic, tag legality, zero padding/unused fields,
 canonical order, duplicate rules, pair bounds, strict edge order and contiguous
 complete pair-section coverage. Each range must follow its source's node row: a
-present source must witness its bucket with at least the range's pair count, and
-an absent source yields no pairs. A suffix, an orphan pair or overlapping range
+present source must witness its bucket, which must hold every pair its ranges
+retain together, because edge types partition one bucket; an absent source
+yields no pairs. A suffix, an orphan pair or overlapping range
 is invalid. The fixed ceiling is 4096 read rows and 65536 pairs per range, with
 an image no larger than 16 MiB. The total pair section can exceed 65536 when
 individual ranges and the image limit permit it. This view proves canonical
@@ -908,7 +911,11 @@ or historical Action decision.
 length against the source's whole bucket in the state the caller supplies for
 the image's basis. A differing length, or a source absent there, refuses with
 `BucketSizeMismatch`, distinct from a malformed image. It checks bucket sizes
-only, not values or the basis identity, and allocates nothing.
+only, not values or the basis identity, and allocates nothing. It confirms the
+sizes an image records; it cannot tell that a refused scan's witness was
+removed, since that refusal leaves no range row. Only re-evaluation at the basis
+detects that. No runtime path calls it yet; the first consumer is
+[#982](https://github.com/flyingrobots/echo/issues/982).
 
 Export is bounded host retention work, outside the consumed evaluation budget.
 The caller's output limit intersects the fixed 16 MiB ceiling; the temporary

@@ -1144,8 +1144,9 @@ fn retained(name: &str) -> V {
 
 /// The runtime prepares each `Executes` entry and refuses it when it runs, on
 /// an input its types and constraints admit. Every run uses the retained
-/// package itself. Each assertion names the exact refusal; each refused run
-/// has an accepted control beside it.
+/// package itself. Each assertion names the exact refusal. Each refused run
+/// has an accepted control beside it except `read-captured-budget`, whose
+/// declared step budget equals the frame's fixed step ceiling.
 #[test]
 fn the_runtime_refuses_each_executed_entry_when_it_runs() {
     let slice_input = encoded(&map([

@@ -43,6 +43,8 @@ const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-d
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const MISMATCH: &str = "echo.verifier.effect-package-mismatch";
 const REFUSED: &str = "echo.verifier.effect-program-refused";
+const UNSELECTED: &str =
+    "compiler adapter target configuration reference does not match the bound artifact";
 
 fn bound(coordinate: &str, domain: &str, bytes: Vec<u8>) -> BoundArtifact {
     let value = decode(&bytes).expect("canonical artifact");
@@ -416,11 +418,7 @@ fn the_lowerer_refuses_a_configuration_the_adapter_does_not_select() {
         "echo.operation-lowering-configuration/v1",
         encode(&configuration).expect("configuration"),
     );
-    let refusal = lower(request).expect_err("an unselected configuration is refused");
-    assert_eq!(
-        refusal.subject.as_deref(),
-        Some("adapter.echo-pure-operation")
-    );
+    assert!(lowerer_refusal(request).contains(UNSELECTED));
 }
 
 /// Replaces one verification input, rebinding it under its own coordinate.
@@ -466,11 +464,7 @@ fn the_verifier_refuses_a_configuration_the_adapter_does_not_select() {
                 Value::Text("consumer.effect.other-authority/v1".to_owned());
         }),
     );
-    let refusal = verifier::verify(request).expect_err("an unselected configuration");
-    assert_eq!(
-        refusal.subject.as_deref(),
-        Some("adapter.echo-pure-operation")
-    );
+    assert!(verifier_refusal(request).contains(UNSELECTED));
 }
 
 #[test]
@@ -570,4 +564,80 @@ fn both_routes_refuse_a_core_importing_the_lawpack_twice() {
         target,
     ));
     assert!(verifier_refusal(verification).contains(expected));
+}
+
+/// Runs one closure mutation through both routes and requires each to refuse
+/// it with `expected`. `core` and `target` default to the public artifacts;
+/// `coordinate` is the Target IR's bound coordinate.
+fn both_refuse(core: Option<Vec<u8>>, target: Vec<u8>, coordinate: &str, expected: &str) {
+    let module = "consumer.effect.program@1";
+    let mut lowering = lowering_request();
+    let mut verification = verification_request(public_package());
+    if let Some(core) = core {
+        lowering.core = bound(module, "edict.core.module/v1", core.clone());
+        verification.core = transport(bound(module, "edict.core.module/v1", core));
+    }
+    lowering.semantic_inputs[5].artifact =
+        bound(coordinate, "edict.target-ir.artifact/v1", target.clone());
+    verification.target_ir = transport(bound(coordinate, "edict.target-ir.artifact/v1", target));
+    assert!(lowerer_refusal(lowering).contains(expected));
+    assert!(verifier_refusal(verification).contains(expected));
+}
+
+fn public_target() -> Vec<u8> {
+    bytes(field(&bundle(), "target_ir_artifact")).to_vec()
+}
+
+#[test]
+fn both_routes_refuse_a_target_ir_bound_under_another_coordinate() {
+    both_refuse(
+        None,
+        public_target(),
+        "echo.span-ir/v1",
+        "Target IR is not bound as the ordered echo.span-ir/v2",
+    );
+}
+
+#[test]
+fn both_routes_refuse_a_target_ir_naming_another_profile() {
+    let mut target = decode(&public_target()).expect("IR");
+    *field_mut(field_mut(&mut target, "targetProfile"), "digest") = Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(vec![9; 32]),
+    ]);
+    both_refuse(
+        None,
+        encode(&target).expect("IR"),
+        "echo.span-ir/v2",
+        "effect Target IR target profile reference does not match the bound artifact",
+    );
+}
+
+#[test]
+fn both_routes_refuse_a_core_importing_another_lawpack() {
+    let bundle = bundle();
+    let mut core = decode(bytes(field(&bundle, "core_artifact"))).expect("Core");
+    let Value::Array(imports) = field_mut(&mut core, "imports") else {
+        panic!("imports")
+    };
+    let import = imports
+        .iter_mut()
+        .find(|import| field(import, "kind") == &Value::Text("lawpack".to_owned()))
+        .expect("lawpack import");
+    *field_mut(field_mut(import, "ref"), "digest") = Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(vec![5; 32]),
+    ]);
+    let mut target = decode(&public_target()).expect("IR");
+    let source_core = field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore");
+    *field_mut(source_core, "digest") = Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(digest("edict.core.module/v1", &core).expect("id").to_vec()),
+    ]);
+    both_refuse(
+        Some(encode(&core).expect("Core")),
+        encode(&target).expect("IR"),
+        "echo.span-ir/v2",
+        "effect Core lawpack import reference does not match the bound artifact",
+    );
 }

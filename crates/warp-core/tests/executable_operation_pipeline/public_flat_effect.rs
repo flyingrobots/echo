@@ -133,7 +133,7 @@ fn another_or_re_bound_package_is_refused_under_the_public_policy() {
         admission_refusal(&host, identity, other),
         EchoOperationAdmissionErrorKind::PackageIdentityMismatch
     );
-    // The public package re-bound to a larger step ceiling: coherent, so its
+    // The public package re-bound to a smaller step ceiling: coherent, so its
     // own exact policy would admit it, but never the public one.
     let mut rebound = decode_canonical_cbor_v1(&bytes).expect("package");
     publication::set(

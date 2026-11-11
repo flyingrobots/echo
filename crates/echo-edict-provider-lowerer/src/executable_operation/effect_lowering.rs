@@ -20,6 +20,7 @@ use crate::effect_publication::{encode_effect_publication, EffectPublicationInpu
 
 const SUBJECT: &str = "edict-effect-program";
 const BUNDLE_SCHEMA: &str = "echo.compiler-produced-effect-program/v1";
+const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
 
 fn unsupported(check: &str) -> ProviderRefusalV1 {
     crate::unsupported_semantics(SUBJECT, check)
@@ -132,6 +133,11 @@ fn bind_closure(
     request: &LoweringRequestV1,
     closure: &ClosureInputs<'_>,
 ) -> Result<(), ProviderRefusalV1> {
+    if closure.target_ir.artifact.reference.coordinate != ORDERED_TARGET_IR {
+        return Err(unsupported(
+            "Target IR is not bound as the ordered echo.span-ir/v2",
+        ));
+    }
     if text_field(target, "sourceCoreCoordinate")
         != Some(request.core.reference.coordinate.as_str())
     {

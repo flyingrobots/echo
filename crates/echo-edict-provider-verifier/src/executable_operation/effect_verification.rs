@@ -22,6 +22,7 @@ use echo_edict_canonical::{decode_canonical_cbor_v1, digest_canonical_value_byte
 
 const SUBJECT: &str = "edict-effect-program";
 const BUNDLE_SCHEMA: &str = "echo.compiler-produced-effect-program/v1";
+const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
 const PROGRAM_KIND: &str = "edict-effect-program/v1";
 const CATALOG_DOMAIN: &str = "echo.dpo.intrinsics/v1";
 const MAX_POLICY_BYTES: usize = 16 * 1024 * 1024;
@@ -311,6 +312,11 @@ fn bind_closure(
     request: &VerificationRequestV1,
     closure: &ClosureInputs<'_>,
 ) -> Result<(), ProviderRefusalV1> {
+    if request.target_ir.reference.coordinate != ORDERED_TARGET_IR {
+        return Err(unsupported(
+            "Target IR is not bound as the ordered echo.span-ir/v2",
+        ));
+    }
     if text_field(target, "sourceCoreCoordinate")
         != Some(request.core.reference.coordinate.as_str())
     {

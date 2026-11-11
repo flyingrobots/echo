@@ -1009,3 +1009,99 @@ fn constraint_proven_sums_pay_nothing_for_branch_facts() {
     let inside = largest_accepted(4096, |size| constrained_sums_under_a_branch(true, size));
     assert_eq!(inside, outside, "branch facts changed the budget");
 }
+
+/// The last attempt keeps the input constraints: under `at <= 10`,
+/// `if len(text) <= 5 then at + len(text) else 0` needs both the constraint
+/// and the branch fact, and is refused without either.
+#[test]
+fn a_branch_fact_combines_with_an_input_constraint() {
+    let program = |constraints: Vec<V>, predicate: V| {
+        package(
+            constraints,
+            vec![
+                Node::Let(
+                    declared("local.n", "U64"),
+                    branch(predicate, add(input("at"), len(input("text"))), int(0)),
+                ),
+                Node::Let(ok_binding(), truth(true)),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    let short = || at_most(len(input("text")), int(5));
+    let bounded = || vec![at_most(input("at"), int(10))];
+    prepare(&program(bounded(), short())).expect("the constraint and the branch fact");
+    refused(&program(Vec::new(), short()));
+    refused(&program(bounded(), at_most(len(input("other")), int(5))));
+}
+
+/// The last attempt keeps carried `let` ceilings: a newline count of text of
+/// at most 64 bytes carries the ceiling 64, and under `at <= u64::MAX - 64`
+/// the sum `count + at` fits. One more in the bound is refused.
+#[test]
+fn a_branch_fact_combines_with_a_carried_ceiling() {
+    let count = declared("local.count", "U64");
+    let program = |bound: u64| {
+        package(
+            Vec::new(),
+            vec![
+                Node::Let(
+                    count.clone(),
+                    call(
+                        "core.bytes.count",
+                        &[BYTES],
+                        vec![
+                            input("text"),
+                            map([
+                                ("kind", text("const")),
+                                (
+                                    "value",
+                                    map([
+                                        ("kind", text("bytes")),
+                                        ("value", V::Bytes(vec![b'\n'])),
+                                    ]),
+                                ),
+                            ]),
+                        ],
+                    ),
+                ),
+                Node::Let(
+                    declared("local.n", "U64"),
+                    branch(
+                        at_most(input("at"), int(bound)),
+                        add(local(&count), input("at")),
+                        int(0),
+                    ),
+                ),
+                Node::Let(ok_binding(), truth(true)),
+            ],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(u64::MAX - 64)).expect("the ceiling and the branch fact");
+    refused(&program(u64::MAX - 63));
+}
+
+/// `if at <= len(text) then isUtf8(slice(text, 0, at)) else false` proves its
+/// slice from the branch fact; the same slice in the `else` arm is refused.
+#[test]
+fn a_branch_predicate_proves_a_slice_in_its_then_arm() {
+    let program = |then_arm: bool| {
+        let bound = at_most(input("at"), len(input("text")));
+        let checked = prefix_is_utf8("text", input("at"));
+        package(
+            Vec::new(),
+            vec![Node::Let(
+                ok_binding(),
+                if then_arm {
+                    branch(bound, checked, truth(false))
+                } else {
+                    branch(bound, truth(false), checked)
+                },
+            )],
+            local(&ok_binding()),
+        )
+    };
+    prepare(&program(true)).expect("the branch fact proves the slice");
+    refused(&program(false));
+}

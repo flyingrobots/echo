@@ -303,11 +303,22 @@ pub(crate) fn cases() -> Vec<Case> {
                 x,
             )
         }),
+        // Reading through the `not` would find `x <= 2` and accept a sum that
+        // overflows when `x` is the width maximum.
         scalar("a negation proves nothing", false, |x, _| {
             branch(
-                not(compare(">", x.clone(), int(2))),
+                not(compare("<=", x.clone(), int(2))),
                 add(x.clone(), int(1)),
                 x,
+            )
+        }),
+        // Reading through the `not` would find `start <= end` and accept a
+        // subtraction that underflows whenever the arm runs.
+        scalar("a negated order proves nothing", false, |start, end| {
+            branch(
+                not(compare("<=", start.clone(), end.clone())),
+                subtract(end, start),
+                int(0),
             )
         }),
         // The later conjunct `x <= 2` would bound `x + 1` if the predicate were

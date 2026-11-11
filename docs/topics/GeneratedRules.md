@@ -306,8 +306,8 @@ judgment may assume these facts:
 
 A slice or subtraction needs an order fact over the same term, compared by
 canonical encoding. So `let at2 = at` followed by `slice(text, 0, at2)` is
-refused even under `at <= len(text)`; use the constrained term itself. A
-constant bound is read only as `term <= c`, `term == c` or `c == term`; write
+refused even under `at <= len(text)`; use the constrained term itself. An
+addition's constant bound is read only as `term <= c`, `term == c` or `c == term`; write
 `at < 11` or `11 > at` as `at <= 10`. A guard over a different term proves
 nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.rs`
 in `flyingrobots/amblicit`) uses no other facts here: a `require` stops

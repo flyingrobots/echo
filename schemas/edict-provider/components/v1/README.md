@@ -56,10 +56,13 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The bounded-list operation component pair was independently reproduced by the
+The branch-fact component pair (echo#979) was independently reproduced by the
 two G4 candidate jobs in [CI run 42929621287](https://github.com/flyingrobots/echo/actions/runs/42929621287)
 at source commit `f27b456ee47f220136f8d89ab751f7d7a7862e34`. Both copies of
-each component matched byte-for-byte before promotion. Component publication,
+each component matched byte-for-byte before promotion. That run's comparison
+job failed only because the checked bytes were not yet promoted; after
+promotion the same comparison passed in
+[CI run 42930597810](https://github.com/flyingrobots/echo/actions/runs/42930597810). Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 
 Rebuild and check the artifact without rewriting it:

@@ -109,6 +109,8 @@ pub(super) fn all(values: Vec<V>) -> V {
 pub(super) enum Node {
     Let(V, V),
     Require(V),
+    /// A `require` whose failure payload is the given record fields.
+    RequireWith(V, V),
 }
 
 /// An effect program with no graph effects over
@@ -162,6 +164,10 @@ pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
     let mut requirements = Vec::new();
     let mut order = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
+        let node_payload = match &node {
+            Node::RequireWith(_, payload) => Some(payload.clone()),
+            _ => None,
+        };
         match node {
             Node::Let(binding, value) => {
                 locals.push(binding.clone());
@@ -178,15 +184,16 @@ pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
                 ]));
                 order.push(text(&id));
             }
-            Node::Require(predicate) => {
+            Node::Require(predicate) | Node::RequireWith(predicate, _) => {
+                let payload = match &node_payload {
+                    Some(payload) => payload.clone(),
+                    None => map([("at", input("at"))]),
+                };
                 let failure = map([
                     ("kind", text("terminal")),
                     (
                         "reason",
-                        map([
-                            ("reasonKind", text("app.BadOffset")),
-                            ("payload", map([("at", input("at"))])),
-                        ]),
+                        map([("reasonKind", text("app.BadOffset")), ("payload", payload)]),
                     ),
                 ]);
                 core_nodes.push(map([

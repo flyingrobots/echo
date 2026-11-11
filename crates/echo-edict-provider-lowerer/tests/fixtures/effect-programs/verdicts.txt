@@ -4,9 +4,12 @@ slice-proven accept
 slice-unproven refuse
 slice-other-operand refuse
 slice-require-only refuse
+two-let-control accept
 forged-node-order refuse
 wrong-intrinsic-input-type refuse
+read-exports-control accept
 undeclared-obstruction refuse
+read-adapter-control accept
 failure-mapping-tag-spelled refuse
 failure-mapping-unknown refuse
 failure-mapping-duplicate refuse
@@ -15,4 +18,8 @@ constraint-conjunct-proven accept
 over-budget refuse
 mutation-allocation-exact accept
 mutation-allocation-short refuse
+require-payload-over-output refuse
+mutation-count-over refuse
+local-name-empty refuse
+constraint-without-coordinate refuse
 read-captured-budget refuse

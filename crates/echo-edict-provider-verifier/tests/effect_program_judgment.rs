@@ -25,9 +25,12 @@ const RETAINED: &[(&str, &str)] = retained![
     "slice-unproven",
     "slice-other-operand",
     "slice-require-only",
+    "two-let-control",
     "forged-node-order",
     "wrong-intrinsic-input-type",
+    "read-exports-control",
     "undeclared-obstruction",
+    "read-adapter-control",
     "failure-mapping-tag-spelled",
     "failure-mapping-unknown",
     "failure-mapping-duplicate",
@@ -36,6 +39,10 @@ const RETAINED: &[(&str, &str)] = retained![
     "over-budget",
     "mutation-allocation-exact",
     "mutation-allocation-short",
+    "require-payload-over-output",
+    "mutation-count-over",
+    "local-name-empty",
+    "constraint-without-coordinate",
     "read-captured-budget",
 ];
 const VERDICTS: &str =
@@ -79,18 +86,20 @@ fn the_verifier_reaches_every_retained_corpus_verdict() {
     );
     assert!(verdicts.iter().filter(|(_, accept)| *accept).count() >= 3);
     assert!(verdicts.iter().filter(|(_, accept)| !*accept).count() >= 10);
+    // Every disagreement is reported at once, not only the first.
+    let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = verify_effect_package(&package_bytes(&name));
-        if accept {
-            judged.unwrap_or_else(|e| panic!("{name}: verifier refused an accepted package: {e}"));
+        let expected = if accept {
+            Ok(())
         } else {
-            assert_eq!(
-                judged,
-                Err(EffectPackageRefusal::UnsupportedProgram),
-                "{name}: verifier accepted a refused package"
-            );
+            Err(EffectPackageRefusal::UnsupportedProgram)
+        };
+        if judged != expected {
+            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
 }
 
 /// A valid program cannot be republished under another package's identities:
@@ -153,5 +162,148 @@ fn only_authored_effect_programs_are_judged_here() {
     assert_eq!(
         verify_effect_package(b"not canonical"),
         Err(EffectPackageRefusal::InvalidEnvelope)
+    );
+}
+
+/// Rewrites one field of the package's embedded program.
+fn with_program(package: &V, edit: impl FnOnce(&mut V)) -> V {
+    let mut package = package.clone();
+    let V::Bytes(program) = field_mut(&mut package, "program").clone() else {
+        panic!("program")
+    };
+    let mut program = decode(&program).expect("program");
+    edit(&mut program);
+    *field_mut(&mut package, "program") = V::Bytes(encode(&program).expect("program"));
+    package
+}
+fn insert(value: &mut V, key: &str, field: V) {
+    let V::Map(fields) = value else { panic!("map") };
+    fields.push((V::Text(key.into()), field));
+}
+fn flip(value: &mut V) {
+    let V::Bytes(bytes) = value else {
+        panic!("bytes")
+    };
+    bytes[0] ^= 1;
+}
+
+/// The program's own Target IR claim and the footprint contract name the
+/// program the package carries.
+#[test]
+fn the_program_target_ir_and_footprint_claims_are_bound() {
+    let original = decode(&package_bytes("read-control")).expect("package");
+    let program_target = with_program(&original, |program| {
+        flip(field_mut(program, "target_ir_identity"));
+    });
+    let mut footprint = original;
+    flip(field_mut(&mut footprint, "footprint_contract_identity"));
+    for (name, package) in [
+        ("program target_ir_identity", program_target),
+        ("footprint_contract_identity", footprint),
+    ] {
+        assert_eq!(
+            verify_effect_package(&encode(&package).expect("package")),
+            Err(EffectPackageRefusal::InvalidBinding),
+            "{name}"
+        );
+    }
+}
+
+/// A package spelled other than canonically is not verifiable: the same
+/// package spelled two ways would have two identities. The canonical decoder
+/// already refuses this non-minimal map head; the verifier's re-encoding
+/// check is a second guard this input does not reach.
+#[test]
+fn decodable_non_canonical_bytes_are_refused() {
+    let canonical = package_bytes("read-control");
+    // A map head with its entry count in a one-byte argument it does not
+    // need: the same map, spelled at a longer length.
+    let head = canonical[0];
+    assert!((0xa0..0xb8).contains(&head), "a short map head");
+    let mut long = vec![0xb8, head - 0xa0];
+    long.extend_from_slice(&canonical[1..]);
+    assert_eq!(
+        verify_effect_package(&long),
+        Err(EffectPackageRefusal::InvalidEnvelope)
+    );
+}
+
+/// What Echo's runtime refuses when it admits a package envelope, the
+/// verifier refuses before installation: the exact field sets, the fixed
+/// schema constants, the effect-program limits and a nonzero step ceiling.
+#[test]
+fn package_envelopes_the_runtime_cannot_admit_are_refused() {
+    let original = decode(&package_bytes("read-control")).expect("package");
+    verify_effect_package(&encode(&original).expect("package")).expect("envelope control");
+    let package = |edit: &dyn Fn(&mut V)| {
+        let mut package = original.clone();
+        edit(&mut package);
+        package
+    };
+    let program = |edit: &dyn Fn(&mut V)| with_program(&original, edit);
+    let cases = [
+        (
+            "an unknown package field",
+            package(&|p| insert(p, "unexpected", V::Null)),
+        ),
+        (
+            "a result projection on an effect package",
+            package(&|p| insert(p, "application_result_projection", V::Null)),
+        ),
+        (
+            "a zero step ceiling",
+            package(&|p| {
+                *field_mut(field_mut(p, "budget_ceiling"), "steps") = V::Integer(0);
+            }),
+        ),
+        (
+            "a lawpack in an effect closure",
+            package(&|p| {
+                let closure = field_mut(p, "semantic_closure");
+                insert(closure, "lawpack_coordinate", V::Text("app.Lawpack".into()));
+                insert(closure, "lawpack_identity", V::Bytes(vec![7; 32]));
+            }),
+        ),
+        (
+            "an unknown program field",
+            program(&|p| insert(p, "unexpected", V::Null)),
+        ),
+        (
+            "another identity law",
+            program(&|p| *field_mut(p, "identity_law") = V::Integer(2)),
+        ),
+        (
+            "another interpreter profile",
+            program(&|p| flip(field_mut(p, "interpreter_profile_identity"))),
+        ),
+        (
+            "another intrinsic profile",
+            program(&|p| flip(field_mut(p, "intrinsic_profile_identity"))),
+        ),
+        (
+            "an input ceiling above 64 KiB",
+            program(&|p| *field_mut(p, "max_input_bytes") = V::Integer(65_537)),
+        ),
+        (
+            "a result ceiling above 64 KiB",
+            program(&|p| *field_mut(p, "max_result_bytes") = V::Integer(65_537)),
+        ),
+        (
+            "an allocation ceiling above 16 MiB",
+            program(&|p| *field_mut(p, "max_allocated_bytes") = V::Integer(16_777_217)),
+        ),
+    ];
+    let admitted: Vec<_> = cases
+        .into_iter()
+        .filter(|(_, package)| {
+            verify_effect_package(&encode(package).expect("package"))
+                != Err(EffectPackageRefusal::InvalidEnvelope)
+        })
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(
+        admitted,
+        Vec::<&str>::new(),
+        "envelopes the verifier did not refuse"
     );
 }

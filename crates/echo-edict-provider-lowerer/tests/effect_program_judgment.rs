@@ -24,9 +24,12 @@ const RETAINED: &[(&str, &str)] = retained![
     "slice-unproven",
     "slice-other-operand",
     "slice-require-only",
+    "two-let-control",
     "forged-node-order",
     "wrong-intrinsic-input-type",
+    "read-exports-control",
     "undeclared-obstruction",
+    "read-adapter-control",
     "failure-mapping-tag-spelled",
     "failure-mapping-unknown",
     "failure-mapping-duplicate",
@@ -35,6 +38,10 @@ const RETAINED: &[(&str, &str)] = retained![
     "over-budget",
     "mutation-allocation-exact",
     "mutation-allocation-short",
+    "require-payload-over-output",
+    "mutation-count-over",
+    "local-name-empty",
+    "constraint-without-coordinate",
     "read-captured-budget",
 ];
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");
@@ -87,24 +94,27 @@ fn the_lowerer_reaches_every_retained_corpus_verdict() {
     );
     assert!(verdicts.iter().filter(|(_, accept)| *accept).count() >= 3);
     assert!(verdicts.iter().filter(|(_, accept)| !*accept).count() >= 10);
+    // Every disagreement is reported at once, not only the first.
+    let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = judge_effect_program(&compiled_program(&name));
-        if accept {
-            judged.unwrap_or_else(|e| panic!("{name}: lowerer refused an accepted program: {e}"));
+        let expected = if accept {
+            Ok(())
         } else {
-            assert_eq!(
-                judged,
-                Err(EffectPublicationError::UnsupportedProgram),
-                "{name}: lowerer accepted a refused program"
-            );
+            Err(EffectPublicationError::UnsupportedProgram)
+        };
+        if judged != expected {
+            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
 }
 
 /// Publication runs the same judgment, so a refused program is never
 /// serialized into a package.
 #[test]
 fn publication_refuses_what_the_judgment_refuses() {
+    let mut disagreements = Vec::new();
     for (name, accept) in verdicts() {
         let program = compiled_program(&name);
         let package = package(&name);
@@ -153,9 +163,12 @@ fn publication_refuses_what_the_judgment_refuses() {
             .collect(),
         ))
         .expect("configuration");
-        let source =
-            echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(b"package app;\n".to_vec()))
-                .expect("source");
+        let source = echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(
+            b"package app;
+"
+            .to_vec(),
+        ))
+        .expect("source");
         let published = encode_effect_publication(EffectPublicationInput {
             compiler_program: &program,
             application_schema_coordinate: "app.Exports",
@@ -163,18 +176,16 @@ fn publication_refuses_what_the_judgment_refuses() {
             source_domain: "edict.source/v1",
             configuration: &configuration,
         });
-        if accept {
-            assert_ne!(
-                published,
-                Err(EffectPublicationError::UnsupportedProgram),
-                "{name}: publication refused an accepted program"
-            );
-        } else {
-            assert_eq!(
-                published,
-                Err(EffectPublicationError::UnsupportedProgram),
-                "{name}: publication serialized a refused program"
-            );
+        match (accept, &published) {
+            (true, Ok(_)) | (false, Err(EffectPublicationError::UnsupportedProgram)) => {}
+            (true, Err(error)) => {
+                disagreements.push(format!("{name}: publication refused: {error:?}"));
+            }
+            (false, other) => disagreements.push(format!(
+                "{name}: publication did not refuse the program: {:?}",
+                other.as_ref().map(Vec::len)
+            )),
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
 }

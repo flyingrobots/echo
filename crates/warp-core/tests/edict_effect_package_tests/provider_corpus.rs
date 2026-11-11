@@ -9,7 +9,7 @@
 //! Regenerate with the ignored `regenerate_the_retained_provider_corpus` test.
 use super::abi_conformance::rename_read_failure;
 use super::execution::{host, limits};
-use super::mutations::{fixture, fixture_with, Shape};
+use super::mutations::{fixture, fixture_with, repeat_emission, Shape};
 use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
@@ -143,7 +143,114 @@ fn largest_ensure_node_input() -> Vec<u8> {
 /// Runs an `ensure-node` package on its largest input under frame limits far
 /// above its own Core budget, so only that budget can refuse it.
 fn run_largest_ensure_node(package: &V) -> Result<Vec<u8>, EffectFrameError> {
-    let prepared = prepare(package).expect("ensure-node prepares");
+    run(package, &largest_ensure_node_input())
+}
+
+/// Sets only the declared output ceiling, in Core and its lowered intent.
+fn with_output(package: &V, bytes: u64) -> V {
+    rebuild(package, |core, target, _| {
+        let bytes = V::Integer(i128::from(bytes));
+        set(
+            value_field_mut(first_intent_mut(core), "coreEvaluationBudget"),
+            "maxOutputBytes",
+            bytes.clone(),
+        );
+        set(
+            value_field_mut(selected_target_mut(target), "coreEvaluationBudget"),
+            "maxOutputBytes",
+            bytes,
+        );
+    })
+}
+
+/// Replaces every occurrence of one text value, wherever it appears.
+fn replace_text(value: &mut V, from: &str, to: &str) {
+    match value {
+        V::Text(found) if found == from => *value = text(to),
+        V::Array(values) => values
+            .iter_mut()
+            .for_each(|value| replace_text(value, from, to)),
+        V::Map(fields) => fields
+            .iter_mut()
+            .for_each(|(_, value)| replace_text(value, from, to)),
+        _ => {}
+    }
+}
+
+/// Removes `key` from every input constraint, in Core and its lowered intent.
+fn without_constraint_field(package: &V, key: &str) -> V {
+    let strip = |constraints: &mut V| {
+        let V::Array(constraints) = constraints else {
+            panic!("constraints")
+        };
+        for constraint in constraints {
+            let V::Map(fields) = constraint else {
+                panic!("constraint")
+            };
+            fields.retain(|(name, _)| name != &text(key));
+        }
+    };
+    rebuild(package, |core, target, _| {
+        strip(value_field_mut(first_intent_mut(core), "inputConstraints"));
+        strip(value_field_mut(
+            selected_target_mut(target),
+            "inputConstraints",
+        ));
+    })
+}
+
+/// The captured read with its exports replaced, and every lowering pin
+/// re-derived from them, so the program reaches the checks on its exports.
+fn read_with_exports(exports: V) -> V {
+    let lowering = lowering_fixture_inputs(None, Some(exports.clone()), None);
+    let (core, target, _) = compiler_fixture(&lowering);
+    with_budget(
+        &publication_from_parts(&core, &target, &exports, &lowering),
+        READ_AMPLE,
+    )
+}
+
+fn captured_exports() -> V {
+    compiler_fixture(&repinned_lowering_artifacts()).2
+}
+
+/// A body whose `require` fails with a 64-byte text payload, over a `Bool`
+/// result. The payload, not the result, needs the output ceiling.
+fn require_with_text_payload() -> V {
+    with_budget(
+        &package(
+            vec![at_most(input("at"), len(input("text")))],
+            vec![
+                Node::RequireWith(
+                    at_most(input("at"), len(input("other"))),
+                    map([("text", input("text"))]),
+                ),
+                Node::Let(ok_binding(), prefix_is_utf8("text", input("at"))),
+            ],
+            local(&ok_binding()),
+        ),
+        AMPLE,
+    )
+}
+
+/// The output ceiling the corpus gives `require_with_text_payload`: room for
+/// any `Bool` result, not for the failure payload.
+const REQUIRE_PAYLOAD_OUTPUT: u64 = 16;
+
+/// An input whose constraint holds and whose `require` fails, with the
+/// payload text at its 64-byte cap.
+fn failing_require_input() -> Vec<u8> {
+    encoded(&map([
+        ("at", V::Integer(5)),
+        ("other", V::Bytes(Vec::new())),
+        ("text", V::Bytes(vec![0x61; 64])),
+    ]))
+}
+
+/// Runs a package's effect program once under frame limits far above any
+/// Core budget in this corpus, so only the package's own budget can refuse it.
+fn run(package: &V, input: &[u8]) -> Result<Vec<u8>, EffectFrameError> {
+    let prepared = prepare(package).expect("package prepares");
     let program = prepared.program().as_effect_program().expect("effect");
     let (host, head, _) = host();
     let basis = host
@@ -164,7 +271,7 @@ fn run_largest_ensure_node(package: &V) -> Result<Vec<u8>, EffectFrameError> {
         .with_footprint_law(program.footprint_law().clone())
         .expect("law");
     frame
-        .evaluate_effect(program, &largest_ensure_node_input(), &[])
+        .evaluate_effect(program, input, &[])
         .map(<[u8]>::to_vec)
 }
 
@@ -210,6 +317,24 @@ fn entries() -> Vec<Entry> {
     }
     let mut unknown = catalog_fixture();
     rename_read_failure(&mut unknown, "atomMissing", "atomAbsent");
+    let two_lets = with_budget(
+        &package(
+            vec![at_most(input("at"), len(input("text")))],
+            vec![
+                Node::Let(declared("local.size", "U64"), len(input("text"))),
+                Node::Let(ok_binding(), prefix_is_utf8("text", input("at"))),
+            ],
+            local(&ok_binding()),
+        ),
+        AMPLE,
+    );
+    let mut undeclared = captured_exports();
+    let V::Array(obstructions) = value_field_mut(&mut undeclared, "obstructions") else {
+        panic!("obstructions")
+    };
+    // The `missing` failure arm maps to this obstruction.
+    obstructions
+        .retain(|obstruction| get(obstruction, "coordinate") != &text("jedit.text@1.FactMissing"));
     let entry = |name, accept, runtime, package: V| Entry {
         name,
         accept,
@@ -217,7 +342,7 @@ fn entries() -> Vec<Entry> {
         package: as_published(package),
     };
     vec![
-        entry("read-control", true, Runtime::Accepts, read_control.clone()),
+        entry("read-control", true, Runtime::Accepts, read_control),
         entry(
             "ensure-node-control",
             true,
@@ -256,31 +381,26 @@ fn entries() -> Vec<Entry> {
                 AMPLE,
             ),
         ),
+        // The same two-`let` body in its own order, then with its lowered
+        // execution order swapped.
+        entry(
+            "two-let-control",
+            true,
+            Runtime::Accepts,
+            rebuild(&two_lets, |_, _, _| {}),
+        ),
         entry(
             "forged-node-order",
             false,
             Runtime::Refuses,
-            rebuild(
-                &with_budget(
-                    &package(
-                        vec![at_most(input("at"), len(input("text")))],
-                        vec![
-                            Node::Let(declared("local.size", "U64"), len(input("text"))),
-                            Node::Let(ok_binding(), prefix_is_utf8("text", input("at"))),
-                        ],
-                        local(&ok_binding()),
-                    ),
-                    AMPLE,
-                ),
-                |_, target, _| {
-                    let V::Array(order) =
-                        value_field_mut(selected_target_mut(target), "executionOrder")
-                    else {
-                        panic!("order")
-                    };
-                    order.swap(0, 1);
-                },
-            ),
+            rebuild(&two_lets, |_, target, _| {
+                let V::Array(order) =
+                    value_field_mut(selected_target_mut(target), "executionOrder")
+                else {
+                    panic!("order")
+                };
+                order.swap(0, 1);
+            }),
         ),
         entry(
             "wrong-intrinsic-input-type",
@@ -288,16 +408,28 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             fixture_with("ensure-node", GRAPH_EFFECTS, &wrong_input).0,
         ),
+        // The captured exports with every lowering pin re-derived, then the
+        // same exports missing one obstruction a failure arm names.
+        entry(
+            "read-exports-control",
+            true,
+            Runtime::Accepts,
+            read_with_exports(captured_exports()),
+        ),
         entry(
             "undeclared-obstruction",
             false,
             Runtime::Refuses,
-            rebuild(&read_control, |_, _, exports| {
-                let V::Array(obstructions) = value_field_mut(exports, "obstructions") else {
-                    panic!("obstructions")
-                };
-                obstructions.remove(0);
-            }),
+            read_with_exports(undeclared),
+        ),
+        // The catalog-named adapter's unedited failure table. The unknown and
+        // duplicate entries below edit only that table; the tag-spelled entry
+        // spells the same table by runtime tag instead of by name.
+        entry(
+            "read-adapter-control",
+            true,
+            Runtime::Accepts,
+            read_with_adapter(|_| {}, catalog_fixture()),
         ),
         entry(
             "failure-mapping-tag-spelled",
@@ -407,6 +539,44 @@ fn entries() -> Vec<Entry> {
                 ENSURE_NODE_WORST_ALLOCATION - 1,
             ),
         ),
+        // A failing `require` encodes its payload under the result's output
+        // ceiling; this one leaves room for the `Bool` result only.
+        entry(
+            "require-payload-over-output",
+            false,
+            Runtime::Executes,
+            with_output(&require_with_text_payload(), REQUIRE_PAYLOAD_OUTPUT),
+        ),
+        // The runtime emits at most 1,024 mutations per evaluation.
+        entry(
+            "mutation-count-over",
+            false,
+            Runtime::Executes,
+            with_budget(
+                &repeat_emission(&fixture("ensure-node", GRAPH_EFFECTS).0, 1025),
+                AMPLE,
+            ),
+        ),
+        // A Core local name must be present.
+        entry(
+            "local-name-empty",
+            false,
+            Runtime::Refuses,
+            rebuild(
+                &fixture("ensure-node", GRAPH_EFFECTS).0,
+                |core, target, _| {
+                    replace_text(core, "$local0", "");
+                    replace_text(target, "$local0", "");
+                },
+            ),
+        ),
+        // The runtime names a failed input constraint by its coordinate.
+        entry(
+            "constraint-without-coordinate",
+            false,
+            Runtime::Executes,
+            without_constraint_field(&proven_slice(), "coordinate"),
+        ),
         entry(
             "read-captured-budget",
             false,
@@ -436,9 +606,12 @@ const RETAINED: &[(&str, &str)] = retained![
     "slice-unproven",
     "slice-other-operand",
     "slice-require-only",
+    "two-let-control",
     "forged-node-order",
     "wrong-intrinsic-input-type",
+    "read-exports-control",
     "undeclared-obstruction",
+    "read-adapter-control",
     "failure-mapping-tag-spelled",
     "failure-mapping-unknown",
     "failure-mapping-duplicate",
@@ -447,6 +620,10 @@ const RETAINED: &[(&str, &str)] = retained![
     "over-budget",
     "mutation-allocation-exact",
     "mutation-allocation-short",
+    "require-payload-over-output",
+    "mutation-count-over",
+    "local-name-empty",
+    "constraint-without-coordinate",
     "read-captured-budget",
 ];
 const VERDICTS: &str = include_str!(
@@ -458,9 +635,11 @@ fn manifest(entries: &[Entry]) -> String {
     for entry in entries {
         manifest.push_str(entry.name);
         manifest.push_str(if entry.accept {
-            " accept\n"
+            " accept
+"
         } else {
-            " refuse\n"
+            " refuse
+"
         });
     }
     manifest
@@ -509,7 +688,11 @@ fn regenerate_the_retained_provider_corpus() {
     for entry in &entries {
         std::fs::write(
             dir.join(format!("{}.hex", entry.name)),
-            format!("{}\n", hex::encode(encoded(&entry.package))),
+            format!(
+                "{}
+",
+                hex::encode(encoded(&entry.package))
+            ),
         )
         .expect("corpus entry");
     }
@@ -527,5 +710,43 @@ fn ensure_node_needs_exactly_its_worst_case_allocation() {
             EvaluationError::AllocationBudgetExceeded
         ))),
         "one byte less than the worst case must not be enough"
+    );
+}
+
+/// The runtime's own refusals for the corpus entries it refuses only when it
+/// executes: each one fails on an input its types and constraints admit.
+#[test]
+fn the_runtime_refuses_each_executed_entry_when_it_runs() {
+    let output = |package: &V| run(package, &failing_require_input());
+    assert!(
+        matches!(
+            output(&with_output(&require_with_text_payload(), 65536)),
+            Err(EffectFrameError::AuthoredObstruction { .. })
+        ),
+        "with room, the failing require reports its own obstruction"
+    );
+    assert_eq!(
+        output(&with_output(
+            &require_with_text_payload(),
+            REQUIRE_PAYLOAD_OUTPUT
+        )),
+        Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
+            EvaluationError::OutputBudgetExceeded
+        ))),
+        "the payload does not fit the output ceiling the corpus declares"
+    );
+    let slice_input = encoded(&map([
+        ("at", V::Integer(0)),
+        ("other", V::Bytes(Vec::new())),
+        ("text", V::Bytes(Vec::new())),
+    ]));
+    run(&proven_slice(), &slice_input).expect("the coordinated control runs");
+    assert!(
+        run(
+            &without_constraint_field(&proven_slice(), "coordinate"),
+            &slice_input
+        )
+        .is_err(),
+        "a constraint without a coordinate cannot run"
     );
 }

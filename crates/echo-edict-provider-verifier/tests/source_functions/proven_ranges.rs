@@ -325,5 +325,11 @@ fn branch_fact_corpus_helpers_lower_and_verify_with_the_corpus_verdict() {
         }
         checked += 1;
     }
-    assert_eq!(checked, branch_fact_corpus::cases().len() - 1);
+    assert_eq!(
+        checked,
+        branch_fact_corpus::cases()
+            .iter()
+            .filter(|case| matches!(map_field(&case.core, "functions"), CanonicalValueV1::Map(f) if f.len() == 1))
+            .count()
+    );
 }

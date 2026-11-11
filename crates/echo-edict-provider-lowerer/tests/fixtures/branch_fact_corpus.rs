@@ -399,6 +399,35 @@ pub(crate) fn cases() -> Vec<Case> {
                 vec![("a_outer", outer), ("z_inner", inner)],
             )
         },
+        {
+            // The caller's branch facts are back after it first calls a
+            // helper: `x + 1` is judged after `z_same(x)` in the same `then`
+            // arm, and only the outer `x <= 2` bounds it.
+            let x = param(0, "U64");
+            let same = function(vec![x.clone()], "U64", read(&x));
+            let caller = function(
+                vec![x.clone()],
+                "U64",
+                branch(
+                    compare("<=", read(&x), int(2)),
+                    branch(
+                        compare(
+                            "==",
+                            call_helper("generic.branch@1.z_same", vec![read(&x)]),
+                            read(&x),
+                        ),
+                        add(read(&x), int(1)),
+                        int(0),
+                    ),
+                    read(&x),
+                ),
+            );
+            case(
+                "a caller keeps its branch facts after a helper call",
+                true,
+                vec![("a_caller", caller), ("z_same", same)],
+            )
+        },
     ]
 }
 

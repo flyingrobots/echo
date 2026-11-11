@@ -813,7 +813,8 @@ pub(crate) fn infer<'v>(
                     Ok(expected.clone())
                 }
                 // Partial intrinsics need a dominating order proof. A helper frame
-                // starts with no caller facts; only its own conjunct prefixes count.
+                // starts with no caller facts; only its own conjunct prefixes and
+                // enclosing `then` arms count.
                 ("core.integer.subtract", [left, right], [expected @ RuntimeType::Unsigned(_)])
                     if accepts(expected, left) && accepts(expected, right) =>
                 {

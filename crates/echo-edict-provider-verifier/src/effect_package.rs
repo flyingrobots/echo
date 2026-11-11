@@ -58,6 +58,16 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
     {
         return Err(E);
     }
+    // The verifier binds neither the authority profile nor the source
+    // identity to a value, but each is the 32-byte hash the runtime decodes.
+    for identity in [
+        get(&package, "authority_profile_identity", E)?,
+        get(closure, "edict_source_identity", E)?,
+    ] {
+        if bytes(identity, E)?.len() != 32 {
+            return Err(E);
+        }
+    }
     // Every fixed profile and schema identity names the effect profile the
     // runtime supports.
     for (field, label) in PACKAGE_PROFILES {

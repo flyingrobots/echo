@@ -363,8 +363,8 @@ The verifier runs it, checks the package and program envelopes the runtime
 admits, including every fixed profile and schema identity, and binds the
 Core, canonical meaning, Target IR, exports, operation, output type and
 footprint contract the package claims to the program it carries, before
-installation. The verifier does not bind the source identity or the
-authority profile, and it requires the graph schema and footprint law only
+installation. The verifier requires the source identity and the authority
+profile to be 32-byte hashes but does not bind them, and it requires the graph schema and footprint law only
 to be canonical values; the runtime admits their contents.
 
 The two providers' copies of the program-level checks are near-identical, so

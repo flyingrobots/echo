@@ -1183,13 +1183,47 @@ retention, a receipt, or an admitted reading. Integration and release evidence a
 
 #### Typed outgoing-edge and guided closure reads
 
-**Runtime only.** The bounded-read interpreter evaluates two graph-read
-intrinsics. The provider lowerer and verifier do not judge them, the checked
-components do not accept them, and no public compiler witness exists; a
-recording effect frame refuses them. The remaining publication work is owned by
-[#926](https://github.com/flyingrobots/echo/issues/926). The runtime witnesses
-in `crates/warp-core/tests/edict_node_read/graph_reads.rs` use explicitly synthetic
-packages derived from the retained public read package, not compiler output.
+The bounded-read route carries two graph-read intrinsics end to end. Authored
+Amblicit source compiles through the unmodified public compiler, the provider
+lowerer, the structurally separate verifier and the promoted checked
+components, and the generic bounded-read runtime evaluates the exact resulting
+packages. The retained public packages, reports and authored source live in
+`crates/warp-core/tests/fixtures/edict-graph-read/`. The
+[isolated host witness](../../scripts/verify-edict-provider-host-v1.sh)
+recompiles that source in CI with the pinned compiler and requires
+byte-identical output, and requires the predecessor provider package to refuse
+the same source. The semantic edge-case witnesses in
+`crates/warp-core/tests/edict_node_read/graph_reads.rs` use explicitly
+synthetic packages; the public packages are evaluated separately.
+Graph reads remain bounded-read observations only. Authored effect programs
+do not yet carry them; that route is owned by
+[#978](https://github.com/flyingrobots/echo/issues/978).
+
+**Provider judgments.** The lowerer and the separate verifier accept either
+intrinsic only when the configuration declares `graphReads`, and refuse a
+declaration that no step uses. Both check the exact structural signatures
+below, that a closure's occurrences carry exactly the guide type it was started
+with, and that the declared selector helper decides over that closure's node
+and guide types. Each runtime failure must map to exactly one authored arm of a
+fixed authority class. Resource limits map to `resourceFault`, an insufficient
+selector maps to `domainMappable`, and malformed storage maps to
+`integrityFault`. A graph-read package binds the typed footprint contract
+below. A package relabelled with the node-aperture contract, a step re-bound to
+another intrinsic, or swapped selector and storage arms is rejected.
+
+**Recorded evidence.** A recording frame bound to a typed footprint law
+evaluates graph reads and witnesses them in its read image. The law is the
+graph aperture: range edge types, read node types, atom types and portal
+owners are authorized as for node and range reads. A typed range records the
+source node and the range with its matching edge pairs; a bucket over the
+remaining scan allowance records the source observation that decided the
+authored scan bound and inspects no edge. A materialized node records the node
+and its alpha slot; an empty slot is retained as typeless absence. A node named
+by an edge but not stored records its absence under the type of the node whose
+edge named it and keeps the malformed-storage outcome. An untyped recording
+frame grants no graph read. A read image carrying a second, conflicting
+observation of one slot is refused as `InvalidImage`; a stale basis refuses
+with `BasisMismatch` before any read.
 
 A package declares graph reads in its lowering configuration. The optional
 `graphReads` record has exactly `maxEdgeScans` (1 to 65,536), `maxClosureNodes`

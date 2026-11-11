@@ -18,11 +18,14 @@
   `graphReads` lowering-configuration record and the
   `typed-graph-read-aperture/v1` footprint contract, and the host grants edge
   and node types through `ReadView::with_graph_aperture`. Packages that do not
-  declare it, and recording effect frames, refuse graph reads; existing
-  node-read packages are unchanged. This is runtime support only, witnessed by
-  synthetic packages: the provider lowerer, verifier and checked components do
-  not yet judge or accept these intrinsics, and no public compiler witness
-  exists. `ReadResult` gains `edge_scans`; `ReadError` gains
+  declare it refuse graph reads; existing
+  node-read packages are unchanged. Typed recording frames witness graph reads in
+  their read image; untyped recording frames refuse them. The provider lowerer
+  and separate verifier judge both intrinsics, their signatures, the selector
+  and the authority class of every failure arm, and the reproducibly promoted
+  components accept them. Authored source compiles through the unmodified
+  public compiler, and CI recompiles it to the retained packages and reports.
+  `ReadResult` gains `edge_scans`; `ReadError` gains
   `OutsideGraphAperture` and `GraphObstructed`.
 
 - `warp-core`: authored effect programs are prepared with proven-range facts,

@@ -198,8 +198,8 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
   a node's outgoing edges of one type and a guided bounded closure
   ([Typed outgoing-edge and guided closure reads](application-contract-hosting.md#typed-outgoing-edge-and-guided-closure-reads)).
   Over a plain view it counts reads against a limit but does not record which
-  slots it read; a recording effect frame records node and atom reads and
-  refuses graph reads, which it does not yet witness
+  slots it read; a recording effect frame records node and atom reads, and a
+  typed recording frame also records graph reads
   (`crates/warp-core/src/edict_read/evaluate.rs`,
   `crates/warp-core/src/edict_effects/node_reads.rs`).
 - Create-if-absent obstructs when the node already exists, even with identical

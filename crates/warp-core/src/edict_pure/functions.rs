@@ -185,6 +185,7 @@ pub(crate) fn decode(
                     caps: &caps,
                     facts: &[],
                     branch: &[],
+                    reads_branch: true,
                     path: &[],
                 },
                 &definitions,
@@ -220,6 +221,7 @@ pub(crate) fn decode(
                 caps: &caps,
                 facts: &[],
                 branch: &[],
+                reads_branch: true,
                 path: &[],
             },
             &definitions,
@@ -268,6 +270,7 @@ pub(crate) fn decode(
                     caps: &caps,
                     facts: &[],
                     branch: &[],
+                    reads_branch: true,
                     path: &[],
                 },
                 &definitions,
@@ -373,16 +376,39 @@ pub(crate) struct Proof<'c, 'v> {
     /// slice reads them only when it is refused without them, so a node that
     /// needs no branch fact pays nothing for one.
     branch: &'c [&'v Value],
+    /// Whether this judgment may read `branch`. A judgment that is retried
+    /// with more facts after a refusal reads branch facts only in its last
+    /// attempt, so an earlier attempt costs what it cost before branch facts.
+    reads_branch: bool,
     path: &'c [(&'v Value, bool)],
 }
 impl<'c, 'v> Proof<'c, 'v> {
     /// What a caller has proven: binding caps it owns and dominating facts.
+    /// The judgment does not read branch facts.
     pub(crate) const fn new(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
         Self {
             caps,
             facts,
             branch: &[],
+            reads_branch: false,
             path: &[],
+        }
+    }
+    /// As [`Proof::new`], for a judgment's last attempt: an addition,
+    /// subtraction or slice that the facts do not prove also reads the
+    /// predicates of its enclosing `then` arms.
+    pub(crate) const fn with_branch_facts(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
+        Self {
+            reads_branch: true,
+            ..Self::new(caps, facts)
+        }
+    }
+    /// The `then`-arm predicates this judgment may read.
+    const fn branch_facts(&self) -> &'c [&'v Value] {
+        if self.reads_branch {
+            self.branch
+        } else {
+            &[]
         }
     }
     /// Whether `left >= right` holds here: first from the dominating facts,
@@ -394,8 +420,9 @@ impl<'c, 'v> Proof<'c, 'v> {
         parser: &mut Parser<'_>,
         depth: usize,
     ) -> Result<bool, Error> {
+        let branch = self.branch_facts();
         Ok(proven(left, right, self.facts, parser, depth)?
-            || (!self.branch.is_empty() && proven(left, right, self.branch, parser, depth)?))
+            || (!branch.is_empty() && proven(left, right, branch, parser, depth)?))
     }
 }
 /// Proven upper bounds of earlier unsigned bindings in the same helper or
@@ -767,14 +794,15 @@ pub(crate) fn infer<'v>(
                         };
                     // Then with the dominating facts, and only when those do
                     // not suffice, with the `then`-arm predicates as well.
+                    let branch = proof.branch_facts();
                     if !fits_or_not(&[], parser)?
                         && (proof.facts.is_empty() || !fits_or_not(proof.facts, parser)?)
-                        && (proof.branch.is_empty()
+                        && (branch.is_empty()
                             || !fits(
                                 &proof
                                     .facts
                                     .iter()
-                                    .chain(proof.branch)
+                                    .chain(branch)
                                     .copied()
                                     .collect::<Vec<_>>(),
                                 parser,
@@ -946,6 +974,7 @@ pub(crate) fn check_predicate<'v>(
                         caps: proof.caps,
                         facts: &prefix,
                         branch: proof.branch,
+                        reads_branch: proof.reads_branch,
                         path: proof.path,
                     },
                     definitions,
@@ -1331,6 +1360,7 @@ mod predicate_validation_tests {
                 caps: &BTreeMap::new(),
                 facts: &[],
                 branch: &[],
+                reads_branch: true,
                 path: &[],
             },
             &BTreeMap::new(),
@@ -1405,6 +1435,7 @@ mod predicate_validation_tests {
                     caps: &BTreeMap::new(),
                     facts: &[],
                     branch: &[],
+                    reads_branch: true,
                     path: &[],
                 },
                 &BTreeMap::new(),
@@ -1466,6 +1497,7 @@ mod predicate_validation_tests {
                         caps: &BTreeMap::new(),
                         facts: &[],
                         branch: &[],
+                        reads_branch: true,
                         path: &[],
                     },
                     &BTreeMap::new(),

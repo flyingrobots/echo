@@ -325,8 +325,9 @@ comparing facts encodes their terms, which is charged to the proof budget. A
 constraint no node needs therefore costs only its own size. An addition is
 likewise first judged without the facts of its enclosing conjunct prefixes, so
 an unneeded earlier conjunct changes neither its proof-budget cost nor its
-depth. The predicates of enclosing `then` arms are read last, only when an
-addition, subtraction or slice is refused without them.
+depth. The predicates of enclosing `then` arms are read last: only when the
+node is also refused with the input constraints does a third run read them, so
+a node that needs a constraint but no branch fact costs what it did before.
 
 On the bounded-read route the provider lowerer
 (`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)

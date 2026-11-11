@@ -967,3 +967,45 @@ fn an_unneeded_branch_fact_leaves_a_deep_sum_its_depth() {
     let inside = largest_accepted(90, |depth| deep_sum_under_a_branch(true, depth));
     assert_eq!(inside, outside, "an unneeded branch fact changed the depth");
 }
+
+/// `size` lets `at + 1`, each needing the input constraint `at <= 10`, inside
+/// the `then` arm of `at != 5`, which bounds nothing, or inside its `else` arm.
+fn constrained_sums_under_a_branch(guarded: bool, size: usize) -> V {
+    let mut nodes = Vec::new();
+    for index in 0..size {
+        let binding = declared(&format!("local.s{index}"), "U64");
+        let sum = add(input("at"), int(1));
+        let unrelated = map([
+            ("kind", text("compare")),
+            ("op", text("!=")),
+            ("left", input("at")),
+            ("right", int(5)),
+        ]);
+        let value = if guarded {
+            branch(unrelated, sum, int(0))
+        } else {
+            branch(unrelated, int(0), sum)
+        };
+        nodes.push(Node::Let(binding, value));
+    }
+    nodes.push(Node::Let(ok_binding(), truth(true)));
+    package(
+        vec![at_most(input("at"), int(10))],
+        nodes,
+        local(&ok_binding()),
+    )
+}
+
+/// A node judged again with the input constraints never pays for branch facts
+/// first: sums that need a constraint, not a branch fact, fit the same proof
+/// budget in either arm, as they did before branch facts existed.
+#[test]
+fn constraint_proven_sums_pay_nothing_for_branch_facts() {
+    let outside = largest_accepted(4096, |size| constrained_sums_under_a_branch(false, size));
+    assert!(
+        (2..4096).contains(&outside),
+        "the bisection found a real limit: {outside}"
+    );
+    let inside = largest_accepted(4096, |size| constrained_sums_under_a_branch(true, size));
+    assert_eq!(inside, outside, "branch facts changed the budget");
+}

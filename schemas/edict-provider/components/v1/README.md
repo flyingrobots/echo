@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 644,616 bytes with SHA-256
-`953bc4c658ace366ba195400bc53cfa83bba721f5f418bb51d5d013c9fe8c1fb`.
+The checked component is 644,733 bytes with SHA-256
+`f4c6e64f819daf5417ad57eb2bb0a249f02e77da7b11c6dcd01b700815d85fe3`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 685,906 bytes
+`wit-component` version recorded above. Its checked component is 686,010 bytes
 with SHA-256
-`c2034fa5d6d9a2a06abc8f484ec91b54be50dd2800055944b388e426145d1126`.
+`434432a5a0195286c621b0d0ea999b12a1f590d30fc92ecb54f1ef5579364251`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -58,8 +58,8 @@ clean-tree checks with the component evidence.
 
 The current component pair, built from echo#978's source, was independently
 reproduced by the two G4 candidate jobs in
-[CI run 42949824306](https://github.com/flyingrobots/echo/actions/runs/42949824306)
-at source commit `adc651c533491f51b8e775a4a5b771bded7ada93`. Both copies of
+[CI run 42953051163](https://github.com/flyingrobots/echo/actions/runs/42953051163)
+at source commit `8143e9a80c6aad0807df87c53e0ce7985b99706e`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

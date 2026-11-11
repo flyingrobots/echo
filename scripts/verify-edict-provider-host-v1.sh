@@ -76,7 +76,8 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     -- \
     -D warnings
 
-# Public compiler witness for typed outgoing-edge and guided closure reads.
+# Public compiler witnesses for typed outgoing-edge and guided closure reads,
+# and for a flat authored effect program.
 # The unmodified Amblicit compiler, built from a pinned public revision,
 # compiles authored source through the checked provider package and its
 # separate verifier; the predecessor package must refuse the same source.
@@ -113,5 +114,24 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --fixtures "$GRAPH_READ_FIXTURES" \
     --control "$ROOT/crates/echo-edict-provider-lowerer/tests/fixtures/node-atom-read/source" \
     --work-root "$witness_dir/run" \
+    --check
+
+  # Public compiler witness for a flat authored effect program: the checked
+  # lowerer emits an edict-effect-program/v1 package and the separate verifier
+  # accepts it; the predecessor provider must refuse the same source.
+  readonly OLD_EFFECT_PROVIDER_REVISION=a9792ddc4d757a6c01e2e190c41ec9b521706472
+  if ! git -C "$ROOT" cat-file -e "$OLD_EFFECT_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_EFFECT_PROVIDER_REVISION"
+  fi
+  mkdir "$witness_dir/old-effect-provider"
+  git -C "$ROOT" archive "$OLD_EFFECT_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-effect-provider"
+
+  cargo +1.96.0 run --locked -p xtask --example effect_program_publication -- \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-effect-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-program" \
+    --work-root "$witness_dir/effect-run" \
     --check
 fi

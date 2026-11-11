@@ -23,5 +23,5 @@ even this constant result, so a smaller declared budget is refused.
 The witness checks deterministic current-format serialization and the current
 runtime decoder's exact round trip. It does not establish compiler correctness,
 policy or profile authority, independent verifier acceptance, installed Action
-execution, settlement or recovery. The public lowerer does not yet call this
-serializer.
+execution, settlement or recovery. The public lowerer calls this serializer
+through its effect route; these controls remain synthetic.

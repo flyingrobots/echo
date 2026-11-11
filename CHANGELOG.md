@@ -7,6 +7,17 @@
 
 ### Added
 
+- The public provider components lower and verify authored effect programs.
+  For an `edict-effect-program/v1` target configuration the lowerer component
+  emits the judged effect package, and the separate verifier component accepts
+  only the exact package the compiler request determines, when its own
+  effect-program judgment also accepts it; substituted or re-bound packages
+  receive a rejected report. A flat program compiled from public source by the
+  unmodified Amblicit compiler travels this path and runs on the generic
+  runtime, and CI recompiles it to the retained package and report. The
+  checked `echo.dpo@1` target profile does not yet declare effect intrinsics or
+  the ordered Target IR, so programs with effect steps still fail closed at the
+  judgment. Existing fixed, pure and bounded-read routes are unchanged.
 - The bounded-read runtime evaluates two generic graph-read intrinsics:
   `echo.dpo@1.outgoing-edge-read` returns a node's outgoing edges of one type,
   and `echo.dpo@1.closure-read` reads the bounded closure a declared pure

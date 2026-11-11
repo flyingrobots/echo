@@ -232,6 +232,21 @@ independently in `effect_package::verify_effect_package`.
 
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
-features are dev dependencies only. The public lowerer's component interface
-does not yet produce effect packages, and publication does not change the frozen
-WIT interface or enable installed effect execution.
+features are dev dependencies only. Publication does not change the frozen WIT
+interface or enable installed effect execution.
+
+## Public effect route
+
+When the request's target configuration is `edict-effect-program/v1`, the
+component's generic executable-operation route lowers through this producer. It
+requires the bound single-intent Core, binds the request's lawpack, adapter and
+configuration to that Core and its ordered Target IR, as the bounded-read and
+pure routes do, and assembles the compiler bundle from the request's own
+artifacts. Lowering artifacts (source, lawpack, adapter, the exact checked
+target profile and the configuration's catalog) are carried only when the
+program has effect steps. The checked `echo.dpo@1` profile pins a catalog whose
+only intrinsic is `echo.dpo@1.replace` and names `echo.span-ir/v1` as its
+Target IR, so the judgment refuses any effect step through the component
+today; flat programs without effect steps are published. The public compiler
+witness under `crates/warp-core/tests/fixtures/edict-effect-program` compiles
+one such program through the checked components.

@@ -1,0 +1,17 @@
+package consumer.effects.program@1;
+use lawpack consumer.effects@1 digest "sha256:7ab72943c8d2e912f2968b713e1dce82b82cc9f1bf307cf9da72ffeea619685a" as fx;
+type Input = { anchor: Bytes<exact=32>, address: fx.FactAddress };
+intent read(input: Input) returns fx.FactBytes
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let fact: fx.FactBytes = fx.readFact(input.address)
+    else {
+      missing(address) => fx.FactMissing,
+      typeMismatch(address) => fx.FactMalformed,
+      notAtom(address) => fx.FactMalformed,
+      tooLarge(address) => fx.FactMalformed,
+    };
+  return fact;
+}

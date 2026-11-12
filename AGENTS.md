@@ -76,6 +76,13 @@ data upgrades belong in explicit migration tools. See the current
 [version policy](docs/topics/GeneratedRules.md#one-current-version-and-explicit-migration),
 which supersedes earlier proposals and compatibility promises.
 
+One owner-approved exception: the Echo target profiles `echo.dpo@1` and
+`echo.dpo@2` are both current, and the runtime and both provider components
+recognise the same effect intrinsics under either namespace through one
+implementation of each (flyingrobots/echo#985). It covers exactly this second
+coordinate; do not read it as permission for other aliases, retained versions
+or version dispatch, and do not "consolidate" it away without the owner.
+
 ## Repository Knowledge Model
 
 Repository knowledge has one owner for each kind of truth:

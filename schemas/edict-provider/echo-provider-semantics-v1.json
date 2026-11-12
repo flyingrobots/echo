@@ -325,8 +325,20 @@
       "provision": "generated"
     },
     {
+      "role": "resource.target-intrinsics-2",
+      "coordinate": "echo.dpo.intrinsics/v2",
+      "schemaContract": "edict.target-profile.intrinsics/v1",
+      "provision": "generated"
+    },
+    {
       "role": "resource.target-ir",
       "coordinate": "echo.span-ir/v1",
+      "schemaContract": "echo.span-ir/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-ir-2",
+      "coordinate": "echo.span-ir/v2",
       "schemaContract": "echo.span-ir/v1",
       "provision": "generated"
     },
@@ -419,6 +431,78 @@
     "deterministicExecutionResource": "resource.deterministic-execution",
     "conformanceFixtureCorpusResource": "resource.conformance-corpus"
   },
+  "effectTargetProfiles": [
+    {
+      "authority": "echo.provider-target-metadata@1",
+      "artifactRole": "target-profile.echo-dpo-2",
+      "id": "echo.dpo",
+      "version": "2",
+      "intrinsicsResource": "resource.target-intrinsics-2",
+      "targetIrResource": "resource.target-ir-2",
+      "targetIrDomain": "echo.span-ir/v2",
+      "intrinsics": [
+        {
+          "operation": "node-atom-read",
+          "effectKind": "read",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": [
+            {
+              "key": "atomMissing",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "atomRequired",
+              "authorityClass": "integrityFault"
+            },
+            {
+              "key": "atomTypeMismatch",
+              "authorityClass": "integrityFault"
+            },
+            {
+              "key": "atomByteBoundExceeded",
+              "authorityClass": "integrityFault"
+            }
+          ]
+        },
+        {
+          "operation": "ensure-node",
+          "effectKind": "ensure",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": []
+        },
+        {
+          "operation": "create-node",
+          "effectKind": "create",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": []
+        },
+        {
+          "operation": "replace-atom",
+          "effectKind": "replace",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": []
+        },
+        {
+          "operation": "ensure-edge",
+          "effectKind": "ensure",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": []
+        },
+        {
+          "operation": "replace-edge",
+          "effectKind": "replace",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": []
+        }
+      ]
+    }
+  ],
   "generatedArtifacts": [
     {
       "role": "authority-facts.echo-dpo",
@@ -478,6 +562,12 @@
       "role": "target-profile.echo-dpo",
       "kind": "targetProfile",
       "coordinate": "echo.dpo@1",
+      "schemaContract": "edict.target-profile/v1"
+    },
+    {
+      "role": "target-profile.echo-dpo-2",
+      "kind": "targetProfile",
+      "coordinate": "echo.dpo@2",
       "schemaContract": "edict.target-profile/v1"
     }
   ],
@@ -694,6 +784,12 @@
       "rootRule": "intrinsics-document"
     },
     {
+      "domain": "echo.dpo.intrinsics/v2",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "intrinsics-document"
+    },
+    {
       "domain": "echo.dpo.lowerer/v1",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
@@ -755,6 +851,12 @@
     },
     {
       "domain": "echo.span-ir/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-span-ir"
+    },
+    {
+      "domain": "echo.span-ir/v2",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
       "rootRule": "echo-span-ir"

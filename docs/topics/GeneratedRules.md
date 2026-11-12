@@ -38,6 +38,15 @@ below describe the current consolidation. Any remaining parallel historical
 implementations must be replaced while updating the compiler, runtime, tests,
 and consumers together.
 
+One owner-approved exception exists (flyingrobots/echo#985). Two Echo target
+profiles are current at once: `echo.dpo@1`, which existing adapters and
+lawpacks pin, and `echo.dpo@2`, which declares the runtime's effect intrinsics
+for authored effect programs. Both namespaces name the same intrinsics through
+one implementation of each; see
+[The `echo.dpo@2` effect target profile](#the-echodpo2-effect-target-profile).
+The exception covers exactly this second coordinate and authorizes no other
+alias or retained version.
+
 ## Current Implementation
 
 Wesley currently emits raw `RewriteRule` builders plus generated operation,
@@ -142,7 +151,8 @@ The authored-effect configuration carries the selected target's canonical
 catalog bytes in the required `intrinsicCatalog` field, bounded to 16 MiB.
 The native lowerer rejects absent, empty, oversized, malformed, or digest-mismatched
 catalogs before body lowering. Catalogs use `edict.target-profile.intrinsics/v1`
-and the selected profile's `echo.dpo.intrinsics/v1` owner-framed reference.
+and the selected profile's owner-framed catalog reference: `echo.dpo.intrinsics/v1`
+under `echo.dpo@1` and `echo.dpo.intrinsics/v2` under `echo.dpo@2`.
 This transport check does not validate individual native signatures, authorize
 execution, or replace the effect-program judgment that follows it. Existing exact
 profile admission and catalog-to-export nominal checks remain required.
@@ -1124,12 +1134,64 @@ and only when its own effect-program judgment accepts it. Both bind the
 request's lawpack, adapter and configuration to the single-intent Core and its
 Target IR. A flat program compiled from public source travels this path and
 runs on the generic runtime (`crates/warp-core/tests/fixtures/edict-effect-program`).
-The checked `echo.dpo@1` target profile is not yet an effect target resource
+The checked `echo.dpo@1` target profile is not an effect target resource
 declaration: its catalog declares only `echo.dpo@1.replace` and it names
 `echo.span-ir/v1`, while an effect step requires the catalog to declare the
 intrinsic and the profile's Target IR to equal the adapter's accepted ordered
-IR. Through the checked profile, therefore, only programs without effect steps
-are published; effect steps fail closed at the judgment. Those flat programs
+IR. Through `echo.dpo@1`, therefore, only programs without effect steps
+are published; effect steps fail closed at the judgment.
+
+### The `echo.dpo@2` effect target profile
+
+`echo.dpo@2` is the second, separately versioned target profile in the checked
+provider package (`target-profile.echo-dpo-2`). It is `echo.dpo@1` with its own
+version, intrinsic namespace, catalog and Target IR declaration: its catalog,
+`echo.dpo.intrinsics/v2`, declares the six runtime intrinsics as
+`echo.dpo@2.node-atom-read`, `echo.dpo@2.ensure-node`, `echo.dpo@2.create-node`,
+`echo.dpo@2.replace-atom`, `echo.dpo@2.ensure-edge` and
+`echo.dpo@2.replace-edge`, each typed by its ABI coordinates
+(`<name>.input`, `<name>.result`), and it names the ordered `echo.span-ir/v2`
+through a generated declaration. Every other reference and doctrine field is
+`echo.dpo@1`'s. The provider's semantic source declares it under
+`effectTargetProfiles`, and the generator emits the profile, catalog and
+declaration beside `echo.dpo@1`, whose bytes and identity are unchanged.
+
+Both components accept exactly these two profiles. `echo.dpo@2` admits only
+the authored-effect route: every other route refuses it as an unsupported
+target profile. Each profile admits only the catalog it pins. The runtime and
+both components key their intrinsic tables (effect kind, read failure names,
+ABI coordinates, mutation kinds) on the operation below either namespace, so
+the two coordinates name one implementation of each intrinsic, and a program
+may call only intrinsics in the namespace of the profile it selects.
+
+This second coordinate is an owner-approved, bounded exception to "One
+Current Version" (flyingrobots/echo#985): `echo.dpo@1` stays because existing
+lawpack adapters, Jedit lawpacks and graph-read fixtures pin it, and a
+consumer opts into effect steps by pinning `echo.dpo@2`. No other coordinate
+or alias is admitted. The public compiler selects `echo.dpo@2` for ordered
+`echo.span-ir/v2` lowering from Amblicit `0999db83` (flyingrobots/amblicit#310).
+A program that reads one atom through `echo.dpo@2.node-atom-read` travels the
+public path and runs on the generic runtime
+(`crates/warp-core/tests/fixtures/edict-effect-step`); the same program under
+`echo.dpo@1`, or under a substituted `echo.dpo@2` profile, is refused at the
+lowerer. From Amblicit `0034605` (flyingrobots/amblicit#311) source can bind an
+effect with an empty failure set without a failure map: a program calling all
+five `echo.dpo@2` mutation intrinsics so is lowered, verified, admitted and run,
+emitting its five intents in source order
+(`crates/warp-core/tests/fixtures/edict-effect-mutations`). Because the compiler
+takes a lawpack's empty failure set on trust, the judgments' failure-set
+equality checks are the backstop: an effect that declares and maps no failures
+but is bound to `node-atom-read`, which pins four, is refused by the lowerer,
+the verifier and the runtime.
+
+The lawpack pins the effect judgments check are framed the way the compiler frames
+them: the lawpack's `exports` and each target adapter's `adapter` digest use
+the coordinate the reference names as their digest domain. The lowerer, the
+verifier and the runtime previously used the fixed artifact domains
+`edict.lawpack-exports/v1` and `edict.lawpack-adapter/v1` there, so every
+compiler-produced program with an effect step was refused; only flat programs,
+which skip that relation, had passed. The synthetic effect-program corpus is
+regenerated with the compiler's framing. Those flat programs
 pass only because the judgment and the runtime compare the profile's Target IR
 with the adapter's accepted ordered IR for effect steps alone, the tolerance the
 bounded-read route already relies on. The verifier report names the compiler's
@@ -1253,6 +1315,9 @@ apply.
 | `echo.dpo@1.replace-atom`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` | the empty record                                          |
 | `echo.dpo@1.ensure-edge`                           | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `fromId`, `toId`, `edgeType`                  | the empty record                                          |
 | `echo.dpo@1.replace-edge`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `expectedToId`, `toId`                        | the empty record                                          |
+
+Under `echo.dpo@2` the same rows apply to the `echo.dpo@2.*` names and their
+ABI coordinates; the read's failure table below is keyed the same way.
 
 Every field other than `atomBytes` has a representation of exactly 32 bytes; a
 maximum-bounded or differently sized field does not conform. `atomBytes` and

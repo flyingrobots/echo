@@ -42,8 +42,8 @@ pub(super) fn validate(
     };
     let input = text(argument)?;
     let output = text_field(intrinsic, "returnType")?;
-    let (expected_input, expected_output) = match abi {
-        Some(abi) => (abi.input, abi.result),
+    let (expected_input, expected_output) = match &abi {
+        Some(abi) => (abi.input.as_str(), abi.result.as_str()),
         None => (
             text_field(effect, "inputType")?,
             text_field(effect, "outputType")?,
@@ -95,8 +95,8 @@ pub(super) fn validate(
         }
         // A shared intrinsic's failure carries its ABI input; the exported
         // failure must carry this effect's own declared input type.
-        let (catalog_payload, exported_payload) = match abi {
-            Some(abi) => (abi.input, text_field(effect, "inputType")?),
+        let (catalog_payload, exported_payload) = match &abi {
+            Some(abi) => (abi.input.as_str(), text_field(effect, "inputType")?),
             None => (
                 text_field(actual, "payloadType")?,
                 text_field(actual, "payloadType")?,

@@ -60,7 +60,7 @@ const GENERATOR_SOURCE_PATHS: [&str; 21] = [
     "rust-toolchain.toml",
 ];
 
-const CORPUS_PATHS: [&str; 22] = [
+const CORPUS_PATHS: [&str; 25] = [
     "evidence/provenance.provider-generation.json",
     "evidence/review.provider-generation.json",
     "primary/authority-facts.echo-dpo.cbor",
@@ -68,6 +68,7 @@ const CORPUS_PATHS: [&str; 22] = [
     "primary/generated-artifact-profile.echo-dpo-registration.cbor",
     "primary/lawpack.echo-dpo.cbor",
     "primary/schema.echo-provider-artifacts.cddl",
+    "primary/target-profile.echo-dpo-2.cbor",
     "primary/target-profile.echo-dpo.cbor",
     "resources/resource.conformance-corpus.cbor",
     "resources/resource.lawpack-compatibility.cbor",
@@ -77,7 +78,9 @@ const CORPUS_PATHS: [&str; 22] = [
     "resources/resource.target-bundle-profile.cbor",
     "resources/resource.target-cost-algebra.cbor",
     "resources/resource.target-footprint-algebra.cbor",
+    "resources/resource.target-intrinsics-2.cbor",
     "resources/resource.target-intrinsics.cbor",
+    "resources/resource.target-ir-2.cbor",
     "resources/resource.target-ir.cbor",
     "resources/resource.target-lowerer-contract.cbor",
     "resources/resource.target-obstruction-taxonomy.cbor",

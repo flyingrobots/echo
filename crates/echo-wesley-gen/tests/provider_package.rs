@@ -65,7 +65,7 @@ const SEMANTIC_DIGEST: &str =
 const RELEASE_DIGEST: &str =
     "sha256:c39449495281b51f978468d08c21e93bcfa423176063b41675da61e4674b0066";
 const PACKAGE_ARTIFACT_SHA256: &str =
-    "3377ef0696de2ac82d1bfafad4f9fe5b3cf980ca940081bb342fb2d66e201a49";
+    "4106ea46c4673b348cca3ab827d0c6fb20b1aff6e7dfb3ff7099b6420f1da4b4";
 const OTHER_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
@@ -306,10 +306,10 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
         package.provider_reference().digest,
         format!("sha256:{PACKAGE_ARTIFACT_SHA256}")
     );
-    assert_eq!(package.members().len(), 24);
-    assert_eq!(package.files().len(), 25);
-    assert_eq!(package.manifest().artifacts.len(), 10);
-    assert_eq!(package.manifest().schema_bindings.len(), 32);
+    assert_eq!(package.members().len(), 27);
+    assert_eq!(package.files().len(), 28);
+    assert_eq!(package.manifest().artifacts.len(), 11);
+    assert_eq!(package.manifest().schema_bindings.len(), 34);
     assert_eq!(
         package
             .manifest()
@@ -327,6 +327,7 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
             "review.provider-generation",
             "schema.echo-provider-artifacts",
             "target-profile.echo-dpo",
+            "target-profile.echo-dpo-2",
             "verifier.echo-dpo",
         ]
     );
@@ -554,7 +555,7 @@ fn package_generated_members_equal_the_current_checked_provider_corpus() {
     let package = assemble(false);
     let checked = checked_provider_artifact_corpus_v1()
         .expect("checked #652 provider artifact corpus is an exact bounded value");
-    assert_eq!(checked.files().len(), 22);
+    assert_eq!(checked.files().len(), 25);
     for checked_file in checked.files() {
         let package_path = format!("generated/{}", checked_file.relative_path());
         let packaged = package
@@ -591,7 +592,11 @@ fn manifest_routes_preserve_semantic_and_exact_byte_digest_classes() {
         let member = package
             .members()
             .iter()
-            .find(|member| member.relative_path().contains(output.role()))
+            .find(|member| {
+                member
+                    .relative_path()
+                    .ends_with(&format!("/{}.cbor", output.role()))
+            })
             .expect("canonical output has a physical member");
         assert_eq!(member.bytes(), output.canonical_bytes());
         assert_ne!(member.raw_digest(), route.resource.digest);

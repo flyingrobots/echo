@@ -14,11 +14,13 @@ The configuration carries the exact intrinsic catalog that the checked
 law. The program invokes no effect intrinsic. That catalog declares only
 `echo.dpo@1.replace`, and the checked profile names `echo.span-ir/v1` as its
 Target IR, so an effect node cannot pass Echo's effect-program judgment through
-the checked profile. Effect-bearing public programs need target resource
-declarations that are not part of this fixture.
+the checked profile. Effect-bearing public programs select the `echo.dpo@2`
+effect target profile instead; see `../edict-effect-step` and
+`../edict-effect-mutations`.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `66bf6bac369f67e32ddaee099c3198bd30f885a1`: the package and
+compiler, Amblicit `66bf6bac369f67e32ddaee099c3198bd30f885a1` (CI now reproduces them
+byte for byte with `0034605467fcace397e7e30e4219a74aca57f183`): the package and
 verifier report it wrote through the checked provider package in
 `schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
 configuration its lawpack build wrote. Nothing here was decoded and

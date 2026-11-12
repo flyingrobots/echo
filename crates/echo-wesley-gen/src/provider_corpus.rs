@@ -24,7 +24,7 @@ use wesley_core::GenerationContractErrorKind;
 const SOURCE_BUNDLE_PREFIX: &[u8] = b"echo.provider-artifact-generator.source-bundle/v1\0";
 const GENERATOR_COORDINATE: &str = "echo-wesley-gen.provider-artifact-generator@1";
 const GENERATED_CORPUS_PREFIX: &str = "schemas/edict-provider/generated/v1";
-const EXPECTED_CORPUS_FILE_COUNT: usize = 22;
+const EXPECTED_CORPUS_FILE_COUNT: usize = 25;
 const MAX_SOURCE_FILE_COUNT: usize = 64;
 const MAX_SOURCE_PATH_BYTES: usize = 512;
 const MAX_SOURCE_FILE_BYTES: usize = 8 * 1024 * 1024;
@@ -493,7 +493,7 @@ pub struct ProviderArtifactCorpusV1 {
 }
 
 impl ProviderArtifactCorpusV1 {
-    /// Returns all 22 exact files in lexicographic path order.
+    /// Returns all 25 exact files in lexicographic path order.
     #[must_use]
     pub fn files(&self) -> &[ProviderArtifactCorpusFileV1] {
         &self.files
@@ -508,7 +508,7 @@ impl ProviderArtifactCorpusV1 {
     }
 }
 
-/// Loads the current checked 22-file provider corpus introduced by #652.
+/// Loads the current checked 25-file provider corpus introduced by #652 and grown by #985.
 ///
 /// This is an explicit source boundary for later package assembly. It performs
 /// no filesystem, registry, environment, process, clock, or network discovery.
@@ -560,6 +560,12 @@ pub fn checked_provider_artifact_corpus_v1(
             "primary/schema.echo-provider-artifacts.cddl",
             include_bytes!(
                 "../assets/v1/edict-provider/package/v1/generated/primary/schema.echo-provider-artifacts.cddl"
+            ),
+        ),
+        (
+            "primary/target-profile.echo-dpo-2.cbor",
+            include_bytes!(
+                "../assets/v1/edict-provider/package/v1/generated/primary/target-profile.echo-dpo-2.cbor"
             ),
         ),
         (
@@ -617,9 +623,21 @@ pub fn checked_provider_artifact_corpus_v1(
             ),
         ),
         (
+            "resources/resource.target-intrinsics-2.cbor",
+            include_bytes!(
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+            ),
+        ),
+        (
             "resources/resource.target-intrinsics.cbor",
             include_bytes!(
                 "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-ir-2.cbor",
+            include_bytes!(
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-ir-2.cbor"
             ),
         ),
         (
@@ -704,7 +722,7 @@ impl ProviderArtifactCorpusDriftV1 {
     }
 }
 
-/// Renders the exact 22-file provider corpus from verified generation values.
+/// Renders the exact 25-file provider corpus from verified generation values.
 ///
 /// Before exposing bytes, this re-verifies provenance against the supplied
 /// input, primary outputs, and generator material, then re-derives and compares

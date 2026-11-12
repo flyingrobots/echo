@@ -7,6 +7,25 @@
 
 ### Added
 
+- A second, separately versioned target profile, `echo.dpo@2`, in the checked
+  provider package. Its catalog `echo.dpo.intrinsics/v2` declares the runtime's
+  six effect intrinsics as `echo.dpo@2.*` and it names the ordered
+  `echo.span-ir/v2`; every other reference is `echo.dpo@1`'s. Both components
+  admit it for authored effect programs only, each profile admits only the
+  catalog it pins, and the runtime recognises the same intrinsics under either
+  namespace through one implementation of each (an owner-approved exception to
+  "One Current Version", #985). `echo.dpo@1`, its digest and everything pinned
+  to it are unchanged.
+  A program that reads an atom through `echo.dpo@2.node-atom-read`, compiled
+  from public source by Amblicit `0999db83` (CI now pins `0034605`), is
+  lowered, separately verified, admitted and run; CI recompiles it to the retained package and report, and
+  requires the lowerer to refuse it under `echo.dpo@1` and under a substituted
+  `echo.dpo@2` profile.
+  A second public program calls all five `echo.dpo@2` mutation intrinsics
+  without a failure map (Amblicit `0034605`, amblicit#311) and runs, emitting
+  its five intents in source order; a read called without a failure map,
+  although `node-atom-read` declares failures, is refused by the lowerer, the
+  verifier and the runtime.
 - The public provider components lower and verify authored effect programs.
   For an `edict-effect-program/v1` target configuration the lowerer component
   emits the judged effect package, and the separate verifier component accepts
@@ -195,6 +214,13 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- The lowerer, verifier and runtime effect judgments check a lawpack's `exports`
+  pin and each target adapter pin under the coordinate the reference names, as
+  the compiler frames them, instead of the fixed `edict.lawpack-exports/v1` and
+  `edict.lawpack-adapter/v1` domains. Every compiler-produced program with an
+  effect step was refused before; the synthetic effect-program corpus is
+  regenerated with the compiler's framing.
 
 - `warp-core` and `echo-wesley-gen` require cap-std and cap-fs-ext 4.0.3, and
   the locked rustix is 1.1.6, fixing RUSTSEC-2026-0482 (a cap-primitives

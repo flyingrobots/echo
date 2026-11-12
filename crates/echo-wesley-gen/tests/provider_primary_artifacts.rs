@@ -30,16 +30,17 @@ const CONTRACT_CDDL: &[u8] =
 const CONTRACT_MANIFEST: &[u8] =
     include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 
-const PRIMARY_ROLES: [&str; 6] = [
+const PRIMARY_ROLES: [&str; 7] = [
     "authority-facts.echo-dpo",
     "authority-facts.echo-lawpack",
     "generated-artifact-profile.echo-dpo-registration",
     "lawpack.echo-dpo",
     "schema.echo-provider-artifacts",
     "target-profile.echo-dpo",
+    "target-profile.echo-dpo-2",
 ];
 
-const GENERATED_RESOURCE_ROLES: [&str; 14] = [
+const GENERATED_RESOURCE_ROLES: [&str; 16] = [
     "resource.conformance-corpus",
     "resource.lawpack-compatibility",
     "resource.lawpack-exports",
@@ -49,7 +50,9 @@ const GENERATED_RESOURCE_ROLES: [&str; 14] = [
     "resource.target-cost-algebra",
     "resource.target-footprint-algebra",
     "resource.target-intrinsics",
+    "resource.target-intrinsics-2",
     "resource.target-ir",
+    "resource.target-ir-2",
     "resource.target-lowerer-contract",
     "resource.target-obstruction-taxonomy",
     "resource.target-operation-profiles",
@@ -238,8 +241,8 @@ fn primary_generation_is_byte_identical_digest_closed_and_root_validated() {
             .collect::<Vec<_>>(),
         PRIMARY_ROLES
     );
-    assert_eq!(first.artifacts().len(), 5);
-    assert_eq!(first.resources().len(), 14);
+    assert_eq!(first.artifacts().len(), 6);
+    assert_eq!(first.resources().len(), 16);
     assert_eq!(
         first
             .resources()

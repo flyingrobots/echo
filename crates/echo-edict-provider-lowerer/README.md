@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 644,733-byte checked lowerer component has SHA-256
-`f4c6e64f819daf5417ad57eb2bb0a249f02e77da7b11c6dcd01b700815d85fe3` and has
+The refreshed 687,348-byte checked lowerer component has SHA-256
+`e9d6785b04e236725355674ed71e60c339f1260dfd8ebac827bb8e77f42ea67a` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -256,3 +256,12 @@ judgment, like Echo's runtime, compares the profile's Target IR with the
 adapter's accepted ordered IR only for programs with effect steps; the checked
 profile names `echo.span-ir/v1` while effect adapters accept `echo.span-ir/v2`,
 the same tolerance the bounded-read route already has.
+
+The lowerer accepts exactly two target profiles: `echo.dpo@1` and the effect
+profile `echo.dpo@2` (#985). `echo.dpo@2` admits only this route; every other
+route refuses it with `echo.dpo@2 admits only authored effect programs`. Its
+catalog, `echo.dpo.intrinsics/v2`, declares the runtime's effect intrinsics as
+`echo.dpo@2.*` and it names `echo.span-ir/v2`, so effect steps can pass the
+judgment under it. The configuration's catalog must be the one the selected
+profile pins, and the judgment keys its intrinsic tables on the operation below
+either namespace.

@@ -68,7 +68,7 @@ const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
 const PACKAGE_OBSERVATION_MARKER: &str = "ECHO_EDICT_PACKAGE_OBSERVATION=";
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 32;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 34;
 
 const MANIFEST_BYTES: &[u8] =
     include_bytes!("../../../schemas/edict-provider/package/v1/provider-manifest.echo.json");
@@ -83,6 +83,9 @@ const LAWPACK_BYTES: &[u8] = include_bytes!(
 );
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/generated/primary/target-profile.echo-dpo.cbor"
+);
+const EFFECT_TARGET_PROFILE_BYTES: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/package/v1/generated/primary/target-profile.echo-dpo-2.cbor"
 );
 const TARGET_AUTHORITY_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/generated/primary/authority-facts.echo-dpo.cbor"
@@ -151,6 +154,12 @@ const ROUTED_CANONICAL_ARTIFACTS: &[RoutedCanonicalArtifact] = &[
         root: "target-profile-manifest",
         bytes: TARGET_PROFILE_BYTES,
     },
+    RoutedCanonicalArtifact {
+        role: "target-profile.echo-dpo-2",
+        domain: TARGET_PROFILE_API_VERSION,
+        root: "target-profile-manifest",
+        bytes: EFFECT_TARGET_PROFILE_BYTES,
+    },
 ];
 
 struct GeneratedResourceFixture {
@@ -159,6 +168,27 @@ struct GeneratedResourceFixture {
     root: &'static str,
     bytes: &'static [u8],
 }
+
+/// The `echo.dpo@2` catalog and Target IR declaration (echo#985). They belong
+/// to the effect profile, not to the `echo.dpo@1` contract bundle below.
+const EFFECT_PROFILE_RESOURCE_FIXTURES: &[GeneratedResourceFixture] = &[
+    GeneratedResourceFixture {
+        path: "resource.target-intrinsics-2.cbor",
+        domain: "echo.dpo.intrinsics/v2",
+        root: "intrinsics-document",
+        bytes: include_bytes!(
+            "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+        ),
+    },
+    GeneratedResourceFixture {
+        path: "resource.target-ir-2.cbor",
+        domain: "echo.span-ir/v2",
+        root: "echo-span-ir",
+        bytes: include_bytes!(
+            "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-ir-2.cbor"
+        ),
+    },
+];
 
 const GENERATED_RESOURCE_FIXTURES: &[GeneratedResourceFixture] = &[
     GeneratedResourceFixture {
@@ -1740,7 +1770,10 @@ fn assert_generated_resources(
     manifest: &TargetProviderManifest,
     registry: &ProviderArtifactSchemaRegistry,
 ) {
-    for fixture in GENERATED_RESOURCE_FIXTURES {
+    for fixture in GENERATED_RESOURCE_FIXTURES
+        .iter()
+        .chain(EFFECT_PROFILE_RESOURCE_FIXTURES)
+    {
         assert_schema_binding(manifest, fixture.domain, fixture.root);
         let value = decode_canonical_cbor(fixture.bytes)
             .unwrap_or_else(|error| panic!("{} is not canonical: {error}", fixture.path));

@@ -56,6 +56,10 @@ const TARGET_INTRINSIC: &str = "echo.dpo@1.replace";
 const FAILURE_COORDINATE: &str = "rejected";
 
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
+/// The `echo.dpo@2` effect target profile (flyingrobots/echo#985).
+const EFFECT_TARGET_PROFILE_COORDINATE: &str = "echo.dpo@2";
+const EFFECT_TARGET_PROFILE_BYTES: &[u8] =
+    include_bytes!("../resources/target-profile.echo-dpo-2.cbor");
 const LAWPACK_BYTES: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
 const TARGET_AUTHORITY_BYTES: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
 const LAWPACK_AUTHORITY_BYTES: &[u8] =
@@ -291,9 +295,12 @@ pub fn lower(request: LoweringRequestV1) -> LoweringResultV1 {
         ));
     }
 
-    validate_target_profile(&request.target_profile)?;
+    let profile = validate_target_profile(&request.target_profile)?;
     if executable_operation::is_requested(&request) {
-        return executable_operation::lower(&request);
+        return executable_operation::lower(&request, profile);
+    }
+    if profile != SelectedTargetProfile::Dpo {
+        return Err(effect_profile_only(&request.target_profile));
     }
     validate_semantic_closure(&request.semantic_inputs)?;
     validate_requested_outputs(&request.requested_outputs)?;
@@ -318,7 +325,18 @@ pub fn lower(request: LoweringRequestV1) -> LoweringResultV1 {
     })
 }
 
-fn validate_target_profile(profile: &BoundArtifact) -> Result<(), ProviderRefusalV1> {
+/// One of the two exact checked target profiles the lowerer accepts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SelectedTargetProfile {
+    /// `echo.dpo@1`, which every existing route uses.
+    Dpo,
+    /// `echo.dpo@2`, which admits only authored effect programs.
+    Effects,
+}
+
+fn validate_target_profile(
+    profile: &BoundArtifact,
+) -> Result<SelectedTargetProfile, ProviderRefusalV1> {
     validate_binding(profile).map_err(|()| {
         refusal(
             ProviderRefusalKind::InvalidSemanticArtifact,
@@ -327,18 +345,35 @@ fn validate_target_profile(profile: &BoundArtifact) -> Result<(), ProviderRefusa
             "the target-profile artifact is not canonically digest-bound",
         )
     })?;
-    if profile.reference.coordinate != TARGET_PROFILE_COORDINATE
-        || profile.artifact.domain != TARGET_PROFILE_DOMAIN
-        || profile.artifact.bytes != TARGET_PROFILE_BYTES
-    {
-        return Err(refusal(
+    let selected = match (
+        profile.reference.coordinate.as_str(),
+        profile.artifact.bytes.as_slice(),
+    ) {
+        (TARGET_PROFILE_COORDINATE, TARGET_PROFILE_BYTES) => Some(SelectedTargetProfile::Dpo),
+        (EFFECT_TARGET_PROFILE_COORDINATE, EFFECT_TARGET_PROFILE_BYTES) => {
+            Some(SelectedTargetProfile::Effects)
+        }
+        _ => None,
+    };
+    match selected {
+        Some(selected) if profile.artifact.domain == TARGET_PROFILE_DOMAIN => Ok(selected),
+        _ => Err(refusal(
             ProviderRefusalKind::UnsupportedTargetProfile,
             &profile.reference.coordinate,
             "echo.provider.unsupported-target-profile",
-            "the lowerer accepts only the exact checked Echo DPO target profile",
-        ));
+            "the lowerer accepts only the exact checked Echo target profiles echo.dpo@1 and echo.dpo@2",
+        )),
     }
-    Ok(())
+}
+
+/// The refusal for any route but an authored effect program under `echo.dpo@2`.
+fn effect_profile_only(profile: &BoundArtifact) -> ProviderRefusalV1 {
+    refusal(
+        ProviderRefusalKind::UnsupportedTargetProfile,
+        &profile.reference.coordinate,
+        "echo.provider.unsupported-target-profile",
+        "echo.dpo@2 admits only authored effect programs",
+    )
 }
 
 fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRefusalV1> {

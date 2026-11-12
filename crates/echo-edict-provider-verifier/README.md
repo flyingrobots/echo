@@ -123,9 +123,9 @@ route's fixed 64 KiB output ceiling.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 686,010-byte checked
+transport-to-model conversion. Its reproducibly built 729,732-byte checked
 component has SHA-256
-`434432a5a0195286c621b0d0ea999b12a1f590d30fc92ecb54f1ef5579364251`.
+`80ba1aa8c3c053233f61f1a04fd8505bb8eda7021aae8bf89d57c8a187cfe6c8`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted
@@ -162,3 +162,5 @@ installation, execution, or consequence authority.
 The native Rust API `effect_package::verify_effect_package` judges an authored effect package before installation, without trusting the lowerer that produced it or the runtime that will execute it. It judges the compiled effect program itself: its binding to its own Core, Target IR and exports; the pinned lawpack, adapter, target profile and intrinsic catalog that authorize each effect; each effect's intrinsic ABI and version-scoped failure contract; one declared obstruction per failure arm; Core and Target IR correspondence; and the body's types, proven ranges and declared budget under the verifier's own cost model. It checks the package and program envelopes Echo's runtime admits: exact fields, schema constants, every fixed package and program profile and schema identity, declared limits, a nonzero step ceiling, a non-empty application schema coordinate, and a canonical graph schema and footprint law. It then requires the package's Core, canonical meaning, Target IR and exports identities, its operation, its output type and its footprint contract to name the program it carries. It requires the source identity and the authority profile to be 32-byte hashes but does not bind them to values, and it does not admit the graph schema's and footprint law's contents; the runtime admits those itself. Its budget judgment is a static model over declared types, not a bound on the runtime's meter. It refuses with `InvalidEnvelope`, `InvalidBinding` or `UnsupportedProgram`. It does not judge graph-law semantics or grant authority.
 
 The verifier component calls it on its public effect route. For an `edict-effect-program/v1` configuration the component independently binds the request's lawpack, adapter and configuration to the bound single-intent Core and its Target IR, requires the configuration's catalog to be the one the checked target profile pins, rebuilds the exact package that request determines with its own encoder, and reports `accepted` only for that package and only when `verify_effect_package` accepts it. Any other package receives a `rejected` report with `echo.verifier.effect-package-mismatch` or `echo.verifier.effect-program-refused`. The report binds the compiler's result projection by digest; the effect route does not read it.
+
+The verifier accepts exactly two target profiles, `echo.dpo@1` and the effect profile `echo.dpo@2` (#985). `echo.dpo@2` admits only the authored-effect route; every other route refuses it. Each profile admits only the catalog it pins (`echo.dpo.intrinsics/v1` or `/v2`), and the judgment keys its intrinsic tables on the operation below either namespace.

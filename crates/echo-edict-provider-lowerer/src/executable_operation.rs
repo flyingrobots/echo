@@ -7,6 +7,7 @@ mod capabilities;
 mod effect_lowering;
 pub(crate) mod effect_program;
 mod effect_resources;
+mod intrinsic_names;
 mod record_type;
 mod source_functions;
 
@@ -199,7 +200,10 @@ pub(super) fn is_requested(request: &LoweringRequestV1) -> bool {
         .any(|output| output.role == PACKAGE_ROLE || output.domain == PACKAGE_DOMAIN)
 }
 
-pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, ProviderRefusalV1> {
+pub(super) fn lower(
+    request: &LoweringRequestV1,
+    profile: super::SelectedTargetProfile,
+) -> Result<LoweringSuccessV1, ProviderRefusalV1> {
     validate_requested_output(request)?;
     let core = validate_bound(&request.core, CORE_DOMAIN)?;
     let closure = select_closure(&request.semantic_inputs)?;
@@ -219,6 +223,10 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     if effect_resources::is_configuration(&configuration) {
         effect_resources::validate(&configuration, &request.target_profile)?;
         return effect_lowering::lower(request, &closure, source_domain(closure.source)?);
+    }
+    // `echo.dpo@2` exists only for authored effect programs.
+    if profile != super::SelectedTargetProfile::Dpo {
+        return Err(super::effect_profile_only(&request.target_profile));
     }
 
     if bounded_read::is_configuration(&configuration) {

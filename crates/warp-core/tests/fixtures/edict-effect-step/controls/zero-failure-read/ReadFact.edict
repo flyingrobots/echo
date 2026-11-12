@@ -1,0 +1,11 @@
+package consumer.effects.program@1;
+use lawpack consumer.effects@1 digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" as fx;
+type Input = { anchor: Bytes<exact=32>, address: fx.FactAddress };
+intent read(input: Input) returns fx.FactBytes
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let fact: fx.FactBytes = fx.readFact(input.address);
+  return fact;
+}

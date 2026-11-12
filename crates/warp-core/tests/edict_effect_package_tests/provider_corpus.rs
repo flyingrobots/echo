@@ -9,7 +9,7 @@
 //! Regenerate with the ignored `regenerate_the_retained_provider_corpus` test.
 use super::abi_conformance::rename_read_failure;
 use super::execution::limits;
-use super::mutations::{fixture, fixture_with, repeat_emission, Shape};
+use super::mutations::{fixture, fixture_in, fixture_with, repeat_emission, Shape};
 use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
@@ -611,6 +611,70 @@ fn read_with_adapter(edit: impl FnOnce(&mut V), catalog: V) -> V {
     )
 }
 
+/// The read catalog with its four failures removed.
+fn catalog_without_read_failures() -> V {
+    let mut catalog = catalog_fixture();
+    set(
+        value_field_mut(
+            value_field_mut(&mut catalog, "intrinsics"),
+            "echo.dpo@1.node-atom-read",
+        ),
+        "effectFailures",
+        map([]),
+    );
+    catalog
+}
+
+/// A read whose exported effect declares no failures and whose adapter maps
+/// none, still bound to `node-atom-read`, under `catalog`. The compiler accepts
+/// such a claim without a failure map (amblicit#311). With `unmapped`, the
+/// Core node's obstruction map and the lowered step's arms and failures are
+/// empty too, as the compiler emits them for an unmapped call.
+fn read_without_failures(catalog: V, unmapped: bool) -> V {
+    let mut exports = captured_exports();
+    let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
+        panic!("effects")
+    };
+    for effect in effects.iter_mut() {
+        set(effect, "effectFailures", map([]));
+    }
+    let mut adapter = catalog_named_adapter(&captured_adapter());
+    set(
+        value_field_mut(value_field_mut(&mut adapter, "effectImplementations"), READ),
+        "failureMappings",
+        map([]),
+    );
+    let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
+    let (mut core, mut target, _) = compiler_fixture(&lowering);
+    if unmapped {
+        let V::Array(nodes) = value_field_mut(core_body_mut(&mut core), "nodes") else {
+            panic!("nodes")
+        };
+        for node in nodes
+            .iter_mut()
+            .filter(|node| get(node, "kind") == &text("effect"))
+        {
+            set(node, "obstructionMap", map([]));
+        }
+        // An unmapped call binds no obstruction payloads, so the body declares
+        // no obstruction binders either.
+        let V::Array(locals) = value_field_mut(core_body_mut(&mut core), "locals") else {
+            panic!("locals")
+        };
+        locals.retain(
+            |local| !matches!(get(local, "id"), V::Text(id) if id.starts_with("obstruction.")),
+        );
+        let step = first_step_mut(&mut target);
+        set(step, "obstructionArms", map([]));
+        set(step, "obstructionFailures", V::Array(vec![]));
+        repin_core(&core, &mut target);
+    }
+    with_budget(
+        &publication_from_parts(&core, &target, &exports, &lowering),
+        READ_AMPLE,
+    )
+}
+
 fn entries() -> Vec<Entry> {
     let read_capture = publication_for_lowering(&repinned_lowering_artifacts());
     let read_control = with_budget(&read_capture, READ_AMPLE);
@@ -653,6 +717,35 @@ fn entries() -> Vec<Entry> {
             true,
             Runtime::Accepts,
             fixture("ensure-node", GRAPH_EFFECTS).0,
+        ),
+        // The same mutation under the echo.dpo@2 namespace, with its empty
+        // failure set (#985).
+        entry(
+            "echo-dpo-2-ensure-node-control",
+            true,
+            Runtime::Accepts,
+            fixture_in(
+                "echo.dpo@2",
+                "ensure-node",
+                GRAPH_EFFECTS,
+                &Shape::conforming_in("ensure-node", "echo.dpo@2"),
+            )
+            .0,
+        ),
+        entry(
+            "read-without-failures",
+            false,
+            Runtime::Refuses,
+            read_without_failures(catalog_fixture(), false),
+        ),
+        // The same read with every failure set empty: catalog, exports, adapter,
+        // Core map and lowered arms all agree, so only Echo's fixed
+        // per-intrinsic failure table (four failures for node-atom-read) refuses.
+        entry(
+            "read-catalog-without-failures",
+            false,
+            Runtime::Refuses,
+            read_without_failures(catalog_without_read_failures(), true),
         ),
         entry("slice-proven", true, Runtime::Accepts, proven_slice()),
         entry(
@@ -1005,6 +1098,9 @@ macro_rules! retained {
 const RETAINED: &[(&str, &str)] = retained![
     "read-control",
     "ensure-node-control",
+    "echo-dpo-2-ensure-node-control",
+    "read-without-failures",
+    "read-catalog-without-failures",
     "slice-proven",
     "slice-unproven",
     "slice-other-operand",

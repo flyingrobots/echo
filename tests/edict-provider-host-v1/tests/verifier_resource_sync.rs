@@ -142,6 +142,15 @@ fn verifier_package_resources_equal_the_checked_generated_corpus() {
                 "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
             ),
         ),
+        (
+            "target-profile.echo-dpo-2.cbor",
+            include_bytes!(
+                "../../../crates/echo-edict-provider-verifier/resources/target-profile.echo-dpo-2.cbor"
+            ),
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo-2.cbor"
+            ),
+        ),
     ];
 
     for (name, packaged, generated) in pairs {

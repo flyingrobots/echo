@@ -114,6 +114,7 @@ fn checked_inputs_build_one_canonical_wesley_generation_input() {
             "lawpack.echo-dpo",
             "schema.echo-provider-artifacts",
             "target-profile.echo-dpo",
+            "target-profile.echo-dpo-2",
         ]
     );
     assert_eq!(

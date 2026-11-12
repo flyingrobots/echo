@@ -63,11 +63,15 @@ pub(super) fn validate<'a>(
         return Err(Error::UnsupportedProgram);
     }
     require_text(&target_profile, "intrinsicNamespace", &profile_coordinate)?;
+    // Only Echo's two effect namespaces name runtime intrinsics; each pins
+    // its own catalog coordinate, which is also the catalog's digest domain.
+    let namespace =
+        super::intrinsic_names::namespace(&profile_coordinate).ok_or(Error::UnsupportedProgram)?;
     let catalog_reference = field(&target_profile, "intrinsics")?;
-    require_text(catalog_reference, "id", "echo.dpo.intrinsics/v1")?;
+    require_text(catalog_reference, "id", namespace.catalog)?;
     pinned(
         catalog_reference,
-        digest("echo.dpo.intrinsics/v1", &catalog).map_err(|_| Error::InvalidArtifact)?,
+        digest(namespace.catalog, &catalog).map_err(|_| Error::InvalidArtifact)?,
     )?;
     exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
     require_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;
@@ -95,10 +99,7 @@ pub(super) fn validate<'a>(
     if imports.next().is_some() || field(import, "ref")? != reference {
         return Err(Error::UnsupportedProgram);
     }
-    pinned(
-        field(&lawpack, "exports")?,
-        digest("edict.lawpack-exports/v1", exports).map_err(|_| Error::InvalidArtifact)?,
-    )?;
+    owner_pinned(field(&lawpack, "exports")?, exports)?;
     let mut matching = array(field(&lawpack, "targetAdapters")?)?
         .iter()
         .filter(|entry| {
@@ -116,10 +117,7 @@ pub(super) fn validate<'a>(
         "id",
         text_field(target_artifact, "domain")?,
     )?;
-    pinned(
-        field(entry, "adapter")?,
-        digest("edict.lawpack-adapter/v1", &adapter).map_err(|_| Error::InvalidArtifact)?,
-    )?;
+    owner_pinned(field(entry, "adapter")?, &adapter)?;
     let alias = alias(
         source,
         &coordinate,
@@ -235,6 +233,16 @@ pub(super) fn validate<'a>(
     }
     Ok(signatures)
 }
+/// A lawpack pin: the compiler frames the exports and adapter digests under
+/// the coordinate each reference names, not under a fixed artifact domain.
+fn owner_pinned(reference: &Value, value: &Value) -> Result<(), Error> {
+    let owner = text_field(reference, "id")?;
+    pinned(
+        reference,
+        digest(owner, value).map_err(|_| Error::InvalidArtifact)?,
+    )
+}
+
 fn pinned(reference: &Value, expected: [u8; 32]) -> Result<(), Error> {
     exact_fields(reference, &["id", "digest"])?;
     if text_field(reference, "id")?.is_empty() {

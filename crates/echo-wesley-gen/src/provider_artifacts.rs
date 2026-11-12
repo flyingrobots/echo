@@ -37,9 +37,9 @@ use crate::provider_generation::{
 };
 use crate::provider_semantics::{
     generated_resource_root, ArtifactResourceDeclaration, ArtifactResourceProvision,
-    AuthorityClass, AuthorityFactSourceKind, EffectKindHint, ExecutionClass,
-    GeneratedArtifactDeclaration, GeneratedArtifactKind, LawpackVerifierDeclaration, OpticKind,
-    ProviderSemanticSourceV1,
+    AuthorityClass, AuthorityFactSourceKind, EffectKindHint, EffectTargetProfileDeclaration,
+    ExecutionClass, GeneratedArtifactDeclaration, GeneratedArtifactKind,
+    LawpackVerifierDeclaration, OpticKind, ProviderSemanticSourceV1,
 };
 
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
@@ -908,11 +908,12 @@ pub fn generate_provider_primary_artifacts_v1(
         )?);
     }
     resources.sort_by(|left, right| left.role.cmp(&right.role));
-    if resources.len() != 14 {
+    let expected_resources = 14 + 2 * source.effect_target_profiles.len();
+    if resources.len() != expected_resources {
         return Err(ProviderArtifactGenerationError::new(
             ProviderArtifactGenerationErrorKind::ResourceClosureMismatch,
             "generatedResources",
-            "14",
+            expected_resources.to_string(),
         ));
     }
 
@@ -930,7 +931,11 @@ pub fn generate_provider_primary_artifacts_v1(
         contract_pack,
     )?;
 
-    let target_declaration = artifact_by_kind(source, GeneratedArtifactKind::TargetProfile)?;
+    let target_declaration = artifact_by_role(
+        source,
+        GeneratedArtifactKind::TargetProfile,
+        &source.target_profile_projection.artifact_role,
+    )?;
     let target = make_output(
         target_declaration.role.clone(),
         target_declaration.coordinate.clone(),
@@ -956,7 +961,26 @@ pub fn generate_provider_primary_artifacts_v1(
         contract_pack,
     )?;
 
-    let mut artifacts = vec![profile, target, lawpack];
+    let mut artifacts = vec![profile, lawpack];
+    for declaration in &source.effect_target_profiles {
+        let generated = artifact_by_role(
+            source,
+            GeneratedArtifactKind::TargetProfile,
+            &declaration.artifact_role,
+        )?;
+        artifacts.push(make_output(
+            generated.role.clone(),
+            generated.coordinate.clone(),
+            generated.schema_contract.clone(),
+            "target-profile-manifest",
+            "edict.target-profile/v1".to_owned(),
+            build_effect_target_profile(declaration, &target, &resources)?,
+            Some("target-profile-manifest"),
+            &schema,
+            contract_pack,
+        )?);
+    }
+    artifacts.push(target);
     for declaration in source
         .generated_artifacts
         .iter()
@@ -997,11 +1021,12 @@ pub fn generate_provider_primary_artifacts_v1(
         )?);
     }
     artifacts.sort_by(|left, right| left.role.cmp(&right.role));
-    if artifacts.len() != 5 {
+    let expected_artifacts = 5 + source.effect_target_profiles.len();
+    if artifacts.len() != expected_artifacts {
         return Err(ProviderArtifactGenerationError::new(
             ProviderArtifactGenerationErrorKind::ProjectionClosureMismatch,
             "canonicalPrimaryArtifacts",
-            "5",
+            expected_artifacts.to_string(),
         ));
     }
 
@@ -1026,6 +1051,24 @@ fn expected_projection_roles(source: &ProviderSemanticSourceV1) -> Vec<String> {
         })
         .map(|artifact| artifact.role.clone())
         .collect()
+}
+
+fn artifact_by_role<'a>(
+    source: &'a ProviderSemanticSourceV1,
+    kind: GeneratedArtifactKind,
+    role: &str,
+) -> Result<&'a GeneratedArtifactDeclaration, ProviderArtifactGenerationError> {
+    source
+        .generated_artifacts
+        .iter()
+        .find(|artifact| artifact.kind == kind && artifact.role == role)
+        .ok_or_else(|| {
+            ProviderArtifactGenerationError::new(
+                ProviderArtifactGenerationErrorKind::ProjectionClosureMismatch,
+                "generatedArtifacts",
+                role,
+            )
+        })
 }
 
 fn artifact_by_kind(
@@ -1222,7 +1265,9 @@ fn resource_root(role: &str) -> Result<&'static str, ProviderArtifactGenerationE
 fn resource_edict_contract(role: &str) -> Option<&'static str> {
     match role {
         "resource.lawpack-exports" => Some("lawpack-exports"),
-        "resource.target-intrinsics" => Some("target-profile-intrinsics"),
+        "resource.target-intrinsics" | "resource.target-intrinsics-2" => {
+            Some("target-profile-intrinsics")
+        }
         "resource.target-operation-profiles" => Some("target-profile-operation-profiles"),
         _ => None,
     }
@@ -1320,6 +1365,36 @@ fn validate_schema_bytes(
         )
     })?;
     Ok(value)
+}
+
+/// The JSON form [`canonical_from_json`] reads back to exactly `value`, when
+/// `value` has one: text map keys and integers that JSON can carry.
+fn canonical_to_json(value: &CanonicalValueV1) -> Option<JsonValue> {
+    Some(match value {
+        CanonicalValueV1::Null => JsonValue::Null,
+        CanonicalValueV1::Bool(value) => JsonValue::Bool(*value),
+        CanonicalValueV1::Integer(value) => u64::try_from(*value)
+            .map(JsonValue::from)
+            .or_else(|_| i64::try_from(*value).map(JsonValue::from))
+            .ok()?,
+        CanonicalValueV1::Bytes(bytes) => json!({ "$canonicalBytes": hex::encode(bytes) }),
+        CanonicalValueV1::Text(value) => JsonValue::String(value.clone()),
+        CanonicalValueV1::Array(values) => JsonValue::Array(
+            values
+                .iter()
+                .map(canonical_to_json)
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        CanonicalValueV1::Map(entries) => JsonValue::Object(
+            entries
+                .iter()
+                .map(|(key, value)| match key {
+                    CanonicalValueV1::Text(key) => Some((key.clone(), canonical_to_json(value)?)),
+                    _ => None,
+                })
+                .collect::<Option<JsonMap<_, _>>>()?,
+        ),
+    })
 }
 
 fn canonical_from_json(
@@ -1853,6 +1928,9 @@ fn build_resource_value(
     source: &ProviderSemanticSourceV1,
     declaration: &ArtifactResourceDeclaration,
 ) -> Result<JsonValue, ProviderArtifactGenerationError> {
+    if let Some(value) = effect_profile_resource(source, declaration) {
+        return Ok(value);
+    }
     match declaration.role.as_str() {
         "resource.conformance-corpus" => Ok(json!({
             "apiVersion": "echo.edict-provider.conformance-corpus/v1",
@@ -2075,6 +2153,142 @@ fn build_footprint_algebra(source: &ProviderSemanticSourceV1) -> JsonValue {
         "class": "declarative",
         "capabilities": capabilities,
     })
+}
+
+/// The namespace an effect target profile names its intrinsics in.
+fn effect_namespace(declaration: &EffectTargetProfileDeclaration) -> String {
+    format!("{}@{}", declaration.id, declaration.version)
+}
+
+/// The catalog or Target IR declaration of an effect target profile, when
+/// `resource` is one of them.
+fn effect_profile_resource(
+    source: &ProviderSemanticSourceV1,
+    resource: &ArtifactResourceDeclaration,
+) -> Option<JsonValue> {
+    source
+        .effect_target_profiles
+        .iter()
+        .find_map(|declaration| {
+            let namespace = effect_namespace(declaration);
+            if resource.role == declaration.intrinsics_resource {
+                Some(build_runtime_intrinsics(declaration, &namespace))
+            } else if resource.role == declaration.target_ir_resource {
+                let mut capabilities = JsonMap::new();
+                for intrinsic in &declaration.intrinsics {
+                    capabilities.insert(
+                        format!("{namespace}.{}", intrinsic.operation),
+                        JsonValue::Null,
+                    );
+                }
+                Some(json!({
+                    "apiVersion": "echo.span-ir/v1",
+                    "class": "declarative",
+                    "domain": declaration.target_ir_domain,
+                    "targetProfile": namespace,
+                    "capabilities": capabilities,
+                }))
+            } else {
+                None
+            }
+        })
+}
+
+/// The catalog of an effect target profile: each runtime intrinsic under the
+/// profile's namespace, typed by its Echo-owned ABI coordinates.
+fn build_runtime_intrinsics(
+    declaration: &EffectTargetProfileDeclaration,
+    namespace: &str,
+) -> JsonValue {
+    let mut intrinsics = JsonMap::new();
+    for intrinsic in &declaration.intrinsics {
+        let name = format!("{namespace}.{}", intrinsic.operation);
+        let input = format!("{name}.input");
+        let failures = intrinsic
+            .failures
+            .iter()
+            .map(|failure| {
+                (
+                    failure.key.clone(),
+                    json!({
+                        "authorityClass": authority_class(failure.authority_class),
+                        "payloadType": input,
+                    }),
+                )
+            })
+            .collect::<JsonMap<_, _>>();
+        let kind = effect_kind(intrinsic.effect_kind);
+        intrinsics.insert(
+            name.clone(),
+            json!({
+                "intrinsicClass": "effect",
+                "typeParameters": [],
+                "argumentTypes": [input],
+                "returnType": format!("{name}.result"),
+                "effectKind": kind,
+                "effectFailures": failures,
+                "guardSupport": intrinsic.guard_support,
+                "footprintTemplate": format!("{name}.footprint"),
+                "costTemplate": format!("{name}.cost"),
+                "writeClass": kind,
+                "canParticipateInAtomicGuard": intrinsic.can_participate_in_atomic_guard,
+            }),
+        );
+    }
+    json!({
+        "apiVersion": "edict.target-profile.intrinsics/v1",
+        "intrinsics": intrinsics,
+    })
+}
+
+/// An effect target profile: the selected profile with its own version,
+/// namespace, catalog and Target IR declaration.
+fn build_effect_target_profile(
+    declaration: &EffectTargetProfileDeclaration,
+    selected: &SchemaValidatedCanonicalProviderOutputV1,
+    resources: &[SchemaValidatedCanonicalProviderOutputV1],
+) -> Result<JsonValue, ProviderArtifactGenerationError> {
+    let resource = |role: &str| {
+        resources
+            .iter()
+            .find(|resource| resource.role == role)
+            .ok_or_else(|| {
+                ProviderArtifactGenerationError::new(
+                    ProviderArtifactGenerationErrorKind::ResourceClosureMismatch,
+                    role,
+                    &declaration.artifact_role,
+                )
+            })
+            .and_then(output_reference)
+    };
+    let mismatch = || {
+        ProviderArtifactGenerationError::new(
+            ProviderArtifactGenerationErrorKind::SemanticProjectionMismatch,
+            &declaration.artifact_role,
+            &selected.role,
+        )
+    };
+    let mut value = canonical_to_json(&selected.canonical_value).ok_or_else(mismatch)?;
+    let JsonValue::Object(fields) = &mut value else {
+        return Err(mismatch());
+    };
+    if fields.get("id") != Some(&json!(declaration.id)) {
+        return Err(mismatch());
+    }
+    fields.insert("version".to_owned(), json!(declaration.version));
+    fields.insert(
+        "intrinsicNamespace".to_owned(),
+        json!(effect_namespace(declaration)),
+    );
+    fields.insert(
+        "intrinsics".to_owned(),
+        resource(&declaration.intrinsics_resource)?,
+    );
+    fields.insert(
+        "targetIr".to_owned(),
+        resource(&declaration.target_ir_resource)?,
+    );
+    Ok(value)
 }
 
 fn build_intrinsics(

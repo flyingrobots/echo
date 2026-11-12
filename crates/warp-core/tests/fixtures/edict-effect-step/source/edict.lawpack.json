@@ -1,0 +1,197 @@
+{
+  "schema": "edict.lawpack-build/v1",
+  "outputDirectory": "vendor/effect-step",
+  "lawpack": {
+    "schema": "edict.lawpack-authoring/v1",
+    "id": "consumer.effects",
+    "version": "1",
+    "acceptedCoreAbi": [
+      "edict.core/v1"
+    ],
+    "dependencies": [],
+    "exportsCoordinate": "consumer.effects.exports/v1",
+    "exports": {
+      "types": [
+        {
+          "coordinate": "consumer.effects@1.FactAddress",
+          "definition": "Record<nodeId:Bytes<exact=32>,typeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"
+        },
+        {
+          "coordinate": "consumer.effects@1.FactBytes",
+          "definition": "Bytes<max=64>"
+        },
+        {
+          "coordinate": "consumer.effects@1.ObstructionDetail",
+          "definition": "String<max=256,canonical=raw-utf8>"
+        }
+      ],
+      "constants": [],
+      "pureFunctions": [],
+      "effects": [
+        {
+          "coordinate": "consumer.effects@1.readFact",
+          "typeParameters": [],
+          "inputType": "consumer.effects@1.FactAddress",
+          "outputType": "consumer.effects@1.FactBytes",
+          "executionClass": "runtime",
+          "effectKindHint": "read",
+          "footprintObligation": "consumer.effects@1.factFootprint",
+          "costObligation": "consumer.effects@1.budget",
+          "effectFailures": {
+            "missing": {
+              "authorityClass": "resourceFault",
+              "payloadType": "consumer.effects@1.FactAddress"
+            },
+            "typeMismatch": {
+              "authorityClass": "integrityFault",
+              "payloadType": "consumer.effects@1.FactAddress"
+            },
+            "notAtom": {
+              "authorityClass": "integrityFault",
+              "payloadType": "consumer.effects@1.FactAddress"
+            },
+            "tooLarge": {
+              "authorityClass": "integrityFault",
+              "payloadType": "consumer.effects@1.FactAddress"
+            }
+          },
+          "guardSupport": true
+        }
+      ],
+      "obstructions": [
+        {
+          "coordinate": "consumer.effects@1.FactMissing",
+          "authorityClass": "resourceFault",
+          "payloadSchema": "consumer.effects@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "consumer.effects@1.FactMalformed",
+          "authorityClass": "integrityFault",
+          "payloadSchema": "consumer.effects@1.ObstructionDetail"
+        }
+      ],
+      "operationProfiles": {
+        "consumer.effects@1.graphEffects": {
+          "opticTemplate": {
+            "opticKind": "affectReintegration",
+            "boundaryKind": "affect",
+            "supportPolicy": "consumer.effects@1.basisBoundSupport",
+            "lossDisposition": "consumer.effects@1.lossless",
+            "basisTemplate": "consumer.effects@1.exactHeadBasis",
+            "apertureRequirement": {
+              "kind": "abstractFootprintObligation",
+              "reference": "consumer.effects@1.factFootprint"
+            }
+          },
+          "effectPredicate": "consumer.effects@1.readOnly"
+        }
+      }
+    },
+    "targetAdapters": [
+      {
+        "coordinate": "consumer.effects.echo-adapter/v1",
+        "output": "adapter.cbor",
+        "acceptedTargetProfile": {
+          "id": "echo.dpo@2",
+          "digest": "sha256:8eccfe7485716b6c0eec6fe82e3b9fe3087147dc278db5bdd4abbb2fa737ca01"
+        },
+        "acceptedTargetIr": {
+          "id": "echo.span-ir/v2",
+          "digest": "sha256:2f76ff9d3eeee78d79d1d2481db1425f924016cf41ca37aa3e3ea2319c3f9321"
+        },
+        "operationProfiles": {
+          "consumer.effects@1.graphEffects": {
+            "core": "continuum.profile.graph-effects/v1",
+            "semanticEffects": [
+              "consumer.effects@1.readFact"
+            ],
+            "budgetObligation": "consumer.effects@1.budget",
+            "targetConfiguration": {
+              "local": "echo-config"
+            }
+          }
+        },
+        "effectImplementations": {
+          "consumer.effects@1.readFact": {
+            "targetIntrinsic": "echo.dpo@2.node-atom-read",
+            "targetConfiguration": {
+              "local": "echo-config"
+            },
+            "writeClass": "read",
+            "footprintObligation": "consumer.effects@1.factFootprint",
+            "costObligation": "consumer.effects@1.budget",
+            "failureMappings": {
+              "missing": "atomMissing",
+              "typeMismatch": "atomTypeMismatch",
+              "notAtom": "atomRequired",
+              "tooLarge": "atomByteBoundExceeded"
+            }
+          }
+        },
+        "budgets": {
+          "consumer.effects@1.budget": {
+            "maxSteps": 4096,
+            "maxAllocatedBytes": 65536,
+            "maxOutputBytes": 128
+          }
+        }
+      }
+    ],
+    "verifier": {
+      "class": "declarative",
+      "ruleset": {
+        "local": "verifier-rules"
+      }
+    },
+    "compatibility": {
+      "id": "consumer.effects.compatibility/v1",
+      "digest": "sha256:2adf83f798205f52636ad64ca45178f33a8e1cc663874f8a6113484c945e3052"
+    },
+    "conformanceFixtureCorpus": {
+      "id": "consumer.effects.oracle@1",
+      "digest": "sha256:b9b4707dd5e07897cbe7af36d88928401887e6af5d167d1a88a8d6181b4dbb0e"
+    },
+    "localResources": [
+      {
+        "name": "echo-config",
+        "coordinate": "echo.operation-lowering-configuration/v1",
+        "output": "echo-operation-configuration.cbor",
+        "value": {
+          "apiVersion": "echo.operation-lowering-configuration/v1",
+          "programKind": "edict-effect-program/v1",
+          "identityLaw": 1,
+          "intrinsicCatalog": {
+            "$edictBytes": "a26a61706956657273696f6e782265646963742e7461726765742d70726f66696c652e696e7472696e736963732f76316a696e7472696e73696373a6766563686f2e64706f40322e6372656174652d6e6f6465ab6a6566666563744b696e64666372656174656a72657475726e54797065781d6563686f2e64706f40322e6372656174652d6e6f64652e726573756c746a7772697465436c617373666372656174656c636f737454656d706c617465781b6563686f2e64706f40322e6372656174652d6e6f64652e636f73746c6775617264537570706f7274f56d617267756d656e74547970657381781c6563686f2e64706f40322e6372656174652d6e6f64652e696e7075746e6566666563744661696c75726573a06e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578206563686f2e64706f40322e6372656174652d6e6f64652e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f5766563686f2e64706f40322e656e737572652d65646765ab6a6566666563744b696e6466656e737572656a72657475726e54797065781d6563686f2e64706f40322e656e737572652d656467652e726573756c746a7772697465436c61737366656e737572656c636f737454656d706c617465781b6563686f2e64706f40322e656e737572652d656467652e636f73746c6775617264537570706f7274f56d617267756d656e74547970657381781c6563686f2e64706f40322e656e737572652d656467652e696e7075746e6566666563744661696c75726573a06e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578206563686f2e64706f40322e656e737572652d656467652e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f5766563686f2e64706f40322e656e737572652d6e6f6465ab6a6566666563744b696e6466656e737572656a72657475726e54797065781d6563686f2e64706f40322e656e737572652d6e6f64652e726573756c746a7772697465436c61737366656e737572656c636f737454656d706c617465781b6563686f2e64706f40322e656e737572652d6e6f64652e636f73746c6775617264537570706f7274f56d617267756d656e74547970657381781c6563686f2e64706f40322e656e737572652d6e6f64652e696e7075746e6566666563744661696c75726573a06e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578206563686f2e64706f40322e656e737572652d6e6f64652e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f5776563686f2e64706f40322e7265706c6163652d61746f6dab6a6566666563744b696e64677265706c6163656a72657475726e54797065781e6563686f2e64706f40322e7265706c6163652d61746f6d2e726573756c746a7772697465436c617373677265706c6163656c636f737454656d706c617465781c6563686f2e64706f40322e7265706c6163652d61746f6d2e636f73746c6775617264537570706f7274f56d617267756d656e74547970657381781d6563686f2e64706f40322e7265706c6163652d61746f6d2e696e7075746e6566666563744661696c75726573a06e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578216563686f2e64706f40322e7265706c6163652d61746f6d2e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f5776563686f2e64706f40322e7265706c6163652d65646765ab6a6566666563744b696e64677265706c6163656a72657475726e54797065781e6563686f2e64706f40322e7265706c6163652d656467652e726573756c746a7772697465436c617373677265706c6163656c636f737454656d706c617465781c6563686f2e64706f40322e7265706c6163652d656467652e636f73746c6775617264537570706f7274f56d617267756d656e74547970657381781d6563686f2e64706f40322e7265706c6163652d656467652e696e7075746e6566666563744661696c75726573a06e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578216563686f2e64706f40322e7265706c6163652d656467652e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f578196563686f2e64706f40322e6e6f64652d61746f6d2d72656164ab6a6566666563744b696e6464726561646a72657475726e5479706578206563686f2e64706f40322e6e6f64652d61746f6d2d726561642e726573756c746a7772697465436c61737364726561646c636f737454656d706c617465781e6563686f2e64706f40322e6e6f64652d61746f6d2d726561642e636f73746c6775617264537570706f7274f56d617267756d656e74547970657381781f6563686f2e64706f40322e6e6f64652d61746f6d2d726561642e696e7075746e6566666563744661696c75726573a46b61746f6d4d697373696e67a26b7061796c6f616454797065781f6563686f2e64706f40322e6e6f64652d61746f6d2d726561642e696e7075746e617574686f72697479436c6173736d7265736f757263654661756c746c61746f6d5265717569726564a26b7061796c6f616454797065781f6563686f2e64706f40322e6e6f64652d61746f6d2d726561642e696e7075746e617574686f72697479436c6173736e696e746567726974794661756c747061746f6d547970654d69736d61746368a26b7061796c6f616454797065781f6563686f2e64706f40322e6e6f64652d61746f6d2d726561642e696e7075746e617574686f72697479436c6173736e696e746567726974794661756c747561746f6d42797465426f756e644578636565646564a26b7061796c6f616454797065781f6563686f2e64706f40322e6e6f64652d61746f6d2d726561642e696e7075746e617574686f72697479436c6173736e696e746567726974794661756c746e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578236563686f2e64706f40322e6e6f64652d61746f6d2d726561642e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f5"
+          },
+          "graphSchema": {
+            "$edictBytes": "a26a656467655f7479706573a06a6e6f64655f7479706573a158205b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5ba26a61646472657373696e67016a61746f6d5f74797065738158205c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c"
+          },
+          "footprintLaw": {
+            "$edictBytes": "a9696d61785f7265616473046a61746f6d5f74797065738158205c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c6a6d61785f777269746573006f6d61785f72616e67655f6564676573006f726561645f6e6f64655f74797065738158205b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b7072616e67655f656467655f7479706573807077726974655f656467655f7479706573807077726974655f6e6f64655f74797065738072706f7274616c5f6f776e65725f747970657380"
+          },
+          "maxInputBytes": 512,
+          "maxResultBytes": 128,
+          "maxAllocatedBytes": 65536,
+          "budgetCeiling": {
+            "steps": 4096,
+            "readBytes": 4096,
+            "writeBytes": 4096
+          },
+          "authorityProfile": "consumer.effects.authority/v1"
+        }
+      },
+      {
+        "name": "verifier-rules",
+        "coordinate": "consumer.effects.verifier-rules/v1",
+        "output": "verifier-rules.cbor",
+        "value": {
+          "schema": "consumer.effects.schema@1",
+          "schemaDigest": "sha256:f49b0ff6c9c7010d3a72b46734d47832853f496739a083edc41dddec3431bac7",
+          "oracleIsExecutableInput": false,
+          "runtimeOntology": "generic-bounded-graph"
+        }
+      }
+    ]
+  },
+  "dependencyBundles": []
+}

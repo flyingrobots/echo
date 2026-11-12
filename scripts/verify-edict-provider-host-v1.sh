@@ -84,7 +84,7 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
 # separate verifier; the predecessor package must refuse the same source.
 # Building the compiler is heavy, so a local run must opt in explicitly.
 if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
-  readonly AMBLICIT_REVISION=0999db831422f97bd013d3d89a38fbb6f9e8ce96
+  readonly AMBLICIT_REVISION=0034605467fcace397e7e30e4219a74aca57f183
   readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
   readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
   readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"
@@ -140,11 +140,23 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
   # under the echo.dpo@2 effect target profile (#985): the checked lowerer
   # emits its package and the separate verifier accepts it; the same program
   # under echo.dpo@1, and under a substituted echo.dpo@2 profile, must be
-  # refused at Echo's lowerer.
+  # refused at Echo's lowerer, and so must the same read called without a
+  # failure map although its intrinsic declares failures.
   cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name read \
     --compiler "$AMBLICIT_ROOT/bin/amblicit" \
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-step" \
     --work-root "$witness_dir/effect-step-run" \
+    --check
+
+  # The same witness for a program calling all five echo.dpo@2 mutation
+  # intrinsics without a failure map (amblicit#311), with the same controls.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name write \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-mutations" \
+    --work-root "$witness_dir/effect-mutations-run" \
     --check
 fi

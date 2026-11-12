@@ -13,7 +13,8 @@ pins, a graph schema with one node type (`0x5b…`) holding one atom type
 (`0x5c…`), and a footprint law that reads that node type and writes nothing.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `0999db831422f97bd013d3d89a38fbb6f9e8ce96`: the package and
+compiler, Amblicit `0999db831422f97bd013d3d89a38fbb6f9e8ce96`, and reproduced
+unchanged by `0034605467fcace397e7e30e4219a74aca57f183`: the package and
 verifier report it wrote through the checked provider package in
 `schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
 configuration its lawpack build wrote. Nothing here was decoded and
@@ -22,11 +23,15 @@ carries the digest of the lawpack the same compiler built from
 `source/edict.lawpack.json`.
 
 `scripts/verify-edict-provider-host-v1.sh` rebuilds these bytes in CI with
-`xtask --example effect_step_publication --check`. It builds the lawpack,
+`xtask --example effect_step_publication --name read --check`. It builds the lawpack,
 compiles the program twice, and requires the output to equal these files. It
 then compiles the same program under `echo.dpo@1` (whose catalog declares no
 effect intrinsic) and under a substituted `echo.dpo@2` profile, and requires
-Echo's lowerer to refuse each.
+Echo's lowerer to refuse each. It also compiles
+`controls/zero-failure-read/ReadFact.edict`, which calls the read without a
+failure map, against the same lawpack with every failure removed from its
+exports and adapter; the compiler accepts that claim, and Echo's lowerer must
+refuse it because `node-atom-read` pins four failures.
 
 | File | Domain-framed digest |
 | --- | --- |

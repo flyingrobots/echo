@@ -17,10 +17,15 @@
   "One Current Version", #985). `echo.dpo@1`, its digest and everything pinned
   to it are unchanged.
   A program that reads an atom through `echo.dpo@2.node-atom-read`, compiled
-  from public source by Amblicit `0999db83`, is lowered, separately verified,
-  admitted and run; CI recompiles it to the retained package and report, and
+  from public source by Amblicit `0999db83` (CI now pins `0034605`), is
+  lowered, separately verified, admitted and run; CI recompiles it to the retained package and report, and
   requires the lowerer to refuse it under `echo.dpo@1` and under a substituted
   `echo.dpo@2` profile.
+  A second public program calls all five `echo.dpo@2` mutation intrinsics
+  without a failure map (Amblicit `0034605`, amblicit#311) and runs, emitting
+  its five intents in source order; a read called without a failure map,
+  although `node-atom-read` declares failures, is refused by the lowerer, the
+  verifier and the runtime.
 - The public provider components lower and verify authored effect programs.
   For an `edict-effect-program/v1` target configuration the lowerer component
   emits the judged effect package, and the separate verifier component accepts

@@ -20,6 +20,8 @@ macro_rules! retained {
 const RETAINED: &[(&str, &str)] = retained![
     "read-control",
     "ensure-node-control",
+    "echo-dpo-2-ensure-node-control",
+    "read-without-failures",
     "slice-proven",
     "slice-unproven",
     "slice-other-operand",

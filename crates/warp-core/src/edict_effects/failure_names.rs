@@ -125,6 +125,34 @@ mod tests {
     }
 
     #[test]
+    fn echo_dpo_2_mutations_have_the_same_empty_failure_sets() {
+        // amblicit#311: the five mutations are callable without a failure map
+        // because their failure sets are empty under either namespace.
+        for operation in [
+            "ensure-node",
+            "create-node",
+            "replace-atom",
+            "ensure-edge",
+            "replace-edge",
+        ] {
+            for namespace in ["echo.dpo@1", "echo.dpo@2"] {
+                let name = format!("{namespace}.{operation}");
+                assert_eq!(failures(&name), Some(&[][..]), "{name}");
+                assert_eq!(
+                    runtime_arms(&name, arms(&[])),
+                    Ok(BTreeMap::new()),
+                    "{name}"
+                );
+            }
+        }
+        assert_eq!(
+            failures("echo.dpo@2.node-atom-read").map(<[FailureName]>::len),
+            Some(4)
+        );
+        assert!(runtime_arms("echo.dpo@2.node-atom-read", arms(&[])).is_err());
+    }
+
+    #[test]
     fn the_table_is_scoped_by_intrinsic() {
         // The read's names mean nothing on a mutation or an unknown identity.
         assert_eq!(failures("echo.dpo@1.ensure-node"), Some(&[][..]));

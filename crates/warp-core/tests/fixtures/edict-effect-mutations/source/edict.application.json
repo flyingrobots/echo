@@ -1,0 +1,20 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "consumer.writes.program@1",
+  "sources": [
+    "src/Program.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/effect-mutations/manifest.cbor",
+      "exports": "vendor/effect-mutations/exports.cbor",
+      "adapter": "vendor/effect-mutations/adapter.cbor",
+      "targetConfiguration": "vendor/effect-mutations/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@2",
+    "providerPackage": "provider"
+  },
+  "outputDirectory": "application-output"
+}

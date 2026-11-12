@@ -1174,8 +1174,15 @@ A program that reads one atom through `echo.dpo@2.node-atom-read` travels the
 public path and runs on the generic runtime
 (`crates/warp-core/tests/fixtures/edict-effect-step`); the same program under
 `echo.dpo@1`, or under a substituted `echo.dpo@2` profile, is refused at the
-lowerer. Mutation intrinsics, which declare no failures, are not yet callable
-from source (flyingrobots/amblicit#311).
+lowerer. From Amblicit `0034605` (flyingrobots/amblicit#311) source can bind an
+effect with an empty failure set without a failure map: a program calling all
+five `echo.dpo@2` mutation intrinsics so is lowered, verified, admitted and run,
+emitting its five intents in source order
+(`crates/warp-core/tests/fixtures/edict-effect-mutations`). Because the compiler
+takes a lawpack's empty failure set on trust, the judgments' failure-set
+equality checks are the backstop: an effect that declares and maps no failures
+but is bound to `node-atom-read`, which pins four, is refused by the lowerer,
+the verifier and the runtime.
 
 The lawpack pins the effect judgments check are framed the way the compiler frames
 them: the lawpack's `exports` and each target adapter's `adapter` digest use

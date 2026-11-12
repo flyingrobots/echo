@@ -9,7 +9,7 @@
 //! Regenerate with the ignored `regenerate_the_retained_provider_corpus` test.
 use super::abi_conformance::rename_read_failure;
 use super::execution::limits;
-use super::mutations::{fixture, fixture_with, repeat_emission, Shape};
+use super::mutations::{fixture, fixture_in, fixture_with, repeat_emission, Shape};
 use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
@@ -611,6 +611,36 @@ fn read_with_adapter(edit: impl FnOnce(&mut V), catalog: V) -> V {
     )
 }
 
+/// A read whose exported effect declares no failures and whose adapter maps
+/// none, still bound to `node-atom-read`, whose catalog entry pins four. The
+/// compiler accepts it without a failure map; every judgment must refuse it
+/// on failure-set equality (amblicit#311).
+fn read_without_failures() -> V {
+    let mut exports = captured_exports();
+    let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
+        panic!("effects")
+    };
+    for effect in effects.iter_mut() {
+        set(effect, "effectFailures", map([]));
+    }
+    let mut adapter = catalog_named_adapter(&captured_adapter());
+    set(
+        value_field_mut(value_field_mut(&mut adapter, "effectImplementations"), READ),
+        "failureMappings",
+        map([]),
+    );
+    let lowering = lowering_fixture_inputs(
+        Some(catalog_fixture()),
+        Some(exports.clone()),
+        Some(adapter),
+    );
+    let (core, target, _) = compiler_fixture(&lowering);
+    with_budget(
+        &publication_from_parts(&core, &target, &exports, &lowering),
+        READ_AMPLE,
+    )
+}
+
 fn entries() -> Vec<Entry> {
     let read_capture = publication_for_lowering(&repinned_lowering_artifacts());
     let read_control = with_budget(&read_capture, READ_AMPLE);
@@ -653,6 +683,26 @@ fn entries() -> Vec<Entry> {
             true,
             Runtime::Accepts,
             fixture("ensure-node", GRAPH_EFFECTS).0,
+        ),
+        // The same mutation under the echo.dpo@2 namespace, with its empty
+        // failure set (#985).
+        entry(
+            "echo-dpo-2-ensure-node-control",
+            true,
+            Runtime::Accepts,
+            fixture_in(
+                "echo.dpo@2",
+                "ensure-node",
+                GRAPH_EFFECTS,
+                &Shape::conforming_in("ensure-node", "echo.dpo@2"),
+            )
+            .0,
+        ),
+        entry(
+            "read-without-failures",
+            false,
+            Runtime::Refuses,
+            read_without_failures(),
         ),
         entry("slice-proven", true, Runtime::Accepts, proven_slice()),
         entry(
@@ -1005,6 +1055,8 @@ macro_rules! retained {
 const RETAINED: &[(&str, &str)] = retained![
     "read-control",
     "ensure-node-control",
+    "echo-dpo-2-ensure-node-control",
+    "read-without-failures",
     "slice-proven",
     "slice-unproven",
     "slice-other-operand",

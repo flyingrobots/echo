@@ -1,5 +1,7 @@
 read-control accept
 ensure-node-control accept
+echo-dpo-2-ensure-node-control accept
+read-without-failures refuse
 slice-proven accept
 slice-unproven refuse
 slice-other-operand refuse

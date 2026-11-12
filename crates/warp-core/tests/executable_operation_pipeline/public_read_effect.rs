@@ -57,7 +57,7 @@ fn policy(identity: [u8; 32]) -> EchoOperationAdmissionPolicy {
 }
 
 /// A worldline whose root node carries the fact the program reads.
-fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
+pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
     let node = NodeKey {
         warp_id: WarpId([0x31; 32]),
         local_id: NodeId([0x32; 32]),
@@ -111,7 +111,7 @@ fn input(node: NodeKey) -> Vec<u8> {
     ]))
 }
 
-fn basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
+pub(super) fn basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
     EchoOperationApplicationBasisV1::new(
         publication::hash(
             b"echo:operation-profile:v1\0",
@@ -121,7 +121,7 @@ fn basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
     )
 }
 
-fn limits() -> EvaluationLimits {
+pub(super) fn limits() -> EvaluationLimits {
     EvaluationLimits {
         max_package_bytes: 1_048_576,
         max_input_bytes: 65_536,

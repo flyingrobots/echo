@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::print_stdout)]
-//! Public compiler witness for an authored effect program with an effect step
+//! Public compiler witness for authored effect programs with effect steps
 //! under the `echo.dpo@2` effect target profile (flyingrobots/echo#985).
 //!
-//! Sends the authored lawpack and program under
-//! `crates/warp-core/tests/fixtures/edict-effect-step/source` through a
-//! published Amblicit compiler binary and the checked provider package. The
-//! program reads one atom through `echo.dpo@2.node-atom-read`; the package's
-//! lowerer emits an `edict-effect-program/v1` package and its separate
-//! verifier reports on it. Nothing here constructs Core, Target IR or a
-//! package. With `--check` the fresh compiler output must equal the retained
-//! fixtures.
+//! `--fixtures` names a directory whose `source/` holds one authored lawpack,
+//! application and program; `--name` prefixes the retained files. The program
+//! is sent through a published Amblicit compiler binary and the checked
+//! provider package: the lowerer emits an `edict-effect-program/v1` package
+//! and the separate verifier reports on it. Nothing here constructs Core,
+//! Target IR or a package. With `--check` the fresh compiler output must equal
+//! the retained fixtures.
 //!
-//! Two controls compile the same program against other profiles, derived
-//! here from the authored lawpack, and each must be refused by Echo's lowerer:
+//! Controls, derived here from the authored lawpack, must each be refused by
+//! Echo's lowerer:
 //! - `echo.dpo@1`: the adapter accepts the checked `echo.dpo@1` profile, calls
-//!   `echo.dpo@1.node-atom-read` and carries that profile's catalog, which
-//!   declares no such intrinsic;
+//!   each operation under its namespace and carries that profile's catalog,
+//!   which declares no effect intrinsic;
 //! - a substituted `echo.dpo@2`: a well-formed profile under the same
 //!   coordinate whose bytes differ from the checked one, served by a provider
-//!   copy whose manifest names it, with the adapter pinning it.
+//!   copy whose manifest names it, with the adapter pinning it;
+//! - when `controls/zero-failure-read` exists: the same lawpack with every
+//!   failure removed from its exports and adapter, and a program that calls
+//!   the read without a failure map, although `node-atom-read` pins four.
 use anyhow::{bail, ensure, Context, Result};
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, digest_canonical_value_v1, encode_canonical_cbor_v1,
@@ -32,13 +34,36 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const PROGRAM: &str = "ReadFact.edict";
-const VENDOR: &str = "vendor/effect-step";
-const IMPORT: &str = "use lawpack consumer.effects@1 digest \"";
+/// Where one fixture keeps its program and lawpack, derived from its authored
+/// source once in `main`.
+struct Layout {
+    /// Prefix of the retained files, such as `read` for `read-<output>.hex`.
+    name: String,
+    /// The single authored program under `source/`.
+    program: String,
+    /// The lawpack build's output directory.
+    vendor: String,
+    /// The program's pinned lawpack import, up to the digest.
+    import: String,
+}
+
+static LAYOUT: std::sync::OnceLock<Layout> = std::sync::OnceLock::new();
+
+#[allow(
+    clippy::expect_used,
+    reason = "main loads the layout before any other step reads it"
+)]
+fn layout() -> &'static Layout {
+    LAYOUT.get().expect("the fixture layout is loaded first")
+}
 const EFFECT_PROFILE: &str = "generated/primary/target-profile.echo-dpo-2.cbor";
 const DPO_PROFILE_DIGEST: &str =
     "sha256:2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04";
 const DPO_CATALOG: &str = "generated/resources/resource.target-intrinsics.cbor";
+const EFFECT_NAMESPACE: &str = "echo.dpo@2.";
+/// An optional control: the program calling a read whose exported effect
+/// declares no failures, compiled without a failure map.
+const ZERO_FAILURE_READ: &str = "controls/zero-failure-read";
 /// Compiler outputs, retained as `read-<name>.hex`.
 const OUTPUTS: [&str; 2] = [
     "executable-operation-package.cbor",
@@ -56,6 +81,7 @@ const MAX_COMPILER_BYTES: u64 = 256 * 1024 * 1024;
 
 struct Arguments {
     compiler: PathBuf,
+    name: String,
     provider: PathBuf,
     fixtures: PathBuf,
     work_root: PathBuf,
@@ -86,6 +112,10 @@ fn arguments() -> Result<Arguments> {
     };
     let parsed = Arguments {
         compiler: take("--compiler")?,
+        name: take("--name")?
+            .to_str()
+            .context("--name is UTF-8")?
+            .to_owned(),
         provider: take("--provider")?,
         fixtures: take("--fixtures")?,
         work_root: take("--work-root")?,
@@ -212,7 +242,7 @@ fn build_lawpack(compiler: &Path, root: &Path, lawpack: &serde_json::Value) -> R
         serde_json::to_vec_pretty(lawpack)?,
     )?;
     accepted(&build(compiler, root, "lawpack")?, "the lawpack")?;
-    let pin = String::from_utf8(read(&root.join(VENDOR).join("manifest.sha256"))?)?
+    let pin = String::from_utf8(read(&root.join(&layout().vendor).join("manifest.sha256"))?)?
         .trim()
         .to_owned();
     ensure!(
@@ -229,15 +259,15 @@ fn build_lawpack(compiler: &Path, root: &Path, lawpack: &serde_json::Value) -> R
 /// The authored program with its lawpack import pinned to `pin`.
 fn pinned_source(authored: &str, pin: &str) -> Result<String> {
     let start = authored
-        .find(IMPORT)
+        .find(layout().import.as_str())
         .context("authored program has no pinned lawpack import")?
-        + IMPORT.len();
+        + layout().import.len();
     let end = start
         + authored[start..]
             .find('"')
             .context("unterminated lawpack digest")?;
     ensure!(
-        authored[end..].matches(IMPORT).count() == 0,
+        authored[end..].matches(layout().import.as_str()).count() == 0,
         "authored program imports the lawpack twice"
     );
     Ok(format!("{}{pin}{}", &authored[..start], &authored[end..]))
@@ -257,7 +287,10 @@ fn application_root(
         root.join("edict.application.json"),
         serde_json::to_vec_pretty(application)?,
     )?;
-    copy_tree(&lawpack_root.join(VENDOR), &root.join(VENDOR))?;
+    copy_tree(
+        &lawpack_root.join(&layout().vendor),
+        &root.join(&layout().vendor),
+    )?;
     copy_tree(provider, &root.join("provider"))?;
     fs::write(root.join("src/Program.edict"), program)?;
     Ok(root.to_path_buf())
@@ -280,7 +313,7 @@ fn outputs(root: &Path) -> Result<Vec<Vec<u8>>> {
 }
 
 fn retained_name(output: &str) -> String {
-    format!("read-{}.hex", output.trim_end_matches(".cbor"))
+    format!("{}-{}.hex", layout().name, output.trim_end_matches(".cbor"))
 }
 
 fn compare(evidence: &Path, fixtures: &Path) -> Result<()> {
@@ -288,15 +321,15 @@ fn compare(evidence: &Path, fixtures: &Path) -> Result<()> {
     names.extend(
         LAWPACK_OUTPUTS
             .iter()
-            .map(|(_, name)| format!("read-{name}.hex")),
+            .map(|(_, name)| format!("{}-{name}.hex", layout().name)),
     );
     let mut pairs: Vec<_> = names
         .iter()
         .map(|name| (evidence.join(name), fixtures.join(name)))
         .collect();
     pairs.push((
-        evidence.join("source").join(PROGRAM),
-        fixtures.join("source").join(PROGRAM),
+        evidence.join("source").join(&layout().program),
+        fixtures.join("source").join(&layout().program),
     ));
     let mut differing = Vec::new();
     for (fresh, retained) in pairs {
@@ -362,12 +395,12 @@ fn substituted_provider(provider: &Path, copy: &Path) -> Result<String> {
     Ok(substituted)
 }
 
-/// The authored lawpack with its adapter re-pointed at another profile.
+/// The authored lawpack with its adapter re-pointed at another profile, each
+/// effect calling the same operation under that profile's namespace.
 fn lawpack_for(
     authored: &serde_json::Value,
     profile: &str,
     digest: &str,
-    intrinsic: &str,
     catalog: Option<&[u8]>,
 ) -> Result<serde_json::Value> {
     let mut lawpack = authored.clone();
@@ -376,9 +409,17 @@ fn lawpack_for(
     let implementations = adapter["effectImplementations"]
         .as_object_mut()
         .context("effect implementations")?;
-    ensure!(implementations.len() == 1, "one effect implementation");
+    ensure!(
+        !implementations.is_empty(),
+        "at least one effect implementation"
+    );
     for implementation in implementations.values_mut() {
-        implementation["targetIntrinsic"] = serde_json::json!(intrinsic);
+        let intrinsic = implementation["targetIntrinsic"]
+            .as_str()
+            .and_then(|name| name.strip_prefix(EFFECT_NAMESPACE))
+            .context("an echo.dpo@2 intrinsic")?
+            .to_owned();
+        implementation["targetIntrinsic"] = serde_json::json!(format!("{profile}.{intrinsic}"));
     }
     if let Some(catalog) = catalog {
         let resources = lawpack["lawpack"]["localResources"]
@@ -443,6 +484,48 @@ fn control(
     Ok(())
 }
 
+/// When the fixture carries it, compiles the zero-failure read control: the
+/// authored lawpack whose effects declare no failures and map none, and a
+/// program that calls the read without a failure map. The adapter still binds
+/// `echo.dpo@2.node-atom-read`, whose catalog entry pins four failures, so
+/// Echo's lowerer must refuse it.
+fn zero_failure_control(
+    arguments: &Arguments,
+    authored_lawpack: &serde_json::Value,
+    application: &serde_json::Value,
+    receipt: &mut serde_json::Value,
+) -> Result<()> {
+    let directory = arguments.fixtures.join(ZERO_FAILURE_READ);
+    if !directory.exists() {
+        return Ok(());
+    }
+    let program = String::from_utf8(read(&directory.join(&layout().program))?)?;
+    let mut lawpack = authored_lawpack.clone();
+    for effect in lawpack["lawpack"]["exports"]["effects"]
+        .as_array_mut()
+        .context("exported effects")?
+    {
+        effect["effectFailures"] = serde_json::json!({});
+    }
+    for implementation in lawpack["lawpack"]["targetAdapters"][0]["effectImplementations"]
+        .as_object_mut()
+        .context("effect implementations")?
+        .values_mut()
+    {
+        implementation["failureMappings"] = serde_json::json!({});
+    }
+    control(
+        arguments,
+        "zero-failure-read",
+        &lawpack,
+        application,
+        &program,
+        &arguments.provider,
+        "the compiled effect program is outside the checked profile",
+        receipt,
+    )
+}
+
 fn main() -> Result<()> {
     let arguments = arguments()?;
     ensure!(
@@ -456,19 +539,52 @@ fn main() -> Result<()> {
         serde_json::from_slice(&read(&source.join("edict.lawpack.json"))?)?;
     let authored_application: serde_json::Value =
         serde_json::from_slice(&read(&source.join("edict.application.json"))?)?;
-    let authored = String::from_utf8(read(&source.join(PROGRAM))?)?;
+    let programs: Vec<_> = fs::read_dir(&source)?
+        .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|name| {
+            Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension == "edict")
+        })
+        .collect();
+    let [program_name] = programs.as_slice() else {
+        bail!("expected exactly one authored program, found {programs:?}");
+    };
+    let lawpack_document = &authored_lawpack["lawpack"];
+    let loaded = Layout {
+        name: arguments.name.clone(),
+        program: program_name.clone(),
+        vendor: authored_lawpack["outputDirectory"]
+            .as_str()
+            .context("lawpack outputDirectory")?
+            .to_owned(),
+        import: format!(
+            "use lawpack {}@{} digest \"",
+            lawpack_document["id"].as_str().context("lawpack id")?,
+            lawpack_document["version"]
+                .as_str()
+                .context("lawpack version")?
+        ),
+    };
+    ensure!(LAYOUT.set(loaded).is_ok(), "layout loaded once");
+    let authored = String::from_utf8(read(&source.join(&layout().program))?)?;
 
     let lawpack = arguments.work_root.join("lawpack");
     let pin = build_lawpack(&arguments.compiler, &lawpack, &authored_lawpack)?;
     for (file, name) in LAWPACK_OUTPUTS {
         fs::write(
-            evidence.join(format!("read-{name}.hex")),
-            format!("{}\n", hex::encode(read(&lawpack.join(VENDOR).join(file))?)),
+            evidence.join(format!("{}-{name}.hex", layout().name)),
+            format!(
+                "{}\n",
+                hex::encode(read(&lawpack.join(&layout().vendor).join(file))?)
+            ),
         )?;
     }
     let program = pinned_source(&authored, &pin)?;
     let root = application_root(
-        &arguments.work_root.join("read"),
+        &arguments.work_root.join(&layout().name),
         &lawpack,
         &arguments.provider,
         &authored_application,
@@ -476,19 +592,19 @@ fn main() -> Result<()> {
     )?;
     accepted(
         &build(&arguments.compiler, &root, "application")?,
-        "the read-effect program",
+        "the public program",
     )?;
     let first = outputs(&root)?;
     fs::remove_dir_all(root.join("application-output"))?;
     accepted(
         &build(&arguments.compiler, &root, "application")?,
-        "the read-effect program",
+        "the public program",
     )?;
     ensure!(
         first == outputs(&root)?,
         "repeating the public build changed the package or report"
     );
-    fs::write(evidence.join("source").join(PROGRAM), &program)?;
+    fs::write(evidence.join("source").join(&layout().program), &program)?;
     let mut receipt = serde_json::json!({
         "schema": "echo.effect-step-publication/v1",
         "compilerSha256": sha256(&read_bounded(&arguments.compiler, MAX_COMPILER_BYTES)?),
@@ -503,7 +619,7 @@ fn main() -> Result<()> {
         fs::write(evidence.join(&name), format!("{}\n", hex::encode(bytes)))?;
         receipt[name] = sha256(bytes).into();
     }
-    println!("PUBLIC_EFFECT_STEP_COMPILE_OK read");
+    println!("PUBLIC_EFFECT_STEP_COMPILE_OK {}", layout().name);
 
     // The same program written against echo.dpo@1, whose catalog declares no
     // effect intrinsic.
@@ -514,7 +630,6 @@ fn main() -> Result<()> {
         &authored_lawpack,
         "echo.dpo@1",
         DPO_PROFILE_DIGEST,
-        "echo.dpo@1.node-atom-read",
         Some(&catalog),
     )?;
     let checked_results = control(
@@ -532,13 +647,7 @@ fn main() -> Result<()> {
     // the provider manifest.
     let substituted = arguments.work_root.join("substituted-provider");
     let digest = substituted_provider(&arguments.provider, &substituted)?;
-    let substituted_lawpack = lawpack_for(
-        &authored_lawpack,
-        "echo.dpo@2",
-        &digest,
-        "echo.dpo@2.node-atom-read",
-        None,
-    )?;
+    let substituted_lawpack = lawpack_for(&authored_lawpack, "echo.dpo@2", &digest, None)?;
     let substituted_results = control(
         &arguments,
         "substituted-echo-dpo-2",
@@ -549,12 +658,19 @@ fn main() -> Result<()> {
         "accepts only the exact checked Echo target profiles",
         &mut receipt,
     );
+    let zero_failure_results = zero_failure_control(
+        &arguments,
+        &authored_lawpack,
+        &authored_application,
+        &mut receipt,
+    );
     fs::write(
         evidence.join("evidence.json"),
         format!("{}\n", serde_json::to_string_pretty(&receipt)?),
     )?;
     checked_results?;
     substituted_results?;
+    zero_failure_results?;
     if arguments.check {
         compare(&evidence, &arguments.fixtures)?;
         println!("PUBLIC_EFFECT_STEP_RETAINED_OK");

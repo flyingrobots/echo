@@ -19,5 +19,5 @@ reference-adapter = []
 [dependencies]
 echo-cas = { version = "0.1.0", path = "../../crates/echo-cas" }
 blake3 = "=1.8.7"
-keep = { version = "=0.0.0", git = "https://github.com/flyingrobots/keep", rev = "27d5c38c1d13858d60ec0750d72bccfd6d8c2ab9" }
+keep = { version = "=0.0.0", git = "https://github.com/flyingrobots/keep", rev = "e316d71abd0813be6c84eb5c96bc2258a5f328f2" }
 thiserror = "2"

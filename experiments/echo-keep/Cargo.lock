@@ -182,7 +182,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 [[package]]
 name = "keep"
 version = "0.0.0"
-source = "git+https://github.com/flyingrobots/keep?rev=27d5c38c1d13858d60ec0750d72bccfd6d8c2ab9#27d5c38c1d13858d60ec0750d72bccfd6d8c2ab9"
+source = "git+https://github.com/flyingrobots/keep?rev=e316d71abd0813be6c84eb5c96bc2258a5f328f2#e316d71abd0813be6c84eb5c96bc2258a5f328f2"
 dependencies = [
  "blake3",
  "cap-fs-ext",

@@ -3,7 +3,7 @@
 
 # Experimental Echo–Keep content backend
 
-This separate Rust 1.96 workspace pins Keep at `27d5c38c1d13858d60ec0750d72bccfd6d8c2ab9`. It does not enter Echo’s default workspace or change `echo-cas`’s Rust 1.90 dependency graph.
+This separate Rust 1.96 workspace pins Keep at `e316d71abd0813be6c84eb5c96bc2258a5f328f2`. It does not enter Echo’s default workspace or change `echo-cas`’s Rust 1.90 dependency graph.
 
 `IdentityBinding::from_source` computes raw BLAKE3 for Echo and the version-1 Keep domain, bytes, and exact-length hash from one bounded stream. The binding keeps Keep coordinates private and has no persisted encoding. `verify_source` rechecks both identities and length. Neither method proves presence, retention, publication, or durability.
 

@@ -3,7 +3,7 @@
   "providerAbi": "edict:target-provider@1.0.0",
   "provider": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:bc2532691d314499fee63a38bbd80e247e0cab4668a4f785640a8e4b7ca7a110"
+    "digest": "sha256:4106ea46c4673b348cca3ab827d0c6fb20b1aff6e7dfb3ff7099b6420f1da4b4"
   },
   "artifacts": [
     {
@@ -21,7 +21,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -40,7 +40,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -59,7 +59,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -78,7 +78,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -102,7 +102,7 @@
       "artifactKind": "generationProvenance",
       "resource": {
         "coordinate": "echo.edict-provider-generation-provenance@1",
-        "digest": "sha256:4bb9e209e27d8ca616be5b3fa5dc6257d601654e2e86fb7c124cdc983d535cc0"
+        "digest": "sha256:f0a183a862cf60277e239473b88e36c1acbadd11bd03749dd11a3a0195782492"
       },
       "source": {
         "kind": "generated",
@@ -112,7 +112,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -121,7 +121,7 @@
       "artifactKind": "reviewArtifact",
       "resource": {
         "coordinate": "echo.edict-provider-generation-review@1",
-        "digest": "sha256:537e797baa352f50a262c1a7fec5ea9b88591f773b537bda014291a0057449e8"
+        "digest": "sha256:6e4fe83cddfab2621f9e4df1715e1c438659b09cec0f79f28f6cb1808a1c72bd"
       },
       "source": {
         "kind": "generated",
@@ -131,7 +131,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -150,7 +150,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -169,7 +169,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },
@@ -188,7 +188,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:f814486dd76b6e2c47f94a342fd6cbf5dc5a8837a6a9b0d66356bfe7bf9afcfc"
+          "digest": "sha256:6f3e4a536ca471b9cf175178e7ffa853c5d1776fd5dac5ec190746052b8f757f"
         }
       }
     },

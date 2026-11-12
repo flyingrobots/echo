@@ -16,12 +16,11 @@
 //! Echo's lowerer:
 //! - `echo.dpo@1`: the adapter accepts the checked `echo.dpo@1` profile, calls
 //!   each operation under its namespace and carries that profile's catalog,
-//!   which declares none of the runtime intrinsics. The judgment refuses it at
-//!   its first mismatch, the profile's Target IR (`echo.span-ir/v1`) against the
-//!   adapter's ordered `echo.span-ir/v2`; the lowerer reports every judgment
-//!   refusal with one message, so this control shows that `echo.dpo@1` refuses
-//!   effect steps, not which check refuses them (native tests pin the catalog
-//!   refusal);
+//!   which declares none of the runtime intrinsics, while `echo.dpo@1` names
+//!   `echo.span-ir/v1` rather than the ordered `echo.span-ir/v2` the adapter
+//!   accepts. The lowerer reports every judgment refusal with one message, so
+//!   this control shows that `echo.dpo@1` refuses effect steps, not which of
+//!   those checks refuses them;
 //! - a substituted `echo.dpo@2`: a well-formed profile under the same
 //!   coordinate whose bytes differ from the checked one, served by a provider
 //!   copy whose manifest names it, with the adapter pinning it;

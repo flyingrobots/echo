@@ -611,8 +611,7 @@ fn read_with_adapter(edit: impl FnOnce(&mut V), catalog: V) -> V {
     )
 }
 
-/// The read catalog with its four failures removed as well, so only the
-/// runtime's fixed per-intrinsic failure table can refuse the read.
+/// The read catalog with its four failures removed.
 fn catalog_without_read_failures() -> V {
     let mut catalog = catalog_fixture();
     set(
@@ -627,10 +626,11 @@ fn catalog_without_read_failures() -> V {
 }
 
 /// A read whose exported effect declares no failures and whose adapter maps
-/// none, still bound to `node-atom-read`, whose catalog entry pins four. The
-/// compiler accepts it without a failure map; every judgment must refuse it
-/// on failure-set equality (amblicit#311).
-fn read_without_failures(catalog: V) -> V {
+/// none, still bound to `node-atom-read`, under `catalog`. The compiler accepts
+/// such a claim without a failure map (amblicit#311). With `unmapped`, the
+/// Core node's obstruction map and the lowered step's arms and failures are
+/// empty too, as the compiler emits them for an unmapped call.
+fn read_without_failures(catalog: V, unmapped: bool) -> V {
     let mut exports = captured_exports();
     let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
         panic!("effects")
@@ -645,7 +645,22 @@ fn read_without_failures(catalog: V) -> V {
         map([]),
     );
     let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
-    let (core, target, _) = compiler_fixture(&lowering);
+    let (mut core, mut target, _) = compiler_fixture(&lowering);
+    if unmapped {
+        let V::Array(nodes) = value_field_mut(core_body_mut(&mut core), "nodes") else {
+            panic!("nodes")
+        };
+        for node in nodes
+            .iter_mut()
+            .filter(|node| get(node, "kind") == &text("effect"))
+        {
+            set(node, "obstructionMap", map([]));
+        }
+        let step = first_step_mut(&mut target);
+        set(step, "obstructionArms", map([]));
+        set(step, "obstructionFailures", V::Array(vec![]));
+        repin_core(&core, &mut target);
+    }
     with_budget(
         &publication_from_parts(&core, &target, &exports, &lowering),
         READ_AMPLE,
@@ -713,13 +728,16 @@ fn entries() -> Vec<Entry> {
             "read-without-failures",
             false,
             Runtime::Refuses,
-            read_without_failures(catalog_fixture()),
+            read_without_failures(catalog_fixture(), false),
         ),
+        // The same read with every failure set empty: catalog, exports, adapter,
+        // Core map and lowered arms all agree, so only Echo's fixed
+        // per-intrinsic failure table (four failures for node-atom-read) refuses.
         entry(
             "read-catalog-without-failures",
             false,
             Runtime::Refuses,
-            read_without_failures(catalog_without_read_failures()),
+            read_without_failures(catalog_without_read_failures(), true),
         ),
         entry("slice-proven", true, Runtime::Accepts, proven_slice()),
         entry(

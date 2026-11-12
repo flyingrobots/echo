@@ -29,16 +29,19 @@ then compiles the same program under `echo.dpo@1` (which names `echo.span-ir/v1`
 and whose catalog declares none of the runtime intrinsics) and under a
 substituted `echo.dpo@2` profile, and requires Echo's lowerer to refuse each.
 The lowerer reports every judgment refusal with one message, so these controls
-show that each case is refused, not which check refuses it; the native tests
-in `crates/echo-edict-provider-verifier/tests/public_read_effect.rs` pin the
-catalog refusal under `echo.dpo@1`. It also compiles
+show that each case is refused, not which check refuses it. The native tests
+in `crates/echo-edict-provider-verifier/tests/public_read_effect.rs` pin that
+the `echo.dpo@1` profile refuses the `echo.dpo.intrinsics/v2` catalog this
+program's configuration carries. It also compiles
 `controls/zero-failure-read/ReadFact.edict`, which calls the read without a
 failure map, against the same lawpack with every failure removed from its
 exports and adapter; the compiler accepts that claim, and Echo's lowerer must
 refuse it because `node-atom-read` pins four failures. The shared verdict
-corpus carries the same case (`read-without-failures`, and
-`read-catalog-without-failures` with the catalog's failures removed as well),
-which the lowerer, the verifier and the runtime each refuse.
+corpus carries two synthetic relatives, which the lowerer, the verifier and the
+runtime each refuse: `read-without-failures` (exports and adapter without
+failures, catalog and lowered arms with four) and
+`read-catalog-without-failures` (every failure set empty, so only Echo's fixed
+failure table for `node-atom-read` disagrees).
 
 | File | Domain-framed digest |
 | --- | --- |

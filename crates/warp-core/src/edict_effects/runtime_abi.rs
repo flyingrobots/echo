@@ -101,3 +101,27 @@ pub(super) fn validate(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_reads_have_echo_owned_abi_coordinates_under_their_own_namespace() {
+        for namespace in ["echo.dpo@1", "echo.dpo@2"] {
+            for operation in ["outgoing-edge-read", "closure-read"] {
+                let name = format!("{namespace}.{operation}");
+                assert_eq!(
+                    contract(&name),
+                    Some(AbiContract {
+                        input: format!("{name}.input"),
+                        result: format!("{name}.result"),
+                    }),
+                    "{name}"
+                );
+            }
+        }
+        assert_eq!(contract("echo.dpo@2.edge-read"), None);
+    }
+}

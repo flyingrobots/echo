@@ -34,7 +34,7 @@ type RuntimeIntrinsic = (
     &'static [(&'static str, &'static str)],
 );
 
-const RUNTIME_INTRINSICS: [RuntimeIntrinsic; 6] = [
+const RUNTIME_INTRINSICS: [RuntimeIntrinsic; 8] = [
     (
         "node-atom-read",
         "read",
@@ -50,6 +50,30 @@ const RUNTIME_INTRINSICS: [RuntimeIntrinsic; 6] = [
     ("replace-atom", "replace", &[]),
     ("ensure-edge", "ensure", &[]),
     ("replace-edge", "replace", &[]),
+    // echo#982: the bounded-read graph primitives (echo#926) as effect
+    // steps, each failure under the authority class that route fixed.
+    (
+        "outgoing-edge-read",
+        "read",
+        &[
+            ("edgeSourceMissing", "resourceFault"),
+            ("edgeBoundExceeded", "resourceFault"),
+            ("edgeScanBoundExceeded", "resourceFault"),
+        ],
+    ),
+    (
+        "closure-read",
+        "read",
+        &[
+            ("closureStartMissing", "resourceFault"),
+            ("closureNodeBoundExceeded", "resourceFault"),
+            ("closureDepthBoundExceeded", "resourceFault"),
+            ("closureScanBoundExceeded", "resourceFault"),
+            ("closureWorkBoundExceeded", "resourceFault"),
+            ("closureSelectorInsufficient", "domainMappable"),
+            ("closureStorageMalformed", "integrityFault"),
+        ],
+    ),
 ];
 
 fn generate() -> ProviderPrimaryArtifactsV1 {

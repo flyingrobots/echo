@@ -152,6 +152,98 @@ mod tests {
         assert!(runtime_arms("echo.dpo@2.node-atom-read", arms(&[])).is_err());
     }
 
+    /// echo#982: the two graph reads are effect intrinsics under either
+    /// namespace, and each catalog name records exactly the tag the bounded
+    /// read route already records for the same failure, with the authority
+    /// class that route fixed for it (resource limits, an insufficient
+    /// selector and malformed storage stay three classes).
+    #[test]
+    fn graph_read_failures_name_the_bounded_read_tags_and_authority_classes() {
+        use crate::edict_read::GraphReadObstruction as O;
+        let edge = [
+            ("edgeSourceMissing", O::EdgeSourceMissing, "resourceFault"),
+            ("edgeBoundExceeded", O::EdgeBoundExceeded, "resourceFault"),
+            (
+                "edgeScanBoundExceeded",
+                O::EdgeScanBoundExceeded,
+                "resourceFault",
+            ),
+        ];
+        let closure = [
+            ("closureStartMissing", O::ClosureStartMissing, "resourceFault"),
+            (
+                "closureNodeBoundExceeded",
+                O::ClosureNodeBoundExceeded,
+                "resourceFault",
+            ),
+            (
+                "closureDepthBoundExceeded",
+                O::ClosureDepthBoundExceeded,
+                "resourceFault",
+            ),
+            (
+                "closureScanBoundExceeded",
+                O::ClosureScanBoundExceeded,
+                "resourceFault",
+            ),
+            (
+                "closureWorkBoundExceeded",
+                O::ClosureWorkBoundExceeded,
+                "resourceFault",
+            ),
+            (
+                "closureSelectorInsufficient",
+                O::ClosureSelectorInsufficient,
+                "domainMappable",
+            ),
+            (
+                "closureStorageMalformed",
+                O::ClosureStorageMalformed,
+                "integrityFault",
+            ),
+        ];
+        for namespace in ["echo.dpo@1", "echo.dpo@2"] {
+            for (operation, expected) in [
+                ("outgoing-edge-read", &edge[..]),
+                ("closure-read", &closure[..]),
+            ] {
+                let name = format!("{namespace}.{operation}");
+                let declared = failures(&name).unwrap_or_else(|| panic!("{name}"));
+                let actual = declared
+                    .iter()
+                    .map(|f| (f.catalog, f.runtime, f.authority))
+                    .collect::<Vec<_>>();
+                let wanted = expected
+                    .iter()
+                    .map(|(catalog, cause, authority)| (*catalog, cause.runtime_tag(), *authority))
+                    .collect::<Vec<_>>();
+                assert_eq!(actual, wanted, "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_graph_read_step_must_map_every_one_of_its_failures() {
+        let edge = "echo.dpo@2.outgoing-edge-read";
+        let all = ["edgeSourceMissing", "edgeBoundExceeded", "edgeScanBoundExceeded"];
+        let runtime = runtime_arms(edge, arms(&all)).expect("all three mapped");
+        assert_eq!(
+            runtime.keys().map(String::as_str).collect::<Vec<_>>(),
+            [
+                "echo.edge-bound-exceeded/v1",
+                "echo.edge-scan-bound-exceeded/v1",
+                "echo.edge-source-missing/v1",
+            ]
+        );
+        assert!(runtime_arms(edge, arms(&all[..2])).is_err());
+        // A node read's failure names mean nothing on a graph read.
+        assert!(runtime_arms(
+            edge,
+            arms(&["edgeSourceMissing", "edgeBoundExceeded", "atomMissing"])
+        )
+        .is_err());
+    }
+
     #[test]
     fn the_table_is_scoped_by_intrinsic() {
         // The read's names mean nothing on a mutation or an unknown identity.

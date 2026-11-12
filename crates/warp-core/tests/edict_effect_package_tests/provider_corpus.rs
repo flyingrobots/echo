@@ -656,6 +656,14 @@ fn read_without_failures(catalog: V, unmapped: bool) -> V {
         {
             set(node, "obstructionMap", map([]));
         }
+        // An unmapped call binds no obstruction payloads, so the body declares
+        // no obstruction binders either.
+        let V::Array(locals) = value_field_mut(core_body_mut(&mut core), "locals") else {
+            panic!("locals")
+        };
+        locals.retain(
+            |local| !matches!(get(local, "id"), V::Text(id) if id.starts_with("obstruction.")),
+        );
         let step = first_step_mut(&mut target);
         set(step, "obstructionArms", map([]));
         set(step, "obstructionFailures", V::Array(vec![]));

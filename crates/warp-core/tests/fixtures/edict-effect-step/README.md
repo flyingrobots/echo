@@ -1,0 +1,46 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# Public compiler read-effect program under `echo.dpo@2`
+
+`source/` holds authored Amblicit input only: a lawpack whose adapter accepts
+the `echo.dpo@2` effect target profile and binds its `readFact` effect to
+`echo.dpo@2.node-atom-read`, and one program, `ReadFact.edict`, that reads one
+atom and returns it, mapping each read failure to a declared obstruction. The
+coordinates under `consumer.effects` are neutral; Echo interprets none of them.
+The configuration carries the `echo.dpo.intrinsics/v2` catalog the profile
+pins, a graph schema with one node type (`0x5b…`) holding one atom type
+(`0x5c…`), and a footprint law that reads that node type and writes nothing.
+
+The hexadecimal files are unchanged canonical CBOR written by the public
+compiler, Amblicit `0999db831422f97bd013d3d89a38fbb6f9e8ce96`: the package and
+verifier report it wrote through the checked provider package in
+`schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
+configuration its lawpack build wrote. Nothing here was decoded and
+re-encoded, and no Core or Target IR was authored by hand. `ReadFact.edict`
+carries the digest of the lawpack the same compiler built from
+`source/edict.lawpack.json`.
+
+`scripts/verify-edict-provider-host-v1.sh` rebuilds these bytes in CI with
+`xtask --example effect_step_publication --check`. It builds the lawpack,
+compiles the program twice, and requires the output to equal these files. It
+then compiles the same program under `echo.dpo@1` (whose catalog declares no
+effect intrinsic) and under a substituted `echo.dpo@2` profile, and requires
+Echo's lowerer to refuse each.
+
+| File | Domain-framed digest |
+| --- | --- |
+| `read-executable-operation-package.hex` | `echo:operation-package:v1` `7a3955e1d08a5d16444c6374cb744fa073da7e197ea98ec6806a1158f745871b` |
+
+`crates/warp-core/tests/executable_operation_pipeline/public_read_effect.rs`
+fixes that pin independently of the bytes, admits the package under the
+runtime owner's exact policy, installs it, runs it over a graph that holds the
+fact and over one that does not, and refuses another package under the same
+policy. `crates/echo-edict-provider-verifier/tests/public_read_effect.rs`
+rebuilds the lowering request from these files and requires the native lowerer
+to reproduce the package and the separate verifier to accept it. The compiler
+does not publish its result projection, so that request carries a stand-in,
+which the effect route binds by digest but never reads.
+
+This is admission, installation and private execution evidence. It does not
+establish an invocation Action, a causal Tick, WAL retention or a receipt.

@@ -16,6 +16,11 @@
   namespace through one implementation of each (an owner-approved exception to
   "One Current Version", #985). `echo.dpo@1`, its digest and everything pinned
   to it are unchanged.
+  A program that reads an atom through `echo.dpo@2.node-atom-read`, compiled
+  from public source by Amblicit `0999db83`, is lowered, separately verified,
+  admitted and run; CI recompiles it to the retained package and report, and
+  requires the lowerer to refuse it under `echo.dpo@1` and under a substituted
+  `echo.dpo@2` profile.
 - The public provider components lower and verify authored effect programs.
   For an `edict-effect-program/v1` target configuration the lowerer component
   emits the judged effect package, and the separate verifier component accepts
@@ -205,6 +210,12 @@
 
 ### Fixed
 
+- The lowerer, verifier and runtime effect judgments check a lawpack's `exports`
+  pin and each target adapter pin under the coordinate the reference names, as
+  the compiler frames them, instead of the fixed `edict.lawpack-exports/v1` and
+  `edict.lawpack-adapter/v1` domains. Every compiler-produced program with an
+  effect step was refused before; the synthetic effect-program corpus is
+  regenerated with the compiler's framing.
 - pulldown-cmark is updated to 0.13.6, and `xtask` requires at least that
   version, fixing RUSTSEC-2026-0433 (quadratic parsing of nested image
   wikilinks). No advisory exceptions are added. The provider package's

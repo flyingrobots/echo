@@ -7203,6 +7203,9 @@ mod current_effect_publication_fixture;
 #[path = "executable_operation_pipeline/public_flat_effect.rs"]
 mod public_flat_effect;
 
+#[path = "executable_operation_pipeline/public_read_effect.rs"]
+mod public_read_effect;
+
 fn install_effect_catalog_fixture(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     use current_effect_publication_fixture as publication;
     let bytes = publication::encoded(&publication::package(&publication::program()));

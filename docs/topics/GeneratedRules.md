@@ -1168,10 +1168,23 @@ This second coordinate is an owner-approved, bounded exception to "One
 Current Version" (flyingrobots/echo#985): `echo.dpo@1` stays because existing
 lawpack adapters, Jedit lawpacks and graph-read fixtures pin it, and a
 consumer opts into effect steps by pinning `echo.dpo@2`. No other coordinate
-or alias is admitted. The public compiler must select `echo.dpo@2` for its
-Target IR lowering (flyingrobots/amblicit#310) before a public program can
-use it, and mutation intrinsics, which declare no failures, are not yet
-callable from source (flyingrobots/amblicit#311). Those flat programs
+or alias is admitted. The public compiler selects `echo.dpo@2` for ordered
+`echo.span-ir/v2` lowering from Amblicit `0999db83` (flyingrobots/amblicit#310).
+A program that reads one atom through `echo.dpo@2.node-atom-read` travels the
+public path and runs on the generic runtime
+(`crates/warp-core/tests/fixtures/edict-effect-step`); the same program under
+`echo.dpo@1`, or under a substituted `echo.dpo@2` profile, is refused at the
+lowerer. Mutation intrinsics, which declare no failures, are not yet callable
+from source (flyingrobots/amblicit#311).
+
+The lawpack pins the effect judgments check are framed the way the compiler frames
+them: the lawpack's `exports` and each target adapter's `adapter` digest use
+the coordinate the reference names as their digest domain. The lowerer, the
+verifier and the runtime previously used the fixed artifact domains
+`edict.lawpack-exports/v1` and `edict.lawpack-adapter/v1` there, so every
+compiler-produced program with an effect step was refused; only flat programs,
+which skip that relation, had passed. The synthetic effect-program corpus is
+regenerated with the compiler's framing. Those flat programs
 pass only because the judgment and the runtime compare the profile's Target IR
 with the adapter's accepted ordered IR for effect steps alone, the tolerance the
 bounded-read route already relies on. The verifier report names the compiler's

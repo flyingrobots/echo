@@ -77,13 +77,14 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     -D warnings
 
 # Public compiler witnesses for typed outgoing-edge and guided closure reads,
-# and for a flat authored effect program.
+# for a flat authored effect program, and for an authored effect program with
+# an effect step under the echo.dpo@2 effect target profile.
 # The unmodified Amblicit compiler, built from a pinned public revision,
 # compiles authored source through the checked provider package and its
 # separate verifier; the predecessor package must refuse the same source.
 # Building the compiler is heavy, so a local run must opt in explicitly.
 if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
-  readonly AMBLICIT_REVISION=66bf6bac369f67e32ddaee099c3198bd30f885a1
+  readonly AMBLICIT_REVISION=0999db831422f97bd013d3d89a38fbb6f9e8ce96
   readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
   readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
   readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"
@@ -133,5 +134,17 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --old-provider "$witness_dir/old-effect-provider/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-program" \
     --work-root "$witness_dir/effect-run" \
+    --check
+
+  # Public compiler witness for an authored effect program with an effect step
+  # under the echo.dpo@2 effect target profile (#985): the checked lowerer
+  # emits its package and the separate verifier accepts it; the same program
+  # under echo.dpo@1, and under a substituted echo.dpo@2 profile, must be
+  # refused at Echo's lowerer.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-step" \
+    --work-root "$witness_dir/effect-step-run" \
     --check
 fi

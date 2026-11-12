@@ -201,9 +201,10 @@
   sandbox escape through a trailing slash) and RUSTSEC-2026-0486 (unsound
   rustix extended-attribute calls). rustix 1.1.6 requires libc 0.2.182 and
   linux-raw-sys 0.12. The isolated Echo–Keep experiment pins Keep
-  `e316d71abd08`, the first Keep `main` commit that requires rustix 1.1.6,
-  cap-std 4.0.3 and blake3 1.8.7; its library source differs from the
-  previous pin only in those requirements and one platform-profile test. The
+  `e316d71abd08`, the first first-parent Keep `main` commit that requires
+  rustix 1.1.6, cap-std 4.0.3 and blake3 1.8.7; its library source differs
+  from the previous pin only in those requirements and one platform-profile
+  test. The
   provider-host test lockfile takes the same patched releases. No
   advisory exceptions are added. The provider package's `provider.digest`
   changes; consumers that pin it must update the pin. Component bytes are

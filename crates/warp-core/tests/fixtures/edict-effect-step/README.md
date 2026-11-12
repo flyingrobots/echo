@@ -25,13 +25,20 @@ carries the digest of the lawpack the same compiler built from
 `scripts/verify-edict-provider-host-v1.sh` rebuilds these bytes in CI with
 `xtask --example effect_step_publication --name read --check`. It builds the lawpack,
 compiles the program twice, and requires the output to equal these files. It
-then compiles the same program under `echo.dpo@1` (whose catalog declares no
-effect intrinsic) and under a substituted `echo.dpo@2` profile, and requires
-Echo's lowerer to refuse each. It also compiles
+then compiles the same program under `echo.dpo@1` (which names `echo.span-ir/v1`
+and whose catalog declares none of the runtime intrinsics) and under a
+substituted `echo.dpo@2` profile, and requires Echo's lowerer to refuse each.
+The lowerer reports every judgment refusal with one message, so these controls
+show that each case is refused, not which check refuses it; the native tests
+in `crates/echo-edict-provider-verifier/tests/public_read_effect.rs` pin the
+catalog refusal under `echo.dpo@1`. It also compiles
 `controls/zero-failure-read/ReadFact.edict`, which calls the read without a
 failure map, against the same lawpack with every failure removed from its
 exports and adapter; the compiler accepts that claim, and Echo's lowerer must
-refuse it because `node-atom-read` pins four failures.
+refuse it because `node-atom-read` pins four failures. The shared verdict
+corpus carries the same case (`read-without-failures`, and
+`read-catalog-without-failures` with the catalog's failures removed as well),
+which the lowerer, the verifier and the runtime each refuse.
 
 | File | Domain-framed digest |
 | --- | --- |

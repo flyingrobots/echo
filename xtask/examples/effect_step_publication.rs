@@ -16,7 +16,12 @@
 //! Echo's lowerer:
 //! - `echo.dpo@1`: the adapter accepts the checked `echo.dpo@1` profile, calls
 //!   each operation under its namespace and carries that profile's catalog,
-//!   which declares no effect intrinsic;
+//!   which declares none of the runtime intrinsics. The judgment refuses it at
+//!   its first mismatch, the profile's Target IR (`echo.span-ir/v1`) against the
+//!   adapter's ordered `echo.span-ir/v2`; the lowerer reports every judgment
+//!   refusal with one message, so this control shows that `echo.dpo@1` refuses
+//!   effect steps, not which check refuses them (native tests pin the catalog
+//!   refusal);
 //! - a substituted `echo.dpo@2`: a well-formed profile under the same
 //!   coordinate whose bytes differ from the checked one, served by a provider
 //!   copy whose manifest names it, with the adapter pinning it;
@@ -621,8 +626,8 @@ fn main() -> Result<()> {
     }
     println!("PUBLIC_EFFECT_STEP_COMPILE_OK {}", layout().name);
 
-    // The same program written against echo.dpo@1, whose catalog declares no
-    // effect intrinsic.
+    // The same program written against echo.dpo@1, which names echo.span-ir/v1
+    // and whose catalog declares none of the runtime intrinsics.
     let mut dpo_application = authored_application.clone();
     dpo_application["target"]["profile"] = serde_json::json!("echo.dpo@1");
     let catalog = read(&arguments.provider.join(DPO_CATALOG))?;

@@ -23,6 +23,7 @@ const RETAINED: &[(&str, &str)] = retained![
     "ensure-node-control",
     "echo-dpo-2-ensure-node-control",
     "read-without-failures",
+    "read-catalog-without-failures",
     "slice-proven",
     "slice-unproven",
     "slice-other-operand",

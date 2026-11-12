@@ -11,7 +11,8 @@ selector. It follows two offsets down a tree whose branch atoms carry their
 split, so one read covers both boundary paths of an edit.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `66bf6bac369f67e32ddaee099c3198bd30f885a1`, through the
+compiler, Amblicit `66bf6bac369f67e32ddaee099c3198bd30f885a1` (CI now reproduces them
+byte for byte with `0034605467fcace397e7e30e4219a74aca57f183`), through the
 checked provider package in `schemas/edict-provider/package/v1`. Nothing here
 was decoded and re-encoded, and no Core or Target IR was authored by hand. The
 authored programs carry the digest of the lawpack that the same compiler built

@@ -611,11 +611,26 @@ fn read_with_adapter(edit: impl FnOnce(&mut V), catalog: V) -> V {
     )
 }
 
+/// The read catalog with its four failures removed as well, so only the
+/// runtime's fixed per-intrinsic failure table can refuse the read.
+fn catalog_without_read_failures() -> V {
+    let mut catalog = catalog_fixture();
+    set(
+        value_field_mut(
+            value_field_mut(&mut catalog, "intrinsics"),
+            "echo.dpo@1.node-atom-read",
+        ),
+        "effectFailures",
+        map([]),
+    );
+    catalog
+}
+
 /// A read whose exported effect declares no failures and whose adapter maps
 /// none, still bound to `node-atom-read`, whose catalog entry pins four. The
 /// compiler accepts it without a failure map; every judgment must refuse it
 /// on failure-set equality (amblicit#311).
-fn read_without_failures() -> V {
+fn read_without_failures(catalog: V) -> V {
     let mut exports = captured_exports();
     let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
         panic!("effects")
@@ -629,11 +644,7 @@ fn read_without_failures() -> V {
         "failureMappings",
         map([]),
     );
-    let lowering = lowering_fixture_inputs(
-        Some(catalog_fixture()),
-        Some(exports.clone()),
-        Some(adapter),
-    );
+    let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
     let (core, target, _) = compiler_fixture(&lowering);
     with_budget(
         &publication_from_parts(&core, &target, &exports, &lowering),
@@ -702,7 +713,13 @@ fn entries() -> Vec<Entry> {
             "read-without-failures",
             false,
             Runtime::Refuses,
-            read_without_failures(),
+            read_without_failures(catalog_fixture()),
+        ),
+        entry(
+            "read-catalog-without-failures",
+            false,
+            Runtime::Refuses,
+            read_without_failures(catalog_without_read_failures()),
         ),
         entry("slice-proven", true, Runtime::Accepts, proven_slice()),
         entry(
@@ -1057,6 +1074,7 @@ const RETAINED: &[(&str, &str)] = retained![
     "ensure-node-control",
     "echo-dpo-2-ensure-node-control",
     "read-without-failures",
+    "read-catalog-without-failures",
     "slice-proven",
     "slice-unproven",
     "slice-other-operand",

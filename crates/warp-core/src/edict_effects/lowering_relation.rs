@@ -99,10 +99,7 @@ pub(super) fn validate<'a>(
     if imports.next().is_some() || field(import, "ref")? != reference {
         return Err(Error::UnsupportedProgram);
     }
-    pinned(
-        field(&lawpack, "exports")?,
-        digest("edict.lawpack-exports/v1", exports).map_err(|_| Error::InvalidArtifact)?,
-    )?;
+    owner_pinned(field(&lawpack, "exports")?, exports)?;
     let mut matching = array(field(&lawpack, "targetAdapters")?)?
         .iter()
         .filter(|entry| {
@@ -120,10 +117,7 @@ pub(super) fn validate<'a>(
         "id",
         text_field(target_artifact, "domain")?,
     )?;
-    pinned(
-        field(entry, "adapter")?,
-        digest("edict.lawpack-adapter/v1", &adapter).map_err(|_| Error::InvalidArtifact)?,
-    )?;
+    owner_pinned(field(entry, "adapter")?, &adapter)?;
     let alias = alias(
         source,
         &coordinate,
@@ -239,6 +233,16 @@ pub(super) fn validate<'a>(
     }
     Ok(signatures)
 }
+/// A lawpack pin: the compiler frames the exports and adapter digests under
+/// the coordinate each reference names, not under a fixed artifact domain.
+fn owner_pinned(reference: &Value, value: &Value) -> Result<(), Error> {
+    let owner = text_field(reference, "id")?;
+    pinned(
+        reference,
+        digest(owner, value).map_err(|_| Error::InvalidArtifact)?,
+    )
+}
+
 fn pinned(reference: &Value, expected: [u8; 32]) -> Result<(), Error> {
     exact_fields(reference, &["id", "digest"])?;
     if text_field(reference, "id")?.is_empty() {

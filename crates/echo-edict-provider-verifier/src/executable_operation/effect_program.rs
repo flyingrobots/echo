@@ -334,10 +334,7 @@ fn relation<'a>(
     if imports.next().is_some() || get(import, "ref")? != reference {
         return Err(());
     }
-    pinned(
-        get(&lawpack, "exports")?,
-        identity("edict.lawpack-exports/v1", exports)?,
-    )?;
+    owner_pinned(get(&lawpack, "exports")?, exports)?;
     let mut matching = list(get(&lawpack, "targetAdapters")?)?
         .iter()
         .filter(|entry| map_field(entry, "acceptedTargetProfile") == Some(profile_reference));
@@ -350,10 +347,7 @@ fn relation<'a>(
         "id",
         string(get(target_artifact, "domain")?)?,
     )?;
-    pinned(
-        get(entry, "adapter")?,
-        identity("edict.lawpack-adapter/v1", &adapter)?,
-    )?;
+    owner_pinned(get(entry, "adapter")?, &adapter)?;
     let alias = alias(
         source,
         &lawpack_coordinate,
@@ -897,6 +891,13 @@ fn identity(domain: &str, value: &Value) -> Check<Value> {
     digest(domain, value)
         .map(|bytes| Value::Bytes(bytes.to_vec()))
         .map_err(|_| ())
+}
+
+/// A lawpack pin: the compiler frames the exports and adapter digests under
+/// the coordinate each reference names, not under a fixed artifact domain.
+fn owner_pinned(reference: &Value, value: &Value) -> Check<()> {
+    let owner = string(get(reference, "id")?)?;
+    pinned(reference, identity(owner, value)?)
 }
 
 fn pinned(reference: &Value, expected: Value) -> Check<()> {

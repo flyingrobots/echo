@@ -354,13 +354,18 @@ pub fn lowering_fixture_in(
         ]),
     );
     set(&mut target_profile, "intrinsics", intrinsics_ref);
-    let pin = |domain, value: &V| V::Array(vec![text("sha256"), artifact_identity(domain, value)]);
+    let pin =
+        |domain: &str, value: &V| V::Array(vec![text("sha256"), artifact_identity(domain, value)]);
+    // The compiler frames lawpack pins under the coordinate each one names.
+    let owner = |reference: &V| {
+        let V::Text(owner) = get(reference, "id") else {
+            panic!("pin id")
+        };
+        owner.clone()
+    };
     let mut reference = get(&lawpack, "exports").clone();
-    set(
-        &mut reference,
-        "digest",
-        pin("edict.lawpack-exports/v1", &exports),
-    );
+    let exports_owner = owner(&reference);
+    set(&mut reference, "digest", pin(&exports_owner, &exports));
     set(&mut lawpack, "exports", reference);
     let mut adapters = get(&lawpack, "targetAdapters").clone();
     let V::Array(entries) = &mut adapters else {
@@ -380,11 +385,8 @@ pub fn lowering_fixture_in(
     );
     set(&mut entries[0], "acceptedTargetProfile", target_profile_ref);
     let mut reference = get(&entries[0], "adapter").clone();
-    set(
-        &mut reference,
-        "digest",
-        pin("edict.lawpack-adapter/v1", &adapter),
-    );
+    let adapter_owner = owner(&reference);
+    set(&mut reference, "digest", pin(&adapter_owner, &adapter));
     set(&mut entries[0], "adapter", reference);
     set(&mut lawpack, "targetAdapters", adapters);
     let original_source = captured(include_str!(

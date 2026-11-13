@@ -13,6 +13,9 @@ mod effect_intent;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+#[cfg(test)]
+mod function_precondition_tests;
+mod function_preconditions;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -84,6 +87,9 @@ struct Fact {
 #[derive(Clone, Copy)]
 struct Function<'a> {
     params: &'a [Value],
+    /// Static preconditions over `params`; empty for imported helpers and
+    /// for source functions without them.
+    preconditions: &'a [Value],
     body: &'a Value,
     result: &'a str,
     source: bool,
@@ -179,6 +185,7 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
                     name.to_owned(),
                     Function {
                         params: list(get(implementation, "params")?)?,
+                        preconditions: &[],
                         body,
                         result: string(get(item, "returnType")?)?,
                         source: false,
@@ -207,8 +214,11 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
         {
             return Err(());
         }
-        exact(function, &["params", "returnType", "body"])?;
-        let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
+        let coordinate = string(get(core, "coordinate")?)?;
+        let preconditions =
+            function_preconditions::declared(function, coordinate, get(core, "functions")?)
+                .map_err(|_| ())?;
+        let name = format!("{coordinate}.{name}");
         if name.starts_with("core.")
             || effect_names.contains(name.as_str())
             || functions
@@ -216,6 +226,7 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
                     name,
                     Function {
                         params: list(get(function, "params")?)?,
+                        preconditions,
                         body: get(function, "body")?,
                         result: string(get(function, "returnType")?)?,
                         source: true,
@@ -242,6 +253,23 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
     }
+    // Every call to a precondition-bearing function proves its preconditions
+    // from the facts that dominate it, wherever it is in the module.
+    let contracts = proof
+        .functions
+        .iter()
+        .filter(|(_, function)| !function.preconditions.is_empty())
+        .map(|(name, function)| {
+            (
+                name.clone(),
+                function_preconditions::Contract {
+                    params: function.params,
+                    preconditions: function.preconditions,
+                },
+            )
+        })
+        .collect();
+    function_preconditions::check_calls(core, &contracts).map_err(|_| ())?;
     Ok(proof)
 }
 impl<'a> Judgment<'a> {
@@ -462,6 +490,14 @@ impl<'a> Judgment<'a> {
         let mut depth = 0;
         for parameter in function.params {
             depth = depth.max(shape(&self.declaration(parameter, &mut scope)?)?.3);
+        }
+        // Each precondition is a typed predicate over the parameters alone,
+        // judged assuming the ones before it. It is never evaluated, so it
+        // adds no cost. The body may assume them all: every call re-proves
+        // them.
+        for precondition in function.preconditions {
+            self.predicate(precondition, &scope, function.source, prefix)?;
+            self.proven.push(precondition);
         }
         let mut pending = BTreeMap::new();
         for local in list(get(function.body, "locals")?)? {

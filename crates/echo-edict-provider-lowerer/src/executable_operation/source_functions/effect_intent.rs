@@ -11,6 +11,7 @@ use super::{
     exact, get, includes, judged, list, members, number, shape, string, Check, Cost, Judgment, Ty,
     Value,
 };
+use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
 use std::collections::BTreeMap;
 
@@ -25,11 +26,33 @@ const EFFECT_COUNT_CEILING: usize = 1024;
 /// 128-byte observations, two 64-byte authorizations and the 64-byte value.
 const READ_RECORDS: u64 = 448;
 
+/// What a recording frame retains for one root-warp range beside its bucket:
+/// the source observation, the source and range authorizations, and the
+/// range's own observation row.
+const RANGE_RECORDS: u64 = 384;
+/// What a recording frame retains for each scanned bucket edge beyond the
+/// 128 bytes a plain view reserves: the second recorded row buffer.
+const RECORDED_EDGE_BYTES: u64 = 128;
+/// What a recording frame retains for one root-warp closure node beside its
+/// atom: two observations and two authorizations.
+const NODE_RECORDS: u64 = 384;
+
 /// What the lowering relation established about one effect node.
 pub(in crate::executable_operation) struct EffectSite {
     pub(in crate::executable_operation) intrinsic: String,
     pub(in crate::executable_operation) input: String,
     pub(in crate::executable_operation) output: String,
+}
+
+impl EffectSite {
+    /// The graph-read operation this site calls, if it calls one.
+    pub(in crate::executable_operation) fn graph_read(&self) -> Option<&'static str> {
+        match operation(&self.intrinsic)? {
+            "outgoing-edge-read" => Some("outgoing-edge-read"),
+            "closure-read" => Some("closure-read"),
+            _ => None,
+        }
+    }
 }
 
 /// Judges the selected intent's body with the module's helpers.
@@ -38,6 +61,7 @@ pub(in crate::executable_operation) fn judge(
     exports: &Value,
     intent: &Value,
     sites: &BTreeMap<usize, EffectSite>,
+    graph: Option<GraphReads<'_>>,
 ) -> Check<()> {
     // Core names an unsigned width directly; the runtime has no `Int` kind.
     // A nominal entry has exactly its kind, contract and representation.
@@ -52,7 +76,7 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
-    judged(core, exports, 0)?.effect_intent(intent, sites)
+    judged(core, exports, 0)?.effect_intent(intent, sites, graph)
 }
 
 impl<'a> Judgment<'a> {
@@ -64,6 +88,7 @@ impl<'a> Judgment<'a> {
         &mut self,
         intent: &'a Value,
         sites: &BTreeMap<usize, EffectSite>,
+        graph: Option<GraphReads<'_>>,
     ) -> Check<()> {
         self.proven.clear();
         self.branch.clear();
@@ -206,8 +231,13 @@ impl<'a> Judgment<'a> {
                         return Err(());
                     }
                     let output = self.ty(&site.output, 0)?;
-                    let charge = abi(&site.intrinsic, &expected, &output)?;
-                    if operation(&site.intrinsic) != Some("node-atom-read") {
+                    let charge = match site.graph_read() {
+                        Some(read) => self.graph_read(read, &expected, &output, graph)?,
+                        None => abi(&site.intrinsic, &expected, &output)?,
+                    };
+                    if operation(&site.intrinsic) != Some("node-atom-read")
+                        && site.graph_read().is_none()
+                    {
                         mutations = mutations.checked_add(1).ok_or(())?;
                     }
                     let arms = members(get(node, "obstructionMap")?)?;
@@ -342,5 +372,208 @@ fn abi(intrinsic: &str, input: &Ty, output: &Ty) -> Check<Cost> {
         "ensure-edge" => mutation(&["warpId", "edgeId", "fromId", "toId", "edgeType"]),
         "replace-edge" => mutation(&["warpId", "edgeId", "expectedToId", "toId"]),
         _ => Err(()),
+    }
+}
+
+/// The word every closure position and count is.
+const WORD: Ty = Ty::Word(u64::MAX);
+/// The 32-byte identifiers of warps, nodes, edges and types.
+const ID: Ty = Ty::Bytes(32, 32);
+
+/// The capacities and row types a closure read's ABI fixes.
+struct ClosureAbi<'t> {
+    node: &'t Ty,
+    guide: &'t Ty,
+    nodes: u64,
+    atom: u64,
+    occurrences: u64,
+    edge_types: u64,
+}
+
+/// A record of exactly `names`, each of whose representations is `expected`.
+fn all_are(fields: &BTreeMap<String, Ty>, names: &[&str], expected: &Ty) -> bool {
+    fields.len() == names.len()
+        && names
+            .iter()
+            .all(|name| fields.get(*name).map(Ty::representation) == Some(expected))
+}
+
+/// A bounded list of `item`s whose capacity is within `1..=ceiling`.
+fn bounded_list(ty: &Ty, ceiling: u64) -> Check<(&Ty, u64)> {
+    match ty.representation() {
+        Ty::List(Some(item), max) if (1..=ceiling).contains(max) => Ok((item, *max)),
+        _ => Err(()),
+    }
+}
+
+fn record(ty: &Ty) -> Check<&BTreeMap<String, Ty>> {
+    match ty.representation() {
+        Ty::Record(fields) => Ok(fields),
+        _ => Err(()),
+    }
+}
+
+/// `outgoing-edge-read` takes `{ warpId, nodeId, edgeType }` and returns a
+/// bounded list of `{ edgeId, toId }`, as on the bounded-read route.
+fn edge_abi(input: &BTreeMap<String, Ty>, output: &Ty) -> Check<()> {
+    let (row, _) = bounded_list(output, 65_536)?;
+    if all_are(input, &["warpId", "nodeId", "edgeType"], &ID)
+        && all_are(record(row)?, &["edgeId", "toId"], &ID)
+    {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+/// `closure-read` takes `{ warpId, nodeId, edgeTypes, maxNodes, maxDepth,
+/// guide }` and returns `{ nodes, edges, occurrences }`; every occurrence
+/// carries exactly the guide type the read is started with.
+fn closure_abi<'t>(input: &'t BTreeMap<String, Ty>, output: &'t Ty) -> Check<ClosureAbi<'t>> {
+    let field = |fields: &'t BTreeMap<String, Ty>, name: &str| fields.get(name).ok_or(());
+    let (edge_type, edge_types) = bounded_list(field(input, "edgeTypes")?, 16)?;
+    let guide = field(input, "guide")?;
+    if input.len() != 6
+        || edge_type.representation() != &ID
+        || ["warpId", "nodeId"]
+            .iter()
+            .any(|name| input.get(*name).map(Ty::representation) != Some(&ID))
+        || ["maxNodes", "maxDepth"]
+            .iter()
+            .any(|name| input.get(*name).map(Ty::representation) != Some(&WORD))
+    {
+        return Err(());
+    }
+    let result = record(output)?;
+    if result.len() != 3 {
+        return Err(());
+    }
+    let (node, nodes) = bounded_list(field(result, "nodes")?, 4096)?;
+    let row = record(node)?;
+    let atom = match field(row, "atomBytes")?.representation() {
+        Ty::Bytes(0, max) if *max > 0 && *max <= STORAGE_CEILING => *max,
+        _ => return Err(()),
+    };
+    let (edge, _) = bounded_list(field(result, "edges")?, 65_536)?;
+    let edge = record(edge)?;
+    let (occurrence, occurrences) = bounded_list(field(result, "occurrences")?, 65_536)?;
+    let occurrence = record(occurrence)?;
+    let conforming = row.len() == 4
+        && ["nodeId", "nodeType"]
+            .iter()
+            .all(|name| row.get(*name).map(Ty::representation) == Some(&ID))
+        && row.get("atomType").map(Ty::representation) == Some(&Ty::Bytes(0, 32))
+        && edge.len() == 4
+        && edge.get("edgeId").map(Ty::representation) == Some(&ID)
+        && ["from", "slot", "node"]
+            .iter()
+            .all(|name| edge.get(*name).map(Ty::representation) == Some(&WORD))
+        && occurrence.len() == 4
+        && ["node", "edge", "depth"]
+            .iter()
+            .all(|name| occurrence.get(*name).map(Ty::representation) == Some(&WORD))
+        && occurrence.get("guide") == Some(guide);
+    if !conforming {
+        return Err(());
+    }
+    Ok(ClosureAbi {
+        node,
+        guide,
+        nodes,
+        atom,
+        occurrences,
+        edge_types,
+    })
+}
+
+fn times(cost: Cost, count: u64) -> Check<Cost> {
+    Ok(Cost {
+        steps: cost.steps.checked_mul(count).ok_or(())?,
+        bytes: cost.bytes.checked_mul(count).ok_or(())?,
+    })
+}
+
+impl Judgment<'_> {
+    /// Checks a graph read's ABI and returns the work a recording frame
+    /// charges for it on root-warp storage: the plain view's charge for the
+    /// declared scan allowance and the result (`read_cost`), plus what the
+    /// frame records — every range and closure node it retains and the second
+    /// row buffer of every scanned edge. The allowance is charged to every
+    /// graph read, as on the bounded-read route.
+    fn graph_read(
+        &mut self,
+        read: &str,
+        input: &Ty,
+        output: &Ty,
+        graph: Option<GraphReads<'_>>,
+    ) -> Check<Cost> {
+        let graph = graph.ok_or(())?;
+        let fields = record(input)?;
+        let scans = graph.max_edge_scans;
+        let records = if read == "outgoing-edge-read" {
+            edge_abi(fields, output)?;
+            Cost {
+                steps: 1,
+                bytes: RANGE_RECORDS,
+            }
+        } else {
+            let closure = closure_abi(fields, output)?;
+            self.selector(graph.selector, closure.node, closure.guide)?;
+            let ranges = closure
+                .occurrences
+                .checked_mul(closure.edge_types)
+                .ok_or(())?;
+            let node = Cost {
+                steps: 2,
+                bytes: NODE_RECORDS.checked_add(closure.atom).ok_or(())?,
+            };
+            let range = Cost {
+                steps: 1,
+                bytes: RANGE_RECORDS,
+            };
+            times(node, closure.nodes)?.plus(times(range, ranges)?)?
+        };
+        super::read_cost::read_cost(output, &self.completed, scans)?
+            .plus(records)?
+            .plus(Cost {
+                steps: 0,
+                bytes: scans.checked_mul(RECORDED_EDGE_BYTES).ok_or(())?,
+            })
+    }
+
+    /// The declared selector is one of the module's own source helpers,
+    /// `{ guide, depth, slot, parent, child } -> { expand, guide, wellFormed,
+    /// sufficient }`, over the closure's own node and guide types.
+    fn selector(&mut self, name: Option<&str>, node: &Ty, guide: &Ty) -> Check<()> {
+        let coordinate = string(get(self.core, "coordinate")?)?;
+        let qualified = format!("{coordinate}.{}", name.ok_or(())?);
+        let function = *self.functions.get(&qualified).ok_or(())?;
+        let [parameter] = function.params else {
+            return Err(());
+        };
+        if !function.source {
+            return Err(());
+        }
+        let candidate = self.ty(string(get(parameter, "type")?)?, 0)?;
+        let decision = self.ty(function.result, 0)?;
+        let candidate = record(&candidate)?;
+        let decision = record(&decision)?;
+        let conforming = candidate.len() == 5
+            && ["depth", "slot"]
+                .iter()
+                .all(|name| candidate.get(*name).map(Ty::representation) == Some(&WORD))
+            && candidate.get("guide") == Some(guide)
+            && candidate.get("parent") == Some(node)
+            && candidate.get("child") == Some(node)
+            && decision.len() == 4
+            && ["expand", "wellFormed", "sufficient"]
+                .iter()
+                .all(|name| decision.get(*name).map(Ty::representation) == Some(&Ty::Bool))
+            && decision.get("guide") == Some(guide);
+        if conforming {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }

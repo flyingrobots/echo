@@ -38,8 +38,8 @@ pub(super) enum Instruction {
 }
 
 /// Package-declared graph-read ceilings and the bound closure selector.
-#[derive(Clone)]
-pub(super) struct GraphReads {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GraphReads {
     /// Bucket edges inspected per evaluation, matching or not.
     pub max_edge_scans: u64,
     /// Distinct nodes one closure read may materialize.

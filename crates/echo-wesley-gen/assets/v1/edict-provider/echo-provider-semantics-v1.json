@@ -499,6 +499,62 @@
           "guardSupport": true,
           "canParticipateInAtomicGuard": true,
           "failures": []
+        },
+        {
+          "operation": "outgoing-edge-read",
+          "effectKind": "read",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": [
+            {
+              "key": "edgeSourceMissing",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "edgeBoundExceeded",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "edgeScanBoundExceeded",
+              "authorityClass": "resourceFault"
+            }
+          ]
+        },
+        {
+          "operation": "closure-read",
+          "effectKind": "read",
+          "guardSupport": true,
+          "canParticipateInAtomicGuard": true,
+          "failures": [
+            {
+              "key": "closureStartMissing",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "closureNodeBoundExceeded",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "closureDepthBoundExceeded",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "closureScanBoundExceeded",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "closureWorkBoundExceeded",
+              "authorityClass": "resourceFault"
+            },
+            {
+              "key": "closureSelectorInsufficient",
+              "authorityClass": "domainMappable"
+            },
+            {
+              "key": "closureStorageMalformed",
+              "authorityClass": "integrityFault"
+            }
+          ]
         }
       ]
     }

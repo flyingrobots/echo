@@ -52,11 +52,61 @@ const NODE_ATOM_READ_V1: [FailureName; 4] = [
     },
 ];
 
+const fn resource(catalog: &'static str, runtime: &'static str) -> FailureName {
+    FailureName {
+        catalog,
+        runtime,
+        authority: "resourceFault",
+    }
+}
+
+/// The typed outgoing-edge read's failures (echo#982): the bounded-read
+/// route's runtime tags, each a resource limit.
+const OUTGOING_EDGE_READ_V1: [FailureName; 3] = [
+    resource("edgeSourceMissing", "echo.edge-source-missing/v1"),
+    resource("edgeBoundExceeded", "echo.edge-bound-exceeded/v1"),
+    resource("edgeScanBoundExceeded", "echo.edge-scan-bound-exceeded/v1"),
+];
+
+/// The guided closure read's failures: resource limits, an insufficient
+/// selector and malformed storage stay three authority classes.
+const CLOSURE_READ_V1: [FailureName; 7] = [
+    resource("closureStartMissing", "echo.closure-start-missing/v1"),
+    resource(
+        "closureNodeBoundExceeded",
+        "echo.closure-node-bound-exceeded/v1",
+    ),
+    resource(
+        "closureDepthBoundExceeded",
+        "echo.closure-depth-bound-exceeded/v1",
+    ),
+    resource(
+        "closureScanBoundExceeded",
+        "echo.closure-scan-bound-exceeded/v1",
+    ),
+    resource(
+        "closureWorkBoundExceeded",
+        "echo.closure-work-bound-exceeded/v1",
+    ),
+    FailureName {
+        catalog: "closureSelectorInsufficient",
+        runtime: "echo.closure-selector-insufficient/v1",
+        authority: "domainMappable",
+    },
+    FailureName {
+        catalog: "closureStorageMalformed",
+        runtime: "echo.closure-storage-malformed/v1",
+        authority: "integrityFault",
+    },
+];
+
 /// The failure contract of each runtime intrinsic, keyed by its operation
 /// below either effect namespace. An intrinsic outside this table is refused.
 fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
     match super::intrinsic_names::operation(intrinsic)? {
         "node-atom-read" => Some(&NODE_ATOM_READ_V1),
+        "outgoing-edge-read" => Some(&OUTGOING_EDGE_READ_V1),
+        "closure-read" => Some(&CLOSURE_READ_V1),
         "ensure-node" | "create-node" | "replace-atom" | "ensure-edge" | "replace-edge" => {
             Some(&[])
         }
@@ -64,10 +114,51 @@ fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
     }
 }
 
+/// The graph-read declaration of an authored-effect configuration, the
+/// record the bounded-read configuration also uses (echo#982).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GraphReads<'a> {
+    /// Bucket edges one evaluation may inspect, matching or not.
+    pub(crate) max_edge_scans: u64,
+    /// Distinct nodes one closure read may materialize.
+    pub(crate) max_closure_nodes: u64,
+    /// Deepest occurrence one closure read may select.
+    pub(crate) max_closure_depth: u64,
+    /// Module-local name of the source helper deciding each closure child.
+    pub(crate) selector: Option<&'a str>,
+}
+
+/// Parses one `graphReads` record: exactly its three ceilings, within the
+/// bounded-read bounds, and an optional nonempty selector name.
+pub(crate) fn graph_reads(declared: &Value) -> Check<GraphReads<'_>> {
+    let selector = map_field(declared, "closureSelector")
+        .map(string)
+        .transpose()?;
+    let mut names = vec!["maxEdgeScans", "maxClosureNodes", "maxClosureDepth"];
+    if selector.is_some() {
+        names.push("closureSelector");
+    }
+    exact(declared, &names)?;
+    let graph = GraphReads {
+        max_edge_scans: number(get(declared, "maxEdgeScans")?)?,
+        max_closure_nodes: number(get(declared, "maxClosureNodes")?)?,
+        max_closure_depth: number(get(declared, "maxClosureDepth")?)?,
+        selector,
+    };
+    if !(1..=65_536).contains(&graph.max_edge_scans)
+        || graph.max_closure_nodes > 4096
+        || graph.max_closure_depth > 256
+        || selector.is_some_and(|name| name.is_empty() || name.len() > 1024)
+    {
+        return Err(());
+    }
+    Ok(graph)
+}
+
 /// The effect kind, which is also the write class, of each intrinsic.
 fn effect_kind(intrinsic: &str) -> Option<&'static str> {
     Some(match super::intrinsic_names::operation(intrinsic)? {
-        "node-atom-read" => "read",
+        "node-atom-read" | "outgoing-edge-read" | "closure-read" => "read",
         "create-node" => "create",
         "ensure-node" | "ensure-edge" => "ensure",
         "replace-atom" | "replace-edge" => "replace",
@@ -75,8 +166,10 @@ fn effect_kind(intrinsic: &str) -> Option<&'static str> {
     })
 }
 
-/// Judges compiler-produced effect-program bytes.
-pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
+/// Judges compiler-produced effect-program bytes under the configuration's
+/// graph-read declaration, which is present exactly when a step reads the
+/// graph.
+pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> Check<()> {
     let bundle = decode(compiled_program).map_err(|_| ())?;
     exact(
         &bundle,
@@ -112,7 +205,23 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
         get(&bundle, "lowering_artifacts")?,
     )?;
     correspondence(intent, lowered)?;
-    judge_effect_intent(&module, &exports, intent, &sites)
+    // A graph read is a declared capability, as on the bounded-read route:
+    // the declaration is the one the program uses, and a closure names its
+    // selector.
+    let reads = sites
+        .values()
+        .filter(|site| site.graph_read().is_some())
+        .count();
+    let closures = sites
+        .values()
+        .filter(|site| site.graph_read() == Some("closure-read"))
+        .count();
+    if graph.is_some() != (reads > 0)
+        || (closures > 0 && graph.and_then(|graph| graph.selector).is_none())
+    {
+        return Err(());
+    }
+    judge_effect_intent(&module, &exports, intent, &sites, graph)
 }
 
 /// The three embedded artifacts and the Core pin the Target IR carries.

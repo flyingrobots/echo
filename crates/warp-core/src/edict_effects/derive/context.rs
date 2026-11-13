@@ -41,6 +41,12 @@ impl<'a> Context<'a> {
         }
         let view = super::super::EffectReadSetView::parse(completed.read_set_image().as_bytes())
             .map_err(|_| EffectDerivationError::new(EffectDerivationKind::OriginMismatch, used))?;
+        // `state` is the parent derivation has already matched to the image's
+        // evaluation basis. Every scanned bucket size the image witnesses
+        // decided a read's bound and charge, so each must be the bucket at
+        // that basis; an image that claims otherwise is not this evaluation's.
+        view.confirm_bucket_sizes(state)
+            .map_err(|_| EffectDerivationError::new(EffectDerivationKind::OriginMismatch, used))?;
         let mut known = BTreeSet::new();
         let mut footprint = Footprint::default();
         for row in view.rows() {

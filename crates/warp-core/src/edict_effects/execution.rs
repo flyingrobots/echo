@@ -11,7 +11,11 @@ use crate::edict_pure::{
     values::{array, bytes, field, map, number, text, text_field},
     EvaluationError as Error, EvaluationLimits,
 };
-use crate::edict_read::{NodeAtomAccess, ReadError, ReadObstruction};
+use crate::edict_read::{
+    closure_read, closure_shape, edge_read, edge_shape, selector_conforms, ClosureShape,
+    GraphReadSession, GraphReadUsage, GraphReads, NodeAtomAccess, ReadError, ReadLimits,
+    ReadObstruction,
+};
 use crate::{NodeId, NodeKey, SlotId, SlotReading, TypeId, WarpId};
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::BTreeMap;
@@ -36,10 +40,21 @@ enum Instruction {
         failures: BTreeMap<String, String>,
         max_bytes: u64,
     },
+    /// A typed outgoing-edge or guided closure read (echo#926) as an effect
+    /// step: the bounded-read primitive over the recording frame.
+    GraphRead {
+        binding: Binding,
+        failures: BTreeMap<String, String>,
+        read: GraphRead,
+    },
     Require {
         condition: Predicate,
         reason: Reason,
     },
+}
+enum GraphRead {
+    Edges { max_edges: u64 },
+    Closure(ClosureShape),
 }
 pub(super) struct Evaluation {
     pub(super) output: Vec<u8>,
@@ -54,6 +69,7 @@ pub(super) struct Program {
     helpers: BTreeMap<String, Helper>,
     result: Expr,
     limits: EvaluationLimits,
+    graph_reads: Option<GraphReads>,
 }
 impl Program {
     // The existing ordered relation and lowering/ABI validator establish authority.
@@ -64,6 +80,7 @@ impl Program {
         target: &Value,
         exports: &Value,
         mut limits: EvaluationLimits,
+        graph_reads: Option<&GraphReads>,
     ) -> Result<Self, Error> {
         let mut parser = Parser {
             types: field(module, "types")?,
@@ -102,15 +119,11 @@ impl Program {
                 "effect" => {
                     let step = lowered.get(text(id)?).ok_or(Error::InvalidArtifact)?;
                     let binding = binding(node, "input", &mut parser)?;
-                    if let Some(kind) =
-                        MutationKind::from_intrinsic(text_field(step, "targetIntrinsic")?)
-                    {
+                    let intrinsic = text_field(step, "targetIntrinsic")?;
+                    if let Some(kind) = MutationKind::from_intrinsic(intrinsic) {
                         instructions.push(Instruction::Mutation { kind, binding });
                         continue;
                     }
-                    let RuntimeType::Bytes { max, .. } = binding.ty else {
-                        return Err(Error::UnsupportedProgram);
-                    };
                     // Arms are keyed by catalog name; the read raises runtime tags.
                     let mut arms = BTreeMap::new();
                     for (name, arm) in map(field(step, "obstructionArms")?)? {
@@ -119,14 +132,30 @@ impl Program {
                             text_field(field(arm, "value")?, "callee")?.to_owned(),
                         );
                     }
-                    let failures = super::failure_names::runtime_arms(
-                        text_field(step, "targetIntrinsic")?,
-                        arms,
-                    )?;
-                    Instruction::Read {
-                        binding,
-                        failures,
-                        max_bytes: max,
+                    let failures = super::failure_names::runtime_arms(intrinsic, arms)?;
+                    match super::intrinsic_names::operation(intrinsic) {
+                        Some("outgoing-edge-read") => Instruction::GraphRead {
+                            read: GraphRead::Edges {
+                                max_edges: edge_shape(&binding.ty)?,
+                            },
+                            binding,
+                            failures,
+                        },
+                        Some("closure-read") => Instruction::GraphRead {
+                            read: GraphRead::Closure(closure_shape(&binding.ty)?),
+                            binding,
+                            failures,
+                        },
+                        _ => {
+                            let RuntimeType::Bytes { max, .. } = binding.ty else {
+                                return Err(Error::UnsupportedProgram);
+                            };
+                            Instruction::Read {
+                                binding,
+                                failures,
+                                max_bytes: max,
+                            }
+                        }
                     }
                 }
                 "require" => {
@@ -147,6 +176,7 @@ impl Program {
             };
             instructions.push(instruction);
         }
+        declared_graph_reads(&instructions, &helpers, graph_reads)?;
         Ok(Self {
             input: parser.ty(text_field(intent, "input")?, 0)?,
             output: parser.ty(text_field(intent, "output")?, 0)?,
@@ -159,6 +189,7 @@ impl Program {
             helpers,
             result: parser.expr(field(body, "result")?, 0)?,
             limits,
+            graph_reads: graph_reads.cloned(),
         })
     }
     pub(super) fn run(
@@ -190,6 +221,16 @@ impl Program {
         let mut locals = BTreeMap::from([("arg.0", input)]);
         let mut mutations = Vec::new();
         let helpers = &self.helpers;
+        // Graph reads share one scan allowance per evaluation. Attempts and
+        // delivered bytes are bounded by the frame's typed law and meter, so
+        // the bounded-read route's own read-count and read-byte ceilings
+        // impose nothing further here.
+        let mut usage = GraphReadUsage::default();
+        let read_limits = ReadLimits {
+            evaluation: self.limits,
+            max_reads: u64::MAX,
+            max_read_bytes: u64::MAX,
+        };
         if let Some(basis) = &self.basis {
             let basis = expression(basis, &locals, helpers, meter, 0)?;
             if bytes(&basis)?.len() != 32 {
@@ -275,6 +316,42 @@ impl Program {
                     validate(&value, &binding.ty, meter, 0)?;
                     locals.insert(binding.name.as_str(), value);
                 }
+                Instruction::GraphRead {
+                    binding,
+                    failures,
+                    read,
+                } => {
+                    let input = expression(&binding.value, &locals, helpers, meter, 0)?;
+                    let graph = self.graph_reads.as_ref().ok_or(Error::InvalidArtifact)?;
+                    let mut session = GraphReadSession {
+                        graph,
+                        helpers,
+                        view: &mut *access,
+                        meter: &mut *meter,
+                        usage: &mut usage,
+                        limits: &read_limits,
+                    };
+                    let outcome = match read {
+                        GraphRead::Edges { max_edges } => {
+                            edge_read(*max_edges, &input, &mut session)?
+                        }
+                        GraphRead::Closure(shape) => closure_read(shape, &input, &mut session)?,
+                    };
+                    let value = match outcome {
+                        Ok(value) => value,
+                        Err(cause) => {
+                            return Err(self.obstruct(
+                                failures
+                                    .get(cause.runtime_tag())
+                                    .ok_or(Error::InvalidArtifact)?,
+                                Value::Map(Vec::new()),
+                                meter,
+                            )?);
+                        }
+                    };
+                    validate(&value, &binding.ty, meter, 0)?;
+                    locals.insert(binding.name.as_str(), value);
+                }
                 Instruction::Require { condition, reason } => {
                     if !predicate(condition, &locals, helpers, meter, 0)? {
                         let payload = expression(&reason.payload, &locals, helpers, meter, 0)?;
@@ -309,6 +386,34 @@ impl Program {
             payload: self.output_bytes(&payload, meter)?,
         })
     }
+}
+/// A graph read is a declared capability, as on the bounded-read route: the
+/// declaration is present exactly when a step reads the graph, and every
+/// closure is guided by the declared source helper over its own node and
+/// guide types.
+fn declared_graph_reads(
+    instructions: &[Instruction],
+    helpers: &BTreeMap<String, Helper>,
+    graph: Option<&GraphReads>,
+) -> Result<(), Error> {
+    let mut reads = 0_usize;
+    for instruction in instructions {
+        let Instruction::GraphRead { read, .. } = instruction else {
+            continue;
+        };
+        reads = reads.saturating_add(1);
+        if let GraphRead::Closure(shape) = read {
+            let selector = graph
+                .and_then(|graph| graph.selector.as_deref())
+                .and_then(|name| helpers.get(name))
+                .ok_or(Error::UnsupportedProgram)?;
+            selector_conforms(selector, shape)?;
+        }
+    }
+    if graph.is_some() != (reads > 0) {
+        return Err(Error::UnsupportedProgram);
+    }
+    Ok(())
 }
 fn binding(node: &Value, key: &str, parser: &mut Parser<'_>) -> Result<Binding, Error> {
     let local = field(node, "binding")?;

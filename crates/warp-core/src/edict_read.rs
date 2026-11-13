@@ -16,6 +16,12 @@ mod model;
 mod view;
 
 pub(crate) use access::{Material, NodeAtomAccess, Outgoing};
+pub(crate) use decode::graph_declaration;
+pub(crate) use graph::{
+    closure as closure_read, closure_shape, edge_shape, edges as edge_read, selector_conforms,
+    ClosureShape, Session as GraphReadSession, Usage as GraphReadUsage,
+};
+pub(crate) use model::GraphReads;
 pub use view::{GraphReadAperture, ReadBasis, ReadView};
 
 use crate::edict_pure::{EvaluationError, EvaluationLimits};

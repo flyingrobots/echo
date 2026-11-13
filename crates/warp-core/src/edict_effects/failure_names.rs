@@ -47,11 +47,80 @@ const NODE_ATOM_READ_V1: [FailureName; 4] = [
     },
 ];
 
+const fn graph(
+    catalog: &'static str,
+    cause: crate::edict_read::GraphReadObstruction,
+    authority: &'static str,
+) -> FailureName {
+    FailureName {
+        catalog,
+        runtime: cause.runtime_tag(),
+        authority,
+    }
+}
+
+use crate::edict_read::GraphReadObstruction as G;
+
+/// The typed outgoing-edge read's failures (echo#982). Each records the tag
+/// the bounded-read route records for the same cause, under the authority
+/// class that route fixed for it.
+const OUTGOING_EDGE_READ_V1: [FailureName; 3] = [
+    graph("edgeSourceMissing", G::EdgeSourceMissing, "resourceFault"),
+    graph("edgeBoundExceeded", G::EdgeBoundExceeded, "resourceFault"),
+    graph(
+        "edgeScanBoundExceeded",
+        G::EdgeScanBoundExceeded,
+        "resourceFault",
+    ),
+];
+
+/// The guided closure read's failures: resource limits, an insufficient
+/// selector and malformed storage stay three authority classes.
+const CLOSURE_READ_V1: [FailureName; 7] = [
+    graph(
+        "closureStartMissing",
+        G::ClosureStartMissing,
+        "resourceFault",
+    ),
+    graph(
+        "closureNodeBoundExceeded",
+        G::ClosureNodeBoundExceeded,
+        "resourceFault",
+    ),
+    graph(
+        "closureDepthBoundExceeded",
+        G::ClosureDepthBoundExceeded,
+        "resourceFault",
+    ),
+    graph(
+        "closureScanBoundExceeded",
+        G::ClosureScanBoundExceeded,
+        "resourceFault",
+    ),
+    graph(
+        "closureWorkBoundExceeded",
+        G::ClosureWorkBoundExceeded,
+        "resourceFault",
+    ),
+    graph(
+        "closureSelectorInsufficient",
+        G::ClosureSelectorInsufficient,
+        "domainMappable",
+    ),
+    graph(
+        "closureStorageMalformed",
+        G::ClosureStorageMalformed,
+        "integrityFault",
+    ),
+];
+
 /// The complete failure set of an exact runtime intrinsic identity, or `None`
 /// for an identity that is not a runtime intrinsic. Mutations declare none.
 pub(super) fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
     match super::intrinsic_names::operation(intrinsic)? {
         "node-atom-read" => Some(&NODE_ATOM_READ_V1),
+        "outgoing-edge-read" => Some(&OUTGOING_EDGE_READ_V1),
+        "closure-read" => Some(&CLOSURE_READ_V1),
         "ensure-node" | "create-node" | "replace-atom" | "ensure-edge" | "replace-edge" => {
             Some(&[])
         }
@@ -170,7 +239,11 @@ mod tests {
             ),
         ];
         let closure = [
-            ("closureStartMissing", O::ClosureStartMissing, "resourceFault"),
+            (
+                "closureStartMissing",
+                O::ClosureStartMissing,
+                "resourceFault",
+            ),
             (
                 "closureNodeBoundExceeded",
                 O::ClosureNodeBoundExceeded,
@@ -225,7 +298,11 @@ mod tests {
     #[test]
     fn a_graph_read_step_must_map_every_one_of_its_failures() {
         let edge = "echo.dpo@2.outgoing-edge-read";
-        let all = ["edgeSourceMissing", "edgeBoundExceeded", "edgeScanBoundExceeded"];
+        let all = [
+            "edgeSourceMissing",
+            "edgeBoundExceeded",
+            "edgeScanBoundExceeded",
+        ];
         let runtime = runtime_arms(edge, arms(&all)).expect("all three mapped");
         assert_eq!(
             runtime.keys().map(String::as_str).collect::<Vec<_>>(),

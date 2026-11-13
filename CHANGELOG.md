@@ -7,6 +7,18 @@
 
 ### Added
 
+- Structured effect control under `echo.dpo@2` (#947). An authored effect
+  program whose Target IR declares `echo.span-ir/v3` may wrap its
+  instructions in bounded `for` loops and statement branches. The runtime,
+  the lowerer and the verifier each check the order tree against Core node
+  for node, admit only literal bounds that cover the iterated list type, scope
+  each block's locals to the block, and, in both providers, bound the worst
+  case (a loop's body times its bound, a branch's larger arm) against the
+  declared step, allocation, output and mutation ceilings before
+  installation. The runtime evaluates a loop's list once, binds each item
+  fresh, runs only the chosen arm and keeps every emission in the one atomic
+  buffer. `echo.dpo@1` stays frozen and refuses structured programs; ordered
+  `echo.span-ir/v2` programs are unchanged.
 - A second, separately versioned target profile, `echo.dpo@2`, in the checked
   provider package. Its catalog `echo.dpo.intrinsics/v2` declares the runtime's
   six effect intrinsics as `echo.dpo@2.*` and it names the ordered

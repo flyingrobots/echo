@@ -33,7 +33,29 @@ Each refused entry is a well-formed package that reaches one specific check. Eac
 | `read-allocation-short`                                       | an allocation budget one byte under a read's runtime cost on a 1,048,521-byte atom                 | `read-and-return-control`                                      |
 | `read-captured-budget`                                        | the captured read's own 1 MiB step budget                                                          | `read-control`                                                 |
 
-The runtime prepares eight of these and refuses them only when it runs. `the_runtime_refuses_each_executed_entry_when_it_runs` executes each one and asserts the exact refusal, beside an accepted control for every entry but `read-captured-budget`; `ensure_node_needs_exactly_its_worst_case_allocation` does the same for `mutation-allocation-short`. `read-captured-budget` declares 1,048,576 steps, which equals the frame's fixed step ceiling, so on a large enough atom the declared budget and the ceiling refuse together.
+
+## Structured entries (`echo.span-ir/v3` under `echo.dpo@2`, #947)
+
+`structured-loop-control` runs one `ensure-node` site inside `for item in arg.0 bounded 3` over `List<MutationInput,max=3>`; `structured-branch-control` wraps that loop in a statement branch and `structured-nested-control` in an outer loop over `List<List<MutationInput,max=3>,max=2>`. Every refused entry below is that loop, fully repinned after the one edit named:
+
+| Refused entry | What it edits | Accepted sibling |
+| --- | --- | --- |
+| `structured-echo-dpo-1` | the profile, the frozen `echo.dpo@1` | `structured-loop-control` |
+| `structured-bound-below-list` | a literal bound of 2 under a list of at most 3 | `structured-loop-control` |
+| `structured-coordinate-bound` | a coordinate bound, which Target IR cannot authenticate | `structured-loop-control` |
+| `structured-leaked-local` | a result that reads the loop body's local after the loop | `structured-loop-control` |
+| `structured-control-id-reused` | the loop's control id, set to its body's instruction id | `structured-loop-control` |
+| `structured-dropped-body` | the loop entry's nested order, emptied | `structured-loop-control` |
+| `structured-ordered-with-control` | the declaration, `echo.span-ir/v2` with the same control entry | `structured-loop-control` |
+| `structured-substituted-binder` | the Target loop's binder, unlike its Core loop's | `structured-loop-control` |
+| `structured-body-with-result` | the loop body's result, a record instead of `null` | `structured-loop-control` |
+| `structured-loop-allocation-short` | an allocation one byte under the loop's runtime worst case (three 1,024-byte atoms) | `structured-loop-allocation-exact` |
+| `structured-loop-under-budget` | a step budget one under what the runtime spends on that input | `structured-loop-allocation-exact` |
+| `structured-mutation-count-over` | a bound of 1,025 on one effect site | `structured-mutation-count-control` (bound 1,024) |
+
+`structured_loop_needs_exactly_its_worst_case_allocation` runs the worst case: both providers charge exactly the runtime's 18,325 bytes, and their step ceiling (173) covers the runtime's 158 steps.
+
+The runtime prepares eight of the flat entries and three of the structured ones and refuses them only when it runs. `the_runtime_refuses_each_executed_entry_when_it_runs` executes each one and asserts the exact refusal, beside an accepted control for every entry but `read-captured-budget`; `ensure_node_needs_exactly_its_worst_case_allocation` does the same for `mutation-allocation-short`. `read-captured-budget` declares 1,048,576 steps, which equals the frame's fixed step ceiling, so on a large enough atom the declared budget and the ceiling refuse together.
 
 `reads_cost_a_fixed_linear_law` pins what a read costs the runtime on a root-warp node. The captured read, whose `require` fails, costs 67 + 2n steps and 3,976 + 3n bytes for an n-byte atom. `read_and_return` costs 55 + n steps and 3,142 + 3n bytes. A run is capped at 1,048,576 steps, so the captured read exceeds its declared 1 MiB step budget once the atom is larger than 524,254 bytes.
 

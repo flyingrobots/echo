@@ -699,3 +699,121 @@ fn input_identity_does_not_depend_on_local_declaration_order() {
         &Value::Text("accepted".to_owned())
     );
 }
+
+fn rebind_target(
+    request: &mut verifier::VerificationRequestV1,
+    coordinate: &str,
+    edit: impl FnOnce(&mut Value),
+) {
+    let mut target = decode(&request.target_ir.artifact.bytes).expect("target");
+    edit(&mut target);
+    let bytes = encode(&target).expect("changed target bytes");
+    request.target_ir = transport(bound(
+        coordinate,
+        "edict.target-ir.artifact/v1",
+        bytes.clone(),
+    ));
+    let identity = request.target_ir.reference.digest.bytes.clone();
+    change_package(request, |package| {
+        mutate(package, "semantic_closure", |closure| {
+            mutate(closure, "target_ir_identity", |value| {
+                *value = Value::Bytes(identity);
+            });
+        });
+        mutate(package, "program", |program| {
+            let Value::Bytes(encoded) = program else {
+                panic!("program bytes")
+            };
+            let mut body = decode(encoded).expect("program");
+            mutate(&mut body, "target_ir_artifact", |target| {
+                *target = Value::Bytes(bytes);
+            });
+            *program = Value::Bytes(encode(&body).expect("changed program"));
+        });
+    });
+}
+
+fn accepted(request: verifier::VerificationRequestV1) -> bool {
+    verifier::verify(request).is_ok_and(|response| {
+        response.outputs.iter().any(|output| {
+            field(&decode(&output.artifact.bytes).expect("report"), "outcome")
+                == &Value::Text("accepted".to_owned())
+        })
+    })
+}
+
+/// Oracle: the ordered read verifier is specified to accept only flat
+/// `echo.span-ir/v2` orders (Echo #947 safe state). Package and Target are
+/// rebound together under fresh identities, and the unchanged control proves
+/// that rebinding is accepted, so each non-acceptance is caused by the
+/// structured declaration or entry rather than by a stale pin.
+#[test]
+fn ordered_read_verifier_never_accepts_structured_declarations_or_control_entries() {
+    const ORDERED: &str = "echo.span-ir/v2";
+    const STRUCTURED: &str = "echo.span-ir/v3";
+    let mut control = request(fixture());
+    rebind_target(&mut control, ORDERED, |_| {});
+    assert!(
+        accepted(control),
+        "an unchanged rebound ordered target remains accepted"
+    );
+
+    for (coordinate, domain, kind) in [
+        (STRUCTURED, STRUCTURED, "structuredTargetIrArtifact"),
+        (STRUCTURED, STRUCTURED, "orderedTargetIrArtifact"),
+        (ORDERED, STRUCTURED, "structuredTargetIrArtifact"),
+        (ORDERED, ORDERED, "structuredTargetIrArtifact"),
+        (STRUCTURED, ORDERED, "orderedTargetIrArtifact"),
+    ] {
+        let mut case = request(fixture());
+        rebind_target(&mut case, coordinate, |target| {
+            mutate(target, "domain", |value| {
+                *value = Value::Text(domain.to_owned());
+            });
+            mutate(target, "kind", |value| {
+                *value = Value::Text(kind.to_owned());
+            });
+        });
+        assert!(
+            !accepted(case),
+            "{coordinate} reference with {domain} {kind} was accepted by the ordered read verifier"
+        );
+    }
+
+    let mut case = request(fixture());
+    rebind_target(&mut case, ORDERED, |target| {
+        mutate(target, "intents", |intents| {
+            mutate(intents, "replaceRange", |intent| {
+                mutate(intent, "executionOrder", |order| {
+                    let Value::Array(entries) = order else {
+                        panic!("order")
+                    };
+                    let nested = std::mem::take(entries);
+                    entries.push(Value::Map(vec![
+                        (
+                            Value::Text("kind".to_owned()),
+                            Value::Text("branch".to_owned()),
+                        ),
+                        (
+                            Value::Text("id".to_owned()),
+                            Value::Text("branch.0".to_owned()),
+                        ),
+                        (
+                            Value::Text("predicate".to_owned()),
+                            Value::Map(vec![(
+                                Value::Text("kind".to_owned()),
+                                Value::Text("true".to_owned()),
+                            )]),
+                        ),
+                        (Value::Text("then".to_owned()), Value::Array(nested)),
+                        (Value::Text("else".to_owned()), Value::Array(vec![])),
+                    ]));
+                });
+            });
+        });
+    });
+    assert!(
+        !accepted(case),
+        "a control entry was accepted under the flat ordered contract"
+    );
+}

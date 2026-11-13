@@ -46,14 +46,14 @@ fn coordinate(value: &V) -> String {
 }
 
 /// The four artifacts a compiled effect program embeds, rebound together.
-struct Parts {
+pub(super) struct Parts {
     core: V,
     target: V,
     exports: V,
     lowering: V,
 }
 impl Parts {
-    fn publication(&mut self) -> V {
+    pub(super) fn publication(&mut self) -> V {
         set(
             value_field_mut(
                 value_field_mut(&mut self.target, "semanticClosure"),
@@ -154,9 +154,9 @@ fn structured_parts(publication: &V) -> Parts {
     parts
 }
 
-/// One `ensure-node` effect site inside `for item in arg.0 bounded 3`, under
-/// the effect target profile `namespace`.
-fn loop_fixture_in(namespace: &str) -> (Parts, V) {
+/// One `ensure-node` effect site inside `for item in arg.0 bounded max`, over
+/// `List<MutationInput,max=max>`, under the effect target profile `namespace`.
+pub(super) fn loop_parts(namespace: &str, max: u16) -> (Parts, V) {
     let (publication, input) = fixture_in(
         namespace,
         "ensure-node",
@@ -164,7 +164,7 @@ fn loop_fixture_in(namespace: &str) -> (Parts, V) {
         &Shape::conforming_in("ensure-node", namespace),
     );
     let mut parts = structured_parts(&publication);
-    let arg = local("arg.0", "List<MutationInput,max=3>");
+    let arg = local("arg.0", &format!("List<MutationInput,max={max}>"));
     set(
         &mut parts.core,
         "requiredCoreCapabilities",
@@ -178,7 +178,10 @@ fn loop_fixture_in(namespace: &str) -> (Parts, V) {
     let mut effect = nodes[0].clone();
     set(&mut effect, "input", reference(&binder));
     let output = map([("kind", text("record")), ("fields", map([]))]);
-    let bound = map([("kind", text("literal")), ("value", V::Integer(3))]);
+    let bound = map([
+        ("kind", text("literal")),
+        ("value", V::Integer(i128::from(max))),
+    ]);
     let body = map([
         (
             "locals",
@@ -229,6 +232,131 @@ fn loop_fixture_in(namespace: &str) -> (Parts, V) {
         echo_edict_canonical::decode_canonical_cbor_v1(&input).expect("input"),
     )
 }
+/// `let node = arg.0.node; for tick in arg.0.ticks bounded max { ensure-node(node) }`
+/// over `List<U8,max=max>`: one effect site that does not read its binder, so
+/// the input stays small however many times the site runs.
+pub(super) fn counting_parts(max: u16) -> (Parts, V) {
+    let (publication, input) = fixture_in(
+        "echo.dpo@2",
+        "ensure-node",
+        PROFILE,
+        &Shape::conforming_in("ensure-node", "echo.dpo@2"),
+    );
+    let node = echo_edict_canonical::decode_canonical_cbor_v1(&input).expect("input");
+    let mut parts = structured_parts(&publication);
+    let ticks = format!("List<U8,max={max}>");
+    add(
+        value_field_mut(&mut parts.core, "types"),
+        "CountInput",
+        map([
+            ("kind", text("Record")),
+            (
+                "fields",
+                map([("node", text("MutationInput")), ("ticks", text(&ticks))]),
+            ),
+        ]),
+    );
+    set(
+        &mut parts.core,
+        "requiredCoreCapabilities",
+        V::Array(vec![text("core.list/v1")]),
+    );
+    let arg = local("arg.0", "CountInput");
+    let binder = local("local.tick", "U8");
+    let node_local = local("local.node", "MutationInput");
+    let field_of = |name: &str| {
+        map([
+            ("kind", text("field")),
+            ("base", reference(&arg)),
+            ("field", text(name)),
+        ])
+    };
+    let intent = value_field_mut(value_field_mut(&mut parts.core, "intents"), "replaceRange");
+    let V::Array(nodes) = get(get(intent, "body"), "nodes") else {
+        panic!("nodes")
+    };
+    let mut effect = nodes[0].clone();
+    set(&mut effect, "input", reference(&node_local));
+    let node_let = map([
+        ("kind", text("let")),
+        ("binding", node_local.clone()),
+        ("value", field_of("node")),
+    ]);
+    let output = map([("kind", text("record")), ("fields", map([]))]);
+    let bound = map([
+        ("kind", text("literal")),
+        ("value", V::Integer(i128::from(max))),
+    ]);
+    set(intent, "input", text("CountInput"));
+    set(
+        intent,
+        "body",
+        map([
+            ("locals", V::Array(vec![arg.clone(), node_local.clone()])),
+            (
+                "nodes",
+                V::Array(vec![
+                    node_let,
+                    map([
+                        ("kind", text("for")),
+                        ("binder", binder.clone()),
+                        ("iter", field_of("ticks")),
+                        ("bound", bound.clone()),
+                        (
+                            "body",
+                            map([
+                                (
+                                    "locals",
+                                    V::Array(vec![binder.clone(), get(&effect, "binding").clone()]),
+                                ),
+                                ("nodes", V::Array(vec![effect])),
+                                ("result", null()),
+                            ]),
+                        ),
+                    ]),
+                ]),
+            ),
+            ("result", output.clone()),
+        ]),
+    );
+    let selected = selected_target_mut(&mut parts.target);
+    let V::Array(steps) = value_field_mut(selected, "steps") else {
+        panic!("steps")
+    };
+    set(&mut steps[0], "input", reference(&node_local));
+    set(selected, "result", output);
+    if let V::Map(fields) = selected {
+        fields.retain(|(key, _)| key != &text("pureBindings"));
+    }
+    add(
+        selected,
+        "pureBindings",
+        V::Array(vec![map([
+            ("id", text("let.0")),
+            ("binding", node_local),
+            ("value", field_of("node")),
+        ])]),
+    );
+    set(
+        selected,
+        "executionOrder",
+        V::Array(vec![
+            text("let.0"),
+            map([
+                ("kind", text("for")),
+                ("id", text("for.0")),
+                ("binder", binder),
+                ("iterable", field_of("ticks")),
+                ("bound", bound),
+                ("body", V::Array(vec![text("effect.0")])),
+            ]),
+        ]),
+    );
+    (parts, node)
+}
+fn loop_fixture_in(namespace: &str) -> (Parts, V) {
+    loop_parts(namespace, 3)
+}
 fn loop_fixture() -> (Parts, V) {
     loop_fixture_in("echo.dpo@2")
 }
@@ -267,7 +395,7 @@ fn condition(taken: bool) -> V {
     ])
 }
 /// Wraps the whole body in `if 1 == taken { body } else { }`.
-fn branch(parts: &mut Parts, taken: bool) {
+pub(super) fn branch(parts: &mut Parts, taken: bool) {
     let body = core_body(parts);
     let V::Array(locals) = get(body, "locals") else {
         panic!("locals")
@@ -436,14 +564,12 @@ fn structured_branch_skips_its_unchosen_loop_and_emissions() {
     }
 }
 
-/// Oracle: nested loops run the inner body for each outer item in turn, so
-/// mutations follow group order, then item order.
-#[test]
-fn structured_nested_loops_preserve_group_and_item_order() {
-    let (mut parts, item) = loop_fixture();
+/// Wraps the loop in `for group in arg.0 bounded 2`, over
+/// `List<List<MutationInput,max=3>,max=2>`.
+pub(super) fn nest(parts: &mut Parts) {
     let arg = local("arg.0", "List<List<MutationInput,max=3>,max=2>");
     let group = local("local.group", "List<MutationInput,max=3>");
-    let body = core_body(&mut parts);
+    let body = core_body(parts);
     let inner = first(value_field_mut(body, "nodes"));
     set(inner, "iter", reference(&group));
     let child = map([
@@ -488,6 +614,14 @@ fn structured_nested_loops_preserve_group_and_item_order() {
             ("body", inner),
         ])]),
     );
+}
+
+/// Oracle: nested loops run the inner body for each outer item in turn, so
+/// mutations follow group order, then item order.
+#[test]
+fn structured_nested_loops_preserve_group_and_item_order() {
+    let (mut parts, item) = loop_fixture();
+    nest(&mut parts);
     let input = V::Array(
         (0..2)
             .map(|group| {
@@ -550,6 +684,90 @@ fn structured_failed_iteration_discards_the_whole_buffer_but_retains_prior_charg
     assert_eq!(used.write_bytes(), full.write_bytes());
 }
 
+/// One way to forge the structured loop. Each forgery is fully repinned.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Forgery {
+    /// A literal bound below the list type's maximum.
+    BoundBelowList,
+    /// A coordinate bound, which Target cannot authenticate.
+    CoordinateBound,
+    /// The result reads a local bound inside the loop body.
+    LeakedLocal,
+    /// The loop's control id reuses an instruction id.
+    ControlIdReused,
+    /// The order drops the loop body's instruction.
+    DroppedBody,
+    /// An ordered (`echo.span-ir/v2`) declaration carrying control entries.
+    OrderedWithControl,
+    /// The Target loop names a binder its Core loop does not.
+    SubstitutedBinder,
+    /// The loop body, a statement block, yields a value.
+    BodyWithResult,
+}
+impl Forgery {
+    pub(super) const ALL: [Self; 8] = [
+        Self::BoundBelowList,
+        Self::CoordinateBound,
+        Self::LeakedLocal,
+        Self::ControlIdReused,
+        Self::DroppedBody,
+        Self::OrderedWithControl,
+        Self::SubstitutedBinder,
+        Self::BodyWithResult,
+    ];
+}
+fn loop_order(parts: &mut Parts) -> &mut V {
+    first(value_field_mut(
+        selected_target_mut(&mut parts.target),
+        "executionOrder",
+    ))
+}
+fn loop_node(parts: &mut Parts) -> &mut V {
+    first(value_field_mut(core_body(parts), "nodes"))
+}
+/// Applies one forgery to a loop built by [`loop_parts`].
+pub(super) fn forge(parts: &mut Parts, forgery: Forgery) {
+    match forgery {
+        Forgery::BoundBelowList | Forgery::CoordinateBound => {
+            let bound = if matches!(forgery, Forgery::BoundBelowList) {
+                map([("kind", text("literal")), ("value", V::Integer(2))])
+            } else {
+                map([
+                    ("kind", text("coordinate")),
+                    ("ref", text("untrusted.bound")),
+                ])
+            };
+            set(loop_node(parts), "bound", bound.clone());
+            set(loop_order(parts), "bound", bound);
+        }
+        Forgery::LeakedLocal => {
+            let effect = first(value_field_mut(
+                value_field_mut(loop_node(parts), "body"),
+                "nodes",
+            ));
+            let escaped = reference(get(effect, "binding"));
+            set(core_body(parts), "result", escaped.clone());
+            set(selected_target_mut(&mut parts.target), "result", escaped);
+        }
+        Forgery::ControlIdReused => set(loop_order(parts), "id", text("effect.0")),
+        Forgery::DroppedBody => set(loop_order(parts), "body", V::Array(vec![])),
+        Forgery::OrderedWithControl => {
+            set(&mut parts.target, "domain", text("echo.span-ir/v2"));
+            set(&mut parts.target, "kind", text("orderedTargetIrArtifact"));
+        }
+        Forgery::SubstitutedBinder => set(
+            loop_order(parts),
+            "binder",
+            local("local.other", "MutationInput"),
+        ),
+        Forgery::BodyWithResult => set(
+            value_field_mut(loop_node(parts), "body"),
+            "result",
+            map([("kind", text("record")), ("fields", map([]))]),
+        ),
+    }
+}
+
 /// Oracle: v3 admits only literal bounds covering the list type, loop and
 /// branch locals scoped to their block, and an order tree that corresponds
 /// to Core node for node. Every case is fully repinned, and the unchanged
@@ -557,84 +775,12 @@ fn structured_failed_iteration_discards_the_whole_buffer_but_retains_prior_charg
 #[test]
 fn structured_refuses_invalid_bounds_scope_leaks_and_substituted_order_under_fresh_pins() {
     prepare(&loop_fixture().0.publication()).expect("the repinned control prepares");
-    for mode in 0..8 {
+    for forgery in Forgery::ALL {
         let (mut parts, _) = loop_fixture();
-        match mode {
-            0 | 1 => {
-                let bound = if mode == 0 {
-                    map([("kind", text("literal")), ("value", V::Integer(2))])
-                } else {
-                    map([
-                        ("kind", text("coordinate")),
-                        ("ref", text("untrusted.bound")),
-                    ])
-                };
-                set(
-                    first(value_field_mut(core_body(&mut parts), "nodes")),
-                    "bound",
-                    bound.clone(),
-                );
-                set(
-                    first(value_field_mut(
-                        selected_target_mut(&mut parts.target),
-                        "executionOrder",
-                    )),
-                    "bound",
-                    bound,
-                );
-            }
-            2 => {
-                let effect = first(value_field_mut(
-                    value_field_mut(
-                        first(value_field_mut(core_body(&mut parts), "nodes")),
-                        "body",
-                    ),
-                    "nodes",
-                ));
-                let escaped = reference(get(effect, "binding"));
-                set(core_body(&mut parts), "result", escaped.clone());
-                set(selected_target_mut(&mut parts.target), "result", escaped);
-            }
-            3 => set(
-                first(value_field_mut(
-                    selected_target_mut(&mut parts.target),
-                    "executionOrder",
-                )),
-                "id",
-                text("effect.0"),
-            ),
-            4 => set(
-                first(value_field_mut(
-                    selected_target_mut(&mut parts.target),
-                    "executionOrder",
-                )),
-                "body",
-                V::Array(vec![]),
-            ),
-            5 => {
-                set(&mut parts.target, "domain", text("echo.span-ir/v2"));
-                set(&mut parts.target, "kind", text("orderedTargetIrArtifact"));
-            }
-            6 => set(
-                first(value_field_mut(
-                    selected_target_mut(&mut parts.target),
-                    "executionOrder",
-                )),
-                "binder",
-                local("local.other", "MutationInput"),
-            ),
-            _ => set(
-                value_field_mut(
-                    first(value_field_mut(core_body(&mut parts), "nodes")),
-                    "body",
-                ),
-                "result",
-                map([("kind", text("record")), ("fields", map([]))]),
-            ),
-        }
+        forge(&mut parts, forgery);
         assert!(
             prepare(&parts.publication()).is_err(),
-            "mutation {mode} must refuse"
+            "{forgery:?} must refuse"
         );
     }
 }

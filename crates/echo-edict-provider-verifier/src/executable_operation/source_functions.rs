@@ -13,6 +13,8 @@ mod effect_intent;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+#[cfg(test)]
+mod function_precondition_tests;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;

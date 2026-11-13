@@ -52,11 +52,73 @@ const NODE_ATOM_READ_V1: [FailureName; 4] = [
     },
 ];
 
+/// The typed outgoing-edge read's failures (echo#982), with the runtime tags
+/// the bounded-read route records; each is a resource limit.
+const OUTGOING_EDGE_READ_V1: [FailureName; 3] = [
+    FailureName {
+        catalog: "edgeSourceMissing",
+        runtime: "echo.edge-source-missing/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "edgeBoundExceeded",
+        runtime: "echo.edge-bound-exceeded/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "edgeScanBoundExceeded",
+        runtime: "echo.edge-scan-bound-exceeded/v1",
+        authority: "resourceFault",
+    },
+];
+
+/// The guided closure read's failures. Resource limits, an insufficient
+/// selector and malformed storage keep three distinct authority classes.
+const CLOSURE_READ_V1: [FailureName; 7] = [
+    FailureName {
+        catalog: "closureStartMissing",
+        runtime: "echo.closure-start-missing/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "closureNodeBoundExceeded",
+        runtime: "echo.closure-node-bound-exceeded/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "closureDepthBoundExceeded",
+        runtime: "echo.closure-depth-bound-exceeded/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "closureScanBoundExceeded",
+        runtime: "echo.closure-scan-bound-exceeded/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "closureWorkBoundExceeded",
+        runtime: "echo.closure-work-bound-exceeded/v1",
+        authority: "resourceFault",
+    },
+    FailureName {
+        catalog: "closureSelectorInsufficient",
+        runtime: "echo.closure-selector-insufficient/v1",
+        authority: "domainMappable",
+    },
+    FailureName {
+        catalog: "closureStorageMalformed",
+        runtime: "echo.closure-storage-malformed/v1",
+        authority: "integrityFault",
+    },
+];
+
 /// The failure contract of each runtime intrinsic, keyed by its operation
 /// below either effect namespace. An intrinsic outside this table is refused.
 fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
     match super::intrinsic_names::operation(intrinsic)? {
         "node-atom-read" => Some(&NODE_ATOM_READ_V1),
+        "outgoing-edge-read" => Some(&OUTGOING_EDGE_READ_V1),
+        "closure-read" => Some(&CLOSURE_READ_V1),
         "ensure-node" | "create-node" | "replace-atom" | "ensure-edge" | "replace-edge" => {
             Some(&[])
         }
@@ -67,7 +129,7 @@ fn failures(intrinsic: &str) -> Option<&'static [FailureName]> {
 /// The effect kind, which is also the write class, of each intrinsic.
 fn effect_kind(intrinsic: &str) -> Option<&'static str> {
     Some(match super::intrinsic_names::operation(intrinsic)? {
-        "node-atom-read" => "read",
+        "node-atom-read" | "outgoing-edge-read" | "closure-read" => "read",
         "create-node" => "create",
         "ensure-node" | "ensure-edge" => "ensure",
         "replace-atom" | "replace-edge" => "replace",
@@ -84,8 +146,45 @@ pub(crate) struct Judged {
     pub(crate) output: String,
 }
 
-/// Judges compiler-produced effect-program bytes.
-pub(crate) fn judge(compiled_program: &[u8]) -> Check<Judged> {
+/// A graph-read declaration: the record both the bounded-read and the
+/// authored-effect configurations carry (echo#982).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GraphReads<'a> {
+    /// Bucket edges one evaluation may inspect, matching or not.
+    pub(crate) max_edge_scans: u64,
+    /// Module-local name of the source helper deciding each closure child.
+    pub(crate) selector: Option<&'a str>,
+}
+
+/// Audits one `graphReads` record: exactly its three ceilings, within the
+/// bounded-read bounds, and an optional nonempty selector name.
+pub(crate) fn graph_reads(declared: &Value) -> Check<GraphReads<'_>> {
+    let selector = map_field(declared, "closureSelector")
+        .map(string)
+        .transpose()?;
+    let mut names = vec!["maxEdgeScans", "maxClosureNodes", "maxClosureDepth"];
+    if selector.is_some() {
+        names.push("closureSelector");
+    }
+    exact(declared, &names)?;
+    let max_edge_scans = number(get(declared, "maxEdgeScans")?)?;
+    if !(1..=65_536).contains(&max_edge_scans)
+        || number(get(declared, "maxClosureNodes")?)? > 4096
+        || number(get(declared, "maxClosureDepth")?)? > 256
+        || selector.is_some_and(|name| name.is_empty() || name.len() > 1024)
+    {
+        return Err(());
+    }
+    Ok(GraphReads {
+        max_edge_scans,
+        selector,
+    })
+}
+
+/// Judges compiler-produced effect-program bytes under the package's
+/// graph-read declaration, which is present exactly when a step reads the
+/// graph.
+pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> Check<Judged> {
     let bundle = decode(compiled_program).map_err(|_| ())?;
     exact(
         &bundle,
@@ -121,7 +220,26 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<Judged> {
         get(&bundle, "lowering_artifacts")?,
     )?;
     correspondence(intent, lowered)?;
-    judge_effect_intent(&module, &exports, intent, &sites)?;
+    // A graph read is a declared capability: the declaration is the one the
+    // program uses, and a closure names its selector.
+    let mut reads = 0_usize;
+    let mut closures = 0_usize;
+    for site in sites.values() {
+        match site.graph_read() {
+            Some("closure-read") => {
+                reads = reads.saturating_add(1);
+                closures = closures.saturating_add(1);
+            }
+            Some(_) => reads = reads.saturating_add(1),
+            None => {}
+        }
+    }
+    if graph.is_some() != (reads > 0)
+        || (closures > 0 && graph.and_then(|graph| graph.selector).is_none())
+    {
+        return Err(());
+    }
+    judge_effect_intent(&module, &exports, intent, &sites, graph)?;
     Ok(Judged {
         core_identity: identity("edict.core.module/v1", &module)?,
         target_identity: identity("edict.target-ir.artifact/v1", &target)?,

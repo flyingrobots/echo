@@ -54,8 +54,21 @@ impl std::error::Error for EffectPublicationError {}
 /// [`EffectPublicationError::UnsupportedProgram`] for any program outside
 /// that judgment.
 pub fn judge_effect_program(compiled_program: &[u8]) -> Result<(), EffectPublicationError> {
-    crate::executable_operation::effect_program::judge(compiled_program)
-        .map_err(|()| EffectPublicationError::UnsupportedProgram)
+    judge_with_graph_reads(compiled_program, None)
+}
+
+/// The same judgment for a program whose configuration declares graph reads
+/// with `graph_reads`, the bounded-read `graphReads` record.
+fn judge_with_graph_reads(
+    compiled_program: &[u8],
+    graph_reads: Option<&V>,
+) -> Result<(), EffectPublicationError> {
+    use crate::executable_operation::effect_program::{graph_reads as declaration, judge};
+    let graph = graph_reads
+        .map(declaration)
+        .transpose()
+        .map_err(|()| EffectPublicationError::InvalidConfiguration)?;
+    judge(compiled_program, graph).map_err(|()| EffectPublicationError::UnsupportedProgram)
 }
 
 /// Serializes the single current operation-package and effect-program formats.
@@ -136,23 +149,26 @@ pub fn encode_effect_publication(
     }
     let source_id = identity(input.source_domain, &source)?;
     let config = decode(input.configuration).map_err(|_| C)?;
-    exact(
-        &config,
-        &[
-            "apiVersion",
-            "programKind",
-            "identityLaw",
-            "intrinsicCatalog",
-            "graphSchema",
-            "footprintLaw",
-            "maxInputBytes",
-            "maxResultBytes",
-            "maxAllocatedBytes",
-            "budgetCeiling",
-            "authorityProfile",
-        ],
-        C,
-    )?;
+    let mut config_fields = vec![
+        "apiVersion",
+        "programKind",
+        "identityLaw",
+        "intrinsicCatalog",
+        "graphSchema",
+        "footprintLaw",
+        "maxInputBytes",
+        "maxResultBytes",
+        "maxAllocatedBytes",
+        "budgetCeiling",
+        "authorityProfile",
+    ];
+    // A program whose steps read the graph declares their ceilings, as the
+    // bounded-read configuration does; the package carries the declaration.
+    let graph_reads = field(&config, "graphReads", C).ok();
+    if graph_reads.is_some() {
+        config_fields.push("graphReads");
+    }
+    exact(&config, &config_fields, C)?;
     equals(
         &config,
         "apiVersion",
@@ -213,7 +229,7 @@ pub fn encode_effect_publication(
     let reads = number(field(budget, "readBytes", C)?)?;
     let writes = number(field(budget, "writeBytes", C)?)?;
     // The program is judged only once its envelope and configuration are.
-    judge_effect_program(input.compiler_program)?;
+    judge_with_graph_reads(input.compiler_program, graph_reads)?;
     let mut footprint = blake3::Hasher::new();
     footprint.update(b"echo:operation-footprint-law:v1\0");
     footprint.update(law);
@@ -242,6 +258,13 @@ pub fn encode_effect_publication(
         ("max_allocated_bytes", V::Integer(i128::from(max_allocated))),
         ("output_type", text(output)),
     ]);
+    let program = match (program, graph_reads) {
+        (V::Map(mut fields), Some(declared)) => {
+            fields.push((text("graph_reads"), declared.clone()));
+            V::Map(fields)
+        }
+        (program, _) => program,
+    };
     let program = encode(&program).map_err(|_| A)?;
     let mut package = vec![
         ("schema", text("echo.operation-package/v1")),

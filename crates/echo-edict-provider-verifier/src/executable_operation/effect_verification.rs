@@ -93,6 +93,8 @@ struct Configuration<'a> {
     read_bytes: u64,
     write_bytes: u64,
     authority: &'a str,
+    /// The graph-read declaration, which the package carries verbatim.
+    graph_reads: Option<&'a Value>,
 }
 
 /// Verifies one effect package against the compiler request it lowers.
@@ -238,7 +240,7 @@ fn configuration<'a>(
     value: &'a Value,
     profile: &BoundArtifact,
 ) -> Result<Configuration<'a>, ProviderRefusalV1> {
-    let keys = [
+    let mut keys = vec![
         "apiVersion",
         "programKind",
         "identityLaw",
@@ -251,6 +253,13 @@ fn configuration<'a>(
         "budgetCeiling",
         "authorityProfile",
     ];
+    // Graph reads are declared with the bounded-read configuration's record.
+    let graph_reads = map_field(value, "graphReads");
+    if let Some(declared) = graph_reads {
+        keys.push("graphReads");
+        super::effect_program::graph_reads(declared)
+            .map_err(|()| unsupported("configuration graph-read declaration is invalid"))?;
+    }
     let budget = map_field(value, "budgetCeiling");
     if !exact_keys(value, &keys)
         || !is_configuration(value)
@@ -276,6 +285,7 @@ fn configuration<'a>(
         read_bytes: number(budget, "readBytes", u64::MAX)?,
         write_bytes: number(budget, "writeBytes", u64::MAX)?,
         authority,
+        graph_reads,
     };
     if configuration.steps == 0 {
         return Err(unsupported("configuration step ceiling is zero"));
@@ -439,7 +449,7 @@ fn expected_package(
     let mut footprint = blake3::Hasher::new();
     footprint.update(b"echo:operation-footprint-law:v1\0");
     footprint.update(configuration.footprint_law);
-    let program = encode(&canonical_map([
+    let program = canonical_map([
         ("schema", canonical_text("echo.operation-program/v1")),
         ("kind", canonical_text(PROGRAM_KIND)),
         (
@@ -465,7 +475,16 @@ fn expected_package(
         ("max_result_bytes", integer(configuration.max_result)),
         ("max_allocated_bytes", integer(configuration.max_allocated)),
         ("output_type", canonical_text(output)),
-    ]))?;
+    ]);
+    // A graph-reading program carries its configuration's declaration.
+    let program = match (program, configuration.graph_reads) {
+        (Value::Map(mut fields), Some(declared)) => {
+            fields.push((canonical_text("graph_reads"), declared.clone()));
+            Value::Map(fields)
+        }
+        (program, _) => program,
+    };
+    let program = encode(&program)?;
     let mut package = vec![
         (canonical_text("schema"), canonical_text(PACKAGE_SCHEMA)),
         (

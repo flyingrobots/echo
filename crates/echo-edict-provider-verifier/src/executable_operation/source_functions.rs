@@ -15,6 +15,7 @@ mod fold;
 mod fold_tests;
 #[cfg(test)]
 mod function_precondition_tests;
+mod function_preconditions;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -40,6 +41,9 @@ type Check<T> = Result<T, ()>;
 struct Definition<'a> {
     source: bool,
     params: &'a [Value],
+    /// Static preconditions over `params`; empty for imported helpers and
+    /// for source functions without them.
+    preconditions: &'a [Value],
     body: &'a Value,
     parameter_types: Vec<Schema>,
     result: Schema,
@@ -253,7 +257,59 @@ fn prepare<'a>(
         }
     }
     let summaries = summarize(&definitions, types, pending, &callers, edge_scans)?;
+    preconditions_are_typed(&definitions, &summaries, types)?;
+    // Every call to a precondition-bearing function proves its preconditions
+    // from the facts that dominate it, wherever it is in the module.
+    let contracts = definitions
+        .iter()
+        .filter(|(_, definition)| !definition.preconditions.is_empty())
+        .map(|(name, definition)| {
+            (
+                name.clone(),
+                function_preconditions::Contract {
+                    params: definition.params,
+                    preconditions: definition.preconditions,
+                },
+            )
+        })
+        .collect();
+    function_preconditions::check_calls(core, &contracts).map_err(|_| ())?;
     Ok((definitions, summaries))
+}
+/// Each precondition is a typed predicate over its function's parameters
+/// alone, judged assuming the ones before it, after every summary exists so
+/// that an imported call in one is judged like any other. Preconditions are
+/// never evaluated, so they add no charge.
+fn preconditions_are_typed<'a>(
+    definitions: &BTreeMap<String, Definition<'a>>,
+    summaries: &BTreeMap<String, Summary>,
+    types: &mut Types<'a>,
+) -> Check<()> {
+    for definition in definitions.values() {
+        if definition.preconditions.is_empty() {
+            continue;
+        }
+        let mut frame = Frame::new(definition.params, types)?;
+        for (local, schema) in definition.params.iter().zip(&definition.parameter_types) {
+            frame.define(local, types.copy_type(schema)?)?;
+        }
+        let mut checker = Checker {
+            types: &mut *types,
+            definitions,
+            summaries,
+            proven: Vec::new(),
+            branch: Vec::new(),
+            path: Vec::new(),
+            bound: Vec::new(),
+            proven_sum: None,
+            edge_scans: 0,
+        };
+        for precondition in definition.preconditions {
+            checker.predicate(precondition, &frame, 0)?;
+            checker.proven.push(precondition);
+        }
+    }
+    Ok(())
 }
 /// Summarizes every helper after its dependencies, so callers see complete
 /// summaries. No native recursion crosses a function edge.
@@ -341,6 +397,7 @@ fn inventory<'a>(
                     Definition {
                         source: false,
                         params: sequence(get(implementation, "params")?)?,
+                        preconditions: &[],
                         body,
                         parameter_types: vec![],
                         result: types.resolve(string(get(export, "returnType")?)?, 0)?,
@@ -371,7 +428,10 @@ fn inventory<'a>(
         {
             return Err(());
         }
-        exact(definition, &["params", "returnType", "body"])?;
+        let coordinate = string(get(core, "coordinate")?)?;
+        let preconditions =
+            function_preconditions::declared(definition, coordinate, get(core, "functions")?)
+                .map_err(|_| ())?;
         let body = get(definition, "body")?;
         exact(body, &["locals", "bindings", "result"])?;
         let params = sequence(get(definition, "params")?)?;
@@ -379,7 +439,7 @@ fn inventory<'a>(
         for parameter in params {
             parameter_types.push(types.local(parameter)?);
         }
-        let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
+        let name = format!("{coordinate}.{name}");
         if name.starts_with("core.")
             || effect_names.contains(name.as_str())
             || definitions
@@ -388,6 +448,7 @@ fn inventory<'a>(
                     Definition {
                         source: true,
                         params,
+                        preconditions,
                         body,
                         parameter_types,
                         result: types.resolve(string(get(definition, "returnType")?)?, 0)?,
@@ -457,6 +518,9 @@ impl<'a> Checker<'a, '_> {
             height = height.max(schema.measure()?.height);
             frame.define(local, self.types.copy_type(schema)?)?;
         }
+        // The body may assume its preconditions: every call re-proves them,
+        // and `preconditions_are_typed` judges them.
+        self.proven.extend(definition.preconditions);
         let mut charge = Charge::default();
         for binding in sequence(get(definition.body, "bindings")?)? {
             exact(binding, &["kind", "binding", "value"])?;

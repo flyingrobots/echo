@@ -122,21 +122,25 @@ fn compare(op: &str, left: Value, right: Value) -> Value {
 fn le(left: Value, right: Value) -> Value {
     compare("<=", left, right)
 }
-/// `a && b && c` as Amblicit emits it: left-nested binary `all`.
-fn and(items: Vec<Value>) -> Value {
-    let mut items = items.into_iter();
-    let first = items.next().expect("a conjunction has an item");
-    items.fold(first, |left, right| {
-        map([("kind", text("all")), ("values", Value::Array(vec![left, right]))])
-    })
+/// `a op b op c` as Amblicit emits `&&` (`all`) and `||` (`any`): left-nested
+/// binary nodes. One item is itself; no case passes none.
+fn chain(kind: &str, items: Vec<Value>) -> Value {
+    let binary = |left, right| {
+        map([
+            ("kind", text(kind)),
+            ("values", Value::Array(vec![left, right])),
+        ])
+    };
+    items
+        .into_iter()
+        .reduce(binary)
+        .unwrap_or_else(|| map([("kind", text(kind)), ("values", Value::Array(Vec::new()))]))
 }
-/// `a || b || c` as Amblicit emits it: left-nested binary `any`.
+fn and(items: Vec<Value>) -> Value {
+    chain("all", items)
+}
 fn or(items: Vec<Value>) -> Value {
-    let mut items = items.into_iter();
-    let first = items.next().expect("a disjunction has an item");
-    items.fold(first, |left, right| {
-        map([("kind", text("any")), ("values", Value::Array(vec![left, right]))])
-    })
+    chain("any", items)
 }
 fn any(values: Vec<Value>) -> Value {
     map([("kind", text("any")), ("values", Value::Array(values))])
@@ -444,7 +448,11 @@ pub(crate) fn cases() -> Vec<Case> {
     {
         // Jedit's `function-precondition.amblicit`, with its three preconditions.
         let jedit = cut(|b, s, e| {
-            vec![le(s.clone(), e.clone()), le(e, len(b.clone())), le(s, len(b))]
+            vec![
+                le(s.clone(), e.clone()),
+                le(e, len(b.clone())),
+                le(s, len(b)),
+            ]
         });
         cases.full(
             "jedit_function_precondition_reproducer_compiles_and_lowers",
@@ -501,7 +509,9 @@ pub(crate) fn cases() -> Vec<Case> {
         ),
     ] {
         cases.add(
-            format!("a_call_that_does_not_establish_a_precondition_is_refused_at_the_call: {label}"),
+            format!(
+                "a_call_that_does_not_establish_a_precondition_is_refused_at_the_call: {label}"
+            ),
             false,
             vec![("span", span())],
             constraints,
@@ -595,12 +605,7 @@ pub(crate) fn cases() -> Vec<Case> {
         false,
         vec![(
             "bad",
-            function(
-                vec![param(0, "U64")],
-                "U64",
-                vec![arg(0)],
-                arg(0),
-            ),
+            function(vec![param(0, "U64")], "U64", vec![arg(0)], arg(0)),
         )],
         Vec::new(),
         start(),
@@ -623,14 +628,7 @@ pub(crate) fn cases() -> Vec<Case> {
         start(),
     );
     {
-        let step = |preconditions| {
-            function(
-                vec![param(0, "U64")],
-                "U64",
-                preconditions,
-                arg(0),
-            )
-        };
+        let step = |preconditions| function(vec![param(0, "U64")], "U64", preconditions, arg(0));
         cases.add(
             "a_function_with_preconditions_cannot_be_a_fold_step: control",
             true,
@@ -665,7 +663,11 @@ pub(crate) fn cases() -> Vec<Case> {
         false,
         vec![(
             "span",
-            two("U64", vec![le(stranger(), arg(1))], subtract(arg(1), arg(0))),
+            two(
+                "U64",
+                vec![le(stranger(), arg(1))],
+                subtract(arg(1), arg(0)),
+            ),
         )],
         ordered_input(),
         span_call(),
@@ -925,11 +927,7 @@ pub(crate) fn cases() -> Vec<Case> {
                 vec![ordered_gap.clone(), bounded_gap.clone()],
                 true,
             ),
-            (
-                "reversed",
-                vec![bounded_gap.clone(), ordered_gap.clone()],
-                false,
-            ),
+            ("reversed", vec![bounded_gap.clone(), ordered_gap], false),
             ("first dropped", vec![bounded_gap], false),
         ] {
             cases.add(
@@ -991,23 +989,35 @@ pub(crate) fn cases() -> Vec<Case> {
         let pick_call = || call("pick", vec![start(), end()]);
         for (label, function, constraints, accepted) in [
             ("!= same", ne(), vec![compare("!=", start(), end())], true),
-            ("!= mirrored", ne(), vec![compare("!=", end(), start())], true),
+            (
+                "!= mirrored",
+                ne(),
+                vec![compare("!=", end(), start())],
+                true,
+            ),
             (
                 "!= nested in &&",
                 ne(),
-                vec![and(vec![
-                    le(end(), int(4)),
-                    compare("!=", start(), end()),
-                ])],
+                vec![and(vec![le(end(), int(4)), compare("!=", start(), end())])],
                 true,
             ),
             ("!= from <", ne(), vec![compare("<", start(), end())], false),
             ("!= from nothing", ne(), Vec::new(), false),
             ("< same", lt(), vec![compare("<", start(), end())], true),
             ("< mirrored", lt(), vec![compare(">", end(), start())], true),
-            ("< reversed", lt(), vec![compare("<", end(), start())], false),
+            (
+                "< reversed",
+                lt(),
+                vec![compare("<", end(), start())],
+                false,
+            ),
             ("< from <=", lt(), ordered_input(), false),
-            ("< from !=", lt(), vec![compare("!=", start(), end())], false),
+            (
+                "< from !=",
+                lt(),
+                vec![compare("!=", start(), end())],
+                false,
+            ),
         ] {
             cases.add(
                 format!("non_order_preconditions_need_the_same_or_a_mirrored_fact: {label}"),

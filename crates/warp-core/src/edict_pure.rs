@@ -14,6 +14,7 @@ mod decode;
 pub(crate) mod evaluate;
 #[cfg(test)]
 mod fold_tests;
+mod function_preconditions;
 pub(crate) mod functions;
 mod list_operations;
 #[cfg(test)]

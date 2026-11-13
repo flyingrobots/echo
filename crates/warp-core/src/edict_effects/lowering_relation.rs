@@ -13,14 +13,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn validate<'a>(
     module: &Value,
-    intent: &Value,
+    intent: &'a Value,
     target_artifact: &Value,
     target: &'a Value,
     exports: &'a Value,
     artifacts: &Value,
 ) -> Result<BTreeMap<&'a str, &'a Value>, Error> {
     let steps = array(field(target, "steps")?)?;
+    let structured =
+        text_field(target_artifact, "domain")? == super::control_order::STRUCTURED_TARGET_IR;
     if steps.is_empty() {
+        // Without an effect step there are no lowering artifacts, so no
+        // profile is authenticated; structured control is admitted only
+        // under an authenticated `echo.dpo@2` profile.
+        if structured {
+            return Err(Error::UnsupportedProgram);
+        }
         return if artifacts == &Value::Null {
             Ok(BTreeMap::new())
         } else {
@@ -67,6 +75,11 @@ pub(super) fn validate<'a>(
     // its own catalog coordinate, which is also the catalog's digest domain.
     let namespace =
         super::intrinsic_names::namespace(&profile_coordinate).ok_or(Error::UnsupportedProgram)?;
+    // `echo.dpo@1` is frozen; only `echo.dpo@2` carries structured control
+    // (owner decision on flyingrobots/echo#947).
+    if structured && !namespace.structured {
+        return Err(Error::UnsupportedProgram);
+    }
     let catalog_reference = field(&target_profile, "intrinsics")?;
     require_text(catalog_reference, "id", namespace.catalog)?;
     pinned(
@@ -127,17 +140,12 @@ pub(super) fn validate<'a>(
     super::imported_types::validate(module, exports, &coordinate)?;
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
     let authorized = array(field(profile, "semanticEffects")?)?;
-    let nodes = array(field(field(intent, "body")?, "nodes")?)?;
     let mut signatures = BTreeMap::new();
-    let steps = steps
-        .iter()
-        .map(|step| Ok((text_field(step, "id")?, step)))
-        .collect::<Result<BTreeMap<_, _>, Error>>()?;
-    for (core, id) in nodes.iter().zip(array(field(target, "executionOrder")?)?) {
+    for (core, lowered) in super::control_order::instructions(intent, target)? {
         if text_field(core, "kind")? != "effect" {
             continue;
         }
-        let lowered = *steps.get(text(id)?).ok_or(Error::InvalidArtifact)?;
+        let id = text_field(lowered, "id")?;
         let name = resolve(text_field(core, "effect")?, &alias, &coordinate)?;
         if !authorized
             .iter()
@@ -181,7 +189,7 @@ pub(super) fn validate<'a>(
             "type",
             text_field(effect, "outputType")?,
         )?;
-        signatures.insert(text(id)?, effect);
+        signatures.insert(id, effect);
         let failures = field(effect, "effectFailures")?;
         let mappings = map(field(implementation, "failureMappings")?)?;
         let source_arms = field(core, "obstructionMap")?;

@@ -18,6 +18,10 @@ use std::collections::{BTreeMap, BTreeSet};
 type Check<T> = Result<T, ()>;
 
 const PROFILE_GRAPH_EFFECTS: &str = "continuum.profile.graph-effects/v1";
+/// The ordered contract: one flat order of instruction ids.
+const ORDERED_DOMAIN: &str = "echo.span-ir/v2";
+/// The structured contract: an order tree with bounded loops and branches.
+const STRUCTURED_DOMAIN: &str = "echo.span-ir/v3";
 const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 65_536;
 
@@ -108,19 +112,19 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<Judged> {
     let module = embedded("core_artifact")?;
     let target = embedded("target_ir_artifact")?;
     let exports = embedded("lawpack_exports_artifact")?;
-    artifacts(&module, &target, &exports)?;
+    let structured = artifacts(&module, &target, &exports)?;
     let intent = get(get(&module, "intents")?, intent_name)?;
     let lowered = get(get(&target, "intents")?, intent_name)?;
     binding(intent, lowered)?;
+    let instructions = correspondence(intent, lowered, structured)?;
     let sites = relation(
         &module,
         intent,
         &target,
-        lowered,
+        &instructions,
         &exports,
         get(&bundle, "lowering_artifacts")?,
     )?;
-    correspondence(intent, lowered)?;
     judge_effect_intent(&module, &exports, intent, &sites)?;
     Ok(Judged {
         core_identity: identity("edict.core.module/v1", &module)?,
@@ -132,7 +136,8 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<Judged> {
 }
 
 /// The three embedded artifacts and the Core pin the Target IR carries.
-fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<()> {
+/// True when the Target IR declares the structured contract.
+fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
     exact(
         target,
         &[
@@ -144,8 +149,15 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<()> {
             "sourceCoreCoordinate",
         ],
     )?;
-    equal_text(target, "domain", "echo.span-ir/v2")?;
-    equal_text(target, "kind", "orderedTargetIrArtifact")?;
+    // The declared domain and kind must name the same contract.
+    let structured = if equal_text(target, "domain", ORDERED_DOMAIN).is_ok() {
+        equal_text(target, "kind", "orderedTargetIrArtifact")?;
+        false
+    } else {
+        equal_text(target, "domain", STRUCTURED_DOMAIN)?;
+        equal_text(target, "kind", "structuredTargetIrArtifact")?;
+        true
+    };
     exact(
         exports,
         &[
@@ -193,7 +205,8 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<()> {
     let source = get(get(target, "semanticClosure")?, "sourceCore")?;
     exact(source, &["id", "digest"])?;
     equal_text(source, "id", coordinate)?;
-    pinned(source, identity("edict.core.module/v1", module)?)
+    pinned(source, identity("edict.core.module/v1", module)?)?;
+    Ok(structured)
 }
 
 /// The selected intent and its lowered form agree on everything the runtime
@@ -254,12 +267,23 @@ fn relation<'a>(
     module: &'a Value,
     intent: &'a Value,
     target_artifact: &'a Value,
-    lowered: &'a Value,
+    instructions: &[(&'a Value, &'a Value)],
     exports: &'a Value,
     lowering: &'a Value,
 ) -> Check<BTreeMap<usize, EffectSite>> {
-    let steps = list(get(lowered, "steps")?)?;
-    if steps.is_empty() {
+    let structured = equal_text(target_artifact, "domain", STRUCTURED_DOMAIN).is_ok();
+    let mut effect_count = 0_usize;
+    for (node, _) in instructions {
+        if string(get(node, "kind")?)? == "effect" {
+            effect_count += 1;
+        }
+    }
+    if effect_count == 0 {
+        // Structured control needs an authenticated echo.dpo@2 profile, and
+        // a program without effects carries no profile at all.
+        if structured {
+            return Err(());
+        }
         return if lowering == &Value::Null {
             Ok(BTreeMap::new())
         } else {
@@ -306,6 +330,11 @@ fn relation<'a>(
     // Only Echo's two effect namespaces name runtime intrinsics; each pins
     // its own catalog coordinate, which is also the catalog's digest domain.
     let namespace = super::intrinsic_names::namespace(&profile_coordinate).ok_or(())?;
+    // Only echo.dpo@2 admits structured control; echo.dpo@1 is frozen
+    // (owner decision on flyingrobots/echo#947).
+    if structured && !namespace.structured {
+        return Err(());
+    }
     let catalog_reference = get(&profile, "intrinsics")?;
     equal_text(catalog_reference, "id", namespace.catalog)?;
     pinned(catalog_reference, identity(namespace.catalog, &catalog)?)?;
@@ -361,21 +390,13 @@ fn relation<'a>(
         "semanticEffects",
     )?)?;
     let implementations = get(&adapter, "effectImplementations")?;
-    let nodes = list(get(get(intent, "body")?, "nodes")?)?;
-    let lowered_steps = steps
-        .iter()
-        .map(|step| Ok((string(get(step, "id")?)?, step)))
-        .collect::<Check<BTreeMap<_, _>>>()?;
-    let order = list(get(lowered, "executionOrder")?)?;
-    if order.len() != nodes.len() {
-        return Err(());
-    }
+    // An effect site is keyed by its instruction's place in the pre-order
+    // walk of the Core body; the body audit walks in the same order.
     let mut sites = BTreeMap::new();
-    for (index, (node, id)) in nodes.iter().zip(order).enumerate() {
+    for (index, &(node, step)) in instructions.iter().enumerate() {
         if string(get(node, "kind")?)? != "effect" {
             continue;
         }
-        let step = *lowered_steps.get(string(id)?).ok_or(())?;
         let name = resolve(string(get(node, "effect")?)?, &alias, &lawpack_coordinate)?;
         if !authorized.iter().any(|value| value == &text(&name)) {
             return Err(());
@@ -422,7 +443,7 @@ fn relation<'a>(
             },
         );
     }
-    if sites.len() != steps.len() {
+    if sites.len() != effect_count {
         return Err(());
     }
     Ok(sites)
@@ -576,8 +597,16 @@ fn arms(
 }
 
 /// Core nodes and Target IR instructions correspond one for one, in the
-/// lowered execution order, with identical kinds and contents.
-fn correspondence(intent: &Value, lowered: &Value) -> Check<()> {
+/// lowered execution order, with identical kinds and contents. A structured
+/// order also nests one order per Core loop body or branch arm, under a
+/// control entry that repeats the Core node's binder, iterable, bound or
+/// predicate. Yields every Core instruction with its Target instruction in
+/// pre-order.
+fn correspondence<'a>(
+    intent: &'a Value,
+    lowered: &'a Value,
+    structured: bool,
+) -> Check<Vec<(&'a Value, &'a Value)>> {
     let mut fields = vec![
         "operationProfile",
         "inputConstraints",
@@ -609,13 +638,127 @@ fn correspondence(intent: &Value, lowered: &Value) -> Check<()> {
             }
         }
     }
-    let nodes = list(get(get(intent, "body")?, "nodes")?)?;
-    let order = list(get(lowered, "executionOrder")?)?;
-    if nodes.len() != order.len() || nodes.len() != instructions.len() {
+    let mut controls = BTreeSet::new();
+    let mut paired = Vec::new();
+    let mut budget = MAX_NODES;
+    pair_block(
+        get(intent, "body")?,
+        get(lowered, "executionOrder")?,
+        structured,
+        &mut Pairing {
+            instructions: &mut instructions,
+            controls: &mut controls,
+            paired: &mut paired,
+            budget: &mut budget,
+        },
+        0,
+    )?;
+    if !instructions.is_empty() {
         return Err(());
     }
-    for (node, id) in nodes.iter().zip(order) {
-        let (kind, instruction) = instructions.remove(string(id)?).ok_or(())?;
+    Ok(paired)
+}
+
+/// What one pairing pass consumes and produces.
+struct Pairing<'p, 'a> {
+    /// Target instructions not yet placed.
+    instructions: &'p mut BTreeMap<&'a str, (&'static str, &'a Value)>,
+    /// Control ids already used.
+    controls: &'p mut BTreeSet<&'a str>,
+    paired: &'p mut Vec<(&'a Value, &'a Value)>,
+    budget: &'p mut usize,
+}
+
+fn pair_block<'a>(
+    body: &'a Value,
+    order: &'a Value,
+    structured: bool,
+    pairing: &mut Pairing<'_, 'a>,
+    depth: usize,
+) -> Check<()> {
+    if depth > MAX_DEPTH {
+        return Err(());
+    }
+    exact(body, &["locals", "nodes", "result"])?;
+    let nodes = list(get(body, "nodes")?)?;
+    let order = list(order)?;
+    if nodes.len() != order.len() {
+        return Err(());
+    }
+    for (node, entry) in nodes.iter().zip(order) {
+        *pairing.budget = pairing.budget.checked_sub(1).ok_or(())?;
+        match entry {
+            Value::Text(id) => {
+                let (kind, instruction) = pairing.instructions.remove(id.as_str()).ok_or(())?;
+                same_instruction(node, kind, instruction)?;
+                pairing.paired.push((node, instruction));
+            }
+            Value::Map(_) if structured => pair_control(node, entry, pairing, depth)?,
+            _ => return Err(()),
+        }
+    }
+    Ok(())
+}
+
+fn pair_control<'a>(
+    node: &'a Value,
+    entry: &'a Value,
+    pairing: &mut Pairing<'_, 'a>,
+    depth: usize,
+) -> Check<()> {
+    let id = nonempty(get(entry, "id")?)?;
+    // Control ids are unique and never an instruction id.
+    if pairing.instructions.contains_key(id)
+        || pairing.paired.iter().any(|(_, instruction)| {
+            map_field(instruction, "id") == Some(&Value::Text(id.to_owned()))
+        })
+        || !pairing.controls.insert(id)
+    {
+        return Err(());
+    }
+    let kind = string(get(node, "kind")?)?;
+    equal_text(entry, "kind", kind)?;
+    let blocks: &[(&str, &str)] = match kind {
+        "for" => {
+            exact(node, &["kind", "binder", "iter", "bound", "body"])?;
+            exact(
+                entry,
+                &["kind", "id", "binder", "iterable", "bound", "body"],
+            )?;
+            if get(node, "binder")? != get(entry, "binder")?
+                || get(node, "iter")? != get(entry, "iterable")?
+                || get(node, "bound")? != get(entry, "bound")?
+            {
+                return Err(());
+            }
+            &[("body", "body")]
+        }
+        "branch" => {
+            exact(node, &["kind", "predicate", "then", "else"])?;
+            exact(entry, &["kind", "id", "predicate", "then", "else"])?;
+            if get(node, "predicate")? != get(entry, "predicate")? {
+                return Err(());
+            }
+            &[("then", "then"), ("else", "else")]
+        }
+        _ => return Err(()),
+    };
+    for (core_block, target_order) in blocks {
+        let block = get(node, core_block)?;
+        // Loop bodies and branch arms are statements: their result is null.
+        let result = get(block, "result")?;
+        exact(result, &["kind", "value"])?;
+        equal_text(result, "kind", "const")?;
+        exact(get(result, "value")?, &["kind"])?;
+        equal_text(get(result, "value")?, "kind", "null")?;
+        pair_block(block, get(entry, target_order)?, true, pairing, depth + 1)?;
+    }
+    Ok(())
+}
+
+/// A Core instruction and its Target instruction agree in kind and content.
+fn same_instruction(node: &Value, kind: &str, instruction: &Value) -> Check<()> {
+    {
         equal_text(node, "kind", kind)?;
         let keys: &[&str] = match kind {
             "let" => {

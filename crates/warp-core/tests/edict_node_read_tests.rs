@@ -743,3 +743,58 @@ fn bounded_read_checks_and_consumes_the_distinct_source_closure_domain() {
     assert_eq!(result.basis, basis);
     assert_eq!(frontier.state().state_root(), before);
 }
+
+fn repinned_target(raw: &[u8], edit: impl FnOnce(&mut Value)) -> (Vec<u8>, [u8; 32]) {
+    let mut package = decode(raw).unwrap();
+    let Value::Bytes(program_bytes) = field(&package, "program") else {
+        panic!("program")
+    };
+    let mut program = decode(program_bytes).unwrap();
+    let Value::Bytes(target_bytes) = field(&program, "target_ir_artifact") else {
+        panic!("Target")
+    };
+    let mut target = decode(target_bytes).unwrap();
+    edit(&mut target);
+    let target_identity = digest("edict.target-ir.artifact/v1", &target).unwrap();
+    *field_mut(&mut program, "target_ir_artifact") = Value::Bytes(encode(&target).unwrap());
+    *field_mut(&mut package, "program") = Value::Bytes(encode(&program).unwrap());
+    *field_mut(
+        field_mut(&mut package, "semantic_closure"),
+        "target_ir_identity",
+    ) = Value::Bytes(target_identity.to_vec());
+    let pin = digest("echo.operation-package/v1", &package).unwrap();
+    (encode(&package).unwrap(), pin)
+}
+
+/// Oracle: the bounded-read runtime profile is specified for flat
+/// `echo.span-ir/v2` orders only (Echo #947 safe state). Each case is repinned
+/// coherently, and the unchanged control evaluates to the original result, so
+/// a refusal is caused by the structured declaration rather than a stale pin.
+#[test]
+fn bounded_read_profile_refuses_coherently_repinned_structured_declarations() {
+    let (frontier, keys) = frontier();
+    let aperture = [keys[0]];
+    let view = ReadView::new(&frontier, ReadBasis::at(&frontier), &aperture).unwrap();
+    let (raw, pin) = package(false);
+    let input = single_input(keys[0], b"alpha");
+    let expected = evaluate(&raw, pin, &input, &view, limits()).unwrap();
+    let (control, control_pin) = repinned_target(&raw, |_| {});
+    assert_eq!(
+        evaluate(&control, control_pin, &input, &view, limits()),
+        Ok(expected)
+    );
+    for (domain, kind) in [
+        ("echo.span-ir/v3", "structuredTargetIrArtifact"),
+        ("echo.span-ir/v3", "orderedTargetIrArtifact"),
+        ("echo.span-ir/v2", "structuredTargetIrArtifact"),
+    ] {
+        let (changed, changed_pin) = repinned_target(&raw, |target| {
+            *field_mut(target, "domain") = Value::Text(domain.into());
+            *field_mut(target, "kind") = Value::Text(kind.into());
+        });
+        assert!(
+            evaluate(&changed, changed_pin, &input, &view, limits()).is_err(),
+            "{domain} {kind} was evaluated by the bounded-read profile"
+        );
+    }
+}

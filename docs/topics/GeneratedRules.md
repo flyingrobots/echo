@@ -1184,6 +1184,50 @@ equality checks are the backstop: an effect that declares and maps no failures
 but is bound to `node-atom-read`, which pins four, is refused by the lowerer,
 the verifier and the runtime.
 
+#### Structured effect control under `echo.dpo@2`
+
+The owner decision on flyingrobots/echo#947 gives structured control to
+`echo.dpo@2`: a program whose Target IR declares `echo.span-ir/v3`
+(`structuredTargetIrArtifact`) may run bounded `for` loops and statement
+`branch`es around its instructions. `echo.dpo@1` stays frozen, so the
+runtime, the lowerer and the verifier each refuse a structured program
+pinned to it, and each refuses a structured program without an effect step,
+because only an effect step's lowering artifacts authenticate a profile. An
+ordered (`echo.span-ir/v2`) program keeps its flat order and may carry no
+control entry.
+
+The three judgments agree on the structured relation:
+
+- **Order tree.** Each `for` or `branch` entry repeats its Core node's binder,
+  iterable, bound or predicate exactly and nests one order per Core block;
+  every instruction appears exactly once; control ids are nonempty, unique and
+  never an instruction id. Loop bodies and branch arms are statement blocks
+  whose result is `null`, and a branch that binds a value is not a control
+  entry.
+- **Bounds.** Only a literal bound is admitted (Target IR cannot authenticate
+  a coordinate bound), and it must cover the maximum of the iterable's list
+  type. The binder's type must accept the list's items.
+- **Scopes.** A loop body or branch arm claims its locals from its own table.
+  They are visible to later nodes of the same block only and never after it;
+  no local identity is declared twice anywhere in the intent, and an inner
+  local never shadows an outer one. A branch predicate is not a fact for
+  either arm.
+- **Worst case.** A loop costs its iterable once and then, `bound` times, one
+  step, the validation of its binder's type and its body. A branch costs its
+  predicate and the larger of its arms. Mutations multiply and add the same
+  way, so a bound times a body's emissions must stay within the runtime's
+  1,024-mutation ceiling, and the declared step, allocation and output
+  budgets must cover the result before installation.
+
+At run time the evaluator evaluates a loop's list once in the enclosing scope,
+validates and binds each item fresh, runs only the arm a branch's predicate
+selects, and forgets each block's locals when it ends. Every emission joins
+the one atomic buffer: a failed later iteration or arm discards all of them,
+while the meter keeps the steps and write bytes already charged and charges
+nothing for work that did not run, so an unchosen arm performs no read and
+needs no aperture. The shared verdict corpus carries structured controls and
+forgeries for each rule above, judged by all three.
+
 The lawpack pins the effect judgments check are framed the way the compiler frames
 them: the lawpack's `exports` and each target adapter's `adapter` digest use
 the coordinate the reference names as their digest domain. The lowerer, the

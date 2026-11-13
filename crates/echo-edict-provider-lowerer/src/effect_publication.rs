@@ -105,8 +105,14 @@ pub fn encode_effect_publication(
     let target = embedded("target_ir_artifact")?;
     let exports = embedded("lawpack_exports_artifact")?;
     equals(&core, "apiVersion", "edict.core/v1", A)?;
-    equals(&target, "domain", "echo.span-ir/v2", A)?;
-    equals(&target, "kind", "orderedTargetIrArtifact", A)?;
+    // The ordered or the structured contract; the judgment admits the
+    // structured one only under `echo.dpo@2`.
+    match (field(&target, "domain", A)?, field(&target, "kind", A)?) {
+        (V::Text(domain), V::Text(kind))
+            if (domain == "echo.span-ir/v2" && kind == "orderedTargetIrArtifact")
+                || (domain == "echo.span-ir/v3" && kind == "structuredTargetIrArtifact") => {}
+        _ => return Err(A),
+    }
     let module = coordinate(field(&core, "coordinate", A)?)?;
     equals(&target, "sourceCoreCoordinate", module, A)?;
     let intent = field(field(&core, "intents", A)?, intent_name, A)?;

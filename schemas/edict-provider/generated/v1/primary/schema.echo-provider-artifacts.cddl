@@ -1474,7 +1474,8 @@ echo-compiler-produced-bounded-read-lowering-configuration = {
   ? graphReads: echo-bounded-read-graph-reads,
 }
 
-; Declares typed outgoing-edge and guided closure reads for a bounded-read program.
+; Declares typed outgoing-edge and guided closure reads for a bounded-read or
+; authored-effect program.
 ; Schema admission grants no observation authority; the host still selects the aperture.
 echo-bounded-read-graph-reads = {
   maxEdgeScans: 1..65536,
@@ -1502,6 +1503,7 @@ echo-authored-effect-lowering-configuration = {
   },
   ; The requested authority class; the runtime owner's policy grants authority.
   authorityProfile: echo-nonempty-tstr,
+  ? graphReads: echo-bounded-read-graph-reads,
 }
 
 echo-attachment-create-if-absent-lowering-configuration = {

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="bw-rope" viewBox="0 0 940 425" role="img" aria-labelledby="bw-rope-title bw-rope-desc">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="bw-rope-title">A bounded path remembers how a tree walk reached the text</title>
+  <desc id="bw-rope-desc">A rope tree has a root, two branches, and four text chunks. The highlighted route descends from the root through the left branch to chunk B. Beside it a maximum-three ancestor list contains root and left branch, with one unused slot. Rebuilding can consult the ancestors in reverse order. This is a conceptual traversal, not a claim that the full rope edit is implemented.</desc>
+  <style>
+    .bw-rope { --bw-ink:#eeeae1; --bw-muted:#aaafa5; --bw-accent:#c5d5b2; --bw-line:#777f72; font-family:var(--sans,system-ui,sans-serif); }
+    @media (prefers-color-scheme:light) { .bw-rope { --bw-ink:#222b21; --bw-muted:#60695b; --bw-accent:#3e603a; --bw-line:#777e71; } }
+    .bw-rope text { fill:var(--ink,var(--bw-ink)); font-size:18px; }
+    .bw-rope .bw-title { font-size:24px; font-weight:650; }
+    .bw-rope .bw-small { font-size:15px; fill:var(--muted,var(--bw-muted)); }
+    .bw-rope .bw-heading { font-size:19px; font-weight:600; }
+    .bw-rope .bw-box { fill:none; stroke:var(--line,var(--bw-line)); stroke-width:1.8; }
+    .bw-rope .bw-selected { fill:var(--accent,var(--bw-accent)); fill-opacity:.09; stroke:var(--accent,var(--bw-accent)); stroke-width:2.5; }
+    .bw-rope .bw-edge { fill:none; stroke:var(--muted,var(--bw-muted)); stroke-width:1.5; }
+    .bw-rope .bw-route { fill:none; stroke:var(--accent,var(--bw-accent)); stroke-width:3; }
+    .bw-rope .bw-arrow { fill:var(--accent,var(--bw-accent)); }
+    .bw-rope .bw-spare { fill:none; stroke:var(--muted,var(--bw-muted)); stroke-width:1.5; stroke-dasharray:5 5; }
+  </style>
+  <defs><marker id="bw-rope-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path class="bw-arrow" d="M 0 0 L 7 4 L 0 8 Z"/></marker></defs>
+  <text class="bw-title" x="35" y="35">Remember the route while descending.</text>
+  <path class="bw-route" d="M 280 112 L 150 173" marker-end="url(#bw-rope-arrow)"/>
+  <path class="bw-edge" d="M 280 112 L 440 175"/>
+  <path class="bw-edge" d="M 150 225 L 70 289"/>
+  <path class="bw-route" d="M 150 225 L 230 287" marker-end="url(#bw-rope-arrow)"/>
+  <path class="bw-edge" d="M 440 225 L 390 289 M 440 225 L 550 289"/>
+  <g text-anchor="middle">
+    <rect class="bw-selected" x="205" y="62" width="150" height="50" rx="9"/><text x="280" y="94">root</text>
+    <rect class="bw-selected" x="80" y="175" width="140" height="50" rx="9"/><text x="150" y="207">left branch</text>
+    <rect class="bw-box" x="370" y="175" width="140" height="50" rx="9"/><text x="440" y="207">right branch</text>
+    <rect class="bw-box" x="20" y="290" width="100" height="50" rx="9"/><text x="70" y="322">chunk A</text>
+    <rect class="bw-selected" x="180" y="290" width="100" height="50" rx="9"/><text x="230" y="322">chunk B</text>
+    <rect class="bw-box" x="340" y="290" width="100" height="50" rx="9"/><text x="390" y="322">chunk C</text>
+    <rect class="bw-box" x="500" y="290" width="100" height="50" rx="9"/><text x="550" y="322">chunk D</text>
+    <text class="bw-small" x="230" y="366">target text</text>
+  </g>
+  <text class="bw-heading" x="660" y="88">Ancestor list</text>
+  <text class="bw-small" x="660" y="113">Length 2 · Maximum 3</text>
+  <rect class="bw-selected" x="660" y="135" width="235" height="48" rx="8"/>
+  <text class="bw-small" x="676" y="165">0</text><text x="710" y="165">root</text>
+  <rect class="bw-selected" x="660" y="195" width="235" height="48" rx="8"/>
+  <text class="bw-small" x="676" y="225">1</text><text x="710" y="225">left branch</text>
+  <rect class="bw-spare" x="660" y="255" width="235" height="48" rx="8"/>
+  <text class="bw-small" x="676" y="285">2</text><text class="bw-small" x="710" y="285">unused capacity</text>
+  <text class="bw-small" x="660" y="335">For rebuild, consult ancestors</text>
+  <text class="bw-small" x="660" y="357">in reverse order: 1, then 0.</text>
+  <text class="bw-small" x="35" y="407">Conceptual rope walk: following one branch and retaining its ancestors are separate jobs.</text>
+</svg>

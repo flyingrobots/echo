@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="bw-slots" viewBox="0 0 900 330" role="img" aria-labelledby="bw-slots-title bw-slots-desc">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="bw-slots-title">Capacity, length, and pending work are different</title>
+  <desc id="bw-slots-desc">Eight logical slots are allowed. Five contain Hall, Kitchen, Study, Loft, and Cellar. Hall and Kitchen are processed. The cursor is at position two, Study. Three entries remain pending and three slots are unused. These slots illustrate logical limits, not allocated memory.</desc>
+  <style>
+    .bw-slots { --bw-ink:#eeeae1; --bw-muted:#aaafa5; --bw-accent:#c5d5b2; --bw-line:#777f72; font-family:var(--sans,system-ui,sans-serif); }
+    @media (prefers-color-scheme:light) { .bw-slots { --bw-ink:#222b21; --bw-muted:#60695b; --bw-accent:#3e603a; --bw-line:#777e71; } }
+    .bw-slots text { fill:var(--ink,var(--bw-ink)); font-size:18px; }
+    .bw-slots .bw-title { font-size:25px; font-weight:650; }
+    .bw-slots .bw-small { font-size:15px; fill:var(--muted,var(--bw-muted)); }
+    .bw-slots .bw-label { font-size:17px; }
+    .bw-slots .bw-muted { fill:var(--muted,var(--bw-muted)); }
+    .bw-slots .bw-box { fill:none; stroke:var(--line,var(--bw-line)); stroke-width:2; }
+    .bw-slots .bw-pending { fill:var(--accent,var(--bw-accent)); fill-opacity:.09; stroke:var(--accent,var(--bw-accent)); stroke-width:2; }
+    .bw-slots .bw-spare { fill:none; stroke:var(--muted,var(--bw-muted)); stroke-width:1.5; stroke-dasharray:5 5; }
+    .bw-slots .bw-cursor { fill:var(--accent,var(--bw-accent)); }
+    .bw-slots .bw-bracket { fill:none; stroke:var(--muted,var(--bw-muted)); stroke-width:1.5; }
+  </style>
+  <text class="bw-title" x="50" y="35">One list. Three different counts.</text>
+  <text class="bw-small" x="50" y="65">Capacity = 8 entries · Current length = 5 · Pending = 3</text>
+  <g text-anchor="middle">
+    <text class="bw-small" x="94" y="105">0</text><text class="bw-small" x="194" y="105">1</text>
+    <text class="bw-small" x="294" y="105">2</text><text class="bw-small" x="394" y="105">3</text>
+    <text class="bw-small" x="494" y="105">4</text><text class="bw-small" x="594" y="105">5</text>
+    <text class="bw-small" x="694" y="105">6</text><text class="bw-small" x="794" y="105">7</text>
+    <rect class="bw-box" x="50" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-box" x="150" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-pending" x="250" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-pending" x="350" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-pending" x="450" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-spare" x="550" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-spare" x="650" y="120" width="88" height="78" rx="9"/>
+    <rect class="bw-spare" x="750" y="120" width="88" height="78" rx="9"/>
+    <text class="bw-muted" x="94" y="165">Hall</text><text class="bw-muted" x="194" y="165">Kitchen</text>
+    <text x="294" y="165">Study</text><text x="394" y="165">Loft</text><text x="494" y="165">Cellar</text>
+    <text class="bw-small" x="594" y="165">unused</text><text class="bw-small" x="694" y="165">unused</text><text class="bw-small" x="794" y="165">unused</text>
+    <path class="bw-cursor" d="M 284 224 L 294 206 L 304 224 Z"/>
+    <text class="bw-label" x="294" y="248">next position</text>
+    <path class="bw-bracket" d="M 50 209 V 222 H 238 V 209"/>
+    <text class="bw-label bw-muted" x="144" y="248">processed: 2</text>
+    <path class="bw-bracket" d="M 550 209 V 222 H 838 V 209"/>
+    <text class="bw-label bw-muted" x="694" y="248">unused capacity: 3</text>
+  </g>
+  <text class="bw-small" x="50" y="299">Logical slots; this drawing does not prescribe a physical memory layout.</text>
+</svg>

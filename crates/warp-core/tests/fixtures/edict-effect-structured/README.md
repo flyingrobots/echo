@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Structured effect publication fixture
 
 These authored inputs select the current `echo.dpo@2` profile and its exact

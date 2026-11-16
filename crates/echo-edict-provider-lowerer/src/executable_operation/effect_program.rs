@@ -261,9 +261,10 @@ fn relation<'a>(
         .filter(|(node, _)| map_field(node, "kind") == Some(&text("effect")))
         .count();
     if effects == 0 {
-        // Without an effect step no profile is pinned, and structured control
-        // is admitted only under an authenticated `echo.dpo@2`.
-        if structured {
+        // Without an effect step no profile is pinned. Keep the no-effect
+        // path on frozen @1; @2 needs authentication in the lowering artifacts.
+        let profile_coordinate = string(get(get(target_artifact, "targetProfile")?, "id")?)?;
+        if structured || profile_coordinate != "echo.dpo@1" {
             return Err(());
         }
         return if lowering == &Value::Null {

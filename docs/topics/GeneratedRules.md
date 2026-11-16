@@ -1150,7 +1150,7 @@ version, intrinsic namespace, catalog and Target IR declaration: its catalog,
 `echo.dpo@2.node-atom-read`, `echo.dpo@2.ensure-node`, `echo.dpo@2.create-node`,
 `echo.dpo@2.replace-atom`, `echo.dpo@2.ensure-edge` and
 `echo.dpo@2.replace-edge`, each typed by its ABI coordinates
-(`<name>.input`, `<name>.result`), and it names the ordered `echo.span-ir/v2`
+(`<name>.input`, `<name>.result`), and it names the structured `echo.span-ir/v3`
 through a generated declaration. Every other reference and doctrine field is
 `echo.dpo@1`'s. The provider's semantic source declares it under
 `effectTargetProfiles`, and the generator emits the profile, catalog and
@@ -1168,8 +1168,11 @@ This second coordinate is an owner-approved, bounded exception to "One
 Current Version" (flyingrobots/echo#985): `echo.dpo@1` stays because existing
 lawpack adapters, Jedit lawpacks and graph-read fixtures pin it, and a
 consumer opts into effect steps by pinning `echo.dpo@2`. No other coordinate
-or alias is admitted. The public compiler selects `echo.dpo@2` for ordered
-`echo.span-ir/v2` lowering from Amblicit `0999db83` (flyingrobots/amblicit#310).
+or alias is admitted. The public compiler selects structured `echo.span-ir/v3`
+lowering when the adapter pins the current profile's generated Target IR
+declaration. The `echo.dpo@2` adapter, lawpack and public compiler outputs must
+be regenerated together when that declaration changes. The retained public
+compiler witnesses must select the same declaration.
 A program that reads one atom through `echo.dpo@2.node-atom-read` travels the
 public path and runs on the generic runtime
 (`crates/warp-core/tests/fixtures/edict-effect-step`); the same program under
@@ -1191,10 +1194,16 @@ The owner decision on flyingrobots/echo#947 gives structured control to
 (`structuredTargetIrArtifact`) may run bounded `for` loops and statement
 `branch`es around its instructions. `echo.dpo@1` stays frozen, so the
 runtime, the lowerer and the verifier each refuse a structured program
-pinned to it, and each refuses a structured program without an effect step,
-because only an effect step's lowering artifacts authenticate a profile. An
-ordered (`echo.span-ir/v2`) program keeps its flat order and may carry no
-control entry.
+pinned to it. The provider lowerer and verifier require the selected `echo.dpo@2`
+profile's Target IR declaration to name the selected Target coordinate, including
+when the program has no effect steps. An ordered (`echo.span-ir/v2`) program keeps
+its flat order and may carry no control entry; it does not satisfy the current
+`echo.dpo@2` profile's `echo.span-ir/v3` declaration.
+
+At runtime, a zero-effect bundle carries null lowering artifacts and cannot
+authenticate the profile bytes. Only the frozen ordered `echo.dpo@1` route is
+admitted in that case; a zero-effect `echo.dpo@2` bundle is refused. Programs
+with effects authenticate the selected profile through their lowering artifacts.
 
 The three judgments agree on the structured relation:
 

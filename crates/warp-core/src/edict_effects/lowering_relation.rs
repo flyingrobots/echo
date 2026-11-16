@@ -24,9 +24,10 @@ pub(super) fn validate<'a>(
         text_field(target_artifact, "domain")? == super::control_order::STRUCTURED_TARGET_IR;
     if steps.is_empty() {
         // Without an effect step there are no lowering artifacts, so no
-        // profile is authenticated; structured control is admitted only
-        // under an authenticated `echo.dpo@2` profile.
-        if structured {
+        // profile is authenticated. Keep this path on the frozen @1 profile;
+        // @2 requires profile authentication from the effect artifacts.
+        let profile = field(target_artifact, "targetProfile")?;
+        if structured || text_field(profile, "id")? != "echo.dpo@1" {
             return Err(Error::UnsupportedProgram);
         }
         return if artifacts == &Value::Null {

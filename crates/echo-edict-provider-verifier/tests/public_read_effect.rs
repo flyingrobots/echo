@@ -46,6 +46,7 @@ const EFFECT_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-d
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const MODULE: &str = "consumer.effects.program@1";
 const TARGET_IR: &str = "edict.target-ir.artifact/v1";
+const EFFECT_PROFILE_ONLY: &str = "echo.dpo@2 admits only authored effect programs";
 
 fn bound(coordinate: &str, domain: &str, bytes: Vec<u8>) -> BoundArtifact {
     let value = decode(&bytes).expect("canonical artifact");
@@ -104,9 +105,53 @@ fn bundle() -> Value {
     decode(bytes(field(&program, "compiled_program"))).expect("bundle")
 }
 
+#[test]
+fn the_public_compiler_bundle_uses_the_current_structured_effect_profile() {
+    // Oracle: the selected package profile pins one exact Target IR schema;
+    // this retained public compiler output must witness that current contract.
+    let profile = decode(EFFECT_PROFILE).expect("current effect profile");
+    let target = decode(bytes(field(&bundle(), "target_ir_artifact"))).expect("public Target IR");
+    assert_eq!(
+        field(&target, "domain"),
+        field(field(&profile, "targetIr"), "id"),
+        "the public compiler witness uses the current profile's Target IR"
+    );
+    assert_eq!(
+        field(&target, "kind"),
+        &Value::Text("structuredTargetIrArtifact".to_owned()),
+        "the v3 witness carries structured IR, rather than a renamed v2 artifact"
+    );
+    assert_eq!(
+        field(field(&target, "targetProfile"), "digest"),
+        &Value::Array(vec![
+            Value::Text("sha256".to_owned()),
+            Value::Bytes(
+                digest("edict.target-profile/v1", &profile)
+                    .expect("profile identity")
+                    .to_vec(),
+            ),
+        ]),
+        "the public compiler witness pins the current profile bytes"
+    );
+    let lawpack = decode(&retained!("read-lawpack.hex")).expect("public lawpack");
+    let Value::Array(adapters) = field(&lawpack, "targetAdapters") else {
+        panic!("target adapters")
+    };
+    assert_eq!(adapters.len(), 1, "one selected public target adapter");
+    assert_eq!(
+        field(&adapters[0], "acceptedTargetIr"),
+        field(&profile, "targetIr"),
+        "the authored lawpack accepts the exact current Target IR reference"
+    );
+}
+
 /// The lowering request the public compiler sent.
 fn lowering_request() -> LoweringRequestV1 {
     let bundle = bundle();
+    let target = decode(bytes(field(&bundle, "target_ir_artifact"))).expect("public Target IR");
+    let Value::Text(target_coordinate) = field(&target, "domain") else {
+        panic!("public Target IR domain")
+    };
     let embedded = |key| bytes(field(&bundle, key)).to_vec();
     let auxiliary = |role: &str, kind: &str, coordinate: &str, domain: &str, raw| SemanticInput {
         role: role.to_owned(),
@@ -168,7 +213,7 @@ fn lowering_request() -> LoweringRequestV1 {
             auxiliary(
                 "06-target-ir",
                 "target-ir",
-                "echo.span-ir/v2",
+                target_coordinate,
                 TARGET_IR,
                 embedded("target_ir_artifact"),
             ),
@@ -356,7 +401,8 @@ fn the_flat_public_package_is_rejected_for_the_read_effect_request() {
 
 #[test]
 fn both_routes_refuse_the_effect_target_ir_bound_under_another_coordinate() {
-    let expected = "Target IR is not bound as the ordered echo.span-ir/v2";
+    let expected =
+        "Target IR is not bound as the ordered echo.span-ir/v2 or the structured echo.span-ir/v3";
     let target = bytes(field(&bundle(), "target_ir_artifact")).to_vec();
     let mut lowering = lowering_request();
     lowering.semantic_inputs[5].artifact = bound("echo.span-ir/v1", TARGET_IR, target.clone());
@@ -380,6 +426,84 @@ fn the_effect_step_is_refused_under_the_echo_dpo_1_profile() {
     assert!(
         verifier_refusal(verification).contains("catalog is not the one the target profile pins")
     );
+}
+
+#[test]
+fn echo_dpo_2_refuses_the_echo_dpo_1_catalog() {
+    let mut configuration = decode(&retained!("read-configuration.hex")).expect("configuration");
+    *field_mut(&mut configuration, "intrinsicCatalog") = Value::Bytes(
+        include_bytes!("../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor")
+            .to_vec(),
+    );
+    let foreign = encode(&configuration).expect("configuration");
+    let mut lowering = lowering_request();
+    lowering.semantic_inputs[4].artifact = bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        foreign.clone(),
+    );
+    assert!(lowerer_refusal(lowering).contains("must match the selected target profile"));
+    let mut verification = verification_request(lowering_request(), public_package());
+    verification.semantic_inputs[4].artifact = transport(bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        foreign,
+    ));
+    assert!(
+        verifier_refusal(verification).contains("catalog is not the one the target profile pins")
+    );
+}
+
+#[test]
+fn echo_dpo_2_refuses_other_program_kinds() {
+    let bounded_read = encode(&Value::Map(vec![
+        (
+            Value::Text("apiVersion".to_owned()),
+            Value::Text("echo.operation-lowering-configuration/v1".to_owned()),
+        ),
+        (
+            Value::Text("programKind".to_owned()),
+            Value::Text("compiler-produced-bounded-read/v1".to_owned()),
+        ),
+        (Value::Text("maxReadBytes".to_owned()), Value::Integer(64)),
+        (Value::Text("maxReads".to_owned()), Value::Integer(1)),
+    ]))
+    .expect("configuration");
+    let mut lowering = lowering_request();
+    lowering.semantic_inputs[4].artifact = bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        bounded_read.clone(),
+    );
+    assert!(lowerer_refusal(lowering).contains(EFFECT_PROFILE_ONLY));
+    let mut verification = verification_request(lowering_request(), public_package());
+    verification.semantic_inputs[4].artifact = transport(bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        bounded_read,
+    ));
+    assert!(verifier_refusal(verification).contains(EFFECT_PROFILE_ONLY));
+}
+
+#[test]
+fn echo_dpo_2_refuses_the_original_target_ir_route() {
+    let mut lowering = lowering_request();
+    lowering.requested_outputs[0] = LoweringOutputRequest {
+        role: "target-ir.echo-dpo".to_owned(),
+        kind: LoweringOutputKind::TargetIr,
+        domain: "edict.target-ir.artifact/v1".to_owned(),
+    };
+    assert!(lowerer_refusal(lowering).contains(EFFECT_PROFILE_ONLY));
+    let mut verification = verification_request(lowering_request(), public_package());
+    verification.requested_outputs[0] = verifier::VerificationOutputRequest {
+        role: "verifier-report.echo-dpo".to_owned(),
+        kind: verifier::VerificationOutputKind::VerifierReport,
+        domain: "echo.verifier-report/v1".to_owned(),
+    };
+    verification
+        .semantic_inputs
+        .retain(|input| input.role != "executable-operation-package.echo");
+    assert!(verifier_refusal(verification).contains(EFFECT_PROFILE_ONLY));
 }
 
 #[test]

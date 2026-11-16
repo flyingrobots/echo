@@ -279,9 +279,10 @@ fn relation<'a>(
         }
     }
     if effect_count == 0 {
-        // Structured control needs an authenticated echo.dpo@2 profile, and
-        // a program without effects carries no profile at all.
-        if structured {
+        // Without an effect step no profile is authenticated. Keep the
+        // no-effect path on frozen @1; @2 needs authentication in the artifacts.
+        let profile_coordinate = string(get(get(target_artifact, "targetProfile")?, "id")?)?;
+        if structured || profile_coordinate != "echo.dpo@1" {
             return Err(());
         }
         return if lowering == &Value::Null {

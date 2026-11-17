@@ -9,6 +9,9 @@
 //! the provider package separately binds the static closure and component.
 
 #![deny(unsafe_code)]
+// Provider guests run in Wasm: they must not print, and a stray trace once
+// shipped in a promoted component (echo#972).
+#![deny(clippy::print_stderr, clippy::print_stdout)]
 
 #[cfg(target_arch = "wasm32")]
 mod component;

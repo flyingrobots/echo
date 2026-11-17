@@ -24,7 +24,7 @@ The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
 The checked component is 685,775 bytes with SHA-256
-`32821450ee374ddf58770c7d2c4e68f60c1a32c720192a742aa92bb75cd94bf7`.
+`576a745d440662eb1517fe1719ae090faf89642ae6c79149c96ee05043405180`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -37,7 +37,7 @@ capability imports.
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
 `wit-component` version recorded above. Its checked component is 728,230 bytes
 with SHA-256
-`d84320e301745bd882e13ad7d180f8ace923fffcd8041208603acfe136cb1095`.
+`734f84b0f53551bde0788fce0118df6bd2cd8d6baa470c3cef65ef74e24b441a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,10 +56,10 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#991's source, was independently
+The current component pair, built from echo#972's source, was independently
 reproduced by the two G4 candidate jobs in
-[CI run 43937974912](https://github.com/flyingrobots/echo/actions/runs/43937974912)
-at source commit `c4255d353997da376d1519aed897c9794837de61`. Both copies of
+[CI run 44027061364](https://github.com/flyingrobots/echo/actions/runs/44027061364)
+at source commit `ccb48fa05dfcfaf3582633e4d781e401f59c6fb0`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

@@ -327,7 +327,7 @@
     {
       "role": "resource.target-intrinsics-2",
       "coordinate": "echo.dpo.intrinsics/v2",
-      "schemaContract": "edict.target-profile.intrinsics/v1",
+      "schemaContract": "edict.target-profile.intrinsics/v2",
       "provision": "generated"
     },
     {
@@ -500,7 +500,66 @@
           "canParticipateInAtomicGuard": true,
           "failures": []
         }
-      ]
+      ],
+      "pureIntrinsics": [
+        {
+          "operation": "contentAddress",
+          "argumentTypes": [
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<max=1048576>",
+            "List<echo.dpo@2.OutgoingEdge,max=16>"
+          ],
+          "returnType": "Bytes<exact=32>",
+          "contractVersion": "echo.content-address/v1",
+          "costBase": 71,
+          "costPerArgumentMax": [
+            0,
+            0,
+            0,
+            1,
+            67
+          ]
+        },
+        {
+          "operation": "contentEdgeId",
+          "argumentTypes": [
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<exact=32>"
+          ],
+          "returnType": "Bytes<exact=32>",
+          "contractVersion": "echo.content-address/v1",
+          "costBase": 70,
+          "costPerArgumentMax": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "operation": "slotEdgeId",
+          "argumentTypes": [
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<exact=32>"
+          ],
+          "returnType": "Bytes<exact=32>",
+          "contractVersion": "echo.content-address/v1",
+          "costBase": 69,
+          "costPerArgumentMax": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "types": {
+        "OutgoingEdge": "Record<edgeType:Bytes<exact=32>,to:Bytes<exact=32>>"
+      }
     }
   ],
   "generatedArtifacts": [
@@ -781,7 +840,7 @@
       "domain": "echo.dpo.intrinsics/v1",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
-      "rootRule": "intrinsics-document"
+      "rootRule": "echo-frozen-catalog-v1-intrinsics-document"
     },
     {
       "domain": "echo.dpo.intrinsics/v2",

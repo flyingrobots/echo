@@ -264,6 +264,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         bound: vec![],
         proven_sum: None,
         edge_scans: 0,
+        identity: false,
     };
     let frame = super::Frame {
         declared: super::BTreeMap::new(),

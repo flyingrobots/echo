@@ -19,6 +19,10 @@ pub(crate) struct Namespace {
     /// profile: only `echo.dpo@2` carries it, and `echo.dpo@1` is frozen
     /// (owner decision on flyingrobots/echo#947).
     pub(crate) structured: bool,
+    /// The catalog API the profile's catalog carries: the frozen
+    /// `echo.dpo@1` catalog stays API v1; `echo.dpo@2`'s is catalog v2, which
+    /// may also publish named types.
+    pub(crate) catalog_api: &'static str,
 }
 
 const NAMESPACES: [Namespace; 2] = [
@@ -26,11 +30,13 @@ const NAMESPACES: [Namespace; 2] = [
         coordinate: "echo.dpo@1",
         catalog: "echo.dpo.intrinsics/v1",
         structured: false,
+        catalog_api: "edict.target-profile.intrinsics/v1",
     },
     Namespace {
         coordinate: "echo.dpo@2",
         catalog: "echo.dpo.intrinsics/v2",
         structured: true,
+        catalog_api: "edict.target-profile.intrinsics/v2",
     },
 ];
 

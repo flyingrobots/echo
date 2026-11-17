@@ -223,11 +223,30 @@ core-capability-value = {
 ; guard, branch, loop, match-node, or proof-obligation nodes.
 ; Source-owned functions use the same pure body algebra, with their result type
 ; authenticated by the enclosing module. An empty function table is omitted.
+; `preconditions` are the function's `where` predicates in source order
+; (EDICT-CORE-FN-PRECONDITION-001). They read only `params`, never call a
+; source function, fold or match, and are never evaluated: every call site
+; must prove them and the body may assume them. A function without
+; preconditions omits the field; an empty array is not canonical. A function
+; holds at most 16 conjuncts in total, counted through nested `all`, and at
+; most 256 Core nodes, one per predicate and per expression.
 core-source-function = {
   params: [* local-ref],
   returnType: core-type-ref,
+  ? preconditions: [+ precondition-predicate],
   body: core-pure-block,
 }
+
+; A precondition uses only these predicate forms. `call` and `obstruction`
+; predicates are not preconditions, and they cannot be facts or obligations.
+; A conditional expression inside an operand may only use these forms too
+; (stated in the language specification; CDDL cannot reach into core-expr).
+precondition-predicate = true-predicate / false-predicate /
+                         precondition-not / precondition-all /
+                         precondition-any / compare-predicate
+precondition-not = { kind: "not", value: precondition-predicate }
+precondition-all = { kind: "all", values: [+ precondition-predicate] }
+precondition-any = { kind: "any", values: [+ precondition-predicate] }
 
 core-fn-body = {
   params: [* local-ref],

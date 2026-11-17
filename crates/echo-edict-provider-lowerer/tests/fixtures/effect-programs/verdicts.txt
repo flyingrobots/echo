@@ -46,6 +46,9 @@ typed-failure-repeated-set refuse
 typed-failure-empty-set refuse
 typed-failure-without-capability refuse
 typed-failure-arms-differ refuse
+source-module-control accept
+source-module-substituted refuse
+source-module-unpinned refuse
 structured-loop-control accept
 structured-branch-control accept
 structured-nested-control accept

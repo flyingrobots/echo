@@ -1,0 +1,9 @@
+package consumer.identity.program@1;
+use lawpack consumer.identity@1 digest "sha256:9800de3bfc897925f68ab77149c0d12c30e2a954694f6612cc2a9aee9d19ebd1" as fx;
+use module jedit.probe.leaf@1 digest "sha256:83ed90b98bb9664113594df65170ae875082e3c03ef60f267083fcada56d890b" as leaf;
+type Input = { w: Bytes<exact=32>, v: U64 }; type Output = { b: U64 };
+intent go(input: Input) returns Output profile fx.graphEffects basis none budget <= fx.budget {
+let written: fx.Written = fx.ensureNode({ atomBytes: b"", atomType: input.w, nodeId: input.w, nodeType: input.w, warpId: input.w });
+let b = leaf.same(input.v);
+return { b };
+}

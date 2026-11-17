@@ -394,7 +394,8 @@ fn relation<'a>(
     )?;
     let embedded = |key| decode(bytes(get(lowering, key)?)?).map_err(|_| ());
     let source = embedded("source_artifact")?;
-    let source = std::str::from_utf8(bytes(&source)?).map_err(|_| ())?;
+    let sources =
+        super::source_modules::Sources::new(&source, string(get(module, "coordinate")?)?)?;
     let lawpack = embedded("lawpack_artifact")?;
     let adapter = embedded("adapter_artifact")?;
     let profile = embedded("target_profile_artifact")?;
@@ -480,13 +481,21 @@ fn relation<'a>(
         string(get(target_artifact, "domain")?)?,
     )?;
     owner_pinned(get(entry, "adapter")?, &adapter)?;
-    let alias = alias(
-        source,
-        &lawpack_coordinate,
-        &lawpack_identity,
-        string(get(module, "coordinate")?)?,
-        &target_line(profile_reference)?,
-    )?;
+    let target = target_line(profile_reference)?;
+    let preamble = |module, source| {
+        preamble(
+            source,
+            &lawpack_coordinate,
+            &lawpack_identity,
+            module,
+            &target,
+        )
+    };
+    let (alias, root_pins) = preamble(string(get(module, "coordinate")?)?, sources.root())?;
+    let alias = alias.ok_or(())?;
+    sources.require_pinned(root_pins, |module, source| {
+        preamble(module, source).map(|(_, pins)| pins)
+    })?;
     imported_types(module, exports, &lawpack_coordinate)?;
     let operation_profile = string(get(intent, "requiredOperationProfile")?)?;
     let authorized = list(get(
@@ -1050,13 +1059,18 @@ fn target_line(profile_reference: &Value) -> Check<String> {
     ))
 }
 
-fn alias(
-    source: &str,
+/// One module's declaration preamble: its `package` line, then only `use`
+/// lines. A `use target` names exactly the selected, pinned profile, at most
+/// once; a `use lawpack` names exactly the bound lawpack, at most once; a
+/// `use module` pins a source module, which the closure check resolves.
+/// Returns the lawpack alias, if declared, and the module pins.
+fn preamble<'s>(
+    source: &'s str,
     coordinate: &str,
     identity: &Value,
     module: &str,
     target: &str,
-) -> Check<String> {
+) -> Check<(Option<String>, Vec<super::source_modules::Pin<'s>>)> {
     let Value::Bytes(identity) = identity else {
         return Err(());
     };
@@ -1070,33 +1084,44 @@ fn alias(
     }
     let mut result = None;
     let mut targeted = false;
+    let mut pins = Vec::new();
     for line in lines {
         if !line.starts_with("use ") {
             break;
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
-        // One `use target` naming exactly the selected, pinned profile.
-        if let ["use", "target", name, "digest", value, "as", alias] = tokens.as_slice() {
-            let alias = alias.strip_suffix(';').ok_or(())?;
-            if format!("{name} {value}") != target || !identifier(alias) || targeted {
-                return Err(());
-            }
-            targeted = true;
-            continue;
-        }
-        let ["use", "lawpack", name, "digest", value, "as", alias] = tokens.as_slice() else {
+        let [_, kind, name, "digest", value, "as", alias] = tokens.as_slice() else {
             return Err(());
         };
         let alias = alias.strip_suffix(';').ok_or(())?;
-        if *name != coordinate
-            || *value != expected
-            || !identifier(alias)
-            || result.replace(alias.to_owned()).is_some()
-        {
+        if !identifier(alias) {
             return Err(());
         }
+        match *kind {
+            "target" => {
+                if format!("{name} {value}") != target || targeted {
+                    return Err(());
+                }
+                targeted = true;
+            }
+            "lawpack" => {
+                if *name != coordinate
+                    || *value != expected
+                    || result.replace(alias.to_owned()).is_some()
+                {
+                    return Err(());
+                }
+            }
+            "module" => {
+                if pins.iter().any(|(pinned, _)| pinned == name) {
+                    return Err(());
+                }
+                pins.push((*name, *value));
+            }
+            _ => return Err(()),
+        }
     }
-    result.ok_or(())
+    Ok((result, pins))
 }
 
 /// Every Core type under the lawpack's namespace renders to exactly the

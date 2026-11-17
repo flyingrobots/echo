@@ -22,6 +22,7 @@ mod intrinsic_contract;
 mod intrinsic_names;
 mod lowering_relation;
 mod mutations;
+mod source_modules;
 pub use mutations::EffectMutation;
 mod package;
 mod runtime_abi;

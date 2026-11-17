@@ -9,6 +9,7 @@ mod effect_verification;
 mod intrinsic_names;
 mod record_type;
 mod source_functions;
+mod source_modules;
 
 use std::collections::BTreeSet;
 

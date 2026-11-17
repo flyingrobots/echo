@@ -15,6 +15,9 @@
   the providers charge the costliest arm. Undeclared, unmapped or malformed
   failure sets, a missing capability and lowered arms that differ from Core
   refuse in all three judges. Ordered records (#997) remain unsupported.
+  A public compiler witness (`edict-effect-typed-failure`, Amblicit
+  `7dbcbc23`) obstructs with exactly its mapped `RangeInverted`. Provider
+  components are promoted to lowerer `574beaef…` and verifier `43326943…`.
 
 - Echo adopts Amblicit's `typed-failures-v1` provider contract pack and
   publishes intrinsic catalog v2 for `echo.dpo@2`. The `echo.dpo@2` catalog

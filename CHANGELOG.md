@@ -15,8 +15,11 @@
   operands of exactly that width. `min` and `max` keep their upper bounds for
   later addition proofs. Unknown names, other widths and mismatched operands
   are refused by all three. A shared corpus fixes the verdicts at each width's
-  bounds, and warp-core executes each accepted case. Artifacts without these
-  calls are judged as before.
+  bounds, and warp-core executes each accepted case. A public compiler witness
+  publishes every checked form and `min`/`max` through the promoted provider
+  package (lowerer `0cc56654`, verifier `2a267368`) and the runtime checks
+  each result at the type bounds. Artifacts without these calls are judged as
+  before.
 - Amblicit `Option<T>` values (#995, the Echo half of amblicit#261).
   warp-core, the provider lowerer and the provider verifier each admit
   `core.option/v1`, the `Option<T>` type and the calls

@@ -599,8 +599,8 @@ fn the_same_check_outside_its_conjunction_is_refused_before_it_runs() {
     ));
 }
 
-/// `at == 10` and `10 == at` bound an addition over `input.at`; the strict
-/// and reversed comparison forms bound nothing.
+/// `at == 10` and `10 == at` bound an addition over `input.at`, and so do the
+/// strict and reversed forms of the same bound; a lower bound bounds nothing.
 #[test]
 fn an_equality_constraint_bounds_a_term_from_either_side() {
     let total = declared("local.total", "U64");
@@ -627,28 +627,25 @@ fn an_equality_constraint_bounds_a_term_from_either_side() {
             local(&ok_binding()),
         )
     };
-    // Echo's unsigned predicates accept every comparison operator, but only
-    // `term <= c`, `term == c` and `c == term` bound an addition, the forms the
-    // checked lowerer and verifier also read. An equality with a constant
-    // bounds the term on either side.
+    // As native Target, `term <= c`, `term < c` (as c - 1), `term == c` and
+    // the reversed forms `c >= term`, `c > term`, `c == term` bound an addition
+    // (#960 item 2, #1010). Each of these says `at <= 10`.
     for constraint in [
         compare("==", input("at"), int(10)),
         compare("==", int(10), input("at")),
+        compare("<", input("at"), int(11)),
+        compare(">", int(11), input("at")),
+        compare(">=", int(10), input("at")),
     ] {
         prepare(&program(constraint.clone(), u64::MAX - 10)).expect("at is at most 10");
         refused(&program(constraint, u64::MAX - 9));
     }
-    // The strict and reversed forms say the same bound but are not read yet
-    // (#960): each leaves `at` at its full width, so even the smallest
+    // A lower bound leaves `at` at its full width, so even the smallest
     // overflowing addend is refused.
-    for constraint in [
-        compare("<", input("at"), int(11)),
-        compare(">", int(11), input("at")),
-        compare(">=", int(10), input("at")),
+    refused(&program(
         compare("<=", int(0), input("at")),
-    ] {
-        refused(&program(constraint, u64::MAX - 10));
-    }
+        u64::MAX - 10,
+    ));
 }
 
 /// A chain of `lets` unsigned additions over a count, whose sum is never

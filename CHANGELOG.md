@@ -305,6 +305,13 @@
 
 ### Fixed
 
+- Provider and runtime bound reasoning now reads strict and reversed
+  comparisons as native Target does (#1010): `x < n` bounds an unsigned term
+  by `n - 1` (0 when `n` is 0, a branch that never runs), and `n > x` and
+  `n >= x` bound it like `x < n` and `x <= n`. warp-core, the lowerer and the
+  verifier change together, so a sum under `major <= 224u64 && v < 24u64`
+  (jedit#296) is accepted like one under `v <= 23u64`. This completes item 2
+  of #960.
 - Both provider components now accept an authored effect program whose intent
   has a `where` clause. Core input constraints carry `coordinate`, `source`
   and `predicate`; the effect-intent judgments required only the first and

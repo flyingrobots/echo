@@ -106,14 +106,18 @@ fn caps(facts: &[&Value], types: &mut Types<'_>) -> Check<Vec<(Vec<u8>, u64)>> {
                 let op = string(get(predicate, "op")?)?;
                 let a = get(predicate, "left")?;
                 let b = get(predicate, "right")?;
-                if matches!(op, "<=" | "==") {
+                // As native Target: `x < n` caps x at n - 1, saturating at 0
+                // (a branch that never runs); `n > x` and `n >= x` mirror them.
+                let strict = matches!(op, "<" | ">");
+                let cap = |n: u64| if strict { n.saturating_sub(1) } else { n };
+                if matches!(op, "<=" | "<" | "==") {
                     if let Some(n) = constant(b) {
-                        caps.push((key(a, types)?, n));
+                        caps.push((key(a, types)?, cap(n)));
                     }
                 }
-                if op == "==" {
+                if matches!(op, ">=" | ">" | "==") {
                     if let Some(n) = constant(a) {
-                        caps.push((key(b, types)?, n));
+                        caps.push((key(b, types)?, cap(n)));
                     }
                 }
             }

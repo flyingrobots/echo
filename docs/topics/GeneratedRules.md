@@ -277,7 +277,8 @@ fact from its own conjunct prefixes or enclosing `then` arms that compares the
 term with a constant (`term <= c`, `term == c` or `c == term`). Other terms
 retain their full unsigned width, so zero identity is total and an unbounded
 parameter plus one refuses. Caller constraints and caller branches do not cross
-into a helper frame.
+into a helper frame; a helper's own preconditions do (see function
+preconditions below).
 
 ### Branch facts
 
@@ -297,6 +298,53 @@ slice is refused without them, so a program that needs no branch fact is
 judged at exactly its earlier cost and depth. The shared corpus
 `crates/echo-edict-provider-lowerer/tests/fixtures/branch_fact_corpus.rs`
 holds the cases all three judgments must decide alike.
+
+### Function preconditions
+
+A source function may carry Core `preconditions`, the `where` predicates of
+Amblicit's function preconditions (Amblicit `1196396b`, sections "Function
+Preconditions" and "Core Source Function Shape" of
+`docs/SPEC_edict-language-v1.md`). warp-core, the lowerer and the verifier
+each judge them without trusting the compiler:
+
+- **Admission.** The list is present only when nonempty. The function's
+  parameters are `arg.N` / `$argN` in order. A precondition uses only `true`,
+  `false`, `not`, `all`, `any` and comparisons, also inside a conditional
+  expression in an operand, and contains no `fold`, no `match` and no call to a
+  function of the same module. A function holds at most 16 conjuncts, counted
+  through nested `all`, and 256 Core nodes. Each precondition is typed by the
+  judgment's ordinary predicate rule over the parameters alone, assuming the
+  preconditions before it, so ordered comparisons stay between unsigned
+  integers, as `echo.span-ir/v3` requires. Echo admits no `true` or `false`
+  predicate anywhere, so it refuses those preconditions too.
+- **Body.** The helper body is judged with its preconditions as facts, so
+  `fn span(start: U64, end: U64) -> U64 where start <= end { return end - start; }`
+  is accepted.
+- **Calls.** Every call to a precondition-bearing function, anywhere in the
+  module, must prove each precondition with `args[N]` read for `params[N]`,
+  substituted simultaneously. The facts at a call are those of Amblicit's
+  Core-position table: none in an intent's `basis` or in an input constraint
+  (beyond its own conjunct prefixes); every input constraint in the intent
+  body; a helper's own preconditions in its body; an `if` predicate in its
+  `then` arm and its negation in its `else` arm; earlier items of an `all`;
+  and the negations of earlier items of an `any`. Statement-level branches add
+  nothing. An order `a <= b` is proven as subtraction proves an order (equal
+  terms, a `0u32`/`0u64` left side, ordered `U32`/`U64` literals, or a fact
+  `a <= b`, `a < b`, `b >= a`, `b > a`, `a == b` or `b == a`, also as a conjunct
+  at any depth); any other precondition needs the same predicate or its
+  mirrored comparison among the facts, and a negated fact proves only the
+  identical negation. No obligation is built, so none is refused for its
+  depth. A precondition-bearing function cannot be a fold step.
+
+These three checks are why a helper may assume its preconditions: every call
+re-proves them, independently in all three judgments. The call-site walk runs
+only when some function declares preconditions, and it is bounded by its own
+work ceiling of 2^22 units. Preconditions are never evaluated and add no cost.
+The shared corpus
+`crates/echo-edict-provider-lowerer/tests/fixtures/function_precondition_corpus.rs`
+translates every Core-level case of Amblicit's `function_preconditions.rs` and
+`function_precondition_forgery.rs`, with Target's verdict, and all three
+judgments must reach each verdict.
 
 Every authored effect program is judged by warp-core when its package is
 prepared. Besides the helper bounds above, the

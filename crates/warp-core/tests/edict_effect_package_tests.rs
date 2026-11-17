@@ -9,6 +9,34 @@ use warp_core::TypeId;
 #[path = "common/edict_effect_publication.rs"]
 mod fixture;
 use fixture::*;
+
+fn no_effect_flat_package_for_profile(profile_coordinate: &str, profile_bytes: &[u8]) -> V {
+    let profile = echo_edict_canonical::decode_canonical_cbor_v1(profile_bytes)
+        .expect("target profile is canonical");
+    let core = compiled_core();
+    let mut target = compiled_target(&core);
+    let target_profile = value_field_mut(&mut target, "targetProfile");
+    set(target_profile, "id", text(profile_coordinate));
+    set(
+        target_profile,
+        "digest",
+        V::Array(vec![
+            text("sha256"),
+            artifact_identity("edict.target-profile/v1", &profile),
+        ]),
+    );
+    let exports = compiled_exports();
+    let mut program = program();
+    let bundle = compiled_bundle(&core, &target, &exports, "update@1");
+    set(&mut program, "compiled_program", V::Bytes(encoded(&bundle)));
+    set(
+        &mut program,
+        "target_ir_identity",
+        artifact_identity("edict.target-ir.artifact/v1", &target),
+    );
+    package(&program)
+}
+
 #[test]
 fn current_package_binds_program_and_executes_its_schema_relations() {
     let p = program();
@@ -45,6 +73,26 @@ fn current_package_binds_program_and_executes_its_schema_relations() {
         encoded(&compiler_program())
     );
 }
+
+#[test]
+fn a_zero_effect_flat_package_keeps_the_frozen_profile_and_refuses_echo_dpo_2() {
+    const DPO_1_PROFILE: &[u8] =
+        include_bytes!("../../echo-edict-provider-verifier/resources/target-profile.echo-dpo.cbor");
+    const DPO_2_PROFILE: &[u8] = include_bytes!(
+        "../../echo-edict-provider-verifier/resources/target-profile.echo-dpo-2.cbor"
+    );
+    let legacy_control = no_effect_flat_package_for_profile("echo.dpo@1", DPO_1_PROFILE);
+    prepare(&legacy_control).expect("frozen @1 flat no-effect package remains valid");
+
+    // Oracle: the bound @2 profile names `echo.span-ir/v3`, while this
+    // well-formed no-effect package still carries ordered `echo.span-ir/v2`.
+    let migrated_profile_mismatch = no_effect_flat_package_for_profile("echo.dpo@2", DPO_2_PROFILE);
+    assert!(matches!(
+        prepare(&migrated_profile_mismatch),
+        Err(warp_core::EffectPackageError::InvalidPackage)
+    ));
+}
+
 #[test]
 fn substituted_program_schema_law_and_closure_cannot_keep_the_original_pin() {
     let original = encoded(&package(&program()));
@@ -1716,3 +1764,7 @@ mod proven_ranges;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/provider_corpus.rs"]
 mod provider_corpus;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/structured.rs"]
+mod structured;

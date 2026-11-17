@@ -478,3 +478,40 @@ impl Checker<'_, '_> {
         }
     }
 }
+
+impl<'a> Checker<'a, '_> {
+    /// A terminal obstruction reason: what building and encoding its payload
+    /// charges, and the payload's largest encoding.
+    pub(super) fn obstruction(
+        &mut self,
+        reason: &'a Value,
+        frame: &Frame<'a>,
+    ) -> Check<(Charge, u128)> {
+        exact(reason, &["reasonKind", "payload"])?;
+        if string(get(reason, "reasonKind")?)?.is_empty() {
+            return Err(());
+        }
+        // On failure the runtime builds this record and encodes it as the
+        // obstruction payload, under the result's output ceiling.
+        let mut fields = BTreeMap::new();
+        let mut charge = Charge {
+            ticks: 1,
+            storage: 64,
+        };
+        for (name, value) in members(get(reason, "payload")?)? {
+            let name = string(name)?;
+            let checked = self.expression(value, frame, 0)?;
+            charge.append(checked.charge)?;
+            charge.append(Charge {
+                ticks: 0,
+                storage: 64 + name.len() as u128,
+            })?;
+            if fields.insert(name.to_owned(), checked.schema).is_some() {
+                return Err(());
+            }
+        }
+        let payload = Schema::Fields(fields).measure()?;
+        charge.append(payload.copy)?;
+        Ok((charge, payload.encoded))
+    }
+}

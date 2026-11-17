@@ -98,6 +98,8 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// Ends the enclosing source helper with this declared failure.
+    Fail(String),
     /// A `core.option.*` call; `item` is its one type argument.
     Option {
         operation: OptionOperation,

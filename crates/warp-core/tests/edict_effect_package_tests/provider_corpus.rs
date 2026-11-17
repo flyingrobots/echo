@@ -15,6 +15,9 @@ use super::proven_ranges::{
     slice_program, Node,
 };
 use super::structured::{branch, counting_parts, forge, loop_parts, nest, Forgery, Parts};
+use super::typed_failures::{
+    typed_failure_input, typed_failure_program, Forgery as TypedForgery, REASON,
+};
 use super::*;
 use warp_core::edict_effects::EffectFrameError;
 use warp_core::edict_pure::EvaluationError;
@@ -1080,6 +1083,56 @@ fn entries() -> Vec<Entry> {
             Runtime::Executes,
             read_capture,
         ),
+        // Typed function failures: the control and one forgery of each
+        // check (`typed_failures.rs`).
+        entry(
+            "typed-failure-control",
+            true,
+            Runtime::Accepts,
+            typed_failure_program(TypedForgery::None),
+        ),
+        entry(
+            "typed-failure-undeclared",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::Undeclared),
+        ),
+        entry(
+            "typed-failure-unmapped",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::Unmapped),
+        ),
+        entry(
+            "typed-failure-unknown-arm",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::UnknownArm),
+        ),
+        entry(
+            "typed-failure-repeated-set",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::RepeatedSet),
+        ),
+        entry(
+            "typed-failure-empty-set",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::EmptySet),
+        ),
+        entry(
+            "typed-failure-without-capability",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::NoCapability),
+        ),
+        entry(
+            "typed-failure-arms-differ",
+            false,
+            Runtime::Refuses,
+            typed_failure_program(TypedForgery::ArmsDiffer),
+        ),
     ]
     .into_iter()
     .chain(structured_entries())
@@ -1322,6 +1375,14 @@ const RETAINED: &[(&str, &str)] = retained![
     "read-and-return-control",
     "read-allocation-short",
     "read-captured-budget",
+    "typed-failure-control",
+    "typed-failure-undeclared",
+    "typed-failure-unmapped",
+    "typed-failure-unknown-arm",
+    "typed-failure-repeated-set",
+    "typed-failure-empty-set",
+    "typed-failure-without-capability",
+    "typed-failure-arms-differ",
     "structured-loop-control",
     "structured-branch-control",
     "structured-nested-control",
@@ -1588,4 +1649,24 @@ fn reads_cost_a_fixed_linear_law() {
             "read_and_return, n={n}"
         );
     }
+}
+
+/// A mapped failure from a pure helper is the declared terminal obstruction,
+/// with its payload; the same program returns when the helper does.
+#[test]
+fn a_mapped_typed_failure_obstructs_with_its_declared_reason() {
+    let control = retained("typed-failure-control");
+    assert_eq!(
+        run(&control, &typed_failure_input(1)),
+        Ok(encoded(&V::Bool(true))),
+        "remaining(1, 3) returns"
+    );
+    assert_eq!(
+        run(&control, &typed_failure_input(5)),
+        Err(EffectFrameError::AuthoredObstruction {
+            reason_kind: REASON.to_owned(),
+            payload: encoded(&map([("at", V::Integer(5))])),
+        }),
+        "remaining(5, 3) fails Underflow, which the intent maps to RangeInverted"
+    );
 }

@@ -82,10 +82,14 @@ impl<'a> Walk<'a> {
                 .checked_sub(1)
                 .ok_or(Error::UnsupportedProgram)?;
             if let Value::Text(id) = entry {
-                let (kind, target) = self
+                let (mut kind, target) = self
                     .tables
                     .remove(id.as_str())
                     .ok_or(Error::InvalidArtifact)?;
+                // A pure binding with failure arms lowers an `attempt`.
+                if kind == "let" && field(target, "failureArms").is_ok() {
+                    kind = "attempt";
+                }
                 require_text(node, "kind", kind)?;
                 self.pairs.push((node, target));
                 continue;

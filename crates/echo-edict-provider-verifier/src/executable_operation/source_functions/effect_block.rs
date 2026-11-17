@@ -233,6 +233,34 @@ impl<'a> Checker<'a, '_> {
                 audit.first_use(local)?;
                 frame.define(local, expected)?;
             }
+            "attempt" => {
+                exact(node, &["kind", "binding", "value", "failureMap"])?;
+                // Each arm's payload reads only what precedes the attempt.
+                let mut worst = Charge::default();
+                for (_, reason) in members(get(node, "failureMap")?)? {
+                    let (payload, encoded) = self.obstruction(reason, frame)?;
+                    worst = Charge::choice(worst, payload);
+                    tally.obstruction_output = tally.obstruction_output.max(encoded);
+                }
+                let value = self.expression(get(node, "value")?, frame, 0)?;
+                let local = get(node, "binding")?;
+                let expected = self.types.local(local)?;
+                if !expected.encloses(&value.schema) {
+                    return Err(());
+                }
+                // The call runs, then either its result is checked or exactly
+                // one arm's payload is built: charge the larger.
+                tally.charge.append(value.charge)?;
+                tally.charge.append(Charge::choice(
+                    worst,
+                    Charge {
+                        ticks: expected.measure()?.checks,
+                        storage: 0,
+                    },
+                ))?;
+                audit.first_use(local)?;
+                frame.define(local, expected)?;
+            }
             "require" => {
                 exact(node, &["kind", "predicate", "onFailure"])?;
                 // Refuses later work; proves nothing for it.

@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 726,612-byte checked lowerer component has SHA-256
-`3be2c731dbdca22895ee565bdb73a7726821ff0acb355e5e44e1b0feee636824` and has
+The refreshed 741,115-byte checked lowerer component has SHA-256
+`f0f3bc8112101d7d4893a761c1bd70ef37ac077eca10e26f694199756ab10a5d` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -234,6 +234,17 @@ The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
 features are dev dependencies only. Publication does not change the frozen WIT
 interface or enable installed effect execution.
+
+## Typed function failures
+
+The effect-program judgment admits `core.failure/v1`: declared function
+failure sets, `fail` and intent `attempt` nodes, lowered as Target pure
+bindings with `failureArms`. One judgment, `source_functions/failure_sets.rs`,
+is held identically by warp-core and the verifier. A declared set must equal
+what the body produces; an `attempt` maps exactly its callee's set; nothing
+else may fail. The static charge is the call plus the larger of result
+validation and the costliest arm. See
+`docs/architecture/application-contract-hosting.md`.
 
 ## Public effect route
 

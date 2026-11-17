@@ -76,6 +76,25 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     -- \
     -D warnings
 
+# The shared edict.core-cost/v2 corpus (flyingrobots/echo#1001) must be exactly
+# what the pinned Amblicit compiler produces at each program's minimum budgets.
+readonly CORPUS_MANIFEST="$ROOT/tests/edict-core-cost-v2-corpus/Cargo.toml"
+readonly CORPUS_TARGET_DIR="$ROOT/target/edict-core-cost-v2-corpus"
+cargo +1.96.0 fmt --manifest-path "$CORPUS_MANIFEST" --all -- --check
+CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
+  cargo +1.96.0 clippy \
+    --manifest-path "$CORPUS_MANIFEST" \
+    --locked \
+    --all-targets \
+    -- \
+    -D warnings
+CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
+  cargo +1.96.0 run \
+    --release \
+    --manifest-path "$CORPUS_MANIFEST" \
+    --locked \
+    -- "$ROOT/crates/warp-core/tests/fixtures/edict-core-cost-v2" --check
+
 # Public compiler witnesses for typed outgoing-edge and guided closure reads,
 # for a flat authored effect program, and for an authored effect program with
 # an effect step under the echo.dpo@2 effect target profile.

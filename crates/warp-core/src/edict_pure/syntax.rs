@@ -231,6 +231,26 @@ impl Parser<'_> {
                 }
                 Ok(Expr::Record(fields))
             }
+            "orderedRecord" => {
+                exact_fields(value, &["kind", "fields"])?;
+                let entries = array(field(value, "fields")?)?;
+                if entries.is_empty() || entries.len() > self.remaining {
+                    return Err(Error::InvalidArtifact);
+                }
+                let mut fields: Vec<(String, Expr)> = Vec::new();
+                for entry in entries {
+                    exact_fields(entry, &["name", "value"])?;
+                    let name = text_field(entry, "name")?;
+                    if fields.iter().any(|(prior, _)| prior == name) {
+                        return Err(Error::InvalidArtifact);
+                    }
+                    fields.push((
+                        name.to_owned(),
+                        self.expr(field(entry, "value")?, depth + 1)?,
+                    ));
+                }
+                Ok(Expr::OrderedRecord(fields))
+            }
             "if" => {
                 exact_fields(value, &["kind", "predicate", "then", "else"])?;
                 Ok(Expr::If(

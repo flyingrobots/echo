@@ -10,6 +10,10 @@
 use super::abi_conformance::rename_read_failure;
 use super::execution::limits;
 use super::mutations::{fixture, fixture_in, fixture_with, repeat_emission, Shape};
+use super::ordered_records::{
+    ordered_record_input, ordered_record_program, Order, Shape as RecordShape, FIRST_RAISED,
+    SECOND_RAISED,
+};
 use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
@@ -1154,6 +1158,62 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             source_module_program(ModuleForgery::Unpinned),
         ),
+        // Ordered records: the first fallible field to fail decides the
+        // obstruction (`ordered_records.rs`).
+        entry(
+            "ordered-record-z-first",
+            true,
+            Runtime::Accepts,
+            ordered_record_program(RecordShape::Literal(Order::ZFirst)),
+        ),
+        entry(
+            "ordered-record-a-first",
+            true,
+            Runtime::Accepts,
+            ordered_record_program(RecordShape::Literal(Order::AFirst)),
+        ),
+        entry(
+            "ordered-record-guarded-z-first",
+            true,
+            Runtime::Accepts,
+            ordered_record_program(RecordShape::Guarded(Order::ZFirst)),
+        ),
+        entry(
+            "ordered-record-guarded-a-first",
+            true,
+            Runtime::Accepts,
+            ordered_record_program(RecordShape::Guarded(Order::AFirst)),
+        ),
+        entry(
+            "ordered-record-duplicate-name",
+            false,
+            Runtime::Refuses,
+            ordered_record_program(RecordShape::DuplicateName),
+        ),
+        entry(
+            "ordered-record-empty",
+            false,
+            Runtime::Refuses,
+            ordered_record_program(RecordShape::Empty),
+        ),
+        entry(
+            "ordered-record-total",
+            false,
+            Runtime::Refuses,
+            ordered_record_program(RecordShape::Total),
+        ),
+        entry(
+            "ordered-record-unordered-fallible",
+            false,
+            Runtime::Refuses,
+            ordered_record_program(RecordShape::Unordered),
+        ),
+        entry(
+            "ordered-record-extra-entry-key",
+            false,
+            Runtime::Refuses,
+            ordered_record_program(RecordShape::ExtraEntryKey),
+        ),
     ]
     .into_iter()
     .chain(structured_entries())
@@ -1407,6 +1467,15 @@ const RETAINED: &[(&str, &str)] = retained![
     "source-module-control",
     "source-module-substituted",
     "source-module-unpinned",
+    "ordered-record-z-first",
+    "ordered-record-a-first",
+    "ordered-record-guarded-z-first",
+    "ordered-record-guarded-a-first",
+    "ordered-record-duplicate-name",
+    "ordered-record-empty",
+    "ordered-record-total",
+    "ordered-record-unordered-fallible",
+    "ordered-record-extra-entry-key",
     "structured-loop-control",
     "structured-branch-control",
     "structured-nested-control",
@@ -1697,7 +1766,7 @@ fn a_mapped_typed_failure_obstructs_with_its_declared_reason() {
 
 /// A source-module helper runs as an entry helper does: `leaf.same(v)`
 /// returns its argument (the source in
-/// `fixtures/edict-effect-source-module/source/src/Leaf.edict`).
+/// `fixtures/edict-effect-source-module/source/modules/Leaf.edict`).
 #[test]
 fn a_source_module_helper_runs_in_the_program_that_pins_it() {
     let input = encoded(&map([
@@ -1708,5 +1777,74 @@ fn a_source_module_helper_runs_in_the_program_that_pins_it() {
         run(&retained("source-module-control"), &input),
         Ok(encoded(&map([("b", V::Integer(7))]))),
         "same(7) returns 7 after the ensureNode effect"
+    );
+}
+
+fn obstruction(reason: &str, at: u64) -> Result<Vec<u8>, EffectFrameError> {
+    Err(EffectFrameError::AuthoredObstruction {
+        reason_kind: reason.to_owned(),
+        payload: encoded(&map([("at", V::Integer(i128::from(at)))])),
+    })
+}
+
+/// `{ z: fail First, a: fail Second }` stops at `First` and its reordering
+/// at `Second`: the authored field order, not the canonical key order,
+/// decides which failure escapes.
+#[test]
+fn the_first_failing_ordered_field_decides_the_obstruction() {
+    assert_eq!(
+        run(
+            &retained("ordered-record-z-first"),
+            &ordered_record_input(0)
+        ),
+        obstruction(FIRST_RAISED, 0),
+        "z is evaluated first and fails First"
+    );
+    assert_eq!(
+        run(
+            &retained("ordered-record-a-first"),
+            &ordered_record_input(0)
+        ),
+        obstruction(SECOND_RAISED, 0),
+        "a is evaluated first and fails Second"
+    );
+}
+
+/// Guarded fields return, or fail, per input. Where both fields fail the
+/// authored order decides; where one fails it decides in either order; where
+/// none fails the record is built and the program returns.
+#[test]
+fn guarded_ordered_fields_fail_in_authored_order_and_otherwise_return() {
+    for name in [
+        "ordered-record-guarded-z-first",
+        "ordered-record-guarded-a-first",
+    ] {
+        let package = retained(name);
+        assert_eq!(
+            run(&package, &ordered_record_input(0)),
+            Ok(encoded(&V::Bool(true))),
+            "{name}: both fields return, so pair.z is 1"
+        );
+        assert_eq!(
+            run(&package, &ordered_record_input(5)),
+            obstruction(SECOND_RAISED, 5),
+            "{name}: only a fails"
+        );
+    }
+    assert_eq!(
+        run(
+            &retained("ordered-record-guarded-z-first"),
+            &ordered_record_input(10)
+        ),
+        obstruction(FIRST_RAISED, 10),
+        "both fail; z comes first"
+    );
+    assert_eq!(
+        run(
+            &retained("ordered-record-guarded-a-first"),
+            &ordered_record_input(10)
+        ),
+        obstruction(SECOND_RAISED, 10),
+        "both fail; a comes first"
     );
 }

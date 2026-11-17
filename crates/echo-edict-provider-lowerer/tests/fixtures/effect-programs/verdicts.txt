@@ -49,6 +49,15 @@ typed-failure-arms-differ refuse
 source-module-control accept
 source-module-substituted refuse
 source-module-unpinned refuse
+ordered-record-z-first accept
+ordered-record-a-first accept
+ordered-record-guarded-z-first accept
+ordered-record-guarded-a-first accept
+ordered-record-duplicate-name refuse
+ordered-record-empty refuse
+ordered-record-total refuse
+ordered-record-unordered-fallible refuse
+ordered-record-extra-entry-key refuse
 structured-loop-control accept
 structured-branch-control accept
 structured-nested-control accept

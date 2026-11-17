@@ -1776,3 +1776,7 @@ mod typed_failures;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/source_modules.rs"]
 mod source_modules;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/ordered_records.rs"]
+mod ordered_records;

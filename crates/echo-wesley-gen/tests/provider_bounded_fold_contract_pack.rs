@@ -190,3 +190,50 @@ fn current_fold_shape_requires_closed_fields_and_unsigned_bound() {
         Kind::SchemaMismatch
     );
 }
+
+/// Oracle: Amblicit `function-preconditions-v1` CDDL (`core-source-function`
+/// with `? preconditions: [+ precondition-predicate]`).
+#[test]
+fn current_function_shape_admits_nonempty_closed_preconditions() {
+    use echo_wesley_gen::provider_contract_pack::ProviderContractValidationErrorKind as Kind;
+    let new = admit_provider_contract_pack_v1(SCHEMA, MANIFEST).expect("current publication");
+    let compare = map([
+        ("kind", text("compare")),
+        ("op", text("<=")),
+        ("left", map([("kind", text("local")), ("ref", parameter())])),
+        (
+            "right",
+            map([("kind", text("local")), ("ref", parameter())]),
+        ),
+    ]);
+    let specimen = |preconditions: Vec<Value>| {
+        let Value::Map(mut fields) = identity_function(Some(text("U64"))) else {
+            panic!("map")
+        };
+        fields.push((text("preconditions"), Value::Array(preconditions)));
+        let module = core_module(Some(map([("identity", Value::Map(fields))])));
+        encode_canonical_cbor_v1(&module).expect("specimen bytes")
+    };
+    new.validate_contract_bytes("core-module", &specimen(vec![compare]))
+        .expect("a nonempty comparison list is admitted");
+    let call_predicate = map([
+        ("kind", text("call")),
+        ("predicate", text("conformance.source-functions@1.identity")),
+        ("args", Value::Array(vec![])),
+    ]);
+    for (invalid, why) in [
+        (Vec::new(), "an empty list is not canonical"),
+        (
+            vec![call_predicate],
+            "a call predicate is never a precondition",
+        ),
+    ] {
+        assert_eq!(
+            new.validate_contract_bytes("core-module", &specimen(invalid))
+                .expect_err(why)
+                .kind(),
+            Kind::SchemaMismatch,
+            "{why}"
+        );
+    }
+}

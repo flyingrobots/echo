@@ -20,6 +20,18 @@
   intrinsics yet: its catalog, lowerer and verifier are unchanged, so no
   compiler-produced package can call them.
 
+- Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
+  warp-core, the provider lowerer and the provider verifier each admit a
+  function's Core `preconditions` as Amblicit `1196396b` specifies them, judge
+  the body assuming them, and independently re-prove every call to the
+  function from the facts that dominate it, so a helper may subtract or slice
+  under a precondition. A Core that drops a precondition its body needs, or
+  whose call does not establish one, is refused by all three, and so is a
+  precondition-bearing fold step. Functions without preconditions are judged
+  exactly as before. A shared corpus translates every Core-level case of
+  Amblicit's precondition and forgery tests.
+  A public compiler witness publishes a helper with a precondition through the
+  checked provider package and the runtime executes it.
 - Structured effect control under `echo.dpo@2` (#947). An authored effect
   program whose Target IR declares `echo.span-ir/v3` may wrap its
   instructions in bounded `for` loops and statement branches. The runtime,
@@ -239,6 +251,11 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- Both provider components now accept an authored effect program whose intent
+  has a `where` clause. Core input constraints carry `coordinate`, `source`
+  and `predicate`; the effect-intent judgments required only the first and
+  last, refusing every such program.
 
 - The lowerer, verifier and runtime effect judgments check a lawpack's `exports`
   pin and each target adapter pin under the coordinate the reference names, as

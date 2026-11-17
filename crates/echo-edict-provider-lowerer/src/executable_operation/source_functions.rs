@@ -10,6 +10,7 @@ mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
 mod effect_intent;
+mod failure_sets;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -74,6 +75,13 @@ impl Cost {
             bytes: self.bytes.max(other.bytes),
         }
     }
+}
+/// An `if` or `match` arm, or a helper binding or result. A `fail` has no
+/// type of its own: it returns no value, and its context types it.
+struct Arm {
+    ty: Option<Ty>,
+    cost: Cost,
+    depth: usize,
 }
 #[derive(Clone)]
 struct Fact {
@@ -150,6 +158,9 @@ fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Ve
 }
 /// Inventories the module's helpers and judges every one of them.
 fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Judgment<'a>> {
+    // Declared failure sets, `fail` and `attempt` across the whole module.
+    let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
+    failure_sets::judge(core, coordinate)?;
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -207,7 +218,11 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
         {
             return Err(());
         }
-        exact(function, &["params", "returnType", "body"])?;
+        if super::map_field(function, "failures").is_some() {
+            exact(function, &["params", "returnType", "body", "failures"])?;
+        } else {
+            exact(function, &["params", "returnType", "body"])?;
+        }
         let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
         if name.starts_with("core.")
             || effect_names.contains(name.as_str())
@@ -481,9 +496,9 @@ impl<'a> Judgment<'a> {
             if pending.remove(string(get(local, "id")?)?) != Some(local) {
                 return Err(());
             }
-            let fact = self.expression(get(binding, "value")?, &scope, function.source, prefix)?;
+            let fact = self.arm(get(binding, "value")?, &scope, function.source, prefix)?;
             let expected = self.declaration(local, &mut scope)?;
-            if !includes(&expected, &fact.ty) {
+            if !fact.ty.as_ref().is_none_or(|ty| includes(&expected, ty)) {
                 return Err(());
             }
             self.record_bound(local, get(binding, "value")?, &expected)?;
@@ -497,14 +512,18 @@ impl<'a> Judgment<'a> {
         if !pending.is_empty() {
             return Err(());
         }
-        let result = self.expression(
+        let result = self.arm(
             get(function.body, "result")?,
             &scope,
             function.source,
             prefix,
         )?;
         let ty = self.ty(function.result, 0)?;
-        if !includes(&ty, &result.ty) {
+        if !result
+            .ty
+            .as_ref()
+            .is_none_or(|actual| includes(&ty, actual))
+        {
             return Err(());
         }
         let (_, validations, _, ty_depth) = shape(&ty)?;
@@ -521,6 +540,32 @@ impl<'a> Judgment<'a> {
         }
         self.completed.insert(name.to_owned(), fact.clone());
         Ok(fact)
+    }
+    /// Judges an arm, binding or result that may be a `fail`, which costs
+    /// its one evaluation step and returns nothing.
+    fn arm(
+        &mut self,
+        value: &'a Value,
+        scope: &Scope<'a>,
+        source: bool,
+        prefix: usize,
+    ) -> Check<Arm> {
+        if string(get(value, "kind")?)? == "fail" {
+            self.charge(prefix)?;
+            exact(value, &["kind", "failure"])?;
+            string(get(value, "failure")?)?;
+            return Ok(Arm {
+                ty: None,
+                cost: Cost { steps: 1, bytes: 0 },
+                depth: 0,
+            });
+        }
+        let fact = self.expression(value, scope, source, prefix)?;
+        Ok(Arm {
+            ty: Some(fact.ty),
+            cost: fact.cost,
+            depth: fact.depth,
+        })
     }
     fn expression(
         &mut self,
@@ -652,15 +697,19 @@ impl<'a> Judgment<'a> {
                 // As in Edict, the predicate is a fact inside the `then` arm.
                 let branch = self.branch.len();
                 self.branch.push(get(value, "predicate")?);
-                let yes = self.expression(get(value, "then")?, scope, source, prefix + 1)?;
+                let yes = self.arm(get(value, "then")?, scope, source, prefix + 1)?;
                 self.branch.truncate(branch);
                 self.path.truncate(checkpoint);
                 self.path.push((get(value, "predicate")?, false));
-                let no = self.expression(get(value, "else")?, scope, source, prefix + 1)?;
+                let no = self.arm(get(value, "else")?, scope, source, prefix + 1)?;
                 self.path.truncate(checkpoint);
                 cost = cost.plus(predicate.0)?.plus(yes.cost.maximum(no.cost))?;
                 depth = predicate.1.max(yes.depth).max(no.depth) + 1;
-                union(yes.ty, no.ty)?
+                match (yes.ty, no.ty) {
+                    (Some(yes), Some(no)) => union(yes, no)?,
+                    (Some(only), None) | (None, Some(only)) => only,
+                    (None, None) => return Err(()),
+                }
             }
             "call" => {
                 exact(value, &["kind", "callee", "args", "typeArgs"])?;

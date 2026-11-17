@@ -599,9 +599,20 @@ fn correspondence(intent: &Value, lowered: &Value) -> Check<()> {
         return Err(());
     }
     for (node, id) in nodes.iter().zip(order) {
-        let (kind, instruction) = instructions.remove(string(id)?).ok_or(())?;
+        let (mut kind, instruction) = instructions.remove(string(id)?).ok_or(())?;
+        // A pure binding with failure arms lowers an `attempt`.
+        if kind == "let" && map_field(instruction, "failureArms").is_some() {
+            kind = "attempt";
+        }
         equal_text(node, "kind", kind)?;
         let keys: &[&str] = match kind {
+            "attempt" => {
+                exact(instruction, &["id", "binding", "value", "failureArms"])?;
+                if get(node, "failureMap")? != get(instruction, "failureArms")? {
+                    return Err(());
+                }
+                &["binding", "value"]
+            }
             "let" => {
                 exact(instruction, &["id", "binding", "value"])?;
                 &["binding", "value"]

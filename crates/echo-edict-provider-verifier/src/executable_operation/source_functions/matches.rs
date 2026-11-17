@@ -66,11 +66,14 @@ impl<'a> Checker<'a, '_> {
                 }
                 inner.define(binder, actual)?;
             }
-            let body = self.expression(get(arm, "body")?, &inner, depth + 1)?;
-            result = Some(match result {
-                None => body.schema,
-                Some(previous) => previous.choice(body.schema)?,
-            });
+            // A `fail` arm takes its schema from the other arms.
+            let body = self.arm(get(arm, "body")?, &inner, depth + 1)?;
+            if let Some(schema) = body.schema {
+                result = Some(match result {
+                    None => schema,
+                    Some(previous) => previous.choice(schema)?,
+                });
+            }
             height = height.max(body.height + 1);
             cost.append(body.charge)?;
             branch_charge = Charge::choice(branch_charge, cost);

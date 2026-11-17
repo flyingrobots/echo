@@ -10,6 +10,7 @@ mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
 mod effect_intent;
+mod failure_sets;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -49,6 +50,13 @@ struct Summary {
 }
 struct Expression {
     schema: Schema,
+    charge: Charge,
+    height: usize,
+}
+/// An `if` or `match` arm, or a helper binding or result. A `fail` has no
+/// schema of its own: it returns no value, and its context types it.
+struct Arm {
+    schema: Option<Schema>,
     charge: Charge,
     height: usize,
 }
@@ -162,6 +170,9 @@ fn prepare<'a>(
     types: &mut Types<'a>,
     edge_scans: u64,
 ) -> Check<Prepared<'a>> {
+    // Declared failure sets, `fail` and `attempt` across the whole module.
+    let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
+    failure_sets::judge(core, coordinate)?;
     let definitions = inventory(core, exports, types)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -175,7 +186,7 @@ fn prepare<'a>(
         while let Some((expression, depth)) = expressions.pop() {
             types.step(depth)?;
             match string(get(expression, "kind")?)? {
-                "const" | "local" => {}
+                "const" | "local" | "fail" => {}
                 "field" => expressions.push((get(expression, "base")?, depth + 1)),
                 "variant" => {
                     if let Some(payload) = super::map_field(expression, "payload") {
@@ -369,7 +380,11 @@ fn inventory<'a>(
         {
             return Err(());
         }
-        exact(definition, &["params", "returnType", "body"])?;
+        if super::map_field(definition, "failures").is_some() {
+            exact(definition, &["params", "returnType", "body", "failures"])?;
+        } else {
+            exact(definition, &["params", "returnType", "body"])?;
+        }
         let body = get(definition, "body")?;
         exact(body, &["locals", "bindings", "result"])?;
         let params = sequence(get(definition, "params")?)?;
@@ -462,9 +477,13 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             let local = get(binding, "binding")?;
-            let value = self.expression(get(binding, "value")?, &frame, 0)?;
+            let value = self.arm(get(binding, "value")?, &frame, 0)?;
             let declared = self.types.local(local)?;
-            if !declared.encloses(&value.schema) {
+            if !value
+                .schema
+                .as_ref()
+                .is_none_or(|schema| declared.encloses(schema))
+            {
                 return Err(());
             }
             self.record_bound(local, get(binding, "value")?, &declared)?;
@@ -478,8 +497,12 @@ impl<'a> Checker<'a, '_> {
             frame.define(local, declared)?;
         }
         frame.complete()?;
-        let value = self.expression(get(definition.body, "result")?, &frame, 0)?;
-        if !definition.result.encloses(&value.schema) {
+        let value = self.arm(get(definition.body, "result")?, &frame, 0)?;
+        if !value
+            .schema
+            .as_ref()
+            .is_none_or(|schema| definition.result.encloses(schema))
+        {
             return Err(());
         }
         charge.append(value.charge)?;
@@ -490,6 +513,29 @@ impl<'a> Checker<'a, '_> {
         Ok(Summary {
             charge,
             height: height.max(value.height),
+        })
+    }
+    /// Audits an arm, binding or result that may be a `fail`, which costs its
+    /// one evaluation tick and returns nothing.
+    fn arm(&mut self, value: &'a Value, frame: &Frame<'a>, depth: usize) -> Check<Arm> {
+        if string(get(value, "kind")?)? == "fail" {
+            self.types.step(depth)?;
+            exact(value, &["kind", "failure"])?;
+            string(get(value, "failure")?)?;
+            return Ok(Arm {
+                schema: None,
+                charge: Charge {
+                    ticks: 1,
+                    storage: 0,
+                },
+                height: 0,
+            });
+        }
+        let value = self.expression(value, frame, depth)?;
+        Ok(Arm {
+            schema: Some(value.schema),
+            charge: value.charge,
+            height: value.height,
         })
     }
     fn expression(
@@ -631,16 +677,20 @@ impl<'a> Checker<'a, '_> {
                 // As in Edict, the predicate is a fact inside the `then` arm.
                 let branch = self.branch.len();
                 self.branch.push(get(value, "predicate")?);
-                let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                let yes = self.arm(get(value, "then")?, frame, depth + 1)?;
                 self.branch.truncate(branch);
                 self.path.truncate(boundary);
                 self.path.push((get(value, "predicate")?, false));
-                let no = self.expression(get(value, "else")?, frame, depth + 1)?;
+                let no = self.arm(get(value, "else")?, frame, depth + 1)?;
                 self.path.truncate(boundary);
                 height = predicate_height.max(yes.height).max(no.height) + 1;
                 charge.append(predicate)?;
                 charge.append(Charge::choice(yes.charge, no.charge))?;
-                yes.schema.choice(no.schema)?
+                match (yes.schema, no.schema) {
+                    (Some(yes), Some(no)) => yes.choice(no)?,
+                    (Some(only), None) | (None, Some(only)) => only,
+                    (None, None) => return Err(()),
+                }
             }
             "call" => {
                 exact(value, &["kind", "callee", "args", "typeArgs"])?;

@@ -85,9 +85,38 @@ pub(super) fn validate<'a>(
     }
     for (node, id) in nodes.iter().zip(order) {
         scope.parser.enter(0)?;
-        let (kind, target) = lowered.remove(text(id)?).ok_or(Error::InvalidArtifact)?;
+        let (mut kind, target) = lowered.remove(text(id)?).ok_or(Error::InvalidArtifact)?;
+        // A pure binding with failure arms lowers an `attempt`.
+        if kind == "let" && field(target, "failureArms").is_ok() {
+            kind = "attempt";
+        }
         require_text(node, "kind", kind)?;
         match kind {
+            "attempt" => {
+                exact_fields(node, &["kind", "binding", "value", "failureMap"])?;
+                exact_fields(target, &["id", "binding", "value", "failureArms"])?;
+                equal(node, target, "binding")?;
+                equal(node, target, "value")?;
+                if field(node, "failureMap")? != field(target, "failureArms")? {
+                    return Err(Error::InvalidArtifact);
+                }
+                scope.typed_expression(
+                    field(node, "value")?,
+                    text_field(field(node, "binding")?, "type")?,
+                )?;
+                // Each arm's payload reads only what precedes the attempt.
+                for (_, reason) in map(field(node, "failureMap")?)? {
+                    exact_fields(reason, &["reasonKind", "payload"])?;
+                    if text_field(reason, "reasonKind")?.is_empty() {
+                        return Err(Error::InvalidArtifact);
+                    }
+                    for (_, value) in map(field(reason, "payload")?)? {
+                        scope.expression(value, None)?;
+                        scope.data_type(value)?;
+                    }
+                }
+                scope.introduce(field(node, "binding")?)?;
+            }
             "let" => {
                 exact_fields(node, &["kind", "binding", "value"])?;
                 exact_fields(target, &["id", "binding", "value"])?;

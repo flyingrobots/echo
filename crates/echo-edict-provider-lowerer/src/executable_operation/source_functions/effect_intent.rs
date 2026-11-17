@@ -153,6 +153,31 @@ impl<'a> Judgment<'a> {
                         bytes: 0,
                     })?;
                 }
+                "attempt" => {
+                    exact(node, &["kind", "binding", "value", "failureMap"])?;
+                    if sites.contains_key(&index) {
+                        return Err(());
+                    }
+                    claim(get(node, "binding")?)?;
+                    // Each arm's payload reads only what precedes the attempt.
+                    let mut worst = Cost::default();
+                    for (_, reason) in members(get(node, "failureMap")?)? {
+                        let (charge, encoded) = self.obstruction(reason, &scope)?;
+                        worst = worst.maximum(charge);
+                        obstruction_output = obstruction_output.max(encoded);
+                    }
+                    let fact = self.expression(get(node, "value")?, &scope, true, 0)?;
+                    let ty = self.declaration(get(node, "binding")?, &mut scope)?;
+                    if !includes(&ty, &fact.ty) {
+                        return Err(());
+                    }
+                    // The call runs, then either its result is validated or
+                    // exactly one arm's payload is built: charge the larger.
+                    cost = cost.plus(fact.cost)?.plus(worst.maximum(Cost {
+                        steps: shape(&ty)?.1,
+                        bytes: 0,
+                    }))?;
+                }
                 "require" => {
                     exact(node, &["kind", "predicate", "onFailure"])?;
                     if sites.contains_key(&index) {
@@ -166,32 +191,8 @@ impl<'a> Judgment<'a> {
                     if string(get(failure, "kind")?)? != "terminal" {
                         return Err(());
                     }
-                    let reason = get(failure, "reason")?;
-                    exact(reason, &["reasonKind", "payload"])?;
-                    if string(get(reason, "reasonKind")?)?.is_empty() {
-                        return Err(());
-                    }
-                    // On failure the runtime builds this record and encodes it
-                    // as the obstruction payload, under the result's output
-                    // ceiling.
-                    let mut fields = BTreeMap::new();
-                    let mut payload = Cost {
-                        steps: 1,
-                        bytes: 64,
-                    };
-                    for (name, value) in members(get(reason, "payload")?)? {
-                        let name = string(name)?;
-                        let fact = self.expression(value, &scope, true, 0)?;
-                        payload = payload.plus(fact.cost)?.plus(Cost {
-                            steps: 0,
-                            bytes: 64_u64.checked_add(name.len() as u64).ok_or(())?,
-                        })?;
-                        if fields.insert(name.to_owned(), fact.ty).is_some() {
-                            return Err(());
-                        }
-                    }
-                    let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
-                    cost = cost.plus(payload)?.plus(scratch)?;
+                    let (charge, encoded) = self.obstruction(get(failure, "reason")?, &scope)?;
+                    cost = cost.plus(charge)?;
                     obstruction_output = obstruction_output.max(encoded);
                 }
                 "effect" => {
@@ -270,6 +271,37 @@ impl<'a> Judgment<'a> {
             return Err(());
         }
         Ok(())
+    }
+}
+
+impl<'a> Judgment<'a> {
+    /// A terminal obstruction reason: what building and encoding its payload
+    /// costs, and the payload's largest encoding.
+    fn obstruction(&mut self, reason: &'a Value, scope: &super::Scope<'a>) -> Check<(Cost, u64)> {
+        exact(reason, &["reasonKind", "payload"])?;
+        if string(get(reason, "reasonKind")?)?.is_empty() {
+            return Err(());
+        }
+        // On failure the runtime builds this record and encodes it as the
+        // obstruction payload, under the result's output ceiling.
+        let mut fields = BTreeMap::new();
+        let mut payload = Cost {
+            steps: 1,
+            bytes: 64,
+        };
+        for (name, value) in members(get(reason, "payload")?)? {
+            let name = string(name)?;
+            let fact = self.expression(value, scope, true, 0)?;
+            payload = payload.plus(fact.cost)?.plus(Cost {
+                steps: 0,
+                bytes: 64_u64.checked_add(name.len() as u64).ok_or(())?,
+            })?;
+            if fields.insert(name.to_owned(), fact.ty).is_some() {
+                return Err(());
+            }
+        }
+        let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
+        Ok((payload.plus(scratch)?, encoded))
     }
 }
 

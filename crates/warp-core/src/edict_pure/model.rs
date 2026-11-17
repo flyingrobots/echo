@@ -98,6 +98,8 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// Ends the enclosing source helper with this declared failure.
+    Fail(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]

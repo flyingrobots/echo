@@ -12,6 +12,7 @@
 
 mod decode;
 pub(crate) mod evaluate;
+pub(crate) mod failure_sets;
 #[cfg(test)]
 mod fold_tests;
 pub(crate) mod functions;
@@ -89,6 +90,10 @@ pub enum EvaluationError {
     HostAllocationFailed,
     /// The canonical result exceeds its output budget.
     OutputBudgetExceeded,
+    /// A source helper ended with this declared typed failure and no
+    /// `attempt` mapped it. Judgment proves every failure is mapped, so a
+    /// judged program never returns this.
+    UnmappedFailure(String),
 }
 
 /// Evaluates exact compiler-produced package bytes under a verified host pin.

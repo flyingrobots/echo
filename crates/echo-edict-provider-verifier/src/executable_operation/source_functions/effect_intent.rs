@@ -154,6 +154,33 @@ impl<'a> Checker<'a, '_> {
                     })?;
                     frame.define(local, expected)?;
                 }
+                "attempt" => {
+                    exact(node, &["kind", "binding", "value", "failureMap"])?;
+                    // Each arm's payload reads only what precedes the attempt.
+                    let mut worst = Charge::default();
+                    for (_, reason) in members(get(node, "failureMap")?)? {
+                        let (payload, encoded) = self.obstruction(reason, &frame)?;
+                        worst = Charge::choice(worst, payload);
+                        obstruction_output = obstruction_output.max(encoded);
+                    }
+                    let value = self.expression(get(node, "value")?, &frame, 0)?;
+                    let local = get(node, "binding")?;
+                    let expected = self.types.local(local)?;
+                    if !expected.encloses(&value.schema) {
+                        return Err(());
+                    }
+                    // The call runs, then either its result is checked or
+                    // exactly one arm's payload is built: charge the larger.
+                    charge.append(value.charge)?;
+                    charge.append(Charge::choice(
+                        worst,
+                        Charge {
+                            ticks: expected.measure()?.checks,
+                            storage: 0,
+                        },
+                    ))?;
+                    frame.define(local, expected)?;
+                }
                 "require" => {
                     exact(node, &["kind", "predicate", "onFailure"])?;
                     // Refuses later work; proves nothing for it.
@@ -163,34 +190,9 @@ impl<'a> Checker<'a, '_> {
                     if string(get(failure, "kind")?)? != "terminal" {
                         return Err(());
                     }
-                    let reason = get(failure, "reason")?;
-                    exact(reason, &["reasonKind", "payload"])?;
-                    if string(get(reason, "reasonKind")?)?.is_empty() {
-                        return Err(());
-                    }
-                    // On failure the runtime builds this record and encodes it
-                    // as the obstruction payload, under the result's output
-                    // ceiling.
-                    let mut fields = BTreeMap::new();
-                    charge.append(Charge {
-                        ticks: 1,
-                        storage: 64,
-                    })?;
-                    for (name, value) in members(get(reason, "payload")?)? {
-                        let name = string(name)?;
-                        let checked = self.expression(value, &frame, 0)?;
-                        charge.append(checked.charge)?;
-                        charge.append(Charge {
-                            ticks: 0,
-                            storage: 64 + name.len() as u128,
-                        })?;
-                        if fields.insert(name.to_owned(), checked.schema).is_some() {
-                            return Err(());
-                        }
-                    }
-                    let payload = Schema::Fields(fields).measure()?;
-                    charge.append(payload.copy)?;
-                    obstruction_output = obstruction_output.max(payload.encoded);
+                    let (payload, encoded) = self.obstruction(get(failure, "reason")?, &frame)?;
+                    charge.append(payload)?;
+                    obstruction_output = obstruction_output.max(encoded);
                 }
                 _ => {
                     exact(
@@ -355,5 +357,38 @@ fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
         "ensure-edge" => mutation(&["warpId", "edgeId", "fromId", "toId", "edgeType"]),
         "replace-edge" => mutation(&["warpId", "edgeId", "expectedToId", "toId"]),
         _ => Err(()),
+    }
+}
+
+impl<'a> Checker<'a, '_> {
+    /// A terminal obstruction reason: what building and encoding its payload
+    /// charges, and the payload's largest encoding.
+    fn obstruction(&mut self, reason: &'a Value, frame: &Frame<'a>) -> Check<(Charge, u128)> {
+        exact(reason, &["reasonKind", "payload"])?;
+        if string(get(reason, "reasonKind")?)?.is_empty() {
+            return Err(());
+        }
+        // On failure the runtime builds this record and encodes it as the
+        // obstruction payload, under the result's output ceiling.
+        let mut fields = BTreeMap::new();
+        let mut charge = Charge {
+            ticks: 1,
+            storage: 64,
+        };
+        for (name, value) in members(get(reason, "payload")?)? {
+            let name = string(name)?;
+            let checked = self.expression(value, frame, 0)?;
+            charge.append(checked.charge)?;
+            charge.append(Charge {
+                ticks: 0,
+                storage: 64 + name.len() as u128,
+            })?;
+            if fields.insert(name.to_owned(), checked.schema).is_some() {
+                return Err(());
+            }
+        }
+        let payload = Schema::Fields(fields).measure()?;
+        charge.append(payload.copy)?;
+        Ok((charge, payload.encoded))
     }
 }

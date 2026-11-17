@@ -40,6 +40,12 @@ enum Instruction {
         condition: Predicate,
         reason: Reason,
     },
+    /// A call to a failing source helper. A failure it ends with ends the
+    /// run with that failure's mapped terminal reason.
+    Attempt {
+        binding: Binding,
+        arms: BTreeMap<String, Reason>,
+    },
 }
 pub(super) struct Evaluation {
     pub(super) output: Vec<u8>,
@@ -129,18 +135,18 @@ impl Program {
                         max_bytes: max,
                     }
                 }
-                "require" => {
-                    let reason = field(field(node, "onFailure")?, "reason")?;
-                    let mut payload = Vec::new();
-                    for (key, value) in map(field(reason, "payload")?)? {
-                        payload.push((text(key)?.to_owned(), parser.expr(value, 0)?));
+                "require" => Instruction::Require {
+                    condition: parser.predicate(field(node, "predicate")?, 0)?,
+                    reason: reason(field(field(node, "onFailure")?, "reason")?, &mut parser)?,
+                },
+                "attempt" => {
+                    let mut arms = BTreeMap::new();
+                    for (failure, arm) in map(field(node, "failureMap")?)? {
+                        arms.insert(text(failure)?.to_owned(), reason(arm, &mut parser)?);
                     }
-                    Instruction::Require {
-                        condition: parser.predicate(field(node, "predicate")?, 0)?,
-                        reason: Reason {
-                            name: text_field(reason, "reasonKind")?.to_owned(),
-                            payload: Expr::Record(payload),
-                        },
+                    Instruction::Attempt {
+                        binding: binding(node, "value", &mut parser)?,
+                        arms,
                     }
                 }
                 _ => return Err(Error::UnsupportedProgram),
@@ -275,6 +281,19 @@ impl Program {
                     validate(&value, &binding.ty, meter, 0)?;
                     locals.insert(binding.name.as_str(), value);
                 }
+                Instruction::Attempt { binding, arms } => {
+                    let value = match expression(&binding.value, &locals, helpers, meter, 0) {
+                        Err(Error::UnmappedFailure(failure)) => {
+                            // Only the selected arm's payload is evaluated.
+                            let reason = arms.get(&failure).ok_or(Error::InvalidArtifact)?;
+                            let payload = expression(&reason.payload, &locals, helpers, meter, 0)?;
+                            return Err(self.obstruct(&reason.name, payload, meter)?);
+                        }
+                        value => value?,
+                    };
+                    validate(&value, &binding.ty, meter, 0)?;
+                    locals.insert(binding.name.as_str(), value);
+                }
                 Instruction::Require { condition, reason } => {
                     if !predicate(condition, &locals, helpers, meter, 0)? {
                         let payload = expression(&reason.payload, &locals, helpers, meter, 0)?;
@@ -309,6 +328,17 @@ impl Program {
             payload: self.output_bytes(&payload, meter)?,
         })
     }
+}
+/// A terminal obstruction reason; its payload fields evaluate as one record.
+fn reason(reason: &Value, parser: &mut Parser<'_>) -> Result<Reason, Error> {
+    let mut payload = Vec::new();
+    for (key, value) in map(field(reason, "payload")?)? {
+        payload.push((text(key)?.to_owned(), parser.expr(value, 0)?));
+    }
+    Ok(Reason {
+        name: text_field(reason, "reasonKind")?.to_owned(),
+        payload: Expr::Record(payload),
+    })
 }
 fn binding(node: &Value, key: &str, parser: &mut Parser<'_>) -> Result<Binding, Error> {
     let local = field(node, "binding")?;

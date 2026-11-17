@@ -104,7 +104,12 @@ impl<'a> Judgment<'a> {
         let constraints = list(get(intent, "inputConstraints")?)?;
         for constraint in constraints {
             // The runtime names each constraint by its coordinate when it fails.
-            exact(constraint, &["coordinate", "predicate"])?;
+            // Exactly the compiler's Core shape: an authored `where` conjunct or
+            // a compiler-derived constraint.
+            exact(constraint, &["coordinate", "source", "predicate"])?;
+            if !matches!(string(get(constraint, "source")?)?, "where" | "compiler") {
+                return Err(());
+            }
             string(get(constraint, "coordinate")?)?;
             cost = cost.plus(
                 self.predicate(get(constraint, "predicate")?, &scope, true, 0)?

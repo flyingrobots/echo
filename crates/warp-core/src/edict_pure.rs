@@ -14,6 +14,7 @@ mod decode;
 pub(crate) mod evaluate;
 #[cfg(test)]
 mod fold_tests;
+mod function_preconditions;
 pub(crate) mod functions;
 mod list_operations;
 #[cfg(test)]
@@ -140,6 +141,9 @@ mod proven_range_tests;
 
 #[cfg(test)]
 mod branch_fact_tests;
+
+#[cfg(test)]
+mod function_precondition_tests;
 
 #[cfg(test)]
 mod byte_at_tests;

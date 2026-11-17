@@ -3,9 +3,13 @@
 #![allow(clippy::print_stdout)]
 //! Public compiler witness for a flat authored effect program.
 //!
-//! Sends the authored lawpack and program under
-//! `crates/warp-core/tests/fixtures/edict-effect-program/source` through an
-//! unmodified Amblicit compiler binary and a selected provider package. The
+//! Sends the authored lawpack and program of one named witness through an
+//! unmodified Amblicit compiler binary and a selected provider package:
+//! `--name flat` (the default) for
+//! `crates/warp-core/tests/fixtures/edict-effect-program/source`, and
+//! `--name precondition` for the program in
+//! `crates/warp-core/tests/fixtures/edict-function-precondition/source`, whose
+//! source helper declares a precondition. The
 //! package's lowerer emits an `edict-effect-program/v1` package and its
 //! separate verifier reports on it. Nothing here constructs Core, Target IR or
 //! a package. With `--check` the fresh compiler output must equal the
@@ -17,16 +21,46 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const PROGRAM: &str = "FlatEffect.edict";
+/// One retained public program: its authored source file, the prefix of its
+/// retained outputs, and the refusal the predecessor provider's lowerer must
+/// give it.
+struct Witness {
+    program: &'static str,
+    prefix: &'static str,
+    old_kind: &'static str,
+    old_refusal: &'static str,
+}
+const WITNESSES: [(&str, Witness); 2] = [
+    (
+        "flat",
+        Witness {
+            program: "FlatEffect.edict",
+            prefix: "flat",
+            old_kind: "ProviderLowererRefused",
+            old_refusal: "neither create nor write",
+        },
+    ),
+    (
+        "precondition",
+        Witness {
+            program: "FunctionPrecondition.edict",
+            prefix: "precondition",
+            // Its contract pack predates `preconditions`, so the compiler
+            // refuses the Core before invoking its lowerer.
+            old_kind: "InvalidProviderInvocation",
+            old_refusal: "ArtifactSchemaMismatch",
+        },
+    ),
+];
 const VENDOR: &str = "vendor/effect-program";
 const IMPORT: &str = "use lawpack consumer.effect@1 digest \"";
-/// Compiler outputs, retained as `flat-<name>.hex`.
+/// Compiler outputs, retained as `<prefix>-<name>.hex`.
 const OUTPUTS: [&str; 2] = [
     "executable-operation-package.cbor",
     "verification-report.cbor",
 ];
 /// Lawpack build outputs the lowering request carries, retained as
-/// `flat-<name>.hex` so native tests can rebuild that request.
+/// `<prefix>-<name>.hex` so native tests can rebuild that request.
 const LAWPACK_OUTPUTS: [(&str, &str); 3] = [
     ("manifest.cbor", "lawpack"),
     ("adapter.cbor", "adapter"),
@@ -41,6 +75,7 @@ struct Arguments {
     old_provider: PathBuf,
     fixtures: PathBuf,
     work_root: PathBuf,
+    witness: &'static Witness,
     check: bool,
 }
 
@@ -61,6 +96,14 @@ fn arguments() -> Result<Arguments> {
             "{flag} given twice"
         );
     }
+    let name = values.remove("--name").map_or_else(
+        || "flat".to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let witness = WITNESSES
+        .iter()
+        .find_map(|(known, witness)| (*known == name).then_some(witness))
+        .with_context(|| format!("unknown witness {name}"))?;
     let mut take = |flag: &str| {
         values
             .remove(flag)
@@ -72,6 +115,7 @@ fn arguments() -> Result<Arguments> {
         old_provider: take("--old-provider")?,
         fixtures: take("--fixtures")?,
         work_root: take("--work-root")?,
+        witness,
         check,
     };
     ensure!(values.is_empty(), "unknown arguments: {values:?}");
@@ -251,24 +295,31 @@ fn outputs(root: &Path) -> Result<Vec<Vec<u8>>> {
         .collect()
 }
 
-fn retained_name(output: &str) -> String {
-    format!("flat-{}.hex", output.trim_end_matches(".cbor"))
+fn retained_name(witness: &Witness, output: &str) -> String {
+    format!(
+        "{}-{}.hex",
+        witness.prefix,
+        output.trim_end_matches(".cbor")
+    )
 }
 
-fn compare(evidence: &Path, fixtures: &Path) -> Result<()> {
-    let mut names: Vec<String> = OUTPUTS.iter().map(|output| retained_name(output)).collect();
+fn compare(witness: &Witness, evidence: &Path, fixtures: &Path) -> Result<()> {
+    let mut names: Vec<String> = OUTPUTS
+        .iter()
+        .map(|output| retained_name(witness, output))
+        .collect();
     names.extend(
         LAWPACK_OUTPUTS
             .iter()
-            .map(|(_, name)| format!("flat-{name}.hex")),
+            .map(|(_, name)| format!("{}-{name}.hex", witness.prefix)),
     );
     let mut pairs: Vec<_> = names
         .iter()
         .map(|name| (evidence.join(name), fixtures.join(name)))
         .collect();
     pairs.push((
-        evidence.join("source").join(PROGRAM),
-        fixtures.join("source").join(PROGRAM),
+        evidence.join("source").join(witness.program),
+        fixtures.join("source").join(witness.program),
     ));
     let mut differing = Vec::new();
     for (fresh, retained) in pairs {
@@ -290,6 +341,7 @@ fn compare(evidence: &Path, fixtures: &Path) -> Result<()> {
 
 fn main() -> Result<()> {
     let arguments = arguments()?;
+    let witness = arguments.witness;
     ensure!(
         !arguments.work_root.exists(),
         "select a new work directory; existing evidence is preserved"
@@ -312,30 +364,25 @@ fn main() -> Result<()> {
     let pin = lawpack_pin(&vendor)?;
     for (file, name) in LAWPACK_OUTPUTS {
         fs::write(
-            evidence.join(format!("flat-{name}.hex")),
+            evidence.join(format!("{}-{name}.hex", witness.prefix)),
             format!("{}\n", hex::encode(read(&vendor.join(file))?)),
         )?;
     }
 
-    let authored = String::from_utf8(read(&source.join(PROGRAM))?)?;
+    let authored = String::from_utf8(read(&source.join(witness.program))?)?;
     let program = pinned_source(&authored, &pin)?;
-    let root = application_root(&arguments, "flat", &arguments.provider)?;
+    let root = application_root(&arguments, witness.prefix, &arguments.provider)?;
     fs::write(root.join("src/Program.edict"), &program)?;
-    accepted(
-        &build(&arguments.compiler, &root, "application")?,
-        "the flat effect program",
-    )?;
+    let what = format!("the {} effect program", witness.prefix);
+    accepted(&build(&arguments.compiler, &root, "application")?, &what)?;
     let first = outputs(&root)?;
     fs::remove_dir_all(root.join("application-output"))?;
-    accepted(
-        &build(&arguments.compiler, &root, "application")?,
-        "the flat effect program",
-    )?;
+    accepted(&build(&arguments.compiler, &root, "application")?, &what)?;
     ensure!(
         first == outputs(&root)?,
         "repeating the public build changed the package or report"
     );
-    fs::write(evidence.join("source").join(PROGRAM), &program)?;
+    fs::write(evidence.join("source").join(witness.program), &program)?;
     let mut receipt = serde_json::json!({
         "schema": "echo.effect-program-publication/v1",
         "compilerSha256": sha256(&read_bounded(&arguments.compiler, MAX_COMPILER_BYTES)?),
@@ -346,14 +393,16 @@ fn main() -> Result<()> {
         "authoredPinMatches": authored == program,
     });
     for (output, bytes) in OUTPUTS.iter().zip(&first) {
-        let name = retained_name(output);
+        let name = retained_name(witness, output);
         fs::write(evidence.join(&name), format!("{}\n", hex::encode(bytes)))?;
         receipt[name] = sha256(bytes).into();
     }
-    println!("PUBLIC_EFFECT_COMPILE_OK flat");
+    println!("PUBLIC_EFFECT_COMPILE_OK {}", witness.prefix);
 
-    // The predecessor provider must refuse the same program at its lowerer,
-    // which routed every authored effect configuration to the fixed profiles.
+    // The predecessor provider must refuse the same program: the flat program
+    // at its lowerer, which routed every authored effect configuration to the
+    // fixed profiles; the precondition program at schema validation, because
+    // its contract pack predates source-function preconditions.
     let old = application_root(&arguments, "old-provider", &arguments.old_provider)?;
     fs::write(old.join("src/Program.edict"), &program)?;
     let refused = build(&arguments.compiler, &old, "application")?;
@@ -366,7 +415,7 @@ fn main() -> Result<()> {
         format!("{}\n", serde_json::to_string_pretty(&receipt)?),
     )?;
     let retained = if arguments.check {
-        compare(&evidence, &arguments.fixtures)
+        compare(witness, &evidence, &arguments.fixtures)
     } else {
         Ok(())
     };
@@ -378,15 +427,15 @@ fn main() -> Result<()> {
         .and_then(|diagnostic| diagnostic["message"].as_str())
         .unwrap_or_default();
     println!(
-        "PUBLIC_EFFECT_REFUSAL exit={} kind={kind}",
+        "PUBLIC_EFFECT_REFUSAL exit={} kind={kind} message={message}",
         refused.exit_code
     );
     if refused.exit_code != 2
-        || kind != "ProviderLowererRefused"
-        || !message.contains("neither create nor write")
+        || kind != witness.old_kind
+        || !message.contains(witness.old_refusal)
         || old.join("application-output").exists()
     {
-        bail!("predecessor provider did not refuse at its lowerer: {kind} {message}");
+        bail!("predecessor provider did not refuse as expected: {kind} {message}");
     }
     println!("PUBLIC_EFFECT_REFUSAL_OK old-provider");
     retained?;

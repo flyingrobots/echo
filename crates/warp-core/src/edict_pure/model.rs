@@ -148,6 +148,9 @@ pub(crate) enum IdentityIntrinsic {
     ContentEdgeId,
     /// `echo.dpo@2.slotEdgeId`: the id of an edge from a mutable node.
     SlotEdgeId,
+    /// `echo.dpo@2.attachmentValueDigest`: the attachment value digest of an
+    /// atom, which a `ReplaceAtom` names as its expected current value.
+    AttachmentValueDigest,
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -11,6 +11,7 @@
 //! | `echo.dpo@2.contentAddress` | warp, node type, atom type, atom, edges     |
 //! | `echo.dpo@2.contentEdgeId`  | warp, source node, edge type, target node   |
 //! | `echo.dpo@2.slotEdgeId`     | warp, source node, edge type                |
+//! | `echo.dpo@2.attachmentValueDigest` | atom type, atom                      |
 //!
 //! Every id operand is exactly 32 bytes. The atom is at most
 //! [`MAX_ATOM_BYTES`] raw bytes, and `edges` is a list of at most
@@ -25,6 +26,8 @@
 //!   of storage and 64 per edge. Edge order is not a cost input.
 //! - `contentEdgeId`: 70 steps and 96 bytes.
 //! - `slotEdgeId`: 69 steps and 96 bytes.
+//! - `attachmentValueDigest`: 68 steps, one per atom byte; 96 bytes. Its
+//!   result is the digest a `ReplaceAtom` names as `expectedAtomDigest`.
 //!
 //! The same (edge type, target) twice is refused with
 //! [`Error::DuplicateOutgoingEdge`] after the work is charged and before any
@@ -39,7 +42,9 @@ use super::model::{Expr, Helper, IdentityIntrinsic, RuntimeType};
 use super::syntax::Parser;
 use super::values::{bytes, field};
 use super::EvaluationError as Error;
-use crate::content_address_v1::{content_edge_id, content_node_id, slot_edge_id, OutgoingEdge};
+use crate::content_address_v1::{
+    attachment_digest, content_edge_id, content_node_id, slot_edge_id, OutgoingEdge,
+};
 use crate::{NodeId, TypeId, WarpId};
 
 /// Largest atom a `contentAddress` call accepts.
@@ -62,6 +67,7 @@ impl IdentityIntrinsic {
             "echo.dpo@2.contentAddress" => Some(Self::ContentAddress),
             "echo.dpo@2.contentEdgeId" => Some(Self::ContentEdgeId),
             "echo.dpo@2.slotEdgeId" => Some(Self::SlotEdgeId),
+            "echo.dpo@2.attachmentValueDigest" => Some(Self::AttachmentValueDigest),
             _ => None,
         }
     }
@@ -73,10 +79,7 @@ impl IdentityIntrinsic {
                 id_type(),
                 id_type(),
                 id_type(),
-                RuntimeType::Bytes {
-                    min: 0,
-                    max: MAX_ATOM_BYTES,
-                },
+                atom_type(),
                 RuntimeType::List {
                     item: Some(Box::new(RuntimeType::Record(vec![
                         ("to".to_owned(), id_type()),
@@ -87,7 +90,16 @@ impl IdentityIntrinsic {
             ],
             Self::ContentEdgeId => vec![id_type(); 4],
             Self::SlotEdgeId => vec![id_type(); 3],
+            Self::AttachmentValueDigest => vec![id_type(), atom_type()],
         }
+    }
+}
+
+/// The ceiling of an atom operand.
+fn atom_type() -> RuntimeType {
+    RuntimeType::Bytes {
+        min: 0,
+        max: MAX_ATOM_BYTES,
     }
 }
 
@@ -184,6 +196,12 @@ pub(super) fn evaluate(
         }
         (IdentityIntrinsic::SlotEdgeId, [warp, from, edge_type]) => {
             slot_edge_id(WarpId(id(warp)?), NodeId(id(from)?), TypeId(id(edge_type)?)).0
+        }
+        (IdentityIntrinsic::AttachmentValueDigest, [atom_type, atom]) => {
+            let atom = bytes(atom)?;
+            meter
+                .charge_steps(u64::try_from(atom.len()).map_err(|_| Error::StepBudgetExceeded)?)?;
+            attachment_digest(TypeId(id(atom_type)?), atom)
         }
         _ => return Err(Error::InvalidArtifact),
     };

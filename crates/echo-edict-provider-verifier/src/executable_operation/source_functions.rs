@@ -20,6 +20,7 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod ordered_records;
 mod read_charge;
 #[cfg(test)]
 mod read_charge_soundness_tests;
@@ -209,6 +210,11 @@ fn prepare<'a>(
                 "record" => {
                     for (_, value) in members(get(expression, "fields")?)? {
                         expressions.push((value, depth + 1));
+                    }
+                }
+                "orderedRecord" => {
+                    for entry in sequence(get(expression, "fields")?)? {
+                        expressions.push((get(entry, "value")?, depth + 1));
                     }
                 }
                 "if" => {
@@ -478,8 +484,8 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             let local = get(binding, "binding")?;
-            let value = self.arm(get(binding, "value")?, &frame, 0)?;
             let declared = self.types.local(local)?;
+            let value = self.declared_arm(get(binding, "value")?, &frame, &declared)?;
             if !value
                 .schema
                 .as_ref()
@@ -498,7 +504,8 @@ impl<'a> Checker<'a, '_> {
             frame.define(local, declared)?;
         }
         frame.complete()?;
-        let value = self.arm(get(definition.body, "result")?, &frame, 0)?;
+        let value =
+            self.declared_arm(get(definition.body, "result")?, &frame, &definition.result)?;
         if !value
             .schema
             .as_ref()
@@ -554,6 +561,7 @@ impl<'a> Checker<'a, '_> {
         let schema = match string(get(value, "kind")?)? {
             "fold" => return self.state_fold(value, frame, depth),
             "match" => return self.audit_match(value, frame, depth),
+            "orderedRecord" => return self.ordered_record(value, frame, depth, None),
             "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {
                 exact(value, &["kind", "value"])?;

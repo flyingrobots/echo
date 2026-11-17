@@ -7,6 +7,14 @@
 
 ### Added
 
+- Core ordered records (`orderedRecord`, #997). The runtime, the lowerer and
+  the verifier evaluate a fallible record's fields in authored order, so
+  `{ z: fail First, a: fail Second }` and `{ a: fail Second, z: fail First }`
+  obstruct with different, correct reasons. When every field returns, the
+  value equals the unordered record's. Duplicate names, an empty field list,
+  extra entry keys and an ordered record with no fallible field refuse in all
+  three judges, as Amblicit refuses them.
+
 - Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
   lowerer and the verifier accept declared function failure sets, `fail` and
   intent `attempt` nodes lowered as Target pure bindings with `failureArms`.
@@ -14,7 +22,7 @@
   terminal obstruction and payload. Only that arm's payload is evaluated, and
   the providers charge the costliest arm. Undeclared, unmapped or malformed
   failure sets, a missing capability and lowered arms that differ from Core
-  refuse in all three judges. Ordered records (#997) remain unsupported.
+  refuse in all three judges.
 
 - Structured effect control under `echo.dpo@2` (#947). An authored effect
   program whose Target IR declares `echo.span-ir/v3` may wrap its

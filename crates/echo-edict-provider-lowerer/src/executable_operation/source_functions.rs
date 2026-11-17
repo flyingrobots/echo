@@ -20,6 +20,7 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod ordered_records;
 mod read_cost;
 #[cfg(test)]
 mod read_cost_soundness_tests;
@@ -497,7 +498,13 @@ impl<'a> Judgment<'a> {
             if pending.remove(string(get(local, "id")?)?) != Some(local) {
                 return Err(());
             }
-            let fact = self.arm(get(binding, "value")?, &scope, function.source, prefix)?;
+            let fact = self.declared_arm(
+                get(binding, "value")?,
+                &scope,
+                function.source,
+                prefix,
+                string(get(local, "type")?)?,
+            )?;
             let expected = self.declaration(local, &mut scope)?;
             if !fact.ty.as_ref().is_none_or(|ty| includes(&expected, ty)) {
                 return Err(());
@@ -513,11 +520,12 @@ impl<'a> Judgment<'a> {
         if !pending.is_empty() {
             return Err(());
         }
-        let result = self.arm(
+        let result = self.declared_arm(
             get(function.body, "result")?,
             &scope,
             function.source,
             prefix,
+            function.result,
         )?;
         let ty = self.ty(function.result, 0)?;
         if !result
@@ -581,6 +589,7 @@ impl<'a> Judgment<'a> {
         let ty = match string(get(value, "kind")?)? {
             "fold" => return self.state_fold(value, scope, source, prefix),
             "match" => return self.variant_match(value, scope, source, prefix),
+            "orderedRecord" => return self.ordered_record(value, scope, source, prefix, None),
             "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {
                 exact(value, &["kind", "ref"])?;

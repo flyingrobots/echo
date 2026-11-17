@@ -43,6 +43,9 @@ pub(crate) enum Expr {
         right: Box<Expr>,
     },
     Record(Vec<(String, Expr)>),
+    /// A record whose fields evaluate in this authored order, so the first
+    /// field to fail decides the failure. Its value is the canonical record.
+    OrderedRecord(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
     Fold {

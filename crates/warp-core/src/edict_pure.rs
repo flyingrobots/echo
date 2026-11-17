@@ -25,6 +25,7 @@ mod list_preparation_tests;
 mod list_tests;
 mod matches;
 pub(crate) mod model;
+mod ordered_records;
 pub(crate) mod proven_order;
 pub(crate) mod syntax;
 pub(crate) mod values;
@@ -145,3 +146,6 @@ mod branch_fact_tests;
 
 #[cfg(test)]
 mod byte_at_tests;
+
+#[cfg(test)]
+mod ordered_record_tests;

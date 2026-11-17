@@ -292,6 +292,28 @@ pub(crate) fn expression(
             }
             Ok(Value::Map(values))
         }
+        Expr::OrderedRecord(fields) => {
+            meter.allocate(VALUE_CELL_BYTES)?;
+            let mut values = Vec::new();
+            // Authored order decides which failing field ends the call.
+            for (key, value) in fields {
+                meter.allocate(VALUE_CELL_BYTES + key.len() as u64)?;
+                values.push((
+                    Value::Text(key.clone()),
+                    expression(value, locals, helpers, meter, depth + 1)?,
+                ));
+            }
+            // The value is the canonical record: text keys in canonical CBOR
+            // order, shorter first, then bytewise. Names are unique.
+            values.sort_by(|(left, _), (right, _)| match (left, right) {
+                (Value::Text(left), Value::Text(right)) => left
+                    .len()
+                    .cmp(&right.len())
+                    .then_with(|| left.as_bytes().cmp(right.as_bytes())),
+                _ => std::cmp::Ordering::Equal,
+            });
+            Ok(Value::Map(values))
+        }
         Expr::If(condition, yes, no) => {
             let branch = if predicate(condition, locals, helpers, meter, depth + 1)? {
                 yes

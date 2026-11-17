@@ -24,7 +24,7 @@ The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
 The checked component is 685,775 bytes with SHA-256
-`f0f3bc8112101d7d4893a761c1bd70ef37ac077eca10e26f694199756ab10a5d`.
+`57144a17428e8024cc295a5ba311eff205e32dc9f803099bef289977f05e5d5c`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -37,7 +37,7 @@ capability imports.
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
 `wit-component` version recorded above. Its checked component is 728,230 bytes
 with SHA-256
-`b0e047de598b2bc4f14d4c3579eaab54cfb823e6c60500ee2c6589f6fd673542`.
+`397a9f4ec17e8f28739f1bc55924f7dcd556826613f4a61aac154b06d18cc34a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,10 +56,10 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#996's source, was independently
-reproduced by the two G4 candidate jobs in
-[CI run 44036675518](https://github.com/flyingrobots/echo/actions/runs/44036675518)
-at source commit `ff67d92eb42488982a24bb37b6237559aaca3e61`. Both copies of
+The current component pair, built from echo#997's source (ordered records),
+was independently reproduced by the two G4 candidate jobs in
+[CI run 44040648282](https://github.com/flyingrobots/echo/actions/runs/44040648282)
+at source commit `98448627ae313bb82b765057dcae28f4fa74f96e`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

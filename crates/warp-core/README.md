@@ -125,6 +125,12 @@ intent's `attempt`, which ends the run with the mapped terminal obstruction
 and payload; only that arm's payload is evaluated. The public witness is
 `tests/fixtures/edict-effect-typed-failure`.
 
+A record whose fields can fail is an ordered record (`orderedRecord`): its
+fields run in authored order, so the first to fail decides the obstruction,
+and when all return the value is the canonical record. The public witnesses
+are `tests/fixtures/edict-effect-ordered-record-z` and
+`tests/fixtures/edict-effect-ordered-record-a`.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

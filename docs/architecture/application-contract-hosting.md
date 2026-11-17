@@ -455,6 +455,9 @@ type from the declared type of the enclosing helper result or binding,
 including through nested ordered records; elsewhere, such as in a list item or
 a call argument, a bare `fail` field refuses as unsupported. A field that calls
 a failing function is typed by that function's result everywhere.
+The public compiler witnesses `edict-effect-ordered-record-z` and
+`edict-effect-ordered-record-a` are compiled from source by Amblicit and
+obstruct with the first authored field's mapped reason.
 
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume

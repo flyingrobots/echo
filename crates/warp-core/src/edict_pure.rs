@@ -21,6 +21,7 @@ pub(crate) mod functions;
 mod identity;
 #[cfg(test)]
 mod identity_tests;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_operations_tests;

@@ -98,6 +98,13 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// A checked integer call or `min`/`max` at the width whose maximum is `max`.
+    Integer {
+        operation: IntegerOperation,
+        max: u64,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     /// A `core.option.*` call; `item` is its one type argument.
     Option {
         operation: OptionOperation,
@@ -106,6 +113,18 @@ pub(crate) enum Expr {
     },
     /// One of Echo's pure identity intrinsics over its operands, in call order.
     Identity(IdentityIntrinsic, Vec<Expr>),
+}
+
+/// The closed set of checked integer calls and `min`/`max`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IntegerOperation {
+    CheckedAdd,
+    CheckedSub,
+    CheckedMul,
+    CheckedDiv,
+    CheckedRem,
+    Min,
+    Max,
 }
 
 /// The closed `core.option/v1` operation set.

@@ -20,6 +20,7 @@ mod fold_tests;
 mod function_precondition_tests;
 mod function_preconditions;
 mod identity;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -253,6 +254,13 @@ fn prepare<'a>(
                         "core.option.isSome",
                         "core.option.default",
                         "core.option.unwrap",
+                        "core.integer.checkedAdd",
+                        "core.integer.checkedSub",
+                        "core.integer.checkedMul",
+                        "core.integer.checkedDiv",
+                        "core.integer.checkedRem",
+                        "core.integer.min",
+                        "core.integer.max",
                     ]
                     .contains(&callee)
                     {
@@ -774,7 +782,17 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
-                    if option_operations::is_operation(name) {
+                    if integer_operations::is_operation(name) {
+                        let (schema, cost, result_height) = integer_operations::infer(
+                            self.types.module,
+                            name,
+                            types,
+                            &argument_schemas,
+                        )?;
+                        height = height.max(result_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else if option_operations::is_operation(name) {
                         option_operations::authority(self.types.module)?;
                         let present = name == "core.option.unwrap"
                             && option_operations::present(

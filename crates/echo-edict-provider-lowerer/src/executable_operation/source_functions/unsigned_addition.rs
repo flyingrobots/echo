@@ -27,6 +27,13 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                         get(value, "callee").and_then(string),
                         Ok("core.integer.add"
                             | "core.integer.subtract"
+                            | "core.integer.min"
+                            | "core.integer.max"
+                            | "core.integer.checkedAdd"
+                            | "core.integer.checkedSub"
+                            | "core.integer.checkedMul"
+                            | "core.integer.checkedDiv"
+                            | "core.integer.checkedRem"
                             | "core.bytes.slice"
                             | "core.bytes.at"
                             | "core.bytes.count"
@@ -104,7 +111,7 @@ pub(super) fn counted_coordinates<'v>(
         return Ok(());
     }
     match string(get(expr, "callee")?)? {
-        "core.integer.add" => {
+        "core.integer.add" | "core.integer.min" | "core.integer.max" => {
             for operand in list(get(expr, "args")?)? {
                 counted_coordinates(operand, found, depth + 1)?;
             }
@@ -139,6 +146,23 @@ fn bound(
         bound(left, max, facts, work, depth + 1)?
             .checked_add(bound(right, max, facts, work, depth + 1)?)
             .ok_or(())?
+    } else if string(get(expr, "kind")?)? == "call"
+        && matches!(
+            string(get(expr, "callee")?)?,
+            "core.integer.min" | "core.integer.max"
+        )
+    {
+        // `min` is at most either operand's bound; `max` at most the larger.
+        let [left, right] = list(get(expr, "args")?)? else {
+            return Err(());
+        };
+        let left = bound(left, max, facts, work, depth + 1)?;
+        let right = bound(right, max, facts, work, depth + 1)?;
+        if string(get(expr, "callee")?)? == "core.integer.min" {
+            left.min(right)
+        } else {
+            left.max(right)
+        }
     } else if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.bytes.count"
     {

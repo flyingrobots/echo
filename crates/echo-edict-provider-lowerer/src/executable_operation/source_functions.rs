@@ -20,6 +20,7 @@ mod fold_tests;
 mod function_precondition_tests;
 mod function_preconditions;
 mod identity;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -770,6 +771,12 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, _) if integer_operations::is_operation(name) => {
+                            let result = self.integer_operation(value, actual)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
                         (name, actual, declared) if option_operations::is_operation(name) => {
                             let result = self.option_operation(value, actual, declared)?;
                             cost = cost.plus(result.cost)?;

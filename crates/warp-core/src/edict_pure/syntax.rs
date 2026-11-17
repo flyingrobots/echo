@@ -261,6 +261,9 @@ impl Parser<'_> {
         if super::list_operations::is_operation(callee) {
             return super::list_operations::parse(self, callee, args, types, depth);
         }
+        if super::integer_operations::is_operation(callee) {
+            return super::integer_operations::parse(self, callee, args, types, depth);
+        }
         if super::option_operations::is_operation(callee) {
             return super::option_operations::parse(self, callee, args, types, depth);
         }

@@ -148,7 +148,9 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ByteConcat { .. }
             | Expr::Identity(..)
             | Expr::Option { .. }
-            | Expr::Fail(_) => Err(Error::UnsupportedProgram),
+            | Expr::Fail(_)
+            | Expr::OrderedRecord(_)
+            | Expr::Integer { .. } => Err(Error::UnsupportedProgram),
         }
     }
 

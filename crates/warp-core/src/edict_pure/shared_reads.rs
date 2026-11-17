@@ -121,7 +121,9 @@ fn admit_expression(expr: &Expr) -> Result<(), Error> {
         | Expr::ByteConcat { .. }
         | Expr::Identity(..)
         | Expr::Option { .. }
-        | Expr::Fail(_) => Err(Error::UnsupportedProgram),
+        | Expr::Fail(_)
+        | Expr::OrderedRecord(_)
+        | Expr::Integer { .. } => Err(Error::UnsupportedProgram),
         Expr::Variant {
             payload: Some(value),
             ..

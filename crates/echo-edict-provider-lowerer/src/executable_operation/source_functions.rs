@@ -9,6 +9,8 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+#[cfg(test)]
+mod checked_integer_tests;
 mod effect_block;
 mod effect_intent;
 mod failure_sets;
@@ -19,6 +21,7 @@ mod fold_tests;
 mod function_precondition_tests;
 mod function_preconditions;
 mod identity;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -27,6 +30,7 @@ mod option_operations;
 #[cfg(test)]
 mod option_value_tests;
 mod order;
+mod ordered_records;
 mod read_cost;
 #[cfg(test)]
 mod read_cost_soundness_tests;
@@ -579,7 +583,13 @@ impl<'a> Judgment<'a> {
             if pending.remove(string(get(local, "id")?)?) != Some(local) {
                 return Err(());
             }
-            let fact = self.arm(get(binding, "value")?, &scope, function.source, prefix)?;
+            let fact = self.declared_arm(
+                get(binding, "value")?,
+                &scope,
+                function.source,
+                prefix,
+                string(get(local, "type")?)?,
+            )?;
             let expected = self.declaration(local, &mut scope)?;
             if !fact.ty.as_ref().is_none_or(|ty| includes(&expected, ty)) {
                 return Err(());
@@ -595,11 +605,12 @@ impl<'a> Judgment<'a> {
         if !pending.is_empty() {
             return Err(());
         }
-        let result = self.arm(
+        let result = self.declared_arm(
             get(function.body, "result")?,
             &scope,
             function.source,
             prefix,
+            function.result,
         )?;
         let ty = self.ty(function.result, 0)?;
         if !result
@@ -677,6 +688,7 @@ impl<'a> Judgment<'a> {
         let ty = match string(get(value, "kind")?)? {
             "fold" => return self.state_fold(value, scope, source, prefix),
             "match" => return self.variant_match(value, scope, source, prefix),
+            "orderedRecord" => return self.ordered_record(value, scope, source, prefix, None),
             "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {
                 exact(value, &["kind", "ref"])?;
@@ -850,6 +862,12 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, _) if integer_operations::is_operation(name) => {
+                            let result = self.integer_operation(value, actual)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
                         (name, actual, declared) if option_operations::is_operation(name) => {
                             let result = self.option_operation(value, actual, declared)?;
                             cost = cost.plus(result.cost)?;

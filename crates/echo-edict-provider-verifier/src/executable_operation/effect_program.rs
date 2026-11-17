@@ -598,12 +598,13 @@ fn identity_contract(name: &str) -> Option<(Vec<&'static str>, i128, Vec<i128>)>
         ),
         "echo.dpo@2.contentEdgeId" => (vec![ID; 4], 70, vec![0; 4]),
         "echo.dpo@2.slotEdgeId" => (vec![ID; 3], 69, vec![0; 3]),
+        "echo.dpo@2.attachmentValueDigest" => (vec![ID, "Bytes<max=1048576>"], 68, vec![0, 1]),
         _ => return None,
     })
 }
 
 /// Binds identity calls to the pinned catalog. Admitted only when the
-/// profile is `echo.dpo@2`, the catalog carries all three contracts exactly
+/// profile is `echo.dpo@2`, the catalog carries all four contracts exactly
 /// with the `OutgoingEdge` record, and Core's one target import is the
 /// selected profile. Any partial or altered contract is refused.
 fn identity_binding(
@@ -625,6 +626,7 @@ fn identity_binding(
         "echo.dpo@2.contentAddress",
         "echo.dpo@2.contentEdgeId",
         "echo.dpo@2.slotEdgeId",
+        "echo.dpo@2.attachmentValueDigest",
     ];
     let intrinsics = members(get(catalog, "intrinsics")?)?;
     let declared: Vec<&Value> = names

@@ -437,9 +437,27 @@ the helper and every caller up to the `attempt`, which then ends the run with
 the mapped reason and its payload. Only that arm's payload is evaluated. The
 providers charge the call plus the larger of result validation and the costliest
 arm. warp-core, the lowerer and the verifier each hold an identical copy of this
-judgment (`failure_sets.rs`). Failing `fold` steps, failures inside a `record`,
-and `orderedRecord` (flyingrobots/echo#997) refuse. The shared effect-program
-corpus holds a control and one forgery for each check.
+judgment (`failure_sets.rs`). Failing `fold` steps and failures inside an
+unordered `record` refuse. The shared effect-program corpus holds a control and
+one forgery for each check.
+
+A record whose fields can fail is an ordered record (`kind: "orderedRecord"`,
+flyingrobots/echo#997): a nonempty `fields` array of `{name, value}` entries in
+authored order. All three judges evaluate, type and charge the fields in that
+order, so the first field to fail decides the failure:
+`{ z: fail First, a: fail Second }` obstructs with `First`'s mapped reason, and
+`{ a: fail Second, z: fail First }` with `Second`'s. When every field returns,
+the value is the canonical record, byte-identical to the unordered `record`
+with the same fields and charged the same. As in Amblicit's Core integrity, an
+ordered record with a duplicate name, no fields, an entry key other than
+`name` and `value`, or no field that can fail refuses. A `fail` field takes its
+type from the declared type of the enclosing helper result or binding,
+including through nested ordered records; elsewhere, such as in a list item or
+a call argument, a bare `fail` field refuses as unsupported. A field that calls
+a failing function is typed by that function's result everywhere.
+The public compiler witnesses `edict-effect-ordered-record-z` and
+`edict-effect-ordered-record-a` are compiled from source by Amblicit and
+obstruct with the first authored field's mapped reason.
 
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume
@@ -522,6 +540,19 @@ Option values stay inside helpers: an intent's input and output may not contain
 one, because Echo defines no Option wire encoding. At runtime an absent Option
 is `null` and a present one a one-item array; the providers charge it as one
 value cell plus its item.
+
+They also implement Amblicit's checked integer calls and `min`/`max`
+(flyingrobots/echo#998): `core.integer.checkedAdd`, `checkedSub`, `checkedMul`,
+`checkedDiv`, `checkedRem`, `min` and `max`. Each call takes exactly one width
+type argument, `U8`, `U32` or `U64`, and two operands of exactly that width, as
+native Target types it. A checked call returns `Option<W>` and requires
+`core.option/v1`; it is absent on overflow, underflow or a zero divisor.
+Division truncates. `min` and `max` return `W` and need no capability. Each
+judge keeps their upper bounds for later unsigned-addition proofs: `min` is
+bounded by either operand, `max` by the larger. Unknown `core.integer` names,
+other widths and mismatched operands are refused. Every call is charged two
+operand validations and one copied word, plus a presence cell for a present
+checked result.
 
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
@@ -664,8 +695,9 @@ effect routes have no shared-read rules: the runtime's shared helper decoder
 refuses the capability there, and the lowerer and verifier refuse it on those
 routes too. Under the schedule, byte intrinsics and imported helpers are
 refused by all three, because the schedule leaves the storage of a computed
-byte string uncharged. Identity intrinsics, `Option` operations and `fail`
-have no shared-read rule in Echo either, and the runtime refuses them; a pure
+byte string uncharged. Identity intrinsics, `Option` operations, ordered
+records, checked integer operations and `fail` have no shared-read rule in
+Echo either, and the runtime refuses them; a pure
 intent cannot call a failing helper, because only an effect program's
 `attempt` maps failures.
 

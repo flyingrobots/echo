@@ -1,5 +1,5 @@
 package consumer.typedfail.program@1;
-use lawpack consumer.typedfail@1 digest "sha256:9bb5aa733fca52537aea89d835568c8735e5e06fd1bdb5b99b436fec7830ecc5" as fx;
+use lawpack consumer.typedfail@1 digest "sha256:bf38d32d9c07282d6a4e43d1afca4ce689ead8d42fbdd4314b104f5cca6111b8" as fx;
 
 failure Underflow;
 

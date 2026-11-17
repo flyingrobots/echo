@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 769,029 bytes with SHA-256
-`c0252e8197b17b11a04853d0dc41b3849fc96eec080e439f1add6643eaef5758`.
+The checked component is 751,151 bytes with SHA-256
+`cd144677c81b9e9c94bd1289a4d8c0b3fabee6917509bcb0dcf5396511220a5a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 809,928 bytes
+`wit-component` version recorded above. Its checked component is 790,955 bytes
 with SHA-256
-`5b15c6b67038dd9af7ce22aa95d0ef3c68b959e3620f5d76c93a2545ef511597`.
+`0d01aba859cfaf83df8d6f76d50c462ecdaab8de68d4907fcedddafab3b844c9`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,17 +56,19 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#1002's source, was independently
-reproduced by the two G4 candidate jobs in
-[CI run 44044315162](https://github.com/flyingrobots/echo/actions/runs/44044315162)
-at source commit `f7eabee60eaff9a23c036e056ab4d4ee5c9ef37b`. Both copies of
+The current component pair, built from echo#1011's source (the
+`attachmentValueDigest` identity intrinsic, merged with echo#997), was
+independently reproduced by the two G4 candidate jobs in
+[CI run 44055447520](https://github.com/flyingrobots/echo/actions/runs/44055447520)
+at source commit `b79482aea156b41f8db67bbaa0f105a81bb5842e`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an
 `edict-effect-program/v1` configuration, including its
 structured loop and branch statements under `echo.span-ir/v3` and its
-`echo.dpo@2` outgoing-edge and closure graph-read steps. Both judge pure
-Core under the shared-read cost schedule `edict.core-cost/v2`.
+`echo.dpo@2` outgoing-edge and closure graph-read steps, and the four
+`echo.dpo@2` identity intrinsics. Both judge pure Core under the shared-read
+cost schedule `edict.core-cost/v2`.
 
 Rebuild and check the artifact without rewriting it:
 

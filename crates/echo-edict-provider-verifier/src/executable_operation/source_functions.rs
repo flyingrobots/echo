@@ -9,6 +9,8 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+#[cfg(test)]
+mod checked_integer_tests;
 mod effect_block;
 mod effect_intent;
 mod failure_sets;
@@ -19,6 +21,7 @@ mod fold_tests;
 mod function_precondition_tests;
 mod function_preconditions;
 mod identity;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -27,6 +30,7 @@ mod option_operations;
 #[cfg(test)]
 mod option_value_tests;
 mod order;
+mod ordered_records;
 mod read_charge;
 #[cfg(test)]
 mod read_charge_soundness_tests;
@@ -228,6 +232,11 @@ fn prepare<'a>(
                         expressions.push((value, depth + 1));
                     }
                 }
+                "orderedRecord" => {
+                    for entry in sequence(get(expression, "fields")?)? {
+                        expressions.push((get(entry, "value")?, depth + 1));
+                    }
+                }
                 "if" => {
                     let predicate = get(expression, "predicate")?;
                     predicate_expressions(predicate, depth + 1, types, &mut expressions)?;
@@ -267,6 +276,13 @@ fn prepare<'a>(
                         "core.option.isSome",
                         "core.option.default",
                         "core.option.unwrap",
+                        "core.integer.checkedAdd",
+                        "core.integer.checkedSub",
+                        "core.integer.checkedMul",
+                        "core.integer.checkedDiv",
+                        "core.integer.checkedRem",
+                        "core.integer.min",
+                        "core.integer.max",
                     ]
                     .contains(&callee)
                     {
@@ -570,8 +586,8 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             let local = get(binding, "binding")?;
-            let value = self.arm(get(binding, "value")?, &frame, 0)?;
             let declared = self.types.local(local)?;
+            let value = self.declared_arm(get(binding, "value")?, &frame, &declared)?;
             if !value
                 .schema
                 .as_ref()
@@ -590,7 +606,8 @@ impl<'a> Checker<'a, '_> {
             frame.define(local, declared)?;
         }
         frame.complete()?;
-        let value = self.arm(get(definition.body, "result")?, &frame, 0)?;
+        let value =
+            self.declared_arm(get(definition.body, "result")?, &frame, &definition.result)?;
         if !value
             .schema
             .as_ref()
@@ -660,6 +677,7 @@ impl<'a> Checker<'a, '_> {
         let schema = match string(get(value, "kind")?)? {
             "fold" => return self.state_fold(value, frame, depth),
             "match" => return self.audit_match(value, frame, depth),
+            "orderedRecord" => return self.ordered_record(value, frame, depth, None),
             "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {
                 exact(value, &["kind", "value"])?;
@@ -837,7 +855,17 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
-                    if option_operations::is_operation(name) {
+                    if integer_operations::is_operation(name) {
+                        let (schema, cost, result_height) = integer_operations::infer(
+                            self.types.module,
+                            name,
+                            types,
+                            &argument_schemas,
+                        )?;
+                        height = height.max(result_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else if option_operations::is_operation(name) {
                         option_operations::authority(self.types.module)?;
                         let present = name == "core.option.unwrap"
                             && option_operations::present(

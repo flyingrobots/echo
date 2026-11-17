@@ -188,6 +188,26 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/option-run" \
     --check
 
+  # Public compiler witness for every checked integer form and min/max (#998):
+  # the checked lowerer emits the package and the verifier accepts it; the
+  # provider promoted before checked-integer support must refuse it at Echo's
+  # lowerer.
+  readonly OLD_CHECKED_PROVIDER_REVISION=9141e79519d3fb8253a928c60d6b42cff76b31af
+  if ! git -C "$ROOT" cat-file -e "$OLD_CHECKED_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_CHECKED_PROVIDER_REVISION"
+  fi
+  mkdir "$witness_dir/old-checked-provider"
+  git -C "$ROOT" archive "$OLD_CHECKED_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-checked-provider"
+  cargo +1.96.0 run --locked -p xtask --example effect_program_publication -- \
+    --name checked \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-checked-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-checked-integer" \
+    --work-root "$witness_dir/checked-run" \
+    --check
+
   # Public compiler witness for an authored effect program with an effect step
   # under the echo.dpo@2 effect target profile (#985): the checked lowerer
   # emits its package and the separate verifier accepts it; the same program
@@ -243,6 +263,26 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-typed-failure-run" \
     --check
 
+  # Public source witness for a fallible record whose authored field order
+  # decides the escaping failure (orderedRecord, #997): { z: fail First, a: fail Second }.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name ordered-z \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-ordered-record-z" \
+    --work-root "$witness_dir/effect-ordered-record-z-run" \
+    --check
+
+  # Public source witness for a fallible record whose authored field order
+  # decides the escaping failure (orderedRecord, #997): { a: fail Second, z: fail First }.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name ordered-a \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-ordered-record-a" \
+    --work-root "$witness_dir/effect-ordered-record-a-run" \
+    --check
+
   # Public source witness for the three echo.dpo@2 ContentAddressV1 identity
   # constructors, bound to the catalog v2 contracts (echo#972).
   cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
@@ -251,5 +291,24 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-content-address" \
     --work-root "$witness_dir/effect-identity-run" \
+    --check
+
+  # Public source witness for a Buffer bump whose ReplaceAtom names the
+  # attachment value digest of the atom it read (echo#1011), and its control
+  # that digests bytes it never read.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name bump \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest" \
+    --work-root "$witness_dir/effect-bump-run" \
+    --check
+
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name unread \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest/controls/unread-bytes" \
+    --work-root "$witness_dir/effect-unread-run" \
     --check
 fi

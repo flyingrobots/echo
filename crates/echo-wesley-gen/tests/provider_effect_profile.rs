@@ -266,7 +266,7 @@ const ID: &str = "Bytes<exact=32>";
 /// Oracle: the identity intrinsic contract in
 /// `docs/architecture/authored-operation-effects.md` (Identity intrinsics):
 /// operand ceilings and the minimum per-call step cost.
-const PURE_INTRINSICS: [(&str, &[&str], u64, &[u64]); 3] = [
+const PURE_INTRINSICS: [(&str, &[&str], u64, &[u64]); 4] = [
     (
         "contentAddress",
         &[
@@ -281,6 +281,12 @@ const PURE_INTRINSICS: [(&str, &[&str], u64, &[u64]); 3] = [
     ),
     ("contentEdgeId", &[ID, ID, ID, ID], 70, &[0, 0, 0, 0]),
     ("slotEdgeId", &[ID, ID, ID], 69, &[0, 0, 0]),
+    (
+        "attachmentValueDigest",
+        &[ID, "Bytes<max=1048576>"],
+        68,
+        &[0, 1],
+    ),
 ];
 
 #[test]

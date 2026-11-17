@@ -9,6 +9,8 @@ mod byte_at;
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+#[cfg(test)]
+mod checked_integer_tests;
 mod effect_block;
 mod effect_intent;
 mod fold;

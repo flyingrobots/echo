@@ -121,11 +121,11 @@
         "output": "adapter.cbor",
         "acceptedTargetProfile": {
           "id": "echo.dpo@2",
-          "digest": "sha256:8eccfe7485716b6c0eec6fe82e3b9fe3087147dc278db5bdd4abbb2fa737ca01"
+          "digest": "sha256:5bc5ba040a26e6585517afdf8d04ef222d2ec8d8df4cdede0ddf52ff70861d92"
         },
         "acceptedTargetIr": {
-          "id": "echo.span-ir/v2",
-          "digest": "sha256:2f76ff9d3eeee78d79d1d2481db1425f924016cf41ca37aa3e3ea2319c3f9321"
+          "id": "echo.span-ir/v3",
+          "digest": "sha256:005c351792189d94ff702ac07ddeffd166ba14d03de79110fc99e25d2b75454d"
         },
         "operationProfiles": {
           "consumer.writes@1.graphEffects": {

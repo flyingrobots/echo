@@ -437,9 +437,27 @@ the helper and every caller up to the `attempt`, which then ends the run with
 the mapped reason and its payload. Only that arm's payload is evaluated. The
 providers charge the call plus the larger of result validation and the costliest
 arm. warp-core, the lowerer and the verifier each hold an identical copy of this
-judgment (`failure_sets.rs`). Failing `fold` steps, failures inside a `record`,
-and `orderedRecord` (flyingrobots/echo#997) refuse. The shared effect-program
-corpus holds a control and one forgery for each check.
+judgment (`failure_sets.rs`). Failing `fold` steps and failures inside an
+unordered `record` refuse. The shared effect-program corpus holds a control and
+one forgery for each check.
+
+A record whose fields can fail is an ordered record (`kind: "orderedRecord"`,
+flyingrobots/echo#997): a nonempty `fields` array of `{name, value}` entries in
+authored order. All three judges evaluate, type and charge the fields in that
+order, so the first field to fail decides the failure:
+`{ z: fail First, a: fail Second }` obstructs with `First`'s mapped reason, and
+`{ a: fail Second, z: fail First }` with `Second`'s. When every field returns,
+the value is the canonical record, byte-identical to the unordered `record`
+with the same fields and charged the same. As in Amblicit's Core integrity, an
+ordered record with a duplicate name, no fields, an entry key other than
+`name` and `value`, or no field that can fail refuses. A `fail` field takes its
+type from the declared type of the enclosing helper result or binding,
+including through nested ordered records; elsewhere, such as in a list item or
+a call argument, a bare `fail` field refuses as unsupported. A field that calls
+a failing function is typed by that function's result everywhere.
+The public compiler witnesses `edict-effect-ordered-record-z` and
+`edict-effect-ordered-record-a` are compiled from source by Amblicit and
+obstruct with the first authored field's mapped reason.
 
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume

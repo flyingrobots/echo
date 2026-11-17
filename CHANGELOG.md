@@ -7,6 +7,17 @@
 
 ### Added
 
+- Core ordered records (`orderedRecord`, #997). The runtime, the lowerer and
+  the verifier evaluate a fallible record's fields in authored order, so
+  `{ z: fail First, a: fail Second }` and `{ a: fail Second, z: fail First }`
+  obstruct with different, correct reasons. When every field returns, the
+  value equals the unordered record's. Duplicate names, an empty field list,
+  extra entry keys and an ordered record with no fallible field refuse in all
+  three judges, as Amblicit refuses them. Public compiler witnesses
+  (`edict-effect-ordered-record-z` and `-a`, Amblicit `7dbcbc23`) obstruct
+  with exactly `fx.FirstRaised` and `fx.SecondRaised` through the promoted provider
+  package (lowerer `a218dd22`, verifier `2a272e29`).
+
 - Checked integer arithmetic and `min`/`max` (#998, the Echo half of
   amblicit#321). warp-core, the provider lowerer and the provider verifier
   each admit `core.integer.checked{Add,Sub,Mul,Div,Rem}<W>`, returning
@@ -27,7 +38,7 @@
   terminal obstruction and payload. Only that arm's payload is evaluated, and
   the providers charge the costliest arm. Undeclared, unmapped or malformed
   failure sets, a missing capability and lowered arms that differ from Core
-  refuse in all three judges. Ordered records (#997) remain unsupported.
+  refuse in all three judges.
   A public compiler witness (`edict-effect-typed-failure`, Amblicit
   `7dbcbc23`) obstructs with exactly its mapped `RangeInverted`.
 

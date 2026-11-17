@@ -35,6 +35,7 @@ pub(crate) mod model;
 mod option_operations;
 #[cfg(test)]
 mod option_value_tests;
+mod ordered_records;
 pub(crate) mod proven_order;
 pub(crate) mod syntax;
 pub(crate) mod values;
@@ -161,3 +162,6 @@ mod function_precondition_tests;
 
 #[cfg(test)]
 mod byte_at_tests;
+
+#[cfg(test)]
+mod ordered_record_tests;

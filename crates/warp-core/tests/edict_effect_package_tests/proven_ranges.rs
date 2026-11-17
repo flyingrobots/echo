@@ -111,11 +111,26 @@ pub(super) enum Node {
     Require(V),
     /// A `require` whose failure payload is the given record fields.
     RequireWith(V, V),
+    /// A typed-failure `attempt`: binding, call and failure map. Its lowered
+    /// pure binding carries the same map as `failureArms`.
+    Attempt(V, V, V),
 }
 
 /// An effect program with no graph effects over
 /// `{ text, other: Bytes<max=64>, at: U64 }`, returning a `Bool`.
 pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
+    package_editing(constraints, nodes, result, |_| {}, |_| {})
+}
+
+/// `package`, after `core` edits the Core before it is lowered and
+/// `target` edits the selected lowered intent.
+pub(super) fn package_editing(
+    constraints: Vec<V>,
+    nodes: Vec<Node>,
+    result: V,
+    core_edit: impl FnOnce(&mut V),
+    target_edit: impl FnOnce(&mut V),
+) -> V {
     let mut core = compiled_core();
     set(
         &mut core,
@@ -184,6 +199,23 @@ pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
                 ]));
                 order.push(text(&id));
             }
+            Node::Attempt(binding, value, arms) => {
+                locals.push(binding.clone());
+                core_nodes.push(map([
+                    ("kind", text("attempt")),
+                    ("binding", binding.clone()),
+                    ("value", value.clone()),
+                    ("failureMap", arms.clone()),
+                ]));
+                let id = format!("binding.{index}");
+                bindings.push(map([
+                    ("id", text(&id)),
+                    ("binding", binding),
+                    ("value", value),
+                    ("failureArms", arms),
+                ]));
+                order.push(text(&id));
+            }
             Node::Require(predicate) | Node::RequireWith(predicate, _) => {
                 let payload = match &node_payload {
                     Some(payload) => payload.clone(),
@@ -215,11 +247,13 @@ pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
     set(body, "locals", V::Array(locals));
     set(body, "nodes", V::Array(core_nodes));
     set(body, "result", result);
+    core_edit(&mut core);
     let mut target = compiled_target(&core);
     let selected = selected_target_mut(&mut target);
     set(selected, "pureBindings", V::Array(bindings));
     set(selected, "requirements", V::Array(requirements));
     set(selected, "executionOrder", V::Array(order));
+    target_edit(selected);
     bound_compiler_package(&core, &target, &compiled_exports(), "update@1")
 }
 

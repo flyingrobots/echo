@@ -38,3 +38,11 @@ mutation-count-control accept
 read-and-return-control accept
 read-allocation-short refuse
 read-captured-budget refuse
+typed-failure-control accept
+typed-failure-undeclared refuse
+typed-failure-unmapped refuse
+typed-failure-unknown-arm refuse
+typed-failure-repeated-set refuse
+typed-failure-empty-set refuse
+typed-failure-without-capability refuse
+typed-failure-arms-differ refuse

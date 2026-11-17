@@ -59,6 +59,14 @@ const RETAINED: &[(&str, &str)] = retained![
     "read-and-return-control",
     "read-allocation-short",
     "read-captured-budget",
+    "typed-failure-control",
+    "typed-failure-undeclared",
+    "typed-failure-unmapped",
+    "typed-failure-unknown-arm",
+    "typed-failure-repeated-set",
+    "typed-failure-empty-set",
+    "typed-failure-without-capability",
+    "typed-failure-arms-differ",
 ];
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");

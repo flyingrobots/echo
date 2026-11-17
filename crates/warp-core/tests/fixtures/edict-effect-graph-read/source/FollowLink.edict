@@ -1,5 +1,5 @@
 package consumer.links.program@1;
-use lawpack consumer.links@1 digest "sha256:4ab8c9a791484d5ea1c59a0db76a2a54682ff4cd0372083d706999ab878e97fc" as fx;
+use lawpack consumer.links@1 digest "sha256:f899e4107ddec6c405cebe6b0b8ddc772c1bed251531c71d9794058927b252d6" as fx;
 type Input = { anchor: Bytes<exact=32>, read: fx.EdgeQuery, edgeId: Bytes<exact=32>, fromId: Bytes<exact=32> };
 intent link(input: Input) returns fx.Edges
   profile fx.graphEffects

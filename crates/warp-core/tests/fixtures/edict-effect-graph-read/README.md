@@ -18,7 +18,7 @@ one `E` edge (two write slots: the edge and its source's range), and a
 `graphReads` declaration allowing eight edge scans.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `ce2ad2f5faed31147dc9cb5db05353d60b68396d`: the package and
+compiler, Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`: the package and
 verifier report it wrote through the checked provider package in
 `schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
 configuration its lawpack build wrote. Nothing here was decoded and
@@ -33,7 +33,7 @@ a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `link-executable-operation-package.hex` | `echo:operation-package:v1` `886fe5b50dacc0091068ba3a8fc1bb73a001afac1bce97463a4d6c298b15cf8b` |
+| `link-executable-operation-package.hex` | `echo:operation-package:v1` `34582b3d348721fe95a75436254d865a3a9c069244b255f14780f40591d4e2cb` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_graph_read_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

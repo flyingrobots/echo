@@ -21,7 +21,7 @@ Target IR. `scripts/verify-edict-provider-host-v1.sh` reruns the producer with
 
 | File | Domain-framed digest |
 | --- | --- |
-| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `e670a1f9e0502aa9905a0f3692d9b3c281fb38fa53d479588082f212214e49f1` |
+| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `db421c14e5e27be1868ada279da7d73d8521923f8488598658b3665dfff4e565` |
 
 The intended runtime input sets `initial` to node A and supplies two items:
 `{create: true, node: B}`, then `{create: false, node: A}`. A successful private

@@ -43,6 +43,9 @@ pub(crate) enum Expr {
         right: Box<Expr>,
     },
     Record(Vec<(String, Expr)>),
+    /// A record whose fields evaluate in this authored order, so the first
+    /// field to fail decides the failure. Its value is the canonical record.
+    OrderedRecord(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
     Fold {
@@ -148,6 +151,9 @@ pub(crate) enum IdentityIntrinsic {
     ContentEdgeId,
     /// `echo.dpo@2.slotEdgeId`: the id of an edge from a mutable node.
     SlotEdgeId,
+    /// `echo.dpo@2.attachmentValueDigest`: the attachment value digest of an
+    /// atom, which a `ReplaceAtom` names as its expected current value.
+    AttachmentValueDigest,
 }
 
 #[derive(Debug, PartialEq, Eq)]

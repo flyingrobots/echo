@@ -36,11 +36,18 @@ fn ceilings(name: &str) -> Option<Vec<Schema>> {
         ],
         "echo.dpo@2.contentEdgeId" => vec![id(); 4],
         "echo.dpo@2.slotEdgeId" => vec![id(); 3],
+        "echo.dpo@2.attachmentValueDigest" => vec![
+            id(),
+            Schema::Blob {
+                low: 0,
+                high: 1_048_576,
+            },
+        ],
         _ => return None,
     })
 }
 
-/// Whether `name` is one of the three identity coordinates.
+/// Whether `name` is one of the four identity coordinates.
 pub(super) fn is_identity(name: &str) -> bool {
     ceilings(name).is_some()
 }
@@ -78,6 +85,15 @@ pub(super) fn infer(name: &str, actual: &[Schema]) -> Check<(Schema, Charge)> {
             ticks: 69,
             storage: 96,
         },
+        [_, atom] => {
+            let Schema::Blob { high: atom, .. } = atom.representation() else {
+                return Err(());
+            };
+            Charge {
+                ticks: 68 + u128::from(*atom),
+                storage: 96,
+            }
+        }
         _ => return Err(()),
     };
     Ok((id(), charge))

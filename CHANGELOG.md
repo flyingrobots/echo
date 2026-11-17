@@ -7,6 +7,31 @@
 
 ### Added
 
+- `echo.dpo@2.attachmentValueDigest(atomType, atom) -> Bytes<exact=32>`
+  (#1011), a fourth `ContentAddressV1` pure intrinsic, lets Edict source
+  compute the `expectedAtomDigest` a `ReplaceAtom` must name. The runtime
+  hashes with `content_address_v1::attachment_digest`, the function
+  admission compares against; it reproduces the frozen `attachment-new.hex`
+  vector. The catalog publishes it under `echo.content-address/v1` with cost
+  rule `{base: 68, perArgumentMax: [0, 1]}`, and the lowerer, verifier and
+  runtime each require all four identity contracts. A public Buffer-bump
+  witness (`edict-attachment-digest`, Amblicit `7dbcbc23`) reads the atom,
+  digests the bytes it read, and derives the replacement; a control that
+  digests unread bytes is refused. The `echo.dpo@2` profile digest is now
+  `7cadb97e`, every `echo.dpo@2` public fixture is recompiled, and the
+  components are promoted (lowerer `cd144677`, verifier `0d01aba8`).
+
+- Core ordered records (`orderedRecord`, #997). The runtime, the lowerer and
+  the verifier evaluate a fallible record's fields in authored order, so
+  `{ z: fail First, a: fail Second }` and `{ a: fail Second, z: fail First }`
+  obstruct with different, correct reasons. When every field returns, the
+  value equals the unordered record's. Duplicate names, an empty field list,
+  extra entry keys and an ordered record with no fallible field refuse in all
+  three judges, as Amblicit refuses them. Public compiler witnesses
+  (`edict-effect-ordered-record-z` and `-a`, Amblicit `7dbcbc23`) obstruct
+  with exactly `fx.FirstRaised` and `fx.SecondRaised` through the promoted provider
+  package (lowerer `a218dd22`, verifier `2a272e29`).
+
 - Checked integer arithmetic and `min`/`max` (#998, the Echo half of
   amblicit#321). warp-core, the provider lowerer and the provider verifier
   each admit `core.integer.checked{Add,Sub,Mul,Div,Rem}<W>`, returning
@@ -27,7 +52,7 @@
   terminal obstruction and payload. Only that arm's payload is evaluated, and
   the providers charge the costliest arm. Undeclared, unmapped or malformed
   failure sets, a missing capability and lowered arms that differ from Core
-  refuse in all three judges. Ordered records (#997) remain unsupported.
+  refuse in all three judges.
   A public compiler witness (`edict-effect-typed-failure`, Amblicit
   `7dbcbc23`) obstructs with exactly its mapped `RangeInverted`.
 

@@ -127,6 +127,12 @@ and payload; only that arm's payload is evaluated. The public witness is
 lawpack's exports must be total: a package whose exported helper body can
 fail is refused, because no call site maps an imported helper's failures.
 
+A record whose fields can fail is an ordered record (`orderedRecord`): its
+fields run in authored order, so the first to fail decides the obstruction,
+and when all return the value is the canonical record. The public witnesses
+are `tests/fixtures/edict-effect-ordered-record-z` and
+`tests/fixtures/edict-effect-ordered-record-a`.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

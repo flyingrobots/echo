@@ -22,7 +22,7 @@ substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `typed-executable-operation-package.hex` | `echo:operation-package:v1` `3485cdf22f6eec6f97c298a63a05b738b653539c585aedae4c5e1e73d5fb8839` |
+| `typed-executable-operation-package.hex` | `echo:operation-package:v1` `a29ebe80798166bedf630833c4a4b91d8cbd518f38da4f0d49e1263884cab5a2` |
 
 The runtime witness
 `crates/warp-core/tests/executable_operation_pipeline/public_typed_failure_effect.rs`

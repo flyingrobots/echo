@@ -88,7 +88,7 @@ pub(super) fn branch(predicate: V, then: V, otherwise: V) -> V {
 pub(super) fn fail(failure: &str) -> V {
     map([("kind", text("fail")), ("failure", text(failure))])
 }
-fn parameter(index: usize, alpha: &str) -> V {
+pub(super) fn parameter(index: usize, alpha: &str) -> V {
     map([
         ("id", text(&format!("arg.{index}"))),
         ("type", text("U64")),

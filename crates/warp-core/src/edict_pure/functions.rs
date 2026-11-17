@@ -388,6 +388,19 @@ fn typed<'v>(
     source: bool,
     parser: &mut Parser<'_>,
 ) -> Result<RuntimeType, Error> {
+    if text_field(value, "kind")? == "orderedRecord" {
+        parser.enter(0)?;
+        return super::ordered_records::infer(
+            value,
+            Some(expected),
+            scope,
+            proof,
+            definitions,
+            source,
+            parser,
+            0,
+        );
+    }
     Ok(
         infer_arm(value, scope, proof, definitions, source, parser, 0)?
             .unwrap_or_else(|| expected.clone()),
@@ -707,6 +720,16 @@ pub(crate) fn infer<'v>(
                 .collect::<Result<Vec<_>, Error>>()?;
             Ok(RuntimeType::Record(fields))
         }
+        "orderedRecord" => super::ordered_records::infer(
+            value,
+            None,
+            scope,
+            proof,
+            definitions,
+            source,
+            parser,
+            depth,
+        ),
         "if" => {
             exact_fields(value, &["kind", "predicate", "then", "else"])?;
             check_predicate(
@@ -1312,7 +1335,7 @@ impl Heights<'_> {
                 }
                 maximum
             }
-            Expr::Record(fields) => {
+            Expr::Record(fields) | Expr::OrderedRecord(fields) => {
                 let mut maximum = 0;
                 for (_, value) in fields {
                     maximum = maximum.max(self.expr(value, depth + 1)? + 1);

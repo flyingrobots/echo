@@ -33,7 +33,7 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-graph-read/link-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "34582b3d348721fe95a75436254d865a3a9c069244b255f14780f40591d4e2cb";
+const PACKAGE_PIN: &str = "31c092bec1c0b3a061232e01ab0fa2943469f22324f5e240f2d30d6fb1dbe4c1";
 const OPERATION: &str = "consumer.links.program@1.link";
 const AUTHORITY_LABEL: &[u8] = b"consumer.links.authority/v1";
 /// The node, portal-owner and edge types the program's schema and law name.

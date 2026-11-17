@@ -1,0 +1,27 @@
+package consumer.buffers.program@1;
+use lawpack consumer.buffers@1 digest "sha256:72b97016cb839d8a32820148e0d64cbba551db308a2b4453737891e1a18041ac" as fx;
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+type Input = { anchor: Bytes<exact=32>, buffer: fx.BufferAddress, next: fx.BufferAtom };
+intent bump(input: Input) returns Bytes<exact=32>
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let current: fx.BufferAtom = fx.readBuffer(input.buffer)
+    else {
+      missing(address) => fx.BufferMissing,
+      typeMismatch(address) => fx.BufferMalformed,
+      notAtom(address) => fx.BufferMalformed,
+      tooLarge(address) => fx.BufferMalformed,
+    };
+  let expected = echo.attachmentValueDigest(input.buffer.typeId, input.next);
+  let replace: fx.AtomReplace = {
+    atomBytes: input.next,
+    atomType: input.buffer.typeId,
+    expectedAtomDigest: expected,
+    nodeId: input.buffer.nodeId,
+    warpId: input.buffer.warpId,
+  };
+  let replaced: fx.Written = fx.replaceAtom(replace);
+  return expected;
+}

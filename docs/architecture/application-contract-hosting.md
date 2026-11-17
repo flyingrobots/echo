@@ -422,6 +422,25 @@ checked arithmetic; the runtime meters each executed iteration, copies and
 validation. Zero iterations still validate and return the initial state. The
 capability is `core.fold/v1`; unknown and duplicate capabilities refuse.
 
+Typed function failures (`core.failure/v1`, Amblicit's typed failures) run in
+authored effect programs. A source function may declare a nonempty, strictly
+ascending `failures` set, which must equal what its body produces: each `fail`
+and each call to a function that declares failures. A module declares the
+capability exactly when some function has a set. Outside function bodies only
+an intent's `attempt` node may call a failing function. Its arguments cannot
+fail, its `failureMap` holds exactly the callee's set, and each entry is a
+terminal obstruction reason whose payload reads only what precedes the node.
+The lowered Target pure binding carries the same map as `failureArms`. `fail`
+takes its type from a peer `if` or `match` arm, a helper result or an annotated
+binding, and costs one step. Elsewhere it refuses. At run time a failure ends
+the helper and every caller up to the `attempt`, which then ends the run with
+the mapped reason and its payload. Only that arm's payload is evaluated. The
+providers charge the call plus the larger of result validation and the costliest
+arm. warp-core, the lowerer and the verifier each hold an identical copy of this
+judgment (`failure_sets.rs`). Failing `fold` steps, failures inside a `record`,
+and `orderedRecord` (flyingrobots/echo#997) refuse. The shared effect-program
+corpus holds a control and one forgery for each check.
+
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume
 those components. Native synthetic tests alone do not establish public compiler

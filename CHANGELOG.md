@@ -7,6 +7,15 @@
 
 ### Added
 
+- Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
+  lowerer and the verifier accept declared function failure sets, `fail` and
+  intent `attempt` nodes lowered as Target pure bindings with `failureArms`.
+  A mapped failure from a helper ends the run with exactly its declared
+  terminal obstruction and payload. Only that arm's payload is evaluated, and
+  the providers charge the costliest arm. Undeclared, unmapped or malformed
+  failure sets, a missing capability and lowered arms that differ from Core
+  refuse in all three judges. Ordered records (#997) remain unsupported.
+
 - Structured effect control under `echo.dpo@2` (#947). An authored effect
   program whose Target IR declares `echo.span-ir/v3` may wrap its
   instructions in bounded `for` loops and statement branches. The runtime,

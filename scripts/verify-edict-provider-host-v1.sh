@@ -149,6 +149,26 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/precondition-run" \
     --check
 
+  # Public compiler witness for source helpers that build, test and consume an
+  # Option (#995): the checked lowerer emits the package and the verifier
+  # accepts it; the provider promoted before Option support must refuse it at
+  # Echo's lowerer.
+  readonly OLD_OPTION_PROVIDER_REVISION=d527f47176d506deae30d3ee4bbf36b924e7bb30
+  if ! git -C "$ROOT" cat-file -e "$OLD_OPTION_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_OPTION_PROVIDER_REVISION"
+  fi
+  mkdir "$witness_dir/old-option-provider"
+  git -C "$ROOT" archive "$OLD_OPTION_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-option-provider"
+  cargo +1.96.0 run --locked -p xtask --example effect_program_publication -- \
+    --name option \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-option-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-option-value" \
+    --work-root "$witness_dir/option-run" \
+    --check
+
   # Public compiler witness for an authored effect program with an effect step
   # under the echo.dpo@2 effect target profile (#985): the checked lowerer
   # emits its package and the separate verifier accepts it; the same program

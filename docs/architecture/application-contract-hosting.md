@@ -644,6 +644,28 @@ copying-schedule cost of the same programs without the capability in all three
 judges. The bounded-descent rope requires `core.failure/v1`, which Echo does
 not yet admit, so no judge reads its corpus entry yet.
 
+`maxAllocatedBytes` keeps its cumulative meaning under both schedules: the
+runtime adds every charged allocation and never refunds. The shared-read
+schedule does not depend on peak live memory.
+
+Measured on 2026-11-16 (Apple silicon, release build, Echo `c4b93ab7`), with
+fail-free variants of the bounded-descent rope that a test-only harness called
+directly. The variants were the nested and padded-flat split loops from the
+rope cost investigation, 27 split cases per variant. v1 and v2 results were
+byte-identical in all 162 case pairs. The figures are medians across cases:
+
+| Variant | v1 steps | v2 steps | v1 charged bytes | v2 charged bytes | v1 time | v2 time | v1 peak RSS | v2 peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| nested, height 8, 64 nodes | 566,162 | 28,063 | 26,585,819 | 72,503 | 5.6 ms | 0.06 ms | 6.3 MB | 5.8 MB |
+| nested, height 16, 256 nodes | 5,666,710 | 60,938 | 255,563,140 | 186,399 | 52.7 ms | 0.14 ms | 7.7 MB | 6.1 MB |
+| flat, height 16, 594 rounds | 8,386,622 | 93,744 | 376,456,935 | 241,824 | 75.2 ms | 0.19 ms | 7.8 MB | 6.4 MB |
+
+Padded fold rounds, which leave the state unchanged, take 41–71% of v1 steps
+and 26–67% of v2 steps across the six variants. Fold semantics are unchanged:
+every iteration of the bound still runs. Peak RSS is that of the whole test
+process, measured with `/usr/bin/time -l` on one case (3.2 MB with no
+evaluation). These are local measurements, not a contract.
+
 #### Closed variants in provider judgments and the runtime
 
 The native lowerer and independent verifier additionally judge acyclic named

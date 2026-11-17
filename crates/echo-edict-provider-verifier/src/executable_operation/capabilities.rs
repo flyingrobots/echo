@@ -19,7 +19,7 @@ pub(super) fn validate(core: &Value) -> Result<(), ProviderRefusalV1> {
         let capability = as_text(capability).ok_or_else(refused)?;
         if !matches!(
             capability,
-            "core.variant/v1" | "core.fold/v1" | "core.list/v1"
+            "core.variant/v1" | "core.fold/v1" | "core.list/v1" | "core.option/v1"
         ) || !supported.insert(capability)
         {
             return Err(refused());

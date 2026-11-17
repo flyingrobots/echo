@@ -22,6 +22,9 @@ mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
 mod read_cost;
 #[cfg(test)]
@@ -52,6 +55,8 @@ enum Ty {
         identity: String,
         cases: BTreeMap<String, Option<Ty>>,
     },
+    /// `Option<T>`: a runtime `null`, or a one-item array when present.
+    Option(Box<Ty>),
 }
 impl Ty {
     fn representation(&self) -> &Self {
@@ -387,6 +392,12 @@ impl<'a> Judgment<'a> {
                 decimal(max)?,
             ));
         }
+        if let Some(item) = name
+            .strip_prefix("Option<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return Ok(Ty::Option(Box::new(self.ty(item, depth + 1)?)));
+        }
         if let Some(spec) = name
             .strip_prefix("Record<")
             .and_then(|s| s.strip_suffix('>'))
@@ -451,6 +462,12 @@ impl<'a> Judgment<'a> {
                 Ok(Ty::Record(fields))
             }
             "Variant" => self.variant_type(definition, key, &prefix, depth),
+            "Option" => {
+                exact(definition, &["kind", "item"])?;
+                Ok(Ty::Option(Box::new(
+                    self.ty(string(get(definition, "item")?)?, depth + 1)?,
+                )))
+            }
             _ => Err(()),
         }
     }
@@ -751,6 +768,12 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, declared) if option_operations::is_operation(name) => {
+                            let result = self.option_operation(value, actual, declared)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
                         (name, actual, [])
                             if self.identity && identity::parameters(name).is_some() =>
                         {
@@ -1027,6 +1050,9 @@ impl<'a> Judgment<'a> {
         }
         let mut scope = BTreeMap::new();
         let ty = self.declaration(input, &mut scope)?;
+        if option_operations::holds_option(&ty) {
+            return Err(());
+        }
         let (copy, validation, _, _) = shape(&ty)?;
         let mut cost = copy.plus(Cost {
             steps: validation,
@@ -1097,7 +1123,7 @@ impl<'a> Judgment<'a> {
         }
         let result = self.expression(get(body, "result")?, &scope, true, 0)?;
         let expected = self.ty(string(get(intent, "output")?)?, 0)?;
-        if !includes(&expected, &result.ty) {
+        if option_operations::holds_option(&expected) || !includes(&expected, &result.ty) {
             return Err(());
         }
         let (scratch, validations, output, _) = shape(&expected)?;
@@ -1113,6 +1139,19 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
         Ty::Variant { identity, cases } => variants::shape(identity, cases),
+        Ty::Option(item) => {
+            // Absent is one cell; present is one cell holding the item.
+            let (copy, validations, encoded, height) = shape(item)?;
+            Ok((
+                Cost {
+                    steps: copy.steps.checked_add(1).ok_or(())?,
+                    bytes: copy.bytes.checked_add(64).ok_or(())?,
+                },
+                validations.checked_add(1).ok_or(())?,
+                encoded.checked_add(9).ok_or(())?,
+                height + 1,
+            ))
+        }
         Ty::Bool => Ok((
             Cost {
                 steps: 1,
@@ -1217,6 +1256,7 @@ fn includes(expected: &Ty, actual: &Ty) -> bool {
                     (None, Some(_)) => false,
                 }
         }
+        (Ty::Option(a), Ty::Option(b)) => includes(a, b),
         (Ty::Record(a), Ty::Record(b)) => {
             a.len() == b.len()
                 && a.iter()
@@ -1235,6 +1275,7 @@ fn union(left: Ty, right: Ty) -> Check<Ty> {
             },
             n.max(m),
         )),
+        (Ty::Option(a), Ty::Option(b)) => Ok(Ty::Option(Box::new(union(*a, *b)?))),
         (Ty::Record(a), Ty::Record(mut b)) if a.keys().eq(b.keys()) => {
             let mut fields = BTreeMap::new();
             for (key, value) in a {

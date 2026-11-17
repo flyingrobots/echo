@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 
+use super::functions::CostSchedule;
 use super::model::{Comparison, Expr, Helper, Predicate, Program, RuntimeType, MAX_DEPTH};
 use super::{EvaluationError as Error, EvaluationLimits, EvaluationResult};
 
@@ -178,7 +179,10 @@ pub(crate) fn run_with_meter(
     input: Value,
     meter: &mut Meter,
 ) -> Result<EvaluationResult, Error> {
-    meter.with_component(program.limits, |meter| run_body(program, input, meter))
+    meter.with_component(program.limits, |meter| match program.schedule {
+        CostSchedule::Copying => run_body(program, input, meter),
+        CostSchedule::SharedReads => super::shared_reads::run(program, &input, meter),
+    })
 }
 
 fn run_body(program: &Program, input: Value, meter: &mut Meter) -> Result<EvaluationResult, Error> {

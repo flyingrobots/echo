@@ -21,26 +21,60 @@ pub(crate) struct Definition<'a> {
     fold_capability: bool,
 }
 
+/// Core capability selecting the shared-read cost schedule, `edict.core-cost/v2`.
+pub(crate) const SHARED_READS_CAPABILITY: &str = "core.cost.shared-reads/v1";
+
+/// The Core work schedule a module requires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CostSchedule {
+    /// `edict.core-cost/v1`: every read is metered as a full copy.
+    Copying,
+    /// `edict.core-cost/v2`: reads share values; construction pays its shell.
+    SharedReads,
+}
+
+/// Whether a caller has a meter for the shared-read schedule.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SharedReadAdmission {
+    Refuse,
+    Admit,
+}
+
 /// Collect the one current source/imported helper signature authority.
 pub(crate) fn definitions<'a>(
     core: &'a Value,
     exports: &'a Value,
     coordinate: &str,
 ) -> Result<BTreeMap<String, Definition<'a>>, Error> {
+    Ok(admitted_definitions(core, exports, coordinate, SharedReadAdmission::Refuse)?.0)
+}
+
+fn admitted_definitions<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    coordinate: &str,
+    admission: SharedReadAdmission,
+) -> Result<(BTreeMap<String, Definition<'a>>, CostSchedule), Error> {
     let mut definitions = BTreeMap::new();
     let mut capabilities = BTreeSet::new();
     if let Ok(required) = field(core, "requiredCoreCapabilities") {
         for capability in array(required)? {
             let capability = text(capability)?;
-            if !matches!(
+            let known = matches!(
                 capability,
                 "core.fold/v1" | "core.variant/v1" | "core.list/v1"
-            ) || !capabilities.insert(capability)
-            {
+            ) || (admission == SharedReadAdmission::Admit
+                && capability == SHARED_READS_CAPABILITY);
+            if !known || !capabilities.insert(capability) {
                 return Err(Error::UnsupportedProgram);
             }
         }
     }
+    let schedule = if capabilities.contains(SHARED_READS_CAPABILITY) {
+        CostSchedule::SharedReads
+    } else {
+        CostSchedule::Copying
+    };
     let fold_capability = capabilities.contains("core.fold/v1");
     if !capabilities.contains("core.list/v1") {
         // Each input was separately admitted by the canonical decoder. Scan
@@ -128,22 +162,45 @@ pub(crate) fn definitions<'a>(
             }
         }
     }
-    Ok(definitions)
+    Ok((definitions, schedule))
 }
 
 /// Decodes and checks every pure helper definition, used or not. A helper
 /// frame starts with no caller facts. An unsigned binding proven below its
 /// width carries that ceiling to the later bindings of the same body.
+///
+/// The read and effect routes use this entry and have no shared-read meter, so
+/// it refuses `core.cost.shared-reads/v1`.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
     parser: &mut Parser<'_>,
 ) -> Result<BTreeMap<String, Helper>, Error> {
     let definitions = definitions(core, exports, parser.coordinate)?;
+    decode_definitions(core, &definitions, parser)
+}
+
+/// The pure-package entry: also admits the shared-read schedule and returns
+/// the schedule the module requires.
+pub(crate) fn decode_pure(
+    core: &Value,
+    exports: &Value,
+    parser: &mut Parser<'_>,
+) -> Result<(BTreeMap<String, Helper>, CostSchedule), Error> {
+    let (definitions, schedule) =
+        admitted_definitions(core, exports, parser.coordinate, SharedReadAdmission::Admit)?;
+    Ok((decode_definitions(core, &definitions, parser)?, schedule))
+}
+
+fn decode_definitions(
+    core: &Value,
+    definitions: &BTreeMap<String, Definition<'_>>,
+    parser: &mut Parser<'_>,
+) -> Result<BTreeMap<String, Helper>, Error> {
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.
-    for (name, definition) in &definitions {
+    for (name, definition) in definitions {
         parser.enter(0)?;
         exact_fields(definition.body, &["locals", "bindings", "result"])?;
         let mut scope = BTreeMap::new();
@@ -188,7 +245,7 @@ pub(crate) fn decode(
                     reads_branch: true,
                     path: &[],
                 },
-                &definitions,
+                definitions,
                 definition.source_owned,
                 parser,
                 0,
@@ -224,7 +281,7 @@ pub(crate) fn decode(
                 reads_branch: true,
                 path: &[],
             },
-            &definitions,
+            definitions,
             definition.source_owned,
             parser,
             0,
@@ -273,7 +330,7 @@ pub(crate) fn decode(
                     reads_branch: true,
                     path: &[],
                 },
-                &definitions,
+                definitions,
                 true,
                 parser,
                 0,

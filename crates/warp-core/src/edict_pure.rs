@@ -25,6 +25,9 @@ mod list_tests;
 mod matches;
 pub(crate) mod model;
 pub(crate) mod proven_order;
+mod shared_reads;
+#[cfg(test)]
+mod shared_reads_tests;
 pub(crate) mod syntax;
 pub(crate) mod values;
 #[cfg(test)]

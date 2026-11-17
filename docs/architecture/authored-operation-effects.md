@@ -626,10 +626,6 @@ use the public compiler output in
 the six frozen vectors, ensures a node at its computed address, and refuses
 duplicate edges and an insufficient budget.
 
-**Known limit.** That fixture needs about 90 million units of provider Wasm
-fuel to lower and verify, against the compiler's fixed 50 million per
-invocation. It was produced with a raised limit; see its README.
-
 ## Witnessed reads over a bounded slice
 
 The program never declares what it read. Evaluation reaches state only through

@@ -1321,13 +1321,12 @@ fn resource_root(role: &str) -> Result<&'static str, ProviderArtifactGenerationE
 fn resource_edict_contract(role: &str) -> Option<&'static str> {
     match role {
         "resource.lawpack-exports" => Some("lawpack-exports"),
-        // The frozen echo.dpo@1 catalog is owned by the generated
-        // `echo-frozen-catalog-v1-` projection of its original upstream
-        // schema, which `make_output` checks as its owning root; the current
-        // upstream contract admits catalog v2 only.
-        "resource.target-intrinsics" => None,
         "resource.target-intrinsics-2" => Some("target-profile-intrinsics"),
         "resource.target-operation-profiles" => Some("target-profile-operation-profiles"),
+        // Includes the frozen echo.dpo@1 catalog (`resource.target-intrinsics`):
+        // its owner is the generated `echo-frozen-catalog-v1-` projection of
+        // its original upstream schema, which `make_output` checks as the
+        // owning root; the current upstream contract admits catalog v2 only.
         _ => None,
     }
 }

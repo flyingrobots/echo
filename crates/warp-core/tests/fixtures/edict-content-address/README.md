@@ -18,19 +18,13 @@ The runtime inputs are the frozen vectors' inputs (`warp` 03, `nodeType` 07,
 id 32 repetitions of the byte), plus `storedType` 5b and `storedAtomType` 5c
 for the ensured node, which the lawpack's graph schema admits.
 
-## Provenance and known limit
+## Provenance
 
 The `identity-*.hex` files are the public compiler's outputs for this source,
-not authored Target IR or packages. They were produced by Amblicit
-`da1574f169cda98206440e4d8f785b1ea9e01fcf` with two diagnostic-only changes:
-writing the Core and Target IR it sends to the lowerer, and a configurable
-provider fuel limit, run at 200,000,000. Lowering this program needs about
-60–70 million units of Wasm fuel and verifying it about 80–90 million; the
-unmodified compiler allows 50,000,000 per invocation and refuses it with
-`FuelExhausted`. The structured fixture needs about 30–40 and 40–50 million.
-
-The provider components were local, non-designated builds of this branch
-(lowerer `fe7189cc…`, verifier `b47981cc…`), not the promoted G4 components.
-The verifier accepted the package. These outputs are provisional: after
-component promotion they must be reproduced with the promoted package, and
-with an unmodified compiler once the fuel limit is resolved.
+not authored Target IR or packages. The `effect_step_publication` example
+produces them with an unmodified Amblicit
+`7dbcbc23d72705c5e224fc994a6c767881958912` binary and the checked provider
+package; `scripts/verify-edict-provider-host-v1.sh` reruns it with `--check`.
+That Amblicit revision sizes the provider-host fuel limit for real Echo
+programs (amblicit#326); this program needs more than the earlier 50,000,000
+units.

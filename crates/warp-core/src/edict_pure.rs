@@ -14,6 +14,7 @@
 mod checked_integer_tests;
 mod decode;
 pub(crate) mod evaluate;
+pub(crate) mod failure_sets;
 #[cfg(test)]
 mod fold_tests;
 mod function_preconditions;
@@ -99,6 +100,10 @@ pub enum EvaluationError {
     HostAllocationFailed,
     /// The canonical result exceeds its output budget.
     OutputBudgetExceeded,
+    /// A source helper ended with this declared typed failure and no
+    /// `attempt` mapped it. Judgment proves every failure is mapped, so a
+    /// judged program never returns this.
+    UnmappedFailure(String),
     /// A content-address call named the same (edge type, target) outgoing
     /// edge more than once. The edge set is refused, never deduplicated.
     DuplicateOutgoingEdge,

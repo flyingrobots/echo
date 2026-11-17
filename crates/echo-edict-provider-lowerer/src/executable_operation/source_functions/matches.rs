@@ -59,12 +59,15 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
             }
-            let body = self.expression(get(arm, "body")?, &inner, source, depth + 1)?;
+            // A `fail` arm takes its type from the other arms.
+            let body = self.arm(get(arm, "body")?, &inner, source, depth + 1)?;
             height = height.max(body.depth + 1);
-            joined = Some(match joined {
-                None => body.ty,
-                Some(previous) => union(previous, body.ty)?,
-            });
+            if let Some(ty) = body.ty {
+                joined = Some(match joined {
+                    None => ty,
+                    Some(previous) => union(previous, ty)?,
+                });
+            }
             let dispatch = Cost {
                 steps: u64::try_from(index)
                     .map_err(|_| ())?

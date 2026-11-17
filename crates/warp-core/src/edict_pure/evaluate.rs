@@ -250,6 +250,8 @@ pub(crate) fn expression(
             super::identity::evaluate(*intrinsic, args, locals, helpers, meter, depth)
         }
         Expr::Constant(value) => meter.copy(value),
+        // A failure returns no value; its step is already charged.
+        Expr::Fail(failure) => Err(Error::UnmappedFailure(failure.clone())),
         Expr::Variant {
             identity,
             case,

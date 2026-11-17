@@ -7,6 +7,18 @@
 
 ### Added
 
+- The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
+  amblicit#324). warp-core, the provider lowerer and the provider verifier
+  admit a pure module that requires `core.cost.shared-reads/v1`. The runtime
+  evaluates it on immutable, reference-counted values, so local, field,
+  element and fold-state reads are O(1) and charge one step; construction
+  charges only its shell. Both providers judge the module with the compiler's
+  own static rules, so they admit exactly the compiler's minimum budget and
+  refuse one step or byte less. The read, graph-read and effect routes refuse
+  the capability, and so do byte intrinsics and imported helpers under it.
+  Modules without the capability are metered and judged exactly as before. A
+  shared corpus, produced by the pinned compiler and rechecked in CI, drives
+  all three judges.
 - Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
   warp-core, the provider lowerer and the provider verifier each admit a
   function's Core `preconditions` as Amblicit `1196396b` specifies them, judge

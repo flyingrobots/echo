@@ -577,6 +577,73 @@ These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
 
+#### Shared-read cost schedule (`edict.core-cost/v2`)
+
+A pure Core module that requires the capability `core.cost.shared-reads/v1`
+is metered and judged under Amblicit's shared-read schedule,
+`edict.core-cost/v2` (amblicit#324, Amblicit `da1574f1`). Every module without
+the capability keeps the copying schedule described above, exactly as before.
+
+The schedule is only sound if reads really are cheap, so the runtime runs such
+a module on a separate evaluator
+([`edict_pure/shared_reads.rs`](../../crates/warp-core/src/edict_pure/shared_reads.rs)).
+Its values are immutable and reference-counted. Reading a local, a field, a
+list element or fold state returns the stored value itself, not a copy.
+Construction allocates a new shell of shared references. The copying
+evaluator is unchanged. Under the schedule:
+
+- every expression node costs one step; reads, `if`, `match`, `fold`, calls
+  and locals cost nothing more, and allocate nothing;
+- a constant costs its value cell; byte constants are copied in full;
+- a record, list literal or variant costs its shell, one cell plus one per
+  field or item (seven cells for a variant), in steps and in 64-byte cells
+  plus key and label bytes; shared children are not charged again;
+- `listAt` costs nothing more and does not rescan the list; `listLen` costs
+  one fresh cell; `listAppend` and `listConcat` cost a new shell with one cell
+  per result item;
+- a call costs one step per parameter plus two, and a fold one step per
+  iteration plus the call; arguments, results and fold state are passed by
+  reference;
+- unsigned arithmetic costs one step per operand cell, and its scalar result
+  is held inline;
+- a match costs one step per arm plus one, and one more for a payload binder;
+- a comparison scans both operands in full;
+- the intent's input and output are validated and converted at full size, two
+  steps per cell plus their bytes.
+
+The lowerer
+([`shared_reads.rs`](../../crates/echo-edict-provider-lowerer/src/executable_operation/source_functions/shared_reads.rs))
+and the verifier
+([`shared_charge.rs`](../../crates/echo-edict-provider-verifier/src/executable_operation/source_functions/shared_charge.rs))
+each apply Amblicit's static rules from
+`target_ir/fold_work/shared_reads.rs`, so their minimum budget equals the
+compiler's. Each static rule charges at least what the runtime charges for the
+same node. Where Amblicit's code and its prose differ, the judges follow the
+code: a record shell is charged two cells per field statically, while the
+runtime charges one. The ordinary judgment and audit still run first and alone
+establish typing, totality and depth; the cost pass reads the types they
+recorded. A module whose copying cost overflows `u64` is therefore still
+refused.
+
+Echo admits the capability on the pure route only. The read, graph-read and
+effect routes have no shared-read rules: the runtime's shared helper decoder
+refuses the capability there, and the lowerer and verifier refuse it on those
+routes too. Under the schedule, byte intrinsics and imported helpers are
+refused by all three, because the schedule leaves the storage of a computed
+byte string uncharged.
+
+The [shared corpus](../../crates/warp-core/tests/fixtures/edict-core-cost-v2/README.md)
+holds Core modules that the pinned compiler produced at their minimum budgets,
+together with their producer. All three judges read the same bytes. For each
+of Amblicit's four adversarial programs that Echo admits, the lowerer and
+verifier admit the compiler minimum and refuse one step, one allocated byte or
+one output byte less. The runtime runs the worst-case input within the minimum
+and refuses one step or byte below its own metered work. Generated inputs stay
+within the minimum and match the copying evaluator's result. Goldens pin the
+copying-schedule cost of the same programs without the capability in all three
+judges. The bounded-descent rope requires `core.failure/v1`, which Echo does
+not yet admit, so no judge reads its corpus entry yet.
+
 #### Closed variants in provider judgments and the runtime
 
 The native lowerer and independent verifier additionally judge acyclic named

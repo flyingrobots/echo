@@ -642,10 +642,7 @@ fn an_equality_constraint_bounds_a_term_from_either_side() {
     }
     // A lower bound leaves `at` at its full width, so even the smallest
     // overflowing addend is refused.
-    refused(&program(
-        compare("<=", int(0), input("at")),
-        u64::MAX - 10,
-    ));
+    refused(&program(compare("<=", int(0), input("at")), u64::MAX - 10));
 }
 
 /// A chain of `lets` unsigned additions over a count, whose sum is never

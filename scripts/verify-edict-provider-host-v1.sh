@@ -273,4 +273,23 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-content-address" \
     --work-root "$witness_dir/effect-identity-run" \
     --check
+
+  # Public source witness for a Buffer bump whose ReplaceAtom names the
+  # attachment value digest of the atom it read (echo#1011), and its control
+  # that digests bytes it never read.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name bump \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest" \
+    --work-root "$witness_dir/effect-bump-run" \
+    --check
+
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name unread \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest/controls/unread-bytes" \
+    --work-root "$witness_dir/effect-unread-run" \
+    --check
 fi

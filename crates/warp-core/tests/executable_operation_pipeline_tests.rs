@@ -7224,6 +7224,9 @@ mod public_ordered_record_effect;
 #[path = "executable_operation_pipeline/public_content_address_effect.rs"]
 mod public_content_address_effect;
 
+#[path = "executable_operation_pipeline/public_attachment_digest_effect.rs"]
+mod public_attachment_digest_effect;
+
 #[path = "executable_operation_pipeline/public_checked_integer.rs"]
 mod public_checked_integer;
 #[path = "executable_operation_pipeline/public_option_value.rs"]

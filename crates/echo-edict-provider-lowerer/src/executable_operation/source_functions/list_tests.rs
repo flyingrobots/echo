@@ -265,6 +265,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         shared: false,
         types: super::BTreeMap::new(),
         shared_costs: super::BTreeMap::new(),
+        identity: false,
     };
     judgment
         .expression(value, &super::BTreeMap::new(), true, 0)

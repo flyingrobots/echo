@@ -17,6 +17,7 @@ mod fold_tests;
 #[cfg(test)]
 mod function_precondition_tests;
 mod function_preconditions;
+mod identity;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -125,6 +126,9 @@ struct Judgment<'a> {
     types: BTreeMap<usize, Ty>,
     /// Shared-read cost of each completed source helper.
     shared_costs: BTreeMap<String, Cost>,
+    /// Whether the pinned `echo.dpo@2` catalog carries Echo's exact identity
+    /// contracts, which alone admits calls to them.
+    identity: bool,
 }
 
 /// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
@@ -143,7 +147,7 @@ pub(super) fn validate(
     })
 }
 fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
-    let mut proof = judged(core, exports, edge_scans)?;
+    let mut proof = judged(core, exports, edge_scans, false)?;
     if proof.shared {
         // Read and graph charges have no shared-read rules.
         if read || edge_scans != 0 {
@@ -169,14 +173,19 @@ fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> 
 /// The worst-case cost of each read intent, for measuring it against the runtime.
 #[cfg(test)]
 fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
-    let mut proof = judged(core, exports, edge_scans)?;
+    let mut proof = judged(core, exports, edge_scans, false)?;
     members(get(core, "intents")?)?
         .iter()
         .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
         .collect()
 }
 /// Inventories the module's helpers and judges every one of them.
-fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Judgment<'a>> {
+fn judged<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    identity: bool,
+) -> Check<Judgment<'a>> {
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -273,6 +282,7 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
         shared: shared_reads::required(core)?,
         types: BTreeMap::new(),
         shared_costs: BTreeMap::new(),
+        identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -778,6 +788,13 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, [])
+                            if self.identity && identity::parameters(name).is_some() =>
+                        {
+                            let (result, charged) = identity::judge(name, actual)?;
+                            cost = cost.plus(charged)?;
+                            result
+                        }
                         (name, actual, declared) if list_operations::is_operation(name) => {
                             let result = self.list_operation(value, actual, declared)?;
                             cost = cost.plus(result.cost)?;

@@ -39,6 +39,7 @@ pub(in crate::executable_operation) fn judge(
     exports: &Value,
     intent: &Value,
     sites: &BTreeMap<usize, EffectSite>,
+    identity: bool,
 ) -> Check<()> {
     // Core names an unsigned width directly; the runtime has no `Int` kind.
     // A nominal entry has exactly its kind, contract and representation.
@@ -59,7 +60,7 @@ pub(in crate::executable_operation) fn judge(
     if types.shared {
         return Err(());
     }
-    let (definitions, summaries) = prepare(core, exports, &mut types, 0)?;
+    let (definitions, summaries) = prepare(core, exports, &mut types, 0, identity)?;
     Checker {
         types: &mut types,
         definitions: &definitions,
@@ -70,6 +71,7 @@ pub(in crate::executable_operation) fn judge(
         bound: Vec::new(),
         proven_sum: None,
         edge_scans: 0,
+        identity,
     }
     .effect_intent(intent, sites)
 }

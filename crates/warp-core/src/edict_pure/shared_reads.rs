@@ -8,7 +8,7 @@
 //! schedule's one-step reads are real O(1) work rather than a lowered charge.
 //! The intent's input and output are still converted, validated and charged at
 //! full size: two steps per cell and their bytes. Comparisons scan both
-//! operands in full. Byte intrinsics and imported helpers have no shared-read
+//! operands in full. Byte and identity intrinsics and imported helpers have no shared-read
 //! rule in Echo, so a module that uses them is refused before evaluation.
 //!
 //! The copying evaluator in `evaluate.rs` is unchanged and still meters every
@@ -118,7 +118,8 @@ fn admit_expression(expr: &Expr) -> Result<(), Error> {
         | Expr::ByteLength { .. }
         | Expr::ByteCount { .. }
         | Expr::ByteSlice { .. }
-        | Expr::ByteConcat { .. } => Err(Error::UnsupportedProgram),
+        | Expr::ByteConcat { .. }
+        | Expr::Identity(..) => Err(Error::UnsupportedProgram),
         Expr::Variant {
             payload: Some(value),
             ..

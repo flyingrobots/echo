@@ -91,7 +91,7 @@ fn assert_minimum_is_exact(hex: &str) {
 fn copying_cost(hex: &str) -> (u64, u64, u64) {
     let core = copying(core(hex));
     let exports = exports();
-    let mut proof = judged(&core, &exports, 0).unwrap();
+    let mut proof = judged(&core, &exports, 0, false).unwrap();
     let intent = get(get(&core, "intents").unwrap(), "run").unwrap();
     let (cost, output) = proof.intent_cost(intent, false).unwrap();
     (cost.steps, cost.bytes, output)

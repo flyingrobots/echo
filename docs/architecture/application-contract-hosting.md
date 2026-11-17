@@ -1135,7 +1135,7 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
-Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), `function-preconditions-v1` from Amblicit merge `1196396b8cbf30967a943ae170aa8edd972d28ef`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
+Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), `typed-failures-v1` from Amblicit merge `0734b499adb7c79ddbf6b8290256c83d5240731e`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
 
 The current schema includes the authenticated source closure, bounded fold
 expressions and structured Target IR, with phased-domain collision refusals.
@@ -1468,8 +1468,8 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-current Amblicit contract pack `function-preconditions-v1` from PR #318 (revision
-`1196396b8cbf30967a943ae170aa8edd972d28ef`). Echo admits its exact CDDL,
+current Amblicit contract pack `typed-failures-v1` from PR #317 (revision
+`0734b499adb7c79ddbf6b8290256c83d5240731e`). Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact

@@ -9,7 +9,9 @@
 //! `crates/warp-core/tests/fixtures/edict-effect-program/source`, and
 //! `--name precondition` for the program in
 //! `crates/warp-core/tests/fixtures/edict-function-precondition/source`, whose
-//! source helper declares a precondition. The
+//! source helper declares a precondition, and `--name option` for the program
+//! in `crates/warp-core/tests/fixtures/edict-option-value/source`, whose source
+//! helpers build, test and consume an `Option<U64>`. The
 //! package's lowerer emits an `edict-effect-program/v1` package and its
 //! separate verifier reports on it. Nothing here constructs Core, Target IR or
 //! a package. With `--check` the fresh compiler output must equal the
@@ -30,7 +32,7 @@ struct Witness {
     old_kind: &'static str,
     old_refusal: &'static str,
 }
-const WITNESSES: [(&str, Witness); 2] = [
+const WITNESSES: [(&str, Witness); 3] = [
     (
         "flat",
         Witness {
@@ -49,6 +51,17 @@ const WITNESSES: [(&str, Witness); 2] = [
             // refuses the Core before invoking its lowerer.
             old_kind: "InvalidProviderInvocation",
             old_refusal: "ArtifactSchemaMismatch",
+        },
+    ),
+    (
+        "option",
+        Witness {
+            program: "OptionValue.edict",
+            prefix: "option",
+            // The predecessor is the provider promoted before Option support
+            // (echo d527f47): its lowerer refuses `core.option/v1`.
+            old_kind: "ProviderLowererRefused",
+            old_refusal: "outside the checked profile",
         },
     ),
 ];

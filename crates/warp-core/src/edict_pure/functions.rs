@@ -5,7 +5,8 @@ use super::function_preconditions;
 use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
-        Binding, Expr, Helper, Parameter, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
+        Binding, Expr, Helper, IdentityIntrinsic, Parameter, Predicate, RuntimeType, MAX_DEPTH,
+        MAX_PROGRAM_NODES,
     },
     syntax::Parser,
     values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
@@ -41,6 +42,7 @@ pub(crate) fn definitions<'a>(
                 "core.fold/v1"
                     | "core.variant/v1"
                     | "core.list/v1"
+                    | "core.option/v1"
                     | super::failure_sets::CAPABILITY
             ) || !capabilities.insert(capability)
             {
@@ -49,12 +51,23 @@ pub(crate) fn definitions<'a>(
         }
     }
     let fold_capability = capabilities.contains("core.fold/v1");
-    if !capabilities.contains("core.list/v1") {
-        // Each input was separately admitted by the canonical decoder. Scan
-        // under those wire budgets; the parser keeps its shared program budget.
-        for artifact in [core, exports] {
-            let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
-            super::list_operations::without_capability(artifact, &mut remaining, 0)?;
+    // Each input was separately admitted by the canonical decoder. Scan under
+    // those wire budgets; the parser keeps its shared program budget.
+    for (capability, gated) in [
+        (
+            "core.list/v1",
+            super::list_operations::is_operation as fn(&str) -> bool,
+        ),
+        (
+            super::option_operations::CAPABILITY,
+            super::option_operations::is_operation,
+        ),
+    ] {
+        if !capabilities.contains(capability) {
+            for artifact in [core, exports] {
+                let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
+                super::list_operations::without_capability(artifact, gated, &mut remaining, 0)?;
+            }
         }
     }
     for item in array(field(exports, "pureFunctions")?)? {
@@ -76,6 +89,7 @@ pub(crate) fn definitions<'a>(
         }
         let name = text_field(item, "coordinate")?;
         if name.starts_with("core.")
+            || IdentityIntrinsic::named(name).is_some()
             || definitions
                 .insert(
                     name.to_owned(),
@@ -119,6 +133,7 @@ pub(crate) fn definitions<'a>(
                 .map_err(|_| Error::InvalidArtifact)?;
             let coordinate = format!("{coordinate}.{name}");
             if coordinate.starts_with("core.")
+                || IdentityIntrinsic::named(&coordinate).is_some()
                 || effect_names.contains(coordinate.as_str())
                 || definitions
                     .insert(
@@ -422,6 +437,7 @@ pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
                     _ => false,
                 }
         }
+        (RuntimeType::Option(expected), RuntimeType::Option(actual)) => accepts(expected, actual),
         (RuntimeType::Record(left), RuntimeType::Record(right)) => {
             left.len() == right.len()
                 && left.iter().all(|(key, ty)| {
@@ -451,6 +467,9 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
                 },
                 max: n.max(m),
             })
+        }
+        (RuntimeType::Option(left), RuntimeType::Option(right)) => {
+            Ok(RuntimeType::Option(Box::new(join(*left, *right)?)))
         }
         (RuntimeType::Record(left), RuntimeType::Record(right)) if left.len() == right.len() => {
             let mut fields = Vec::new();
@@ -788,6 +807,27 @@ pub(crate) fn infer<'v>(
                 }
                 return parser.ty(callee.result_type, 0);
             }
+            if let Some(intrinsic) = IdentityIntrinsic::named(name) {
+                let ceilings = intrinsic.parameter_types();
+                if !types.is_empty() || arguments.len() != ceilings.len() {
+                    return Err(Error::UnsupportedProgram);
+                }
+                for (argument, ceiling) in arguments.iter().zip(&ceilings) {
+                    let actual = infer(
+                        argument,
+                        scope,
+                        proof,
+                        definitions,
+                        source,
+                        parser,
+                        depth + 1,
+                    )?;
+                    if !super::identity::fits(ceiling, &actual) {
+                        return Err(Error::InvalidArtifact);
+                    }
+                }
+                return Ok(super::identity::id_type());
+            }
             if name == "core.bytes.count" {
                 let ([operand, needle], [coordinate]) = (arguments, types) else {
                     return Err(Error::UnsupportedProgram);
@@ -826,6 +866,18 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::option_operations::is_operation(name) {
+                let [item] = declared.as_slice() else {
+                    return Err(Error::InvalidArtifact);
+                };
+                return super::option_operations::infer(
+                    value,
+                    &actual,
+                    item,
+                    proof.facts,
+                    proof.path,
+                );
+            }
             if super::list_operations::is_operation(name) {
                 return super::list_operations::infer(
                     value,
@@ -1320,6 +1372,14 @@ impl Heights<'_> {
                 }
                 maximum + 1
             }
+            Expr::Option { item, args, .. } => {
+                // A present Option nests its item one level below the value.
+                let mut maximum = type_height(item) + 1;
+                for argument in args {
+                    maximum = maximum.max(self.expr(argument, depth + 1)?);
+                }
+                maximum + 1
+            }
             Expr::ListLength { ty, value } => self.expr(value, depth + 1)?.max(type_height(ty)) + 1,
             Expr::ListAt { ty, value, index }
             | Expr::ListAppend {
@@ -1343,6 +1403,16 @@ impl Heights<'_> {
                     .max(type_height(left_type))
                     .max(type_height(right_type))
                     + 1
+            }
+            Expr::Identity(intrinsic, args) => {
+                let mut maximum = 0;
+                for ty in intrinsic.parameter_types() {
+                    maximum = maximum.max(type_height(&ty));
+                }
+                for argument in args {
+                    maximum = maximum.max(self.expr(argument, depth + 1)?);
+                }
+                maximum + 1
             }
             Expr::ByteUtf8 { value, .. }
             | Expr::ByteLength { value, .. }
@@ -1399,6 +1469,7 @@ impl Heights<'_> {
 fn type_height(ty: &RuntimeType) -> usize {
     match ty {
         RuntimeType::Nominal(_, representation) => type_height(representation),
+        RuntimeType::Option(item) => type_height(item) + 1,
         RuntimeType::Variant { cases, .. } => {
             1 + cases
                 .values()

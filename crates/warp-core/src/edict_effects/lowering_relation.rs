@@ -27,7 +27,7 @@ pub(super) fn validate<'a>(
         // profile is authenticated. Keep this path on the frozen @1 profile;
         // @2 requires profile authentication from the effect artifacts.
         let profile = field(target_artifact, "targetProfile")?;
-        if structured || text_field(profile, "id")? != "echo.dpo@1" {
+        if structured || text_field(profile, "id")? != "echo.dpo@1" || calls_identity(module, 0)? {
             return Err(Error::UnsupportedProgram);
         }
         return if artifacts == &Value::Null {
@@ -87,8 +87,22 @@ pub(super) fn validate<'a>(
         catalog_reference,
         digest(namespace.catalog, &catalog).map_err(|_| Error::InvalidArtifact)?,
     )?;
-    exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
-    require_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;
+    // Catalog v2 may also publish the named types its pure contracts
+    // reference; the frozen v1 catalog has exactly two fields.
+    if namespace.catalog_api == "edict.target-profile.intrinsics/v2"
+        && field(&catalog, "types").is_ok()
+    {
+        exact_fields(&catalog, &["apiVersion", "intrinsics", "types"])?;
+        map(field(&catalog, "types")?)?;
+    } else {
+        exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
+    }
+    require_text(&catalog, "apiVersion", namespace.catalog_api)?;
+    if !identity_bound(namespace.coordinate, &catalog, module, profile_reference)?
+        && calls_identity(module, 0)?
+    {
+        return Err(Error::UnsupportedProgram);
+    }
     let catalog = field(&catalog, "intrinsics")?;
     map(catalog)?;
     require_text(&lawpack, "apiVersion", "edict.lawpack/v1")?;
@@ -137,6 +151,7 @@ pub(super) fn validate<'a>(
         &coordinate,
         identity,
         text_field(module, "coordinate")?,
+        profile_reference,
     )?;
     super::imported_types::validate(module, exports, &coordinate)?;
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
@@ -295,6 +310,7 @@ fn alias(
     coordinate: &str,
     identity: [u8; 32],
     module: &str,
+    profile_reference: &Value,
 ) -> Result<String, Error> {
     // Accept a bounded, explicit declaration preamble, not an import-looking
     // string inside a body or comment. A full source/Core proof remains separate.
@@ -307,12 +323,35 @@ fn alias(
         return Err(Error::UnsupportedProgram);
     }
     let expected = format!("\"sha256:{}\"", hex::encode(identity));
+    // The only target declaration accepted names the selected, pinned profile.
+    let [scheme, target_digest] = array(field(profile_reference, "digest")?)? else {
+        return Err(Error::InvalidArtifact);
+    };
+    if text(scheme)? != "sha256" {
+        return Err(Error::InvalidArtifact);
+    }
+    let target = format!(
+        "{} \"sha256:{}\"",
+        text_field(profile_reference, "id")?,
+        hex::encode(bytes(target_digest)?)
+    );
+    let mut targeted = false;
     let mut result = None;
     for line in lines {
         if !line.starts_with("use ") {
             break;
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
+        if let ["use", "target", name, "digest", value, "as", target_alias] = tokens.as_slice() {
+            let target_alias = target_alias
+                .strip_suffix(';')
+                .ok_or(Error::InvalidArtifact)?;
+            if format!("{name} {value}") != target || target_alias.is_empty() || targeted {
+                return Err(Error::InvalidArtifact);
+            }
+            targeted = true;
+            continue;
+        }
         let ["use", "lawpack", name, "digest", value, "as", alias] = tokens.as_slice() else {
             return Err(Error::UnsupportedProgram);
         };
@@ -330,4 +369,143 @@ fn alias(
         }
     }
     result.ok_or(Error::InvalidArtifact)
+}
+
+/// The runtime's statement of the identity contracts a catalog must carry
+/// before a program may call them: operand ceilings, base steps and step
+/// coefficients, matching [`crate::edict_pure`]'s own metering.
+const IDENTITY: [(&str, &[&str], i128, &[i128]); 3] = [
+    (
+        "echo.dpo@2.contentAddress",
+        &[
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<exact=32>",
+            "Bytes<max=1048576>",
+            "List<echo.dpo@2.OutgoingEdge,max=16>",
+        ],
+        71,
+        &[0, 0, 0, 1, 67],
+    ),
+    (
+        "echo.dpo@2.contentEdgeId",
+        &["Bytes<exact=32>"; 4],
+        70,
+        &[0; 4],
+    ),
+    (
+        "echo.dpo@2.slotEdgeId",
+        &["Bytes<exact=32>"; 3],
+        69,
+        &[0; 3],
+    ),
+];
+
+/// Whether the pinned catalog authorizes identity calls: under `echo.dpo@2`
+/// it carries all three exact contracts and the `OutgoingEdge` record, and
+/// Core's single target import is the selected profile. A partial or altered
+/// set of contracts is refused, never ignored.
+fn identity_bound(
+    profile: &str,
+    catalog: &Value,
+    module: &Value,
+    profile_reference: &Value,
+) -> Result<bool, Error> {
+    let intrinsics = field(catalog, "intrinsics")?;
+    let present = IDENTITY
+        .iter()
+        .filter(|(name, ..)| field(intrinsics, name).is_ok())
+        .count();
+    let mut targets = 0;
+    for import in array(field(module, "imports")?)? {
+        if text_field(import, "kind")? == "target" {
+            targets += 1;
+            if targets > 1 || field(import, "ref")? != profile_reference {
+                return Err(Error::InvalidArtifact);
+            }
+        }
+    }
+    if present == 0 {
+        return Ok(false);
+    }
+    if profile != "echo.dpo@2" || present != IDENTITY.len() {
+        return Err(Error::InvalidArtifact);
+    }
+    require_text(
+        field(catalog, "types")?,
+        "echo.dpo@2.OutgoingEdge",
+        "Record<edgeType:Bytes<exact=32>,to:Bytes<exact=32>>",
+    )?;
+    let texts =
+        |values: &[&str]| Value::Array(values.iter().map(|v| Value::Text((*v).into())).collect());
+    let integers =
+        |values: &[i128]| Value::Array(values.iter().copied().map(Value::Integer).collect());
+    for (name, arguments, base, coefficients) in IDENTITY {
+        let entry = field(intrinsics, name)?;
+        exact_fields(
+            entry,
+            &[
+                "intrinsicClass",
+                "typeParameters",
+                "argumentTypes",
+                "returnType",
+                "guardSupport",
+                "footprintTemplate",
+                "costTemplate",
+                "writeClass",
+                "contractVersion",
+                "costRule",
+            ],
+        )?;
+        let rule = field(entry, "costRule")?;
+        exact_fields(rule, &["base", "perArgumentMax"])?;
+        require_text(entry, "intrinsicClass", "pure")?;
+        require_text(entry, "returnType", "Bytes<exact=32>")?;
+        require_text(entry, "writeClass", "none")?;
+        require_text(entry, "contractVersion", "echo.content-address/v1")?;
+        if field(entry, "typeParameters")? != &Value::Array(Vec::new())
+            || field(entry, "guardSupport")? != &Value::Bool(false)
+            || field(entry, "argumentTypes")? != &texts(arguments)
+            || field(rule, "base")? != &Value::Integer(base)
+            || field(rule, "perArgumentMax")? != &integers(coefficients)
+            || text_field(entry, "footprintTemplate")?.is_empty()
+            || text_field(entry, "costTemplate")?.is_empty()
+        {
+            return Err(Error::InvalidArtifact);
+        }
+    }
+    Ok(targets == 1)
+}
+
+/// Whether any call in `value` names an identity intrinsic.
+fn calls_identity(value: &Value, depth: usize) -> Result<bool, Error> {
+    // Core nests at most 64 expression levels inside a bounded envelope.
+    if depth > 256 {
+        return Err(Error::UnsupportedProgram);
+    }
+    Ok(match value {
+        Value::Map(entries) => {
+            if text_field(value, "kind") == Ok("call")
+                && text_field(value, "callee")
+                    .is_ok_and(|callee| IDENTITY.iter().any(|(name, ..)| *name == callee))
+            {
+                return Ok(true);
+            }
+            for (_, entry) in entries {
+                if calls_identity(entry, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            false
+        }
+        Value::Array(items) => {
+            for item in items {
+                if calls_identity(item, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            false
+        }
+        _ => false,
+    })
 }

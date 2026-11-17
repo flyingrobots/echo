@@ -117,6 +117,14 @@ runtime authority. The mutation proposal constructor still rejects query
 operations. Authored reads remain on the separate bounded observer/optic path;
 they are never represented as synthetic mutations.
 
+## Typed function failures
+
+Authored effect programs may call helpers that declare typed failures
+(`core.failure/v1`). A failure ends the helper and its callers up to the
+intent's `attempt`, which ends the run with the mapped terminal obstruction
+and payload; only that arm's payload is evaluated. The public witness is
+`tests/fixtures/edict-effect-typed-failure`.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

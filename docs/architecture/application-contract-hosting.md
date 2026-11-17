@@ -523,6 +523,21 @@ result storage before reserving it. The ordered-read type judgments admit the
 same operations after whole-intent validation, including forward, reversed and
 negated strict bounds on equal-width words (`<`, `>`, and false `>=`/`<=`).
 
+They also implement Amblicit's `Option<T>` (flyingrobots/echo#995) under
+`core.option/v1`: the type, written `Option<T>` or as an `Option` type-table
+entry, and the calls `core.option.some`, `none`, `isSome`, `default` and
+`unwrap`, each with the item `T` as its only type argument. Option is not a
+variant. Each judge requires the operand's item to equal the type argument,
+and admits `unwrap` only on a local that a dominating fact proves present: the
+`isSome(x) == true` predicate of an enclosing `then` arm, its negation on an
+`else` arm, an earlier `all` conjunct or a negated earlier `any` disjunct. The
+compiler's source refinement is not trusted. Amblicit names no Option case
+labels, so a `match` on an Option or an Option variant constructor is refused.
+Option values stay inside helpers: an intent's input and output may not contain
+one, because Echo defines no Option wire encoding. At runtime an absent Option
+is `null` and a present one a one-item array; the providers charge it as one
+value cell plus its item.
+
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
 work bounds, charging the scanned bytes. Fields must have unique, lexically
@@ -1102,7 +1117,7 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
-Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), `function-preconditions-v1` from Amblicit merge `1196396b8cbf30967a943ae170aa8edd972d28ef`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
+Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), `typed-failures-v1` from Amblicit merge `0734b499adb7c79ddbf6b8290256c83d5240731e`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
 
 The current schema includes the authenticated source closure, bounded fold
 expressions and structured Target IR, with phased-domain collision refusals.
@@ -1435,8 +1450,8 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-current Amblicit contract pack `function-preconditions-v1` from PR #318 (revision
-`1196396b8cbf30967a943ae170aa8edd972d28ef`). Echo admits its exact CDDL,
+current Amblicit contract pack `typed-failures-v1` from PR #317 (revision
+`0734b499adb7c79ddbf6b8290256c83d5240731e`). Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact

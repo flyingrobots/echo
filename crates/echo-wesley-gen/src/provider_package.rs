@@ -1987,7 +1987,10 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
         ("echo.dpo.cost/v1", "echo-dpo-cost"),
         ("echo.dpo.fixtures/v1", "echo-provider-conformance-corpus"),
         ("echo.dpo.footprint/v1", "echo-dpo-footprint"),
-        ("echo.dpo.intrinsics/v1", "intrinsics-document"),
+        (
+            "echo.dpo.intrinsics/v1",
+            "echo-frozen-catalog-v1-intrinsics-document",
+        ),
         ("echo.dpo.intrinsics/v2", "intrinsics-document"),
         ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
         ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),

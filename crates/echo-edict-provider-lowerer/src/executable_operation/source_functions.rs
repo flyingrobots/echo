@@ -18,10 +18,14 @@ mod fold_tests;
 #[cfg(test)]
 mod function_precondition_tests;
 mod function_preconditions;
+mod identity;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
 mod ordered_records;
 mod read_cost;
@@ -53,6 +57,8 @@ enum Ty {
         identity: String,
         cases: BTreeMap<String, Option<Ty>>,
     },
+    /// `Option<T>`: a runtime `null`, or a one-item array when present.
+    Option(Box<Ty>),
 }
 impl Ty {
     fn representation(&self) -> &Self {
@@ -124,6 +130,9 @@ struct Judgment<'a> {
     proven_sum: Option<(usize, u64)>,
     /// Declared graph scan allowance charged by every graph read.
     edge_scans: u64,
+    /// Whether the pinned `echo.dpo@2` catalog carries Echo's exact identity
+    /// contracts, which alone admits calls to them.
+    identity: bool,
 }
 
 /// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
@@ -142,7 +151,7 @@ pub(super) fn validate(
     })
 }
 fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
-    let mut proof = judged(core, exports, edge_scans)?;
+    let mut proof = judged(core, exports, edge_scans, false)?;
     // A graph read always needs its whole-intent budget judged.
     if super::map_field(core, "functions").is_none()
         && !unsigned_addition::present(core)?
@@ -158,14 +167,19 @@ fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> 
 /// The worst-case cost of each read intent, for measuring it against the runtime.
 #[cfg(test)]
 fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
-    let mut proof = judged(core, exports, edge_scans)?;
+    let mut proof = judged(core, exports, edge_scans, false)?;
     members(get(core, "intents")?)?
         .iter()
         .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
         .collect()
 }
 /// Inventories the module's helpers and judges every one of them.
-fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Judgment<'a>> {
+fn judged<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    identity: bool,
+) -> Check<Judgment<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
     failure_sets::judge(core, coordinate)?;
@@ -262,6 +276,7 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
         bound: Vec::new(),
         proven_sum: None,
         edge_scans,
+        identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -389,6 +404,12 @@ impl<'a> Judgment<'a> {
                 decimal(max)?,
             ));
         }
+        if let Some(item) = name
+            .strip_prefix("Option<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return Ok(Ty::Option(Box::new(self.ty(item, depth + 1)?)));
+        }
         if let Some(spec) = name
             .strip_prefix("Record<")
             .and_then(|s| s.strip_suffix('>'))
@@ -453,6 +474,12 @@ impl<'a> Judgment<'a> {
                 Ok(Ty::Record(fields))
             }
             "Variant" => self.variant_type(definition, key, &prefix, depth),
+            "Option" => {
+                exact(definition, &["kind", "item"])?;
+                Ok(Ty::Option(Box::new(
+                    self.ty(string(get(definition, "item")?)?, depth + 1)?,
+                )))
+            }
             _ => Err(()),
         }
     }
@@ -795,6 +822,19 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, declared) if option_operations::is_operation(name) => {
+                            let result = self.option_operation(value, actual, declared)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
+                        (name, actual, [])
+                            if self.identity && identity::parameters(name).is_some() =>
+                        {
+                            let (result, charged) = identity::judge(name, actual)?;
+                            cost = cost.plus(charged)?;
+                            result
+                        }
                         (name, actual, declared) if list_operations::is_operation(name) => {
                             let result = self.list_operation(value, actual, declared)?;
                             cost = cost.plus(result.cost)?;
@@ -1064,6 +1104,9 @@ impl<'a> Judgment<'a> {
         }
         let mut scope = BTreeMap::new();
         let ty = self.declaration(input, &mut scope)?;
+        if option_operations::holds_option(&ty) {
+            return Err(());
+        }
         let (copy, validation, _, _) = shape(&ty)?;
         let mut cost = copy.plus(Cost {
             steps: validation,
@@ -1134,7 +1177,7 @@ impl<'a> Judgment<'a> {
         }
         let result = self.expression(get(body, "result")?, &scope, true, 0)?;
         let expected = self.ty(string(get(intent, "output")?)?, 0)?;
-        if !includes(&expected, &result.ty) {
+        if option_operations::holds_option(&expected) || !includes(&expected, &result.ty) {
             return Err(());
         }
         let (scratch, validations, output, _) = shape(&expected)?;
@@ -1150,6 +1193,19 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
         Ty::Variant { identity, cases } => variants::shape(identity, cases),
+        Ty::Option(item) => {
+            // Absent is one cell; present is one cell holding the item.
+            let (copy, validations, encoded, height) = shape(item)?;
+            Ok((
+                Cost {
+                    steps: copy.steps.checked_add(1).ok_or(())?,
+                    bytes: copy.bytes.checked_add(64).ok_or(())?,
+                },
+                validations.checked_add(1).ok_or(())?,
+                encoded.checked_add(9).ok_or(())?,
+                height + 1,
+            ))
+        }
         Ty::Bool => Ok((
             Cost {
                 steps: 1,
@@ -1254,6 +1310,7 @@ fn includes(expected: &Ty, actual: &Ty) -> bool {
                     (None, Some(_)) => false,
                 }
         }
+        (Ty::Option(a), Ty::Option(b)) => includes(a, b),
         (Ty::Record(a), Ty::Record(b)) => {
             a.len() == b.len()
                 && a.iter()
@@ -1272,6 +1329,7 @@ fn union(left: Ty, right: Ty) -> Check<Ty> {
             },
             n.max(m),
         )),
+        (Ty::Option(a), Ty::Option(b)) => Ok(Ty::Option(Box::new(union(*a, *b)?))),
         (Ty::Record(a), Ty::Record(mut b)) if a.keys().eq(b.keys()) => {
             let mut fields = BTreeMap::new();
             for (key, value) in a {

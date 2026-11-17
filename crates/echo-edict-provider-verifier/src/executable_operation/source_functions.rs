@@ -18,10 +18,14 @@ mod fold_tests;
 #[cfg(test)]
 mod function_precondition_tests;
 mod function_preconditions;
+mod identity;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
 mod ordered_records;
 mod read_charge;
@@ -146,7 +150,7 @@ fn each_intent<'a>(
     mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
 ) -> Check<()> {
     let mut types = Types::new(core);
-    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans)?;
+    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans, false)?;
     let mut checker = Checker {
         types: &mut types,
         definitions: &definitions,
@@ -157,6 +161,7 @@ fn each_intent<'a>(
         bound: Vec::new(),
         proven_sum: None,
         edge_scans,
+        identity: false,
     };
     // A graph read always needs its whole-intent charge judged.
     if super::map_field(core, "functions").is_none()
@@ -177,6 +182,7 @@ fn prepare<'a>(
     exports: &'a Value,
     types: &mut Types<'a>,
     edge_scans: u64,
+    identity_admitted: bool,
 ) -> Check<Prepared<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
@@ -257,6 +263,11 @@ fn prepare<'a>(
                         "core.list.at",
                         "core.list.append",
                         "core.list.concat",
+                        "core.option.some",
+                        "core.option.none",
+                        "core.option.isSome",
+                        "core.option.default",
+                        "core.option.unwrap",
                     ]
                     .contains(&callee)
                     {
@@ -274,8 +285,15 @@ fn prepare<'a>(
             callers.entry(edge).or_default().push(name);
         }
     }
-    let summaries = summarize(&definitions, types, pending, &callers, edge_scans)?;
-    preconditions_are_typed(&definitions, &summaries, types)?;
+    let summaries = summarize(
+        &definitions,
+        types,
+        pending,
+        &callers,
+        edge_scans,
+        identity_admitted,
+    )?;
+    preconditions_are_typed(&definitions, &summaries, types, identity_admitted)?;
     // Every call to a precondition-bearing function proves its preconditions
     // from the facts that dominate it, wherever it is in the module.
     let contracts = definitions
@@ -302,6 +320,7 @@ fn preconditions_are_typed<'a>(
     definitions: &BTreeMap<String, Definition<'a>>,
     summaries: &BTreeMap<String, Summary>,
     types: &mut Types<'a>,
+    identity_admitted: bool,
 ) -> Check<()> {
     for definition in definitions.values() {
         if definition.preconditions.is_empty() {
@@ -321,6 +340,7 @@ fn preconditions_are_typed<'a>(
             bound: Vec::new(),
             proven_sum: None,
             edge_scans: 0,
+            identity: identity_admitted,
         };
         for precondition in definition.preconditions {
             checker.predicate(precondition, &frame, 0)?;
@@ -337,6 +357,7 @@ fn summarize<'a, 'n>(
     mut pending: BTreeMap<&'n str, usize>,
     callers: &BTreeMap<&'n str, Vec<&'n str>>,
     edge_scans: u64,
+    identity_admitted: bool,
 ) -> Check<BTreeMap<String, Summary>> {
     let mut ready: BTreeSet<&'n str> = pending
         .iter()
@@ -358,6 +379,7 @@ fn summarize<'a, 'n>(
             bound: Vec::new(),
             proven_sum: None,
             edge_scans,
+            identity: identity_admitted,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -497,6 +519,9 @@ struct Checker<'a, 'b> {
     proven_sum: Option<(usize, u64)>,
     /// Declared graph scan allowance charged by every graph read.
     edge_scans: u64,
+    /// Whether the pinned `echo.dpo@2` catalog was bound to Echo's exact
+    /// identity contracts; only then are identity calls admitted.
+    identity: bool,
 }
 impl<'a> Checker<'a, '_> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -801,95 +826,122 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
-                    if list_operations::is_operation(name) {
-                        list_operations::authority(self.types.module, name, types)?;
-                        for operand in &declared {
-                            height = height.max(operand.measure()?.height + 1);
-                        }
-                    }
-                    height = height.max(1);
-                    let addition_proven = if name == "core.integer.add" {
-                        let [Schema::Word(max)] = declared.as_slice() else {
-                            return Err(());
-                        };
-                        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
-                            return Err(());
-                        }
-                        // The `then`-arm predicates are read only when the
-                        // dominating facts do not prove the sum.
-                        let cap = match unsigned_addition::prove(
-                            value,
-                            *max,
-                            &self.proven,
-                            &self.bound,
-                            self.types,
-                        ) {
-                            Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
-                                value,
-                                *max,
-                                &self.with_branch(),
-                                &self.bound,
-                                self.types,
-                            )?,
-                            judged => judged?,
-                        };
-                        self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
-                        true
-                    } else {
-                        false
-                    };
-                    let order_proven = match name {
-                        "core.list.at" | "core.list.append" => {
-                            self.list_domain(value, &declared)?
-                        }
-                        "core.integer.subtract" => {
-                            let [left, right] = arguments else {
-                                return Err(());
-                            };
-                            order::proven(left, right, &self.proven, self.types)?
-                                || (!self.branch.is_empty()
-                                    && order::proven(left, right, &self.branch, self.types)?)
-                        }
-                        "core.bytes.at" => {
-                            let ([coordinate], [Schema::Blob { low, .. }]) =
-                                (types, declared.as_slice())
-                            else {
-                                return Err(());
-                            };
-                            byte_at::valid(
-                                coordinate,
+                    if option_operations::is_operation(name) {
+                        option_operations::authority(self.types.module)?;
+                        let present = name == "core.option.unwrap"
+                            && option_operations::present(
                                 arguments,
-                                *low,
                                 &self.proven,
                                 &self.path,
                                 self.types,
-                            )?
+                            )?;
+                        let (schema, cost, option_height) =
+                            option_operations::infer(name, &argument_schemas, &declared, present)?;
+                        height = height.max(option_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else {
+                        if list_operations::is_operation(name) {
+                            list_operations::authority(self.types.module, name, types)?;
+                            for operand in &declared {
+                                height = height.max(operand.measure()?.height + 1);
+                            }
                         }
-                        "core.bytes.slice" => {
-                            let [coordinate] = types else {
+                        height = height.max(1);
+                        let addition_proven = if name == "core.integer.add" {
+                            let [Schema::Word(max)] = declared.as_slice() else {
                                 return Err(());
                             };
-                            order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
-                                || (!self.branch.is_empty()
+                            if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+                                return Err(());
+                            }
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
+                            let cap = match unsigned_addition::prove(
+                                value,
+                                *max,
+                                &self.proven,
+                                &self.bound,
+                                self.types,
+                            ) {
+                                Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
+                                    value,
+                                    *max,
+                                    &self.with_branch(),
+                                    &self.bound,
+                                    self.types,
+                                )?,
+                                judged => judged?,
+                            };
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
+                            true
+                        } else {
+                            false
+                        };
+                        let order_proven = match name {
+                            "core.list.at" | "core.list.append" => {
+                                self.list_domain(value, &declared)?
+                            }
+                            "core.integer.subtract" => {
+                                let [left, right] = arguments else {
+                                    return Err(());
+                                };
+                                order::proven(left, right, &self.proven, self.types)?
+                                    || (!self.branch.is_empty()
+                                        && order::proven(left, right, &self.branch, self.types)?)
+                            }
+                            "core.bytes.at" => {
+                                let ([coordinate], [Schema::Blob { low, .. }]) =
+                                    (types, declared.as_slice())
+                                else {
+                                    return Err(());
+                                };
+                                byte_at::valid(
+                                    coordinate,
+                                    arguments,
+                                    *low,
+                                    &self.proven,
+                                    &self.path,
+                                    self.types,
+                                )?
+                            }
+                            "core.bytes.slice" => {
+                                let [coordinate] = types else {
+                                    return Err(());
+                                };
+                                order::slice_in_range(
+                                    coordinate,
+                                    arguments,
+                                    &self.proven,
+                                    self.types,
+                                )? || (!self.branch.is_empty()
                                     && order::slice_in_range(
                                         coordinate,
                                         arguments,
                                         &self.with_branch(),
                                         self.types,
                                     )?)
-                        }
-                        _ => false,
-                    };
-                    let (schema, intrinsic) = intrinsic(
-                        name,
-                        arguments,
-                        &argument_schemas,
-                        &declared,
-                        addition_proven,
-                        order_proven,
-                    )?;
-                    charge.append(intrinsic)?;
-                    schema
+                            }
+                            _ => false,
+                        };
+                        let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
+                            if !declared.is_empty() {
+                                return Err(());
+                            }
+                            identity::infer(name, &argument_schemas)?
+                        } else {
+                            intrinsic(
+                                name,
+                                arguments,
+                                &argument_schemas,
+                                &declared,
+                                addition_proven,
+                                order_proven,
+                            )?
+                        };
+                        charge.append(intrinsic)?;
+                        schema
+                    }
                 }
             }
             _ => return Err(()),
@@ -1013,6 +1065,9 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let input_type = self.types.local(input)?;
+        if option_operations::contains_option(&input_type) {
+            return Err(());
+        }
         let size = input_type.measure()?;
         let mut charge = size.copy;
         charge.append(Charge {
@@ -1077,7 +1132,7 @@ impl<'a> Checker<'a, '_> {
         }
         let output = self.expression(get(body, "result")?, &frame, 0)?;
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
-        if !expected.encloses(&output.schema) {
+        if option_operations::contains_option(&expected) || !expected.encloses(&output.schema) {
             return Err(());
         }
         let size = expected.measure()?;

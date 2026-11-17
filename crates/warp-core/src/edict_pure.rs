@@ -17,6 +17,9 @@ pub(crate) mod failure_sets;
 mod fold_tests;
 mod function_preconditions;
 pub(crate) mod functions;
+mod identity;
+#[cfg(test)]
+mod identity_tests;
 mod list_operations;
 #[cfg(test)]
 mod list_operations_tests;
@@ -26,6 +29,9 @@ mod list_preparation_tests;
 mod list_tests;
 mod matches;
 pub(crate) mod model;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod ordered_records;
 pub(crate) mod proven_order;
 pub(crate) mod syntax;
@@ -96,6 +102,9 @@ pub enum EvaluationError {
     /// `attempt` mapped it. Judgment proves every failure is mapped, so a
     /// judged program never returns this.
     UnmappedFailure(String),
+    /// A content-address call named the same (edge type, target) outgoing
+    /// edge more than once. The edge set is refused, never deduplicated.
+    DuplicateOutgoingEdge,
 }
 
 /// Evaluates exact compiler-produced package bytes under a verified host pin.

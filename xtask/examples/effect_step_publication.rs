@@ -439,8 +439,9 @@ fn lawpack_for(
     Ok(lawpack)
 }
 
-/// Compiles the program as a control and requires Echo's lowerer to refuse it
-/// with a message containing `expected`.
+/// Compiles the program as a control and requires it to be refused with
+/// diagnostic `kind` (Echo's lowerer unless stated) and a message containing
+/// `expected`.
 #[allow(clippy::too_many_arguments)]
 fn control(
     arguments: &Arguments,
@@ -449,7 +450,7 @@ fn control(
     application: &serde_json::Value,
     authored: &str,
     provider: &Path,
-    expected: &str,
+    (expected_kind, expected): (&str, &str),
     receipt: &mut serde_json::Value,
 ) -> Result<()> {
     let root = arguments.work_root.join(name);
@@ -478,11 +479,11 @@ fn control(
         refused.exit_code
     );
     if refused.exit_code != 2
-        || kind != "ProviderLowererRefused"
+        || kind != expected_kind
         || !message.contains(expected)
         || application_root.join("application-output").exists()
     {
-        bail!("{name} was not refused at Echo's lowerer: {kind} {message}");
+        bail!("{name} was not refused as {expected_kind}: {kind} {message}");
     }
     println!("PUBLIC_EFFECT_STEP_REFUSAL_OK {name}");
     Ok(())
@@ -525,7 +526,10 @@ fn zero_failure_control(
         application,
         &program,
         &arguments.provider,
-        "the compiled effect program is outside the checked profile",
+        (
+            "ProviderLowererRefused",
+            "the compiled effect program is outside the checked profile",
+        ),
         receipt,
     )
 }
@@ -643,7 +647,23 @@ fn main() -> Result<()> {
         &dpo_application,
         &authored,
         &arguments.provider,
-        "the compiled effect program is outside the checked profile",
+        // A program requiring target pure intrinsics (echo#972) names the
+        // echo.dpo@2 catalog; the frozen echo.dpo@1 profile pins another, so
+        // the compiler's catalog admission refuses it before any lowerer.
+        if authored_application["target"]
+            .get("pureIntrinsics")
+            .is_some()
+        {
+            (
+                "TargetIntrinsicDigestMismatch",
+                "target pure intrinsic admission failed",
+            )
+        } else {
+            (
+                "ProviderLowererRefused",
+                "the compiled effect program is outside the checked profile",
+            )
+        },
         &mut receipt,
     );
 
@@ -659,7 +679,20 @@ fn main() -> Result<()> {
         &authored_application,
         &authored,
         &substituted,
-        "accepts only the exact checked Echo target profiles",
+        // The source's `use target` pins the checked profile's digest, so
+        // under a substituted profile the compiler resolves none of the
+        // target pure intrinsics it calls.
+        if authored_application["target"]
+            .get("pureIntrinsics")
+            .is_some()
+        {
+            ("UnresolvedFunction", "has no compiler context fact")
+        } else {
+            (
+                "ProviderLowererRefused",
+                "accepts only the exact checked Echo target profiles",
+            )
+        },
         &mut receipt,
     );
     let zero_failure_results = zero_failure_control(

@@ -103,6 +103,35 @@ pub(crate) enum Expr {
     },
     /// Ends the enclosing source helper with this declared failure.
     Fail(String),
+    /// A `core.option.*` call; `item` is its one type argument.
+    Option {
+        operation: OptionOperation,
+        item: RuntimeType,
+        args: Vec<Expr>,
+    },
+    /// One of Echo's pure identity intrinsics over its operands, in call order.
+    Identity(IdentityIntrinsic, Vec<Expr>),
+}
+
+/// The closed `core.option/v1` operation set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OptionOperation {
+    Some,
+    None,
+    IsSome,
+    Default,
+    Unwrap,
+}
+
+/// The `ContentAddressV1` identity a pure call computes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IdentityIntrinsic {
+    /// `echo.dpo@2.contentAddress`: a content node id.
+    ContentAddress,
+    /// `echo.dpo@2.contentEdgeId`: the id of an edge from a content node.
+    ContentEdgeId,
+    /// `echo.dpo@2.slotEdgeId`: the id of an edge from a mutable node.
+    SlotEdgeId,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -152,6 +181,8 @@ pub(crate) enum RuntimeType {
         identity: String,
         cases: BTreeMap<String, Option<RuntimeType>>,
     },
+    /// `Option<T>`: a runtime `null` when absent, a one-item array when present.
+    Option(Box<RuntimeType>),
 }
 
 impl RuntimeType {
@@ -162,6 +193,18 @@ impl RuntimeType {
             ty = inner;
         }
         ty
+    }
+
+    /// Whether an `Option` occurs anywhere in this type.
+    pub(crate) fn holds_option(&self) -> bool {
+        match self {
+            Self::Option(_) => true,
+            Self::List { item, .. } => item.as_deref().is_some_and(Self::holds_option),
+            Self::Record(fields) => fields.iter().any(|(_, ty)| ty.holds_option()),
+            Self::Nominal(_, inner) => inner.holds_option(),
+            Self::Variant { cases, .. } => cases.values().flatten().any(Self::holds_option),
+            Self::Bool | Self::Unsigned(_) | Self::Bytes { .. } => false,
+        }
     }
 }
 

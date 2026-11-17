@@ -248,6 +248,14 @@ pub fn profile_names(namespace: &str) -> (&'static str, &'static str) {
         _ => panic!("fixture namespace"),
     }
 }
+/// The catalog API each of Echo's effect target profiles pins.
+pub fn catalog_api(namespace: &str) -> &'static str {
+    match namespace {
+        "echo.dpo@1" => "edict.target-profile.intrinsics/v1",
+        "echo.dpo@2" => "edict.target-profile.intrinsics/v2",
+        _ => panic!("fixture namespace"),
+    }
+}
 /// [`lowering_fixture_inputs`] under the target profile `namespace` names: the
 /// captured profile takes that coordinate, intrinsic namespace and catalog
 /// coordinate, and the adapter accepts it. Intrinsic names inside the supplied
@@ -338,6 +346,9 @@ pub fn lowering_fixture_in(
             ),
         ])
     });
+    let mut catalog = catalog;
+    // The frozen echo.dpo@1 catalog is API v1; echo.dpo@2's is catalog v2.
+    set(&mut catalog, "apiVersion", text(catalog_api(namespace)));
     let mut target_profile = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/profile.hex"
     ));

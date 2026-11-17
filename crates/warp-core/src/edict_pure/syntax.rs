@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use echo_edict_canonical::CanonicalValueV1 as Value;
 
-use super::model::{Comparison, Expr, Predicate, RuntimeType, MAX_DEPTH};
+use super::model::{Comparison, Expr, IdentityIntrinsic, Predicate, RuntimeType, MAX_DEPTH};
 use super::values::{array, bytes, exact_fields, field, map, number, text, text_field};
 use super::EvaluationError as Error;
 
@@ -238,6 +238,9 @@ impl Parser<'_> {
         let types = array(field(value, "typeArgs")?)?;
         if super::list_operations::is_operation(callee) {
             return super::list_operations::parse(self, callee, args, types, depth);
+        }
+        if let Some(intrinsic) = IdentityIntrinsic::named(callee) {
+            return super::identity::parse(self, intrinsic, args, types, depth);
         }
         if callee == "core.bytes.isUtf8" {
             let ([value], [coordinate]) = (args, types) else {

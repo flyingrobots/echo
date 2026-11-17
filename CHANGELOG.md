@@ -17,7 +17,7 @@
   are refused by all three. A shared corpus fixes the verdicts at each width's
   bounds, and warp-core executes each accepted case. A public compiler witness
   publishes every checked form and `min`/`max` through the promoted provider
-  package (lowerer `0cc56654`, verifier `2a267368`) and the runtime checks
+  package (lowerer `168eb90f`, verifier `ec3f0f26`) and the runtime checks
   each result at the type bounds. Artifacts without these calls are judged as
   before.
 - Typed pure-function failures (`core.failure/v1`, #996). The runtime, the

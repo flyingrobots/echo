@@ -123,9 +123,9 @@ route's fixed 64 KiB output ceiling.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 788,223-byte checked
+transport-to-model conversion. Its reproducibly built 809,928-byte checked
 component has SHA-256
-`252d3f67e7d18e8f06db4e78055c4e89d7255f6254d9b960678917bee897a892`.
+`5b15c6b67038dd9af7ce22aa95d0ef3c68b959e3620f5d76c93a2545ef511597`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

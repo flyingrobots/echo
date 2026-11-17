@@ -523,6 +523,19 @@ one, because Echo defines no Option wire encoding. At runtime an absent Option
 is `null` and a present one a one-item array; the providers charge it as one
 value cell plus its item.
 
+They also implement Amblicit's checked integer calls and `min`/`max`
+(flyingrobots/echo#998): `core.integer.checkedAdd`, `checkedSub`, `checkedMul`,
+`checkedDiv`, `checkedRem`, `min` and `max`. Each call takes exactly one width
+type argument, `U8`, `U32` or `U64`, and two operands of exactly that width, as
+native Target types it. A checked call returns `Option<W>` and requires
+`core.option/v1`; it is absent on overflow, underflow or a zero divisor.
+Division truncates. `min` and `max` return `W` and need no capability. Each
+judge keeps their upper bounds for later unsigned-addition proofs: `min` is
+bounded by either operand, `max` by the larger. Unknown `core.integer` names,
+other widths and mismatched operands are refused. Every call is charged two
+operand validations and one copied word, plus a presence cell for a present
+checked result.
+
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
 work bounds, charging the scanned bytes. Fields must have unique, lexically

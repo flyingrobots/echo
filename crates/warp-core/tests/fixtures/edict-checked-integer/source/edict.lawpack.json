@@ -1,0 +1,130 @@
+{
+  "schema": "edict.lawpack-build/v1",
+  "outputDirectory": "vendor/effect-program",
+  "lawpack": {
+    "schema": "edict.lawpack-authoring/v1",
+    "id": "consumer.effect",
+    "version": "1",
+    "acceptedCoreAbi": [
+      "edict.core/v1"
+    ],
+    "dependencies": [],
+    "exportsCoordinate": "consumer.effect.exports/v1",
+    "exports": {
+      "types": [
+        {
+          "coordinate": "consumer.effect@1.Count",
+          "definition": "U64"
+        }
+      ],
+      "constants": [],
+      "pureFunctions": [],
+      "effects": [],
+      "obstructions": [],
+      "operationProfiles": {
+        "consumer.effect@1.graphEffects": {
+          "opticTemplate": {
+            "opticKind": "affectReintegration",
+            "boundaryKind": "affect",
+            "supportPolicy": "consumer.effect@1.basisBoundSupport",
+            "lossDisposition": "consumer.effect@1.lossless",
+            "basisTemplate": "consumer.effect@1.exactHeadBasis",
+            "apertureRequirement": {
+              "kind": "abstractFootprintObligation",
+              "reference": "consumer.effect@1.emptyFootprint"
+            }
+          },
+          "effectPredicate": "consumer.effect@1.noEffects"
+        }
+      }
+    },
+    "targetAdapters": [
+      {
+        "coordinate": "consumer.effect.echo-adapter/v1",
+        "output": "adapter.cbor",
+        "acceptedTargetProfile": {
+          "id": "echo.dpo@1",
+          "digest": "sha256:2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04"
+        },
+        "acceptedTargetIr": {
+          "id": "echo.span-ir/v2",
+          "digest": "sha256:123e7f805dc5e831e88befec4cd49ec02c39858b6f3990da8a73b50c6086ae39"
+        },
+        "operationProfiles": {
+          "consumer.effect@1.graphEffects": {
+            "core": "continuum.profile.graph-effects/v1",
+            "semanticEffects": [],
+            "budgetObligation": "consumer.effect@1.budget",
+            "targetConfiguration": {
+              "local": "echo-config"
+            }
+          }
+        },
+        "effectImplementations": {},
+        "budgets": {
+          "consumer.effect@1.budget": {
+            "maxSteps": 4096,
+            "maxAllocatedBytes": 65536,
+            "maxOutputBytes": 64
+          }
+        }
+      }
+    ],
+    "verifier": {
+      "class": "declarative",
+      "ruleset": {
+        "local": "verifier-rules"
+      }
+    },
+    "compatibility": {
+      "id": "consumer.effect.compatibility/v1",
+      "digest": "sha256:2adf83f798205f52636ad64ca45178f33a8e1cc663874f8a6113484c945e3052"
+    },
+    "conformanceFixtureCorpus": {
+      "id": "consumer.effect.oracle@1",
+      "digest": "sha256:b9b4707dd5e07897cbe7af36d88928401887e6af5d167d1a88a8d6181b4dbb0e"
+    },
+    "localResources": [
+      {
+        "name": "echo-config",
+        "coordinate": "echo.operation-lowering-configuration/v1",
+        "output": "echo-operation-configuration.cbor",
+        "value": {
+          "apiVersion": "echo.operation-lowering-configuration/v1",
+          "programKind": "edict-effect-program/v1",
+          "identityLaw": 1,
+          "intrinsicCatalog": {
+            "$edictBytes": "a26a61706956657273696f6e782265646963742e7461726765742d70726f66696c652e696e7472696e736963732f76316a696e7472696e73696373a1726563686f2e64706f40312e7265706c616365ab6a6566666563744b696e64677265706c6163656a72657475726e547970656d612e6240312e526563656970746a7772697465436c617373677265706c6163656c636f737454656d706c617465737461726765742e7265706c6163652e636f73746c6775617264537570706f7274f56d617267756d656e7454797065738168612e6240312e49646e6566666563744661696c75726573a16872656a6563746564a26b7061796c6f616454797065777461726765742e7265706c6163652e72656a65637465646e617574686f72697479436c6173736e646f6d61696e4d61707061626c656e696e7472696e736963436c617373666566666563746e74797065506172616d65746572738071666f6f747072696e7454656d706c61746578187461726765742e7265706c6163652e666f6f747072696e74781b63616e5061727469636970617465496e41746f6d69634775617264f5"
+          },
+          "graphSchema": {
+            "$edictBytes": "a26a656467655f7479706573a06a6e6f64655f7479706573a0"
+          },
+          "footprintLaw": {
+            "$edictBytes": "a9696d61785f7265616473006a61746f6d5f7479706573806a6d61785f777269746573006f6d61785f72616e67655f6564676573006f726561645f6e6f64655f7479706573807072616e67655f656467655f7479706573807077726974655f656467655f7479706573807077726974655f6e6f64655f74797065738072706f7274616c5f6f776e65725f747970657380"
+          },
+          "maxInputBytes": 128,
+          "maxResultBytes": 64,
+          "maxAllocatedBytes": 65536,
+          "budgetCeiling": {
+            "steps": 4096,
+            "readBytes": 0,
+            "writeBytes": 0
+          },
+          "authorityProfile": "consumer.effect.authority/v1"
+        }
+      },
+      {
+        "name": "verifier-rules",
+        "coordinate": "consumer.effect.verifier-rules/v1",
+        "output": "verifier-rules.cbor",
+        "value": {
+          "schema": "consumer.effect.schema@1",
+          "schemaDigest": "sha256:f49b0ff6c9c7010d3a72b46734d47832853f496739a083edc41dddec3431bac7",
+          "oracleIsExecutableInput": false,
+          "runtimeOntology": "generic-bounded-graph"
+        }
+      }
+    ]
+  },
+  "dependencyBundles": []
+}

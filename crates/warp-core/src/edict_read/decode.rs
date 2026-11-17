@@ -215,6 +215,15 @@ fn graph_reads(configuration: &Value, coordinate: &str) -> Result<Option<GraphRe
             "graphReads",
         ],
     )?;
+    graph_declaration(declared, coordinate).map(Some)
+}
+
+/// One `graphReads` record: the scan, node and depth ceilings and, when
+/// declared, the selector helper, qualified by the module `coordinate`.
+///
+/// The bounded-read configuration and the authored-effect package carry the
+/// same record, so both routes bound graph reads identically.
+pub(crate) fn graph_declaration(declared: &Value, coordinate: &str) -> Result<GraphReads, Error> {
     let mut names = vec!["maxEdgeScans", "maxClosureNodes", "maxClosureDepth"];
     let selector = if let Ok(name) = field(declared, "closureSelector") {
         names.push("closureSelector");
@@ -239,7 +248,7 @@ fn graph_reads(configuration: &Value, coordinate: &str) -> Result<Option<GraphRe
     {
         return Err(Error::InvalidArtifact);
     }
-    Ok(Some(graph))
+    Ok(graph)
 }
 
 fn envelope(package: &Value, graph_reads: bool) -> Result<(), Error> {

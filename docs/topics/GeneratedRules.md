@@ -1019,8 +1019,9 @@ the image's basis. A differing length, or a source absent there, refuses with
 only, not values or the basis identity, and allocates nothing. It confirms the
 sizes an image records; it cannot tell that a refused scan's witness was
 removed, since that refusal leaves no range row. Only re-evaluation at the basis
-detects that. No runtime path calls it yet; the first consumer is
-[#982](https://github.com/flyingrobots/echo/issues/982).
+detects that. Effect derivation calls it on the parent it has matched to the
+image's basis and refuses a mismatch as `OriginMismatch`
+([#982](https://github.com/flyingrobots/echo/issues/982)).
 
 Export is bounded host retention work, outside the consumed evaluation budget.
 The caller's output limit intersects the fixed 16 MiB ceiling; the temporary
@@ -1194,8 +1195,9 @@ are published; effect steps fail closed at the judgment.
 `echo.dpo@2` is the second, separately versioned target profile in the checked
 provider package (`target-profile.echo-dpo-2`). It is `echo.dpo@1` with its own
 version, intrinsic namespace, catalog and Target IR declaration: its catalog,
-`echo.dpo.intrinsics/v2`, declares the six runtime intrinsics as
-`echo.dpo@2.node-atom-read`, `echo.dpo@2.ensure-node`, `echo.dpo@2.create-node`,
+`echo.dpo.intrinsics/v2`, declares the eight runtime intrinsics as
+`echo.dpo@2.node-atom-read`, `echo.dpo@2.outgoing-edge-read`,
+`echo.dpo@2.closure-read`, `echo.dpo@2.ensure-node`, `echo.dpo@2.create-node`,
 `echo.dpo@2.replace-atom`, `echo.dpo@2.ensure-edge` and
 `echo.dpo@2.replace-edge`, each typed by its ABI coordinates
 (`<name>.input`, `<name>.result`), and it names the structured `echo.span-ir/v3`
@@ -1234,6 +1236,39 @@ takes a lawpack's empty failure set on trust, the judgments' failure-set
 equality checks are the backstop: an effect that declares and maps no failures
 but is bound to `node-atom-read`, which pins four, is refused by the lowerer,
 the verifier and the runtime.
+
+#### Graph reads in effect programs
+
+An authored effect program may call `echo.dpo@2.outgoing-edge-read` and
+`echo.dpo@2.closure-read` as effect steps and use what they read in the
+effects it commits ([#982](https://github.com/flyingrobots/echo/issues/982)).
+Each is the bounded-read route's primitive with that route's ABI, and each
+catalog failure name maps to the runtime tag that route records:
+`edgeSourceMissing`, `edgeBoundExceeded` and `edgeScanBoundExceeded`;
+`closureStartMissing`, `closureNodeBoundExceeded`,
+`closureDepthBoundExceeded`, `closureScanBoundExceeded` and
+`closureWorkBoundExceeded` are `resourceFault`, `closureSelectorInsufficient`
+is `domainMappable` and `closureStorageMalformed` is `integrityFault`.
+
+As on the bounded-read route, the lowering configuration declares graph reads
+with the optional `graphReads` record (`maxEdgeScans`, `maxClosureNodes`,
+`maxClosureDepth`, and `closureSelector` for a closure), and the package
+carries it. The runtime, the lowerer and the verifier each refuse a graph-read
+step without the declaration, a declaration no step uses (in any block,
+including loop bodies and branch arms), and a closure without a conforming
+selector helper. Both providers charge each graph read the work a recording
+frame pays for its whole scan allowance and its recorded ranges and nodes, and
+do not count it as a mutation. A package without graph reads keeps its exact
+bytes.
+
+At run time the read runs over the recording frame, under one scan allowance
+per evaluation, so the effect's read image records every scanned bucket's size.
+Derivation confirms those sizes at the image's basis, including buckets in a
+child warp, and a stale basis refuses with `BasisMismatch` before any read.
+The public witness `crates/warp-core/tests/fixtures/edict-effect-graph-read`
+reads a node's outgoing edges and links another node to the target of the first
+edge it read; the same program under `echo.dpo@1`, or under a substituted
+`echo.dpo@2` profile, is refused at the lowerer.
 
 #### Structured effect control under `echo.dpo@2`
 

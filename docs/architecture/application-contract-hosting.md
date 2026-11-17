@@ -1298,8 +1298,9 @@ whether the scan ran or was refused at the scan bound. The size that decided
 each scan's bound and charge is therefore evidence, and `confirm_bucket_sizes`
 refuses an image whose recorded size differs from the bucket at its basis with
 `BucketSizeMismatch`; the layout is in
-[Generated Rules](../topics/GeneratedRules.md). Admitting graph reads into
-authored effect programs is separate work
+[Generated Rules](../topics/GeneratedRules.md). Authored effect programs may
+call the same reads as `echo.dpo@2` effect steps; effect derivation confirms
+their bucket sizes at the image's basis
 ([#982](https://github.com/flyingrobots/echo/issues/982)). A read image carrying a second, conflicting
 observation of one slot is refused as `InvalidImage`; a stale basis refuses
 with `BasisMismatch` before any read.

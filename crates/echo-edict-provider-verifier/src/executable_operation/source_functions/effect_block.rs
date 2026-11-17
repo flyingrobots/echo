@@ -14,6 +14,7 @@ use super::effect_intent::{abi, EffectSite};
 use super::{
     exact, get, members, sequence, string, unsigned, Charge, Check, Checker, Frame, Schema, Value,
 };
+use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -62,6 +63,8 @@ pub(super) struct Audit<'s, 'a> {
     pub(super) seen: BTreeSet<&'a str>,
     /// Failure binders, spent by their own arm and never in scope.
     pub(super) binders: BTreeSet<&'a str>,
+    /// The package's graph-read declaration (echo#982).
+    pub(super) graph: Option<GraphReads<'s>>,
 }
 impl<'a> Audit<'_, 'a> {
     fn first_use(&mut self, local: &'a Value) -> Check<&'a str> {
@@ -324,8 +327,11 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let output = self.types.resolve(&site.output, 0)?;
-        let cost = abi(&site.intrinsic, &input, &output)?;
-        if operation(&site.intrinsic) != Some("node-atom-read") {
+        let cost = match site.graph_read() {
+            Some(read) => self.graph_read_charge(read, &input, &output, audit.graph)?,
+            None => abi(&site.intrinsic, &input, &output)?,
+        };
+        if operation(&site.intrinsic) != Some("node-atom-read") && site.graph_read().is_none() {
             tally.mutations = 1;
         }
         let arms = members(get(node, "obstructionMap")?)?;

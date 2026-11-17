@@ -7,6 +7,16 @@
 
 ### Added
 
+- Amblicit `Option<T>` values (#995, the Echo half of amblicit#261).
+  warp-core, the provider lowerer and the provider verifier each admit
+  `core.option/v1`, the `Option<T>` type and the calls
+  `core.option.{some,none,isSome,default,unwrap}<T>`, and independently
+  re-prove that every `unwrap` operand is a local that a dominating `isSome`
+  fact proves present, so pure helpers may build, test and consume Options.
+  Option matches, Option variant constructors, ill-typed calls, a missing
+  capability and Option-valued intent inputs or outputs are refused by all
+  three. A shared corpus fixes the verdicts and warp-core executes each
+  accepted case. Artifacts without Option calls are judged as before.
 - Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
   warp-core, the provider lowerer and the provider verifier each admit a
   function's Core `preconditions` as Amblicit `1196396b` specifies them, judge

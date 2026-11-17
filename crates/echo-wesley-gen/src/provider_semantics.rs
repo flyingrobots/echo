@@ -713,6 +713,34 @@ pub struct EffectTargetProfileDeclaration {
     pub target_ir_domain: String,
     /// The runtime intrinsics the catalog declares.
     pub intrinsics: Vec<RuntimeIntrinsicDeclaration>,
+    /// Monomorphic pure intrinsics the catalog declares, each with a complete
+    /// catalog v2 contract.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pure_intrinsics: Vec<PureIntrinsicDeclaration>,
+    /// Named types the pure signatures reference, keyed by their name below
+    /// the namespace (`<namespace>.<name>`); each is a structural type.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub types: BTreeMap<String, String>,
+}
+
+/// One pure intrinsic named `<namespace>.<operation>`, with the catalog v2
+/// contract the compiler and both providers judge calls against.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PureIntrinsicDeclaration {
+    /// Operation below the profile namespace, such as `contentAddress`.
+    pub operation: String,
+    /// Ceiling type of each operand, in call order.
+    pub argument_types: Vec<String>,
+    /// Result type.
+    pub return_type: String,
+    /// Exact semantic version of the constructor's contract.
+    pub contract_version: String,
+    /// Steps for one call: `base` plus, per argument, its coefficient times
+    /// the operand's verified size bound.
+    pub cost_base: u64,
+    /// One coefficient per argument.
+    pub cost_per_argument_max: Vec<u64>,
 }
 
 /// One runtime effect intrinsic, named `<namespace>.<operation>`, whose ABI
@@ -3452,7 +3480,7 @@ fn validate_effect_target_profiles<'a>(
         require_resource(
             resources,
             &profile.intrinsics_resource,
-            Some("edict.target-profile.intrinsics/v1"),
+            Some("edict.target-profile.intrinsics/v2"),
             Some(ArtifactResourceProvision::Generated),
             &profile.artifact_role,
             used_resources,
@@ -3491,6 +3519,30 @@ fn validate_effect_target_profiles<'a>(
                     return Err(mismatch(&failure.key));
                 }
             }
+        }
+        for pure in &profile.pure_intrinsics {
+            let valid_operation = pure
+                .operation
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase())
+                && pure.operation.bytes().all(|byte| byte.is_ascii_alphanumeric());
+            if !valid_operation
+                || !operations.insert(pure.operation.as_str())
+                || pure.contract_version.is_empty()
+                || pure.return_type.is_empty()
+                || pure.argument_types.iter().any(String::is_empty)
+                || pure.cost_per_argument_max.len() != pure.argument_types.len()
+            {
+                return Err(mismatch(&pure.operation));
+            }
+        }
+        if let Some((name, _)) = profile.types.iter().find(|(name, definition)| {
+            name.is_empty()
+                || !name.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                || !definition.starts_with("Record<")
+        }) {
+            return Err(mismatch(name));
         }
     }
     Ok(())
@@ -3825,9 +3877,10 @@ pub(crate) fn generated_resource_root(role: &str) -> Option<&'static str> {
         "resource.target-bundle-profile" => Some("echo-dpo-bundle"),
         "resource.target-cost-algebra" => Some("echo-dpo-cost"),
         "resource.target-footprint-algebra" => Some("echo-dpo-footprint"),
-        "resource.target-intrinsics" | "resource.target-intrinsics-2" => {
-            Some("intrinsics-document")
-        }
+        // The frozen echo.dpo@1 catalog keeps its original owning schema
+        // (#985); the current echo.dpo@2 catalog is upstream catalog v2.
+        "resource.target-intrinsics" => Some("echo-frozen-catalog-v1-intrinsics-document"),
+        "resource.target-intrinsics-2" => Some("intrinsics-document"),
         "resource.target-ir" | "resource.target-ir-2" => Some("echo-span-ir"),
         "resource.target-lowerer-contract" => Some("echo-dpo-lowerer"),
         "resource.target-obstruction-taxonomy" => Some("echo-dpo-obstructions"),

@@ -549,6 +549,7 @@ fn match_populated_frame_accounting() -> super::Check<()> {
                 bound: vec![],
                 proven_sum: None,
                 edge_scans: 0,
+                identity: false,
             };
             let fact = checker.expression(&f.expression, &frame, 0)?;
             let measured = (

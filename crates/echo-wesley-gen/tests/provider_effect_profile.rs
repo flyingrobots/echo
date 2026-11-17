@@ -190,12 +190,17 @@ fn echo_dpo_2_catalog_declares_exactly_the_runtime_intrinsics() {
     let catalog = output(&artifacts, "resource.target-intrinsics-2").canonical_value();
     assert_eq!(
         text(field(catalog, "apiVersion")),
-        "edict.target-profile.intrinsics/v1"
+        "edict.target-profile.intrinsics/v2"
     );
     let declared = entries(field(catalog, "intrinsics"));
     let mut expected: Vec<_> = RUNTIME_INTRINSICS
         .iter()
         .map(|(operation, _, _)| format!("echo.dpo@2.{operation}"))
+        .chain(
+            PURE_INTRINSICS
+                .iter()
+                .map(|(operation, _, _, _)| format!("echo.dpo@2.{operation}")),
+        )
         .collect();
     expected.sort();
     let mut names: Vec<_> = declared.iter().map(|(key, _)| text(key)).collect();
@@ -230,5 +235,78 @@ fn echo_dpo_2_catalog_declares_exactly_the_runtime_intrinsics() {
             assert_eq!(text(field(entry, "authorityClass")), *authority, "{name}");
             assert_eq!(text(field(entry, "payloadType")), format!("{name}.input"));
         }
+    }
+}
+
+const ID: &str = "Bytes<exact=32>";
+/// Oracle: the identity intrinsic contract in
+/// `docs/architecture/authored-operation-effects.md` (Identity intrinsics):
+/// operand ceilings and the minimum per-call step cost.
+const PURE_INTRINSICS: [(&str, &[&str], u64, &[u64]); 3] = [
+    (
+        "contentAddress",
+        &[
+            ID,
+            ID,
+            ID,
+            "Bytes<max=1048576>",
+            "List<echo.dpo@2.OutgoingEdge,max=16>",
+        ],
+        71,
+        &[0, 0, 0, 1, 67],
+    ),
+    ("contentEdgeId", &[ID, ID, ID, ID], 70, &[0, 0, 0, 0]),
+    ("slotEdgeId", &[ID, ID, ID], 69, &[0, 0, 0]),
+];
+
+#[test]
+fn echo_dpo_2_catalog_publishes_the_identity_contracts() {
+    let artifacts = generate();
+    let catalog = output(&artifacts, "resource.target-intrinsics-2").canonical_value();
+    let ints = |values: &[u64]| {
+        Value::Array(
+            values
+                .iter()
+                .map(|value| Value::Integer(i128::from(*value)))
+                .collect(),
+        )
+    };
+    for (operation, arguments, base, per_argument) in PURE_INTRINSICS {
+        let name = format!("echo.dpo@2.{operation}");
+        let intrinsic = field(field(catalog, "intrinsics"), &name);
+        assert_eq!(text(field(intrinsic, "intrinsicClass")), "pure", "{name}");
+        assert_eq!(field(intrinsic, "typeParameters"), &Value::Array(vec![]));
+        assert_eq!(
+            field(intrinsic, "argumentTypes"),
+            &Value::Array(arguments.iter().map(|ty| Value::Text((*ty).into())).collect()),
+            "{name}"
+        );
+        assert_eq!(text(field(intrinsic, "returnType")), ID, "{name}");
+        assert_eq!(field(intrinsic, "guardSupport"), &Value::Bool(false));
+        assert_eq!(text(field(intrinsic, "writeClass")), "none");
+        assert_eq!(
+            text(field(intrinsic, "contractVersion")),
+            "echo.content-address/v1"
+        );
+        let rule = field(intrinsic, "costRule");
+        assert_eq!(field(rule, "base"), &Value::Integer(i128::from(base)), "{name}");
+        assert_eq!(field(rule, "perArgumentMax"), &ints(per_argument), "{name}");
+    }
+    assert_eq!(
+        field(field(catalog, "types"), "echo.dpo@2.OutgoingEdge"),
+        &Value::Text("Record<edgeType:Bytes<exact=32>,to:Bytes<exact=32>>".into())
+    );
+}
+
+#[test]
+fn frozen_echo_dpo_1_catalog_declares_no_identity_intrinsic() {
+    let artifacts = generate();
+    let catalog = output(&artifacts, "resource.target-intrinsics").canonical_value();
+    assert_eq!(
+        text(field(catalog, "apiVersion")),
+        "edict.target-profile.intrinsics/v1"
+    );
+    for (key, _) in entries(field(catalog, "intrinsics")) {
+        assert!(!text(key).contains("contentAddress") && !text(key).contains("EdgeId"));
     }
 }

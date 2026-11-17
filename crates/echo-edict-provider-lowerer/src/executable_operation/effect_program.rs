@@ -81,7 +81,9 @@ fn effect_kind(intrinsic: &str) -> Option<&'static str> {
 
 /// Judges compiler-produced effect-program bytes.
 pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
+    let e972_t = std::time::Instant::now(); // E972-TEMP
     let bundle = decode(compiled_program).map_err(|_| ())?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     exact(
         &bundle,
         &[
@@ -93,22 +95,33 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
             "lowering_artifacts",
         ],
     )?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     equal_text(
         &bundle,
         "schema",
         "echo.compiler-produced-effect-program/v1",
     )?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let intent_name = nonempty(get(&bundle, "intent")?)?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let embedded = |key| decode(bytes(get(&bundle, key)?)?).map_err(|_| ());
     let module = embedded("core_artifact")?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let target = embedded("target_ir_artifact")?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let exports = embedded("lawpack_exports_artifact")?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let structured = artifacts(&module, &target, &exports)?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let intent = get(get(&module, "intents")?, intent_name)?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let lowered = get(get(&target, "intents")?, intent_name)?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     binding(intent, lowered)?;
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let pairs = correspondence(intent, lowered, structured)?;
-    let sites = relation(
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
+    let (sites, identity) = relation(
         &module,
         intent,
         &target,
@@ -116,7 +129,8 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
         &exports,
         get(&bundle, "lowering_artifacts")?,
     )?;
-    judge_effect_intent(&module, &exports, intent, &sites)
+    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
+    judge_effect_intent(&module, &exports, intent, &sites, identity)
 }
 
 /// The three embedded artifacts and the Core pin the Target IR carries.
@@ -254,7 +268,7 @@ fn relation<'a>(
     pairs: &[(&'a Value, &'a Value)],
     exports: &'a Value,
     lowering: &'a Value,
-) -> Check<BTreeMap<usize, EffectSite>> {
+) -> Check<(BTreeMap<usize, EffectSite>, bool)> {
     let structured = string(get(target_artifact, "domain")?)? == STRUCTURED_TARGET_IR;
     let effects = pairs
         .iter()
@@ -268,7 +282,7 @@ fn relation<'a>(
             return Err(());
         }
         return if lowering == &Value::Null {
-            Ok(BTreeMap::new())
+            Ok((BTreeMap::new(), false))
         } else {
             Err(())
         };
@@ -321,8 +335,19 @@ fn relation<'a>(
     let catalog_reference = get(&profile, "intrinsics")?;
     equal_text(catalog_reference, "id", namespace.catalog)?;
     pinned(catalog_reference, identity(namespace.catalog, &catalog)?)?;
-    exact(&catalog, &["apiVersion", "intrinsics"])?;
-    equal_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;
+    // Catalog v2 may also publish the named types its pure contracts
+    // reference; the frozen v1 catalog has exactly two fields.
+    if namespace.catalog_api == "edict.target-profile.intrinsics/v2"
+        && get(&catalog, "types").is_ok()
+    {
+        exact(&catalog, &["apiVersion", "intrinsics", "types"])?;
+        members(get(&catalog, "types")?)?;
+    } else {
+        exact(&catalog, &["apiVersion", "intrinsics"])?;
+    }
+    equal_text(&catalog, "apiVersion", namespace.catalog_api)?;
+    let identity_enabled =
+        identity_contracts(namespace.coordinate, &catalog, module, profile_reference)?;
     let catalog = get(&catalog, "intrinsics")?;
     members(catalog)?;
     equal_text(&lawpack, "apiVersion", "edict.lawpack/v1")?;
@@ -365,6 +390,7 @@ fn relation<'a>(
         &lawpack_coordinate,
         &lawpack_identity,
         string(get(module, "coordinate")?)?,
+        &target_line(profile_reference)?,
     )?;
     imported_types(module, exports, &lawpack_coordinate)?;
     let operation_profile = string(get(intent, "requiredOperationProfile")?)?;
@@ -429,7 +455,121 @@ fn relation<'a>(
     if sites.len() != effects {
         return Err(());
     }
-    Ok(sites)
+    Ok((sites, identity_enabled))
+}
+
+/// The identity intrinsics' exact contract, independently restated: the
+/// operand ceilings, `echo.content-address/v1` and the runtime's cost floor.
+const IDENTITY_ID: &str = "Bytes<exact=32>";
+const IDENTITY_EDGE_TYPE: (&str, &str) = (
+    "echo.dpo@2.OutgoingEdge",
+    "Record<edgeType:Bytes<exact=32>,to:Bytes<exact=32>>",
+);
+const IDENTITY_CONTRACTS: [(&str, &[&str], u64, &[u64]); 3] = [
+    (
+        "echo.dpo@2.contentAddress",
+        &[
+            IDENTITY_ID,
+            IDENTITY_ID,
+            IDENTITY_ID,
+            "Bytes<max=1048576>",
+            "List<echo.dpo@2.OutgoingEdge,max=16>",
+        ],
+        71,
+        &[0, 0, 0, 1, 67],
+    ),
+    (
+        "echo.dpo@2.contentEdgeId",
+        &[IDENTITY_ID, IDENTITY_ID, IDENTITY_ID, IDENTITY_ID],
+        70,
+        &[0, 0, 0, 0],
+    ),
+    (
+        "echo.dpo@2.slotEdgeId",
+        &[IDENTITY_ID, IDENTITY_ID, IDENTITY_ID],
+        69,
+        &[0, 0, 0],
+    ),
+];
+
+/// Whether identity calls are admitted: the pinned catalog under
+/// `echo.dpo@2` carries exactly Echo's three identity contracts and their
+/// edge type, and Core imports exactly the selected profile as its target.
+/// A catalog carrying any of them otherwise, or under another profile, is
+/// refused rather than silently ignored.
+fn identity_contracts(
+    profile: &str,
+    catalog: &Value,
+    module: &Value,
+    profile_reference: &Value,
+) -> Check<bool> {
+    let intrinsics = get(catalog, "intrinsics")?;
+    let present = IDENTITY_CONTRACTS
+        .iter()
+        .filter(|(name, ..)| map_field(intrinsics, name).is_some())
+        .count();
+    let mut targets = list(get(module, "imports")?)?
+        .iter()
+        .filter(|entry| map_field(entry, "kind") == Some(&text("target")));
+    let target = targets.next();
+    if targets.next().is_some() || target.is_some_and(|t| get(t, "ref") != Ok(profile_reference)) {
+        return Err(());
+    }
+    if present == 0 {
+        return Ok(false);
+    }
+    if profile != "echo.dpo@2" || present != IDENTITY_CONTRACTS.len() {
+        return Err(());
+    }
+    let (edge_name, edge_definition) = IDENTITY_EDGE_TYPE;
+    let types = get(catalog, "types")?;
+    if get(types, edge_name)? != &text(edge_definition) {
+        return Err(());
+    }
+    for (name, arguments, base, per_argument) in IDENTITY_CONTRACTS {
+        let entry = get(intrinsics, name)?;
+        exact(
+            entry,
+            &[
+                "intrinsicClass",
+                "typeParameters",
+                "argumentTypes",
+                "returnType",
+                "guardSupport",
+                "footprintTemplate",
+                "costTemplate",
+                "writeClass",
+                "contractVersion",
+                "costRule",
+            ],
+        )?;
+        let texts = |values: &[&str]| Value::Array(values.iter().map(|v| text(v)).collect());
+        let integers = |values: &[u64]| {
+            Value::Array(
+                values
+                    .iter()
+                    .map(|v| Value::Integer(i128::from(*v)))
+                    .collect(),
+            )
+        };
+        let rule = get(entry, "costRule")?;
+        exact(rule, &["base", "perArgumentMax"])?;
+        if get(entry, "intrinsicClass")? != &text("pure")
+            || get(entry, "typeParameters")? != &Value::Array(vec![])
+            || get(entry, "argumentTypes")? != &texts(arguments)
+            || get(entry, "returnType")? != &text(IDENTITY_ID)
+            || get(entry, "guardSupport")? != &Value::Bool(false)
+            || get(entry, "writeClass")? != &text("none")
+            || get(entry, "contractVersion")? != &text("echo.content-address/v1")
+            || get(rule, "base")? != &Value::Integer(i128::from(base))
+            || get(rule, "perArgumentMax")? != &integers(per_argument)
+        {
+            return Err(());
+        }
+        nonempty(get(entry, "footprintTemplate")?)?;
+        nonempty(get(entry, "costTemplate")?)?;
+    }
+    Ok(target.is_some())
 }
 
 /// The catalog entry, exported effect and adapter implementation agree with
@@ -786,7 +926,29 @@ fn resolve(name: &str, alias: &str, coordinate: &str) -> Check<String> {
 
 /// The lawpack alias the source declares in its import preamble, with the
 /// lawpack's exact digest.
-fn alias(source: &str, coordinate: &str, identity: &Value, module: &str) -> Check<String> {
+/// The only `use target` declaration a source may carry: the selected
+/// profile under its pinned digest, as `<id> "sha256:<hex>"`.
+fn target_line(profile_reference: &Value) -> Check<String> {
+    let [scheme, Value::Bytes(digest)] = list(get(profile_reference, "digest")?)? else {
+        return Err(());
+    };
+    if scheme != &text("sha256") {
+        return Err(());
+    }
+    Ok(format!(
+        "{} \"sha256:{}\"",
+        string(get(profile_reference, "id")?)?,
+        lower_hex(digest)
+    ))
+}
+
+fn alias(
+    source: &str,
+    coordinate: &str,
+    identity: &Value,
+    module: &str,
+    target: &str,
+) -> Check<String> {
     let Value::Bytes(identity) = identity else {
         return Err(());
     };
@@ -799,11 +961,21 @@ fn alias(source: &str, coordinate: &str, identity: &Value, module: &str) -> Chec
         return Err(());
     }
     let mut result = None;
+    let mut targeted = false;
     for line in lines {
         if !line.starts_with("use ") {
             break;
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
+        // One `use target` naming exactly the selected, pinned profile.
+        if let ["use", "target", name, "digest", value, "as", alias] = tokens.as_slice() {
+            let alias = alias.strip_suffix(';').ok_or(())?;
+            if format!("{name} {value}") != target || !identifier(alias) || targeted {
+                return Err(());
+            }
+            targeted = true;
+            continue;
+        }
         let ["use", "lawpack", name, "digest", value, "as", alias] = tokens.as_slice() else {
             return Err(());
         };

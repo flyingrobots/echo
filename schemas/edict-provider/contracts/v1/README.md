@@ -4,22 +4,36 @@
 # Current upstream provider contract pack
 
 This is the exact schema/manifest pair from Amblicit merge
-`1196396b8cbf30967a943ae170aa8edd972d28ef`, [PR #318](https://github.com/flyingrobots/amblicit/pull/318), published upstream as `function-preconditions-v1`.
+`0734b499adb7c79ddbf6b8290256c83d5240731e`, [PR #317](https://github.com/flyingrobots/amblicit/pull/317), published upstream as `typed-failures-v1`. The bytes are unchanged at
+Amblicit `da1574f169cda98206440e4d8f785b1ea9e01fcf`, whose own current-pack test
+asserts them.
 The API and coordinate remain `edict.provider-contract-pack/v1` and
 `edict.provider-contract-pack.cddl@1`; exact bytes identify this publication.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `edict-provider-contracts.cddl` | `d83bb51133f7b7fc03f94dde4d3cc6dee165da31db77c6f82570b468223e1a1f` |
-| `manifest.json` | `31ebc222b80be213d4b240a7dee85d0c6e781851706294965d8d025684910d62` |
+| `edict-provider-contracts.cddl` | `ed60e6ad6e0a80e23f915a8f791342b9e97cadd03034541865e754ef30352233` |
+| `manifest.json` | `ef57e32542bea8c07f4629e54174c1598fb1852378dc147ee2da505fdaf069fa` |
 
 Both files are Apache-2.0 upstream inputs. Replace them together; do not edit
 one independently. The sole production admission API pins this pair, its
-86,830-byte manifest ceiling, twelve contracts, eight domains and five resources.
+92,284-byte manifest ceiling, twelve contracts, eight domains and five resources.
 Earlier pairs are rejected. Historical bytes survive only in Git and test-only
 rejection fixtures, without a production selector or historical decoder.
 
-Relative to `bounded-state-fold-v1`, this publication adds only the optional
+Relative to `function-preconditions-v1` (Amblicit `1196396b`, PR #318, now a
+rejection fixture), this publication adds intrinsic catalog v2 and typed
+failures. Catalog v2 (`intrinsics-document`) requires API
+`edict.target-profile.intrinsics/v2`, a complete monomorphic contract
+(`contractVersion`, `costRule`) for every pure intrinsic, and an optional
+`types` map; it no longer admits a v1 catalog. The frozen `echo.dpo@1`
+catalog therefore keeps its original owning rules under the Echo-generated
+`echo-frozen-catalog-v1-` namespace (see
+`crates/echo-wesley-gen/tests/provider_frozen_catalog_schema.rs`). Typed
+failures (`fail`, `attempt`) are schema-admitted only; Echo's providers and
+runtime do not yet accept them.
+
+Relative to `bounded-state-fold-v1`, the preconditions publication added only the optional
 `preconditions` list of a Core source function, a nonempty list of
 `precondition-predicate` (`true`, `false`, `not`, `all`, `any` and comparisons).
 That pair, from Amblicit `2269d81f` (PR #285), is now a rejection fixture.

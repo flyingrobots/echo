@@ -599,12 +599,36 @@ cannot define a helper at one of the three coordinates. Synthetic tests in
 the frozen node and edge vectors and check the refusals, costs and
 one-unit-short budgets above.
 
-The published provider does not offer these intrinsics. Its intrinsic catalog
-declares only effects, and its lowerer and verifier admit only the callees
-they list, which exclude the three coordinates, so no compiler-produced
-package reaches the runtime with one. Catalog publication with a contract
-version and cost rule, lowerer admission, independent verification and a
-public compiler witness remain to be done.
+**Publication.** The `echo.dpo@2` catalog (`echo.dpo.intrinsics/v2`) is
+catalog API v2. It publishes the three constructors as pure entries with
+contract version `echo.content-address/v1`, the operand ceilings above, the
+cost rules `contentAddress {base: 71, perArgumentMax: [0, 0, 0, 1, 67]}`,
+`contentEdgeId {base: 70, perArgumentMax: [0, 0, 0, 0]}` and
+`slotEdgeId {base: 69, perArgumentMax: [0, 0, 0]}`, and the edge type
+`echo.dpo@2.OutgoingEdge`. The authored provider semantic source owns these
+declarations (`pureIntrinsics` and `types`). The frozen `echo.dpo@1` catalog
+stays API v1 and declares none of them.
+
+**Admission.** The lowerer, the separate verifier and the runtime each state
+the contract themselves and admit identity calls only when the pinned
+`echo.dpo@2` catalog carries exactly those three entries and the edge type,
+and Core's single `target` import is the selected profile. A catalog carrying
+some but not all of them, or carrying them under another profile, is refused.
+A call takes no type arguments; its operands must fit the ceilings; and the
+providers charge the call's documented work at the operands' verified maxima,
+which is also the catalog cost rule. The source's one `use target` line must
+name the selected profile under its pinned digest. The provider tests in
+`crates/echo-edict-provider-verifier/tests/public_identity_effect.rs` and the
+runtime witness in
+`crates/warp-core/tests/executable_operation_pipeline/public_content_address_effect.rs`
+use the public compiler output in
+`crates/warp-core/tests/fixtures/edict-content-address/`: the runtime returns
+the six frozen vectors, ensures a node at its computed address, and refuses
+duplicate edges and an insufficient budget.
+
+**Known limit.** That fixture needs about 90 million units of provider Wasm
+fuel to lower and verify, against the compiler's fixed 50 million per
+invocation. It was produced with a raised limit; see its README.
 
 ## Witnessed reads over a bounded slice
 

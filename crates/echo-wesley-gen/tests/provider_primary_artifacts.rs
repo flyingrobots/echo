@@ -311,7 +311,9 @@ fn primary_generation_is_byte_identical_digest_closed_and_root_validated() {
     }
     for (role, contract) in [
         ("resource.lawpack-exports", "lawpack-exports"),
-        ("resource.target-intrinsics", "target-profile-intrinsics"),
+        // The frozen echo.dpo@1 catalog is catalog v1, owned by the generated
+        // frozen projection; the current upstream root owns the v2 catalog.
+        ("resource.target-intrinsics-2", "target-profile-intrinsics"),
         (
             "resource.target-operation-profiles",
             "target-profile-operation-profiles",

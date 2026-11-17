@@ -136,6 +136,19 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-run" \
     --check
 
+  # Public compiler witness for a source helper with a precondition (#989):
+  # the call is proven by the intent's `where` clause, the checked lowerer
+  # emits the package and the verifier accepts it; the predecessor provider's
+  # contract pack predates preconditions and must refuse the Core.
+  cargo +1.96.0 run --locked -p xtask --example effect_program_publication -- \
+    --name precondition \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-effect-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-function-precondition" \
+    --work-root "$witness_dir/precondition-run" \
+    --check
+
   # Public compiler witness for an authored effect program with an effect step
   # under the echo.dpo@2 effect target profile (#985): the checked lowerer
   # emits its package and the separate verifier accepts it; the same program

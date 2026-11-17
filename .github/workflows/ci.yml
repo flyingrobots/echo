@@ -326,7 +326,6 @@ jobs:
                   workspaces: |
                       .
                       tests/edict-provider-host-v1 -> target/edict-provider-host-v1
-                      tests/edict-core-cost-v2-corpus -> target/edict-core-cost-v2-corpus
             - name: invoke and replay through the exact Edict host
               run: scripts/verify-edict-provider-host-v1.sh
 

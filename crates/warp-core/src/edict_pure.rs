@@ -24,6 +24,7 @@ mod list_preparation_tests;
 mod list_tests;
 mod matches;
 pub(crate) mod model;
+mod option_operations;
 #[cfg(test)]
 mod option_value_tests;
 pub(crate) mod proven_order;

@@ -200,12 +200,23 @@ impl Schema {
 pub(super) struct Types<'a> {
     pub module: &'a Value,
     remaining: usize,
+    /// The module requires the shared-read schedule, `edict.core-cost/v2`.
+    pub shared: bool,
+    /// Under the shared-read schedule, the schema the audit established for
+    /// each expression, keyed by the node's address in the borrowed module.
+    pub audited: BTreeMap<usize, Schema>,
+    /// Shared-read charge of each audited source helper.
+    pub shared_helpers: BTreeMap<String, Charge>,
 }
 impl<'a> Types<'a> {
     pub(super) fn new(module: &'a Value) -> Self {
         Self {
             module,
             remaining: 65_536,
+            // A malformed inventory is refused by the audit itself.
+            shared: super::shared_charge::required(module).unwrap_or(false),
+            audited: BTreeMap::new(),
+            shared_helpers: BTreeMap::new(),
         }
     }
     pub(super) fn proof_work(&mut self, bytes: usize) -> Check<()> {

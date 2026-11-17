@@ -22,6 +22,9 @@ mod order;
 mod read_charge;
 #[cfg(test)]
 mod read_charge_soundness_tests;
+mod shared_charge;
+#[cfg(test)]
+mod shared_reads_tests;
 mod types;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -143,8 +146,10 @@ fn each_intent<'a>(
         proven_sum: None,
         edge_scans,
     };
-    // A graph read always needs its whole-intent charge judged.
-    if super::map_field(core, "functions").is_none()
+    // A graph read always needs its whole-intent charge judged, and so does
+    // every intent under the shared-read schedule.
+    if !checker.types.shared
+        && super::map_field(core, "functions").is_none()
         && !unsigned_addition::present(core)?
         && edge_scans == 0
     {
@@ -494,6 +499,20 @@ impl<'a> Checker<'a, '_> {
         })
     }
     fn expression(
+        &mut self,
+        value: &'a Value,
+        frame: &Frame<'a>,
+        depth: usize,
+    ) -> Check<Expression> {
+        let audited = self.audited_expression(value, frame, depth)?;
+        if self.types.shared {
+            self.types
+                .audited
+                .insert(std::ptr::from_ref(value).addr(), audited.schema.clone());
+        }
+        Ok(audited)
+    }
+    fn audited_expression(
         &mut self,
         value: &'a Value,
         frame: &Frame<'a>,
@@ -869,7 +888,14 @@ impl<'a> Checker<'a, '_> {
         Ok((charge, height))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
-        let (charge, encoded) = self.intent_charge(intent, read)?;
+        let (mut charge, encoded) = self.intent_charge(intent, read)?;
+        if self.types.shared {
+            // Read and graph charges have no shared-read rules.
+            if read || self.edge_scans != 0 {
+                return Err(());
+            }
+            charge = self.shared_charge(intent)?;
+        }
         let ceiling = get(intent, "coreEvaluationBudget")?;
         if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
             || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)

@@ -16,7 +16,7 @@
   three judges, as Amblicit refuses them. Public compiler witnesses
   (`edict-effect-ordered-record-z` and `-a`, Amblicit `7dbcbc23`) obstruct
   with exactly `FirstRaised` and `SecondRaised` through the promoted provider
-  package (lowerer `f9adef7d`, verifier `280c69fb`).
+  package (lowerer `a218dd22`, verifier `2a272e29`).
 
 - Checked integer arithmetic and `min`/`max` (#998, the Echo half of
   amblicit#321). warp-core, the provider lowerer and the provider verifier

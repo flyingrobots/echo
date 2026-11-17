@@ -19,6 +19,30 @@
   Modules without the capability are metered and judged exactly as before. A
   shared corpus, produced by the pinned compiler and rechecked in CI, drives
   all three judges.
+- Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
+  lowerer and the verifier accept declared function failure sets, `fail` and
+  intent `attempt` nodes lowered as Target pure bindings with `failureArms`.
+  A mapped failure from a helper ends the run with exactly its declared
+  terminal obstruction and payload. Only that arm's payload is evaluated, and
+  the providers charge the costliest arm. Undeclared, unmapped or malformed
+  failure sets, a missing capability and lowered arms that differ from Core
+  refuse in all three judges. Ordered records (#997) remain unsupported.
+  A public compiler witness (`edict-effect-typed-failure`, Amblicit
+  `7dbcbc23`) obstructs with exactly its mapped `RangeInverted`.
+
+- Amblicit `Option<T>` values (#995, the Echo half of amblicit#261).
+  warp-core, the provider lowerer and the provider verifier each admit
+  `core.option/v1`, the `Option<T>` type and the calls
+  `core.option.{some,none,isSome,default,unwrap}<T>`, and independently
+  re-prove that every `unwrap` operand is a local that a dominating `isSome`
+  fact proves present, so pure helpers may build, test and consume Options.
+  Option matches, Option variant constructors, ill-typed calls, a missing
+  capability and Option-valued intent inputs or outputs are refused by all
+  three. A shared corpus fixes the verdicts and warp-core executes each
+  accepted case. A public compiler witness publishes helpers that return and
+  consume an Option through the promoted provider package (lowerer
+  `4cb31f46`, verifier `a965c385`) and the runtime executes it. Artifacts
+  without Option calls are judged as before.
 - Echo adopts Amblicit's `typed-failures-v1` provider contract pack and
   publishes intrinsic catalog v2 for `echo.dpo@2`. The `echo.dpo@2` catalog
   declares the three `ContentAddressV1` identity constructors
@@ -34,6 +58,20 @@
   public compiler fixture returns the six frozen identity vectors at runtime.
   Typed failures in the new pack are schema-admitted only.
 
+- Graph reads inside authored effect programs (#982). The `echo.dpo@2`
+  catalog declares `echo.dpo@2.outgoing-edge-read` and
+  `echo.dpo@2.closure-read` with the bounded-read route's failure sets, and
+  an effect program may call them as steps and use what they read in the
+  effects it commits. The lowering configuration declares them with the
+  optional `graphReads` record; the runtime, the lowerer and the verifier
+  each refuse an undeclared read, an unused declaration and a closure without
+  a conforming selector, and charge each read its whole scan allowance. Each
+  read is recorded in the effect's read image with its scanned bucket sizes,
+  and derivation confirms those sizes at the image's basis. A public-source
+  program that links a node to the target of an edge it read is lowered,
+  verified and run with no hand-built package. Adding the intrinsics changes
+  the `echo.dpo@2` profile identity, so the retained `echo.dpo@2` public
+  fixtures are recompiled; `echo.dpo@1` and its fixtures are unchanged.
 - Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
   warp-core, the provider lowerer and the provider verifier each admit a
   function's Core `preconditions` as Amblicit `1196396b` specifies them, judge

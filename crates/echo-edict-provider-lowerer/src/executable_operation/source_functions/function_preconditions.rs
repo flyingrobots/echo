@@ -105,10 +105,24 @@ pub(crate) fn declared<'v>(
     module: &str,
     functions: &Value,
 ) -> Judged<&'v [Value]> {
-    if has_exactly(function, &["params", "returnType", "body"]) {
+    // A declared `failures` set (`core.failure/v1`) is judged by
+    // `failure_sets`; it neither adds nor removes a precondition.
+    let fails = matches!(function, Value::Map(fields)
+        if fields.iter().any(|(key, _)| matches!(key, Value::Text(key) if key == "failures")));
+    let total: &[&str] = if fails {
+        &["params", "returnType", "body", "failures"]
+    } else {
+        &["params", "returnType", "body"]
+    };
+    let guarded: &[&str] = if fails {
+        &["params", "returnType", "preconditions", "body", "failures"]
+    } else {
+        &["params", "returnType", "preconditions", "body"]
+    };
+    if has_exactly(function, total) {
         return Ok(&[]);
     }
-    if !has_exactly(function, &["params", "returnType", "preconditions", "body"]) {
+    if !has_exactly(function, guarded) {
         return Err(Refusal::Malformed);
     }
     let preconditions = items(function, "preconditions")?;

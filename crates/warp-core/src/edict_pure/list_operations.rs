@@ -24,6 +24,7 @@ pub(super) fn is_operation(name: &str) -> bool {
 // bounded scan also covers intent-only operations and imported helper bodies.
 pub(super) fn without_capability(
     value: &Value,
+    gated: fn(&str) -> bool,
     remaining: &mut usize,
     depth: usize,
 ) -> Result<(), Error> {
@@ -36,18 +37,18 @@ pub(super) fn without_capability(
     match value {
         Value::Map(entries) => {
             if text_field(value, "kind") == Ok("call")
-                && text_field(value, "callee").is_ok_and(is_operation)
+                && text_field(value, "callee").is_ok_and(gated)
             {
                 return Err(Error::UnsupportedProgram);
             }
             for (key, value) in entries {
-                without_capability(key, remaining, depth + 1)?;
-                without_capability(value, remaining, depth + 1)?;
+                without_capability(key, gated, remaining, depth + 1)?;
+                without_capability(value, gated, remaining, depth + 1)?;
             }
         }
         Value::Array(values) => {
             for value in values {
-                without_capability(value, remaining, depth + 1)?;
+                without_capability(value, gated, remaining, depth + 1)?;
             }
         }
         _ => {}

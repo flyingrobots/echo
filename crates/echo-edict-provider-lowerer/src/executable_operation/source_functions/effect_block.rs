@@ -14,6 +14,7 @@ use super::{
     exact, get, includes, list, members, number, shape, string, Check, Cost, Judgment, Scope, Ty,
     Value,
 };
+use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -71,6 +72,8 @@ pub(super) struct Walk<'s> {
     /// Every local claimed anywhere in the body: identities are unique
     /// across the whole intent.
     pub(super) claimed: BTreeSet<String>,
+    /// The package's graph-read declaration (echo#982).
+    pub(super) graph: Option<GraphReads<'s>>,
 }
 
 impl<'a> Judgment<'a> {
@@ -221,6 +224,36 @@ impl<'a> Judgment<'a> {
                     bytes: 0,
                 })?))
             }
+            "attempt" => {
+                exact(node, &["kind", "binding", "value", "failureMap"])?;
+                if site.is_some() {
+                    return Err(());
+                }
+                claim(get(node, "binding")?, pending, walk)?;
+                // Each arm's payload reads only what precedes the attempt.
+                let mut worst = Cost::default();
+                let mut obstruction_output = 0;
+                for (_, reason) in members(get(node, "failureMap")?)? {
+                    let (charge, encoded) = self.obstruction(reason, scope)?;
+                    worst = worst.maximum(charge);
+                    obstruction_output = obstruction_output.max(encoded);
+                }
+                let fact = self.expression(get(node, "value")?, scope, true, 0)?;
+                let ty = self.declaration(get(node, "binding")?, scope)?;
+                if !includes(&ty, &fact.ty) {
+                    return Err(());
+                }
+                // The call runs, then either its result is validated or
+                // exactly one arm's payload is built: charge the larger.
+                Ok(Totals {
+                    cost: fact.cost.plus(worst.maximum(Cost {
+                        steps: shape(&ty)?.1,
+                        bytes: 0,
+                    }))?,
+                    mutations: 0,
+                    obstruction_output,
+                })
+            }
             "require" => {
                 exact(node, &["kind", "predicate", "onFailure"])?;
                 if site.is_some() {
@@ -287,8 +320,13 @@ impl<'a> Judgment<'a> {
             return Err(());
         }
         let output = self.ty(&site.output, 0)?;
-        let charge = abi(&site.intrinsic, &expected, &output)?;
-        let mutations = u64::from(operation(&site.intrinsic) != Some("node-atom-read"));
+        let charge = match site.graph_read() {
+            Some(read) => self.graph_read(read, &expected, &output, walk.graph)?,
+            None => abi(&site.intrinsic, &expected, &output)?,
+        };
+        let mutations = u64::from(
+            operation(&site.intrinsic) != Some("node-atom-read") && site.graph_read().is_none(),
+        );
         let mut cost = Cost::default();
         let mut obstruction_output = 0;
         let arms = members(get(node, "obstructionMap")?)?;
@@ -341,5 +379,36 @@ pub(super) fn claim<'a>(
         Ok(())
     } else {
         Err(())
+    }
+}
+
+impl<'a> Judgment<'a> {
+    /// A terminal obstruction reason: what building and encoding its payload
+    /// costs, and the payload's largest encoding.
+    fn obstruction(&mut self, reason: &'a Value, scope: &Scope<'a>) -> Check<(Cost, u64)> {
+        exact(reason, &["reasonKind", "payload"])?;
+        if string(get(reason, "reasonKind")?)?.is_empty() {
+            return Err(());
+        }
+        // On failure the runtime builds this record and encodes it as the
+        // obstruction payload, under the result's output ceiling.
+        let mut fields = BTreeMap::new();
+        let mut payload = Cost {
+            steps: 1,
+            bytes: 64,
+        };
+        for (name, value) in members(get(reason, "payload")?)? {
+            let name = string(name)?;
+            let fact = self.expression(value, scope, true, 0)?;
+            payload = payload.plus(fact.cost)?.plus(Cost {
+                steps: 0,
+                bytes: 64_u64.checked_add(name.len() as u64).ok_or(())?,
+            })?;
+            if fields.insert(name.to_owned(), fact.ty).is_some() {
+                return Err(());
+            }
+        }
+        let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
+        Ok((payload.plus(scratch)?, encoded))
     }
 }

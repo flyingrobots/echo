@@ -123,9 +123,9 @@ route's fixed 64 KiB output ceiling.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 784,744-byte checked
+transport-to-model conversion. Its reproducibly built 788,223-byte checked
 component has SHA-256
-`e30bf44e80b6d05cc3c065210924f52bb4acc0a1045fb284a5e0ca3facd940ae`.
+`252d3f67e7d18e8f06db4e78055c4e89d7255f6254d9b960678917bee897a892`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted
@@ -156,6 +156,17 @@ from the digest-locked package assembled by the next campaign goalpost, which
 binds the static inputs and verifier component together. Neither proposition
 has an Echo causal site or witnessed hologram, and neither grants Echo runtime
 installation, execution, or consequence authority.
+
+## Typed function failures
+
+The effect-program judgment admits `core.failure/v1`: declared function
+failure sets, `fail` and intent `attempt` nodes, lowered as Target pure
+bindings with `failureArms`. One judgment, `source_functions/failure_sets.rs`,
+is held identically by warp-core and the verifier. A declared set must equal
+what the body produces; an `attempt` maps exactly its callee's set; nothing
+else may fail. The static charge is the call plus the larger of result
+validation and the costliest arm. See
+`docs/architecture/application-contract-hosting.md`.
 
 ## Authored effect packages
 

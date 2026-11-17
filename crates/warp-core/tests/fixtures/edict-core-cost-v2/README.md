@@ -43,6 +43,8 @@ they use, so the Echo copies differ as follows:
 | `matches` | None | |
 | `rope` | None | |
 
-The rope requires `core.failure/v1`, which Echo does not yet admit, so no Echo
-judge reads `rope.core.cbor.hex` yet. Its minimums are recorded so that the
-rope can join the corpus without regenerating it.
+The rope's intent maps a typed failure with `attempt` (`let … else { … }`).
+Echo admits `attempt` only on the effect-program route, which has no
+shared-read rules, so no Echo judge reads `rope.core.cbor.hex` yet. Its
+minimums are recorded so that the rope can join the corpus without
+regenerating it.

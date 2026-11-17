@@ -11,6 +11,7 @@ mod byte_at_tests;
 mod byte_literals_tests;
 mod effect_block;
 mod effect_intent;
+mod failure_sets;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -22,6 +23,9 @@ mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
 mod read_charge;
 #[cfg(test)]
@@ -60,6 +64,13 @@ struct Summary {
 }
 struct Expression {
     schema: Schema,
+    charge: Charge,
+    height: usize,
+}
+/// An `if` or `match` arm, or a helper binding or result. A `fail` has no
+/// schema of its own: it returns no value, and its context types it.
+struct Arm {
+    schema: Option<Schema>,
     charge: Charge,
     height: usize,
 }
@@ -177,6 +188,9 @@ fn prepare<'a>(
     edge_scans: u64,
     identity_admitted: bool,
 ) -> Check<Prepared<'a>> {
+    // Declared failure sets, `fail` and `attempt` across the whole module.
+    let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
+    failure_sets::judge(core, coordinate)?;
     let definitions = inventory(core, exports, types)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -190,7 +204,7 @@ fn prepare<'a>(
         while let Some((expression, depth)) = expressions.pop() {
             types.step(depth)?;
             match string(get(expression, "kind")?)? {
-                "const" | "local" => {}
+                "const" | "local" | "fail" => {}
                 "field" => expressions.push((get(expression, "base")?, depth + 1)),
                 "variant" => {
                     if let Some(payload) = super::map_field(expression, "payload") {
@@ -248,6 +262,11 @@ fn prepare<'a>(
                         "core.list.at",
                         "core.list.append",
                         "core.list.concat",
+                        "core.option.some",
+                        "core.option.none",
+                        "core.option.isSome",
+                        "core.option.default",
+                        "core.option.unwrap",
                     ]
                     .contains(&callee)
                     {
@@ -551,9 +570,13 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             let local = get(binding, "binding")?;
-            let value = self.expression(get(binding, "value")?, &frame, 0)?;
+            let value = self.arm(get(binding, "value")?, &frame, 0)?;
             let declared = self.types.local(local)?;
-            if !declared.encloses(&value.schema) {
+            if !value
+                .schema
+                .as_ref()
+                .is_none_or(|schema| declared.encloses(schema))
+            {
                 return Err(());
             }
             self.record_bound(local, get(binding, "value")?, &declared)?;
@@ -567,8 +590,12 @@ impl<'a> Checker<'a, '_> {
             frame.define(local, declared)?;
         }
         frame.complete()?;
-        let value = self.expression(get(definition.body, "result")?, &frame, 0)?;
-        if !definition.result.encloses(&value.schema) {
+        let value = self.arm(get(definition.body, "result")?, &frame, 0)?;
+        if !value
+            .schema
+            .as_ref()
+            .is_none_or(|schema| definition.result.encloses(schema))
+        {
             return Err(());
         }
         charge.append(value.charge)?;
@@ -579,6 +606,29 @@ impl<'a> Checker<'a, '_> {
         Ok(Summary {
             charge,
             height: height.max(value.height),
+        })
+    }
+    /// Audits an arm, binding or result that may be a `fail`, which costs its
+    /// one evaluation tick and returns nothing.
+    fn arm(&mut self, value: &'a Value, frame: &Frame<'a>, depth: usize) -> Check<Arm> {
+        if string(get(value, "kind")?)? == "fail" {
+            self.types.step(depth)?;
+            exact(value, &["kind", "failure"])?;
+            string(get(value, "failure")?)?;
+            return Ok(Arm {
+                schema: None,
+                charge: Charge {
+                    ticks: 1,
+                    storage: 0,
+                },
+                height: 0,
+            });
+        }
+        let value = self.expression(value, frame, depth)?;
+        Ok(Arm {
+            schema: Some(value.schema),
+            charge: value.charge,
+            height: value.height,
         })
     }
     fn expression(
@@ -734,16 +784,20 @@ impl<'a> Checker<'a, '_> {
                 // As in Edict, the predicate is a fact inside the `then` arm.
                 let branch = self.branch.len();
                 self.branch.push(get(value, "predicate")?);
-                let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                let yes = self.arm(get(value, "then")?, frame, depth + 1)?;
                 self.branch.truncate(branch);
                 self.path.truncate(boundary);
                 self.path.push((get(value, "predicate")?, false));
-                let no = self.expression(get(value, "else")?, frame, depth + 1)?;
+                let no = self.arm(get(value, "else")?, frame, depth + 1)?;
                 self.path.truncate(boundary);
                 height = predicate_height.max(yes.height).max(no.height) + 1;
                 charge.append(predicate)?;
                 charge.append(Charge::choice(yes.charge, no.charge))?;
-                yes.schema.choice(no.schema)?
+                match (yes.schema, no.schema) {
+                    (Some(yes), Some(no)) => yes.choice(no)?,
+                    (Some(only), None) | (None, Some(only)) => only,
+                    (None, None) => return Err(()),
+                }
             }
             "call" => {
                 exact(value, &["kind", "callee", "args", "typeArgs"])?;
@@ -783,102 +837,122 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
-                    if list_operations::is_operation(name) {
-                        list_operations::authority(self.types.module, name, types)?;
-                        for operand in &declared {
-                            height = height.max(operand.measure()?.height + 1);
-                        }
-                    }
-                    height = height.max(1);
-                    let addition_proven = if name == "core.integer.add" {
-                        let [Schema::Word(max)] = declared.as_slice() else {
-                            return Err(());
-                        };
-                        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
-                            return Err(());
-                        }
-                        // The `then`-arm predicates are read only when the
-                        // dominating facts do not prove the sum.
-                        let cap = match unsigned_addition::prove(
-                            value,
-                            *max,
-                            &self.proven,
-                            &self.bound,
-                            self.types,
-                        ) {
-                            Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
-                                value,
-                                *max,
-                                &self.with_branch(),
-                                &self.bound,
-                                self.types,
-                            )?,
-                            judged => judged?,
-                        };
-                        self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
-                        true
-                    } else {
-                        false
-                    };
-                    let order_proven = match name {
-                        "core.list.at" | "core.list.append" => {
-                            self.list_domain(value, &declared)?
-                        }
-                        "core.integer.subtract" => {
-                            let [left, right] = arguments else {
-                                return Err(());
-                            };
-                            order::proven(left, right, &self.proven, self.types)?
-                                || (!self.branch.is_empty()
-                                    && order::proven(left, right, &self.branch, self.types)?)
-                        }
-                        "core.bytes.at" => {
-                            let ([coordinate], [Schema::Blob { low, .. }]) =
-                                (types, declared.as_slice())
-                            else {
-                                return Err(());
-                            };
-                            byte_at::valid(
-                                coordinate,
+                    if option_operations::is_operation(name) {
+                        option_operations::authority(self.types.module)?;
+                        let present = name == "core.option.unwrap"
+                            && option_operations::present(
                                 arguments,
-                                *low,
                                 &self.proven,
                                 &self.path,
                                 self.types,
-                            )?
+                            )?;
+                        let (schema, cost, option_height) =
+                            option_operations::infer(name, &argument_schemas, &declared, present)?;
+                        height = height.max(option_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else {
+                        if list_operations::is_operation(name) {
+                            list_operations::authority(self.types.module, name, types)?;
+                            for operand in &declared {
+                                height = height.max(operand.measure()?.height + 1);
+                            }
                         }
-                        "core.bytes.slice" => {
-                            let [coordinate] = types else {
+                        height = height.max(1);
+                        let addition_proven = if name == "core.integer.add" {
+                            let [Schema::Word(max)] = declared.as_slice() else {
                                 return Err(());
                             };
-                            order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
-                                || (!self.branch.is_empty()
+                            if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+                                return Err(());
+                            }
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
+                            let cap = match unsigned_addition::prove(
+                                value,
+                                *max,
+                                &self.proven,
+                                &self.bound,
+                                self.types,
+                            ) {
+                                Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
+                                    value,
+                                    *max,
+                                    &self.with_branch(),
+                                    &self.bound,
+                                    self.types,
+                                )?,
+                                judged => judged?,
+                            };
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
+                            true
+                        } else {
+                            false
+                        };
+                        let order_proven = match name {
+                            "core.list.at" | "core.list.append" => {
+                                self.list_domain(value, &declared)?
+                            }
+                            "core.integer.subtract" => {
+                                let [left, right] = arguments else {
+                                    return Err(());
+                                };
+                                order::proven(left, right, &self.proven, self.types)?
+                                    || (!self.branch.is_empty()
+                                        && order::proven(left, right, &self.branch, self.types)?)
+                            }
+                            "core.bytes.at" => {
+                                let ([coordinate], [Schema::Blob { low, .. }]) =
+                                    (types, declared.as_slice())
+                                else {
+                                    return Err(());
+                                };
+                                byte_at::valid(
+                                    coordinate,
+                                    arguments,
+                                    *low,
+                                    &self.proven,
+                                    &self.path,
+                                    self.types,
+                                )?
+                            }
+                            "core.bytes.slice" => {
+                                let [coordinate] = types else {
+                                    return Err(());
+                                };
+                                order::slice_in_range(
+                                    coordinate,
+                                    arguments,
+                                    &self.proven,
+                                    self.types,
+                                )? || (!self.branch.is_empty()
                                     && order::slice_in_range(
                                         coordinate,
                                         arguments,
                                         &self.with_branch(),
                                         self.types,
                                     )?)
-                        }
-                        _ => false,
-                    };
-                    let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
-                        if !declared.is_empty() {
-                            return Err(());
-                        }
-                        identity::infer(name, &argument_schemas)?
-                    } else {
-                        intrinsic(
-                            name,
-                            arguments,
-                            &argument_schemas,
-                            &declared,
-                            addition_proven,
-                            order_proven,
-                        )?
-                    };
-                    charge.append(intrinsic)?;
-                    schema
+                            }
+                            _ => false,
+                        };
+                        let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
+                            if !declared.is_empty() {
+                                return Err(());
+                            }
+                            identity::infer(name, &argument_schemas)?
+                        } else {
+                            intrinsic(
+                                name,
+                                arguments,
+                                &argument_schemas,
+                                &declared,
+                                addition_proven,
+                                order_proven,
+                            )?
+                        };
+                        charge.append(intrinsic)?;
+                        schema
+                    }
                 }
             }
             _ => return Err(()),
@@ -1009,6 +1083,9 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let input_type = self.types.local(input)?;
+        if option_operations::contains_option(&input_type) {
+            return Err(());
+        }
         let size = input_type.measure()?;
         let mut charge = size.copy;
         charge.append(Charge {
@@ -1073,7 +1150,7 @@ impl<'a> Checker<'a, '_> {
         }
         let output = self.expression(get(body, "result")?, &frame, 0)?;
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
-        if !expected.encloses(&output.schema) {
+        if option_operations::contains_option(&expected) || !expected.encloses(&output.schema) {
             return Err(());
         }
         let size = expected.measure()?;

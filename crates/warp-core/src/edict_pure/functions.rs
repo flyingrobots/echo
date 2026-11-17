@@ -67,7 +67,11 @@ fn admitted_definitions<'a>(
             let capability = text(capability)?;
             let known = matches!(
                 capability,
-                "core.fold/v1" | "core.variant/v1" | "core.list/v1"
+                "core.fold/v1"
+                    | "core.variant/v1"
+                    | "core.list/v1"
+                    | "core.option/v1"
+                    | super::failure_sets::CAPABILITY
             ) || (admission == SharedReadAdmission::Admit
                 && capability == SHARED_READS_CAPABILITY);
             if !known || !capabilities.insert(capability) {
@@ -81,12 +85,23 @@ fn admitted_definitions<'a>(
         CostSchedule::Copying
     };
     let fold_capability = capabilities.contains("core.fold/v1");
-    if !capabilities.contains("core.list/v1") {
-        // Each input was separately admitted by the canonical decoder. Scan
-        // under those wire budgets; the parser keeps its shared program budget.
-        for artifact in [core, exports] {
-            let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
-            super::list_operations::without_capability(artifact, &mut remaining, 0)?;
+    // Each input was separately admitted by the canonical decoder. Scan under
+    // those wire budgets; the parser keeps its shared program budget.
+    for (capability, gated) in [
+        (
+            "core.list/v1",
+            super::list_operations::is_operation as fn(&str) -> bool,
+        ),
+        (
+            super::option_operations::CAPABILITY,
+            super::option_operations::is_operation,
+        ),
+    ] {
+        if !capabilities.contains(capability) {
+            for artifact in [core, exports] {
+                let mut remaining = MAX_CANONICAL_DECODE_NODES_V1;
+                super::list_operations::without_capability(artifact, gated, &mut remaining, 0)?;
+            }
         }
     }
     for item in array(field(exports, "pureFunctions")?)? {
@@ -209,6 +224,9 @@ fn decode_definitions(
     definitions: &BTreeMap<String, Definition<'_>>,
     parser: &mut Parser<'_>,
 ) -> Result<BTreeMap<String, Helper>, Error> {
+    // Declared failure sets, `fail` and `attempt` are judged over the whole
+    // module before any body is typed.
+    super::failure_sets::judge(core, parser.coordinate).map_err(|()| Error::InvalidArtifact)?;
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.
@@ -268,8 +286,10 @@ fn decode_definitions(
                 return Err(Error::InvalidArtifact);
             }
             let value = field(binding, "value")?;
-            let actual = infer(
+            let ty = parser.ty(text_field(declaration, "type")?, 0)?;
+            let actual = typed(
                 value,
+                &ty,
                 &scope,
                 Proof {
                     caps: &caps,
@@ -281,9 +301,7 @@ fn decode_definitions(
                 definitions,
                 definition.source_owned,
                 parser,
-                0,
             )?;
-            let ty = parser.ty(text_field(declaration, "type")?, 0)?;
             if !accepts(&ty, &actual) {
                 return Err(Error::InvalidArtifact);
             }
@@ -304,8 +322,10 @@ fn decode_definitions(
             return Err(Error::InvalidArtifact);
         }
         let result = field(definition.body, "result")?;
-        let actual = infer(
+        let ty = parser.ty(definition.result_type, 0)?;
+        let actual = typed(
             result,
+            &ty,
             &scope,
             Proof {
                 caps: &caps,
@@ -317,9 +337,7 @@ fn decode_definitions(
             definitions,
             definition.source_owned,
             parser,
-            0,
         )?;
-        let ty = parser.ty(definition.result_type, 0)?;
         if !accepts(&ty, &actual) {
             return Err(Error::InvalidArtifact);
         }
@@ -392,6 +410,46 @@ fn decode_definitions(
     Ok(helpers)
 }
 
+/// Infers an `if` or `match` arm, or `None` for a `fail`, which returns no
+/// value and takes its type from a peer arm.
+pub(super) fn infer_arm<'v>(
+    value: &'v Value,
+    scope: &Scope<'_>,
+    proof: Proof<'_, 'v>,
+    definitions: &BTreeMap<String, Definition<'_>>,
+    source: bool,
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<Option<RuntimeType>, Error> {
+    if text_field(value, "kind")? == "fail" {
+        parser.enter(depth)?;
+        exact_fields(value, &["kind", "failure"])?;
+        text_field(value, "failure")?;
+        return Ok(None);
+    }
+    infer(value, scope, proof, definitions, source, parser, depth).map(Some)
+}
+
+/// Infers a helper binding or result, where `expected` types a `fail`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The same judgment context as `infer`, plus the declared type."
+)]
+fn typed<'v>(
+    value: &'v Value,
+    expected: &RuntimeType,
+    scope: &Scope<'_>,
+    proof: Proof<'_, 'v>,
+    definitions: &BTreeMap<String, Definition<'_>>,
+    source: bool,
+    parser: &mut Parser<'_>,
+) -> Result<RuntimeType, Error> {
+    Ok(
+        infer_arm(value, scope, proof, definitions, source, parser, 0)?
+            .unwrap_or_else(|| expected.clone()),
+    )
+}
+
 /// Checks the one current complete Core local identity.
 pub(crate) fn local(value: &Value) -> Result<(), Error> {
     exact_fields(value, &["id", "type", "alphaName"])?;
@@ -423,6 +481,7 @@ pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
                     _ => false,
                 }
         }
+        (RuntimeType::Option(expected), RuntimeType::Option(actual)) => accepts(expected, actual),
         (RuntimeType::Record(left), RuntimeType::Record(right)) => {
             left.len() == right.len()
                 && left.iter().all(|(key, ty)| {
@@ -452,6 +511,9 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
                 },
                 max: n.max(m),
             })
+        }
+        (RuntimeType::Option(left), RuntimeType::Option(right)) => {
+            Ok(RuntimeType::Option(Box::new(join(*left, *right)?)))
         }
         (RuntimeType::Record(left), RuntimeType::Record(right)) if left.len() == right.len() => {
             let mut fields = Vec::new();
@@ -717,7 +779,7 @@ pub(crate) fn infer<'v>(
             // As in Edict, the predicate is a fact inside the `then` arm.
             let mut branch = proof.branch.to_vec();
             branch.push(field(value, "predicate")?);
-            let left = infer(
+            let left = infer_arm(
                 field(value, "then")?,
                 scope,
                 Proof {
@@ -732,7 +794,7 @@ pub(crate) fn infer<'v>(
             )?;
             path.pop();
             path.push((field(value, "predicate")?, false));
-            let right = infer(
+            let right = infer_arm(
                 field(value, "else")?,
                 scope,
                 Proof {
@@ -744,7 +806,11 @@ pub(crate) fn infer<'v>(
                 parser,
                 depth + 1,
             )?;
-            join(left, right)
+            match (left, right) {
+                (Some(left), Some(right)) => join(left, right),
+                (Some(only), None) | (None, Some(only)) => Ok(only),
+                (None, None) => Err(Error::UnsupportedProgram),
+            }
         }
         "call" => {
             exact_fields(value, &["kind", "callee", "args", "typeArgs"])?;
@@ -834,6 +900,18 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::option_operations::is_operation(name) {
+                let [item] = declared.as_slice() else {
+                    return Err(Error::InvalidArtifact);
+                };
+                return super::option_operations::infer(
+                    value,
+                    &actual,
+                    item,
+                    proof.facts,
+                    proof.path,
+                );
+            }
             if super::list_operations::is_operation(name) {
                 return super::list_operations::infer(
                     value,
@@ -1251,7 +1329,7 @@ impl Heights<'_> {
     fn expr(&mut self, expression: &Expr, depth: usize) -> Result<usize, Error> {
         self.enter(depth)?;
         let height = match expression {
-            Expr::Constant(_) | Expr::Local(_) => 0,
+            Expr::Constant(_) | Expr::Local(_) | Expr::Fail(_) => 0,
             Expr::Variant { payload, .. } => match payload {
                 Some(payload) => self.expr(payload, depth + 1)? + 1,
                 None => 1,
@@ -1323,6 +1401,14 @@ impl Heights<'_> {
                     return Err(Error::InvalidArtifact);
                 }
                 let mut maximum = self.helper(name, depth + 1)?;
+                for argument in args {
+                    maximum = maximum.max(self.expr(argument, depth + 1)?);
+                }
+                maximum + 1
+            }
+            Expr::Option { item, args, .. } => {
+                // A present Option nests its item one level below the value.
+                let mut maximum = type_height(item) + 1;
                 for argument in args {
                     maximum = maximum.max(self.expr(argument, depth + 1)?);
                 }
@@ -1417,6 +1503,7 @@ impl Heights<'_> {
 fn type_height(ty: &RuntimeType) -> usize {
     match ty {
         RuntimeType::Nominal(_, representation) => type_height(representation),
+        RuntimeType::Option(item) => type_height(item) + 1,
         RuntimeType::Variant { cases, .. } => {
             1 + cases
                 .values()

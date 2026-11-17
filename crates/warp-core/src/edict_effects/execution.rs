@@ -12,7 +12,11 @@ use crate::edict_pure::{
     values::{array, bytes, field, map, number, text, text_field},
     EvaluationError as Error, EvaluationLimits,
 };
-use crate::edict_read::{NodeAtomAccess, ReadError, ReadObstruction};
+use crate::edict_read::{
+    closure_read, closure_shape, edge_read, edge_shape, selector_conforms, ClosureShape,
+    GraphReadSession, GraphReadUsage, GraphReads, NodeAtomAccess, ReadError, ReadLimits,
+    ReadObstruction,
+};
 use crate::{NodeId, NodeKey, SlotId, SlotReading, TypeId, WarpId};
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::BTreeMap;
@@ -51,10 +55,27 @@ enum Instruction {
         failures: BTreeMap<String, String>,
         max_bytes: u64,
     },
+    /// A typed outgoing-edge or guided closure read (echo#926) as an effect
+    /// step: the bounded-read primitive over the recording frame.
+    GraphRead {
+        binding: Binding,
+        failures: BTreeMap<String, String>,
+        read: GraphRead,
+    },
     Require {
         condition: Predicate,
         reason: Reason,
     },
+    /// A call to a failing source helper. A failure it ends with ends the
+    /// run with that failure's mapped terminal reason.
+    Attempt {
+        binding: Binding,
+        arms: BTreeMap<String, Reason>,
+    },
+}
+enum GraphRead {
+    Edges { max_edges: u64 },
+    Closure(ClosureShape),
 }
 pub(super) struct Evaluation {
     pub(super) output: Vec<u8>,
@@ -69,6 +90,7 @@ pub(super) struct Program {
     helpers: BTreeMap<String, Helper>,
     result: Expr,
     limits: EvaluationLimits,
+    graph_reads: Option<GraphReads>,
 }
 impl Program {
     // The existing ordered relation and lowering/ABI validator establish authority.
@@ -79,6 +101,7 @@ impl Program {
         target: &Value,
         exports: &Value,
         mut limits: EvaluationLimits,
+        graph_reads: Option<&GraphReads>,
     ) -> Result<Self, Error> {
         let mut parser = Parser {
             types: field(module, "types")?,
@@ -109,6 +132,7 @@ impl Program {
             .collect::<BTreeMap<_, _>>();
         let body = field(intent, "body")?;
         let instructions = decode_block(body, &steps, &mut parser, 0)?;
+        declared_graph_reads(&instructions, &helpers, graph_reads)?;
         Ok(Self {
             input: parser.ty(text_field(intent, "input")?, 0)?,
             output: parser.ty(text_field(intent, "output")?, 0)?,
@@ -121,6 +145,7 @@ impl Program {
             helpers,
             result: parser.expr(field(body, "result")?, 0)?,
             limits,
+            graph_reads: graph_reads.cloned(),
         })
     }
     pub(super) fn run(
@@ -168,6 +193,7 @@ impl Program {
             access,
             schema,
             meter,
+            usage: GraphReadUsage::default(),
         };
         self.run_block(&self.instructions, &mut run, 0)?;
         let value = expression(&self.result, &run.locals, helpers, run.meter, 0)?;
@@ -226,6 +252,36 @@ impl Program {
                     failures,
                     max_bytes,
                 } => self.read(binding, failures, *max_bytes, run)?,
+                Instruction::GraphRead {
+                    binding,
+                    failures,
+                    read,
+                } => self.graph_read(binding, failures, read, run)?,
+                Instruction::Attempt { binding, arms } => {
+                    let value = match expression(
+                        &binding.value,
+                        &run.locals,
+                        &self.helpers,
+                        run.meter,
+                        0,
+                    ) {
+                        Err(Error::UnmappedFailure(failure)) => {
+                            // Only the selected arm's payload is evaluated.
+                            let reason = arms.get(&failure).ok_or(Error::InvalidArtifact)?;
+                            let payload = expression(
+                                &reason.payload,
+                                &run.locals,
+                                &self.helpers,
+                                run.meter,
+                                0,
+                            )?;
+                            return Err(self.obstruct(&reason.name, payload, run.meter)?);
+                        }
+                        value => value?,
+                    };
+                    validate(&value, &binding.ty, run.meter, 0)?;
+                    run.locals.insert(binding.name.as_str(), value);
+                }
                 Instruction::Require { condition, reason } => {
                     if !predicate(condition, &run.locals, &self.helpers, run.meter, 0)? {
                         let payload =
@@ -342,6 +398,51 @@ impl Program {
         run.locals.insert(binding.name.as_str(), value);
         Ok(())
     }
+    fn graph_read<'p>(
+        &'p self,
+        binding: &'p Binding,
+        failures: &BTreeMap<String, String>,
+        read: &GraphRead,
+        run: &mut Run<'p, '_, '_, '_>,
+    ) -> Result<(), EffectFrameError> {
+        let input = expression(&binding.value, &run.locals, &self.helpers, run.meter, 0)?;
+        let graph = self.graph_reads.as_ref().ok_or(Error::InvalidArtifact)?;
+        // Attempts and delivered bytes are bounded by the frame's typed law
+        // and meter, so the bounded-read route's own read-count and
+        // read-byte ceilings impose nothing further here.
+        let limits = ReadLimits {
+            evaluation: self.limits,
+            max_reads: u64::MAX,
+            max_read_bytes: u64::MAX,
+        };
+        let mut session = GraphReadSession {
+            graph,
+            helpers: &self.helpers,
+            view: &mut *run.access,
+            meter: &mut *run.meter,
+            usage: &mut run.usage,
+            limits: &limits,
+        };
+        let outcome = match read {
+            GraphRead::Edges { max_edges } => edge_read(*max_edges, &input, &mut session)?,
+            GraphRead::Closure(shape) => closure_read(shape, &input, &mut session)?,
+        };
+        let value = match outcome {
+            Ok(value) => value,
+            Err(cause) => {
+                return Err(self.obstruct(
+                    failures
+                        .get(cause.runtime_tag())
+                        .ok_or(Error::InvalidArtifact)?,
+                    Value::Map(Vec::new()),
+                    run.meter,
+                )?);
+            }
+        };
+        validate(&value, &binding.ty, run.meter, 0)?;
+        run.locals.insert(binding.name.as_str(), value);
+        Ok(())
+    }
     fn output_bytes(&self, value: &Value, meter: &mut Meter) -> Result<Vec<u8>, EffectFrameError> {
         meter.charge(value, 0)?;
         let output = encode(value).map_err(|_| Error::InvalidArtifact)?;
@@ -362,6 +463,60 @@ impl Program {
         })
     }
 }
+/// A graph read is a declared capability, as on the bounded-read route: the
+/// declaration is present exactly when a step reads the graph, and every
+/// closure is guided by the declared source helper over its own node and
+/// guide types.
+fn declared_graph_reads(
+    instructions: &[Instruction],
+    helpers: &BTreeMap<String, Helper>,
+    graph: Option<&GraphReads>,
+) -> Result<(), Error> {
+    if graph.is_some() != (graph_read_count(instructions, helpers, graph)? > 0) {
+        return Err(Error::UnsupportedProgram);
+    }
+    Ok(())
+}
+/// Counts the graph reads in `instructions` and the blocks nested in them,
+/// checking each closure's selector against the declaration on the way.
+fn graph_read_count(
+    instructions: &[Instruction],
+    helpers: &BTreeMap<String, Helper>,
+    graph: Option<&GraphReads>,
+) -> Result<usize, Error> {
+    let mut reads = 0_usize;
+    for instruction in instructions {
+        match instruction {
+            Instruction::GraphRead { read, .. } => {
+                reads = reads.saturating_add(1);
+                if let GraphRead::Closure(shape) = read {
+                    let selector = graph
+                        .and_then(|graph| graph.selector.as_deref())
+                        .and_then(|name| helpers.get(name))
+                        .ok_or(Error::UnsupportedProgram)?;
+                    selector_conforms(selector, shape)?;
+                }
+            }
+            Instruction::For { body, .. } => {
+                reads = reads.saturating_add(graph_read_count(body, helpers, graph)?);
+            }
+            Instruction::Branch {
+                then_body,
+                else_body,
+                ..
+            } => {
+                reads = reads.saturating_add(graph_read_count(then_body, helpers, graph)?);
+                reads = reads.saturating_add(graph_read_count(else_body, helpers, graph)?);
+            }
+            Instruction::Let(_)
+            | Instruction::Mutation { .. }
+            | Instruction::Read { .. }
+            | Instruction::Require { .. }
+            | Instruction::Attempt { .. } => {}
+        }
+    }
+    Ok(reads)
+}
 /// The state one evaluation threads through its blocks.
 struct Run<'p, 'm, 'a, 'b> {
     locals: BTreeMap<&'p str, Value>,
@@ -369,6 +524,8 @@ struct Run<'p, 'm, 'a, 'b> {
     access: &'m mut RecordedNodeAccess<'a, 'b>,
     schema: &'m EffectGraphSchema,
     meter: &'m mut Meter,
+    /// Graph reads share one scan allowance per evaluation.
+    usage: GraphReadUsage,
 }
 /// Removes the locals `instructions` bound, so none outlives its block.
 /// Nested blocks have already forgotten their own.
@@ -377,12 +534,25 @@ fn forget(instructions: &[Instruction], locals: &mut BTreeMap<&str, Value>) {
         match instruction {
             Instruction::Let(binding)
             | Instruction::Read { binding, .. }
-            | Instruction::Mutation { binding, .. } => {
+            | Instruction::GraphRead { binding, .. }
+            | Instruction::Mutation { binding, .. }
+            | Instruction::Attempt { binding, .. } => {
                 locals.remove(binding.name.as_str());
             }
             Instruction::For { .. } | Instruction::Branch { .. } | Instruction::Require { .. } => {}
         }
     }
+}
+/// A terminal obstruction reason; its payload fields evaluate as one record.
+fn reason(reason: &Value, parser: &mut Parser<'_>) -> Result<Reason, Error> {
+    let mut payload = Vec::new();
+    for (key, value) in map(field(reason, "payload")?)? {
+        payload.push((text(key)?.to_owned(), parser.expr(value, 0)?));
+    }
+    Ok(Reason {
+        name: text_field(reason, "reasonKind")?.to_owned(),
+        payload: Expr::Record(payload),
+    })
 }
 /// Decodes one checked Core block. `steps` holds each effect node's Target
 /// step by the node's address.
@@ -403,18 +573,18 @@ fn decode_block(
                     .ok_or(Error::InvalidArtifact)?;
                 effect(node, step, parser)?
             }
-            "require" => {
-                let reason = field(field(node, "onFailure")?, "reason")?;
-                let mut payload = Vec::new();
-                for (key, value) in map(field(reason, "payload")?)? {
-                    payload.push((text(key)?.to_owned(), parser.expr(value, 0)?));
+            "require" => Instruction::Require {
+                condition: parser.predicate(field(node, "predicate")?, 0)?,
+                reason: reason(field(field(node, "onFailure")?, "reason")?, parser)?,
+            },
+            "attempt" => {
+                let mut arms = BTreeMap::new();
+                for (failure, arm) in map(field(node, "failureMap")?)? {
+                    arms.insert(text(failure)?.to_owned(), reason(arm, parser)?);
                 }
-                Instruction::Require {
-                    condition: parser.predicate(field(node, "predicate")?, 0)?,
-                    reason: Reason {
-                        name: text_field(reason, "reasonKind")?.to_owned(),
-                        payload: Expr::Record(payload),
-                    },
+                Instruction::Attempt {
+                    binding: binding(node, "value", parser)?,
+                    arms,
                 }
             }
             "for" => {
@@ -442,16 +612,14 @@ fn decode_block(
     }
     Ok(instructions)
 }
-/// An effect node is a mutation or an atom read, by its step's intrinsic.
+/// An effect node is a mutation, an atom read or a graph read, by its
+/// step's intrinsic.
 fn effect(node: &Value, step: &Value, parser: &mut Parser<'_>) -> Result<Instruction, Error> {
     let binding = binding(node, "input", parser)?;
     let intrinsic = text_field(step, "targetIntrinsic")?;
     if let Some(kind) = MutationKind::from_intrinsic(intrinsic) {
         return Ok(Instruction::Mutation { kind, binding });
     }
-    let RuntimeType::Bytes { max, .. } = binding.ty else {
-        return Err(Error::UnsupportedProgram);
-    };
     // Arms are keyed by catalog name; the read raises runtime tags.
     let mut arms = BTreeMap::new();
     for (name, arm) in map(field(step, "obstructionArms")?)? {
@@ -460,10 +628,30 @@ fn effect(node: &Value, step: &Value, parser: &mut Parser<'_>) -> Result<Instruc
             text_field(field(arm, "value")?, "callee")?.to_owned(),
         );
     }
-    Ok(Instruction::Read {
-        binding,
-        failures: super::failure_names::runtime_arms(intrinsic, arms)?,
-        max_bytes: max,
+    let failures = super::failure_names::runtime_arms(intrinsic, arms)?;
+    Ok(match super::intrinsic_names::operation(intrinsic) {
+        Some("outgoing-edge-read") => Instruction::GraphRead {
+            read: GraphRead::Edges {
+                max_edges: edge_shape(&binding.ty)?,
+            },
+            binding,
+            failures,
+        },
+        Some("closure-read") => Instruction::GraphRead {
+            read: GraphRead::Closure(closure_shape(&binding.ty)?),
+            binding,
+            failures,
+        },
+        _ => {
+            let RuntimeType::Bytes { max, .. } = binding.ty else {
+                return Err(Error::UnsupportedProgram);
+            };
+            Instruction::Read {
+                binding,
+                failures,
+                max_bytes: max,
+            }
+        }
     })
 }
 fn binding(node: &Value, key: &str, parser: &mut Parser<'_>) -> Result<Binding, Error> {

@@ -33,27 +33,32 @@ pub struct EffectProgram {
     max_input_bytes: u64,
     max_result_bytes: u64,
     max_allocated_bytes: u64,
+    /// The graph-read declaration, present exactly when a step reads the graph.
+    graph_reads: Option<crate::edict_read::GraphReads>,
 }
 impl EffectProgram {
     pub(crate) fn from_value(value: &Value) -> Result<Self, EvaluationError> {
-        exact_fields(
-            value,
-            &[
-                "schema",
-                "kind",
-                "interpreter_profile_identity",
-                "intrinsic_profile_identity",
-                "compiled_program",
-                "target_ir_identity",
-                "identity_law",
-                "graph_schema",
-                "footprint_law",
-                "max_input_bytes",
-                "max_result_bytes",
-                "max_allocated_bytes",
-                "output_type",
-            ],
-        )?;
+        let mut fields = vec![
+            "schema",
+            "kind",
+            "interpreter_profile_identity",
+            "intrinsic_profile_identity",
+            "compiled_program",
+            "target_ir_identity",
+            "identity_law",
+            "graph_schema",
+            "footprint_law",
+            "max_input_bytes",
+            "max_result_bytes",
+            "max_allocated_bytes",
+            "output_type",
+        ];
+        // A program whose steps read the graph declares their ceilings, as
+        // the bounded-read configuration does; any other keeps its fields.
+        if field(value, "graph_reads").is_ok() {
+            fields.push("graph_reads");
+        }
+        exact_fields(value, &fields)?;
         require_text(value, "schema", "echo.operation-program/v1")?;
         require_text(value, "kind", "edict-effect-program/v1")?;
         if number(field(value, "identity_law")?)? != 1 {
@@ -94,6 +99,19 @@ impl EffectProgram {
         {
             return Err(EvaluationError::InvalidArtifact);
         }
+        let compiled_contract = super::compiled_program::CompiledProgram::parse(bytes(field(
+            value,
+            "compiled_program",
+        )?)?)?;
+        let graph_reads = field(value, "graph_reads")
+            .ok()
+            .map(|declared| {
+                crate::edict_read::graph_declaration(
+                    declared,
+                    compiled_contract.module_coordinate()?,
+                )
+            })
+            .transpose()?;
         Ok(Self {
             value: value.clone(),
             identity: crate::echo_operation::program_identity_bytes(
@@ -101,10 +119,8 @@ impl EffectProgram {
                     .map_err(|_| EvaluationError::InvalidArtifact)?,
             ),
             compiled: bytes(field(value, "compiled_program")?)?.to_vec(),
-            compiled_contract: super::compiled_program::CompiledProgram::parse(bytes(field(
-                value,
-                "compiled_program",
-            )?)?)?,
+            compiled_contract,
+            graph_reads,
             schema,
             law,
             target_ir: hash(field(value, "target_ir_identity")?)?,
@@ -127,7 +143,28 @@ impl EffectProgram {
             self.target_ir,
             exports_identity,
             &self.output_type,
-        )
+        )?;
+        // A graph read is a declared capability: admission refuses a graph
+        // read without the declaration, a declaration no step uses, and a
+        // closure without a declared selector among the module's helpers.
+        // Decoding the body before a run also checks the selector's types.
+        let (reads, closures) = self.compiled_contract.graph_read_steps()?;
+        let admitted = match &self.graph_reads {
+            None => reads == 0,
+            Some(graph) => {
+                reads > 0
+                    && (closures == 0
+                        || graph
+                            .selector
+                            .as_deref()
+                            .is_some_and(|name| self.compiled_contract.declares_helper(name)))
+            }
+        };
+        if admitted {
+            Ok(())
+        } else {
+            Err(EvaluationError::UnsupportedProgram)
+        }
     }
     pub(super) const fn identity(&self) -> crate::Hash {
         self.identity
@@ -138,7 +175,8 @@ impl EffectProgram {
     ) -> Result<super::execution::Program, EvaluationError> {
         limits.max_allocated_bytes = limits.max_allocated_bytes.min(self.max_allocated_bytes);
         limits.max_output_bytes = limits.max_output_bytes.min(self.max_result_bytes);
-        self.compiled_contract.execution(limits)
+        self.compiled_contract
+            .execution(limits, self.graph_reads.as_ref())
     }
     pub(crate) fn to_value(&self) -> Value {
         self.value.clone()

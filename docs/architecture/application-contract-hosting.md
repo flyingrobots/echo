@@ -422,6 +422,25 @@ checked arithmetic; the runtime meters each executed iteration, copies and
 validation. Zero iterations still validate and return the initial state. The
 capability is `core.fold/v1`; unknown and duplicate capabilities refuse.
 
+Typed function failures (`core.failure/v1`, Amblicit's typed failures) run in
+authored effect programs. A source function may declare a nonempty, strictly
+ascending `failures` set, which must equal what its body produces: each `fail`
+and each call to a function that declares failures. A module declares the
+capability exactly when some function has a set. Outside function bodies only
+an intent's `attempt` node may call a failing function. Its arguments cannot
+fail, its `failureMap` holds exactly the callee's set, and each entry is a
+terminal obstruction reason whose payload reads only what precedes the node.
+The lowered Target pure binding carries the same map as `failureArms`. `fail`
+takes its type from a peer `if` or `match` arm, a helper result or an annotated
+binding, and costs one step. Elsewhere it refuses. At run time a failure ends
+the helper and every caller up to the `attempt`, which then ends the run with
+the mapped reason and its payload. Only that arm's payload is evaluated. The
+providers charge the call plus the larger of result validation and the costliest
+arm. warp-core, the lowerer and the verifier each hold an identical copy of this
+judgment (`failure_sets.rs`). Failing `fold` steps, failures inside a `record`,
+and `orderedRecord` (flyingrobots/echo#997) refuse. The shared effect-program
+corpus holds a control and one forgery for each check.
+
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume
 those components. Native synthetic tests alone do not establish public compiler
@@ -488,6 +507,21 @@ evaluation checks actual lengths and elements and charges
 result storage before reserving it. The ordered-read type judgments admit the
 same operations after whole-intent validation, including forward, reversed and
 negated strict bounds on equal-width words (`<`, `>`, and false `>=`/`<=`).
+
+They also implement Amblicit's `Option<T>` (flyingrobots/echo#995) under
+`core.option/v1`: the type, written `Option<T>` or as an `Option` type-table
+entry, and the calls `core.option.some`, `none`, `isSome`, `default` and
+`unwrap`, each with the item `T` as its only type argument. Option is not a
+variant. Each judge requires the operand's item to equal the type argument,
+and admits `unwrap` only on a local that a dominating fact proves present: the
+`isSome(x) == true` predicate of an enclosing `then` arm, its negation on an
+`else` arm, an earlier `all` conjunct or a negated earlier `any` disjunct. The
+compiler's source refinement is not trusted. Amblicit names no Option case
+labels, so a `match` on an Option or an Option variant constructor is refused.
+Option values stay inside helpers: an intent's input and output may not contain
+one, because Echo defines no Option wire encoding. At runtime an absent Option
+is `null` and a present one a one-item array; the providers charge it as one
+value cell plus its item.
 
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
@@ -630,7 +664,10 @@ effect routes have no shared-read rules: the runtime's shared helper decoder
 refuses the capability there, and the lowerer and verifier refuse it on those
 routes too. Under the schedule, byte intrinsics and imported helpers are
 refused by all three, because the schedule leaves the storage of a computed
-byte string uncharged.
+byte string uncharged. Identity intrinsics, `Option` operations and `fail`
+have no shared-read rule in Echo either, and the runtime refuses them; a pure
+intent cannot call a failing helper, because only an effect program's
+`attempt` maps failures.
 
 The [shared corpus](../../crates/warp-core/tests/fixtures/edict-core-cost-v2/README.md)
 holds Core modules that the pinned compiler produced at their minimum budgets,
@@ -641,8 +678,9 @@ one output byte less. The runtime runs the worst-case input within the minimum
 and refuses one step or byte below its own metered work. Generated inputs stay
 within the minimum and match the copying evaluator's result. Goldens pin the
 copying-schedule cost of the same programs without the capability in all three
-judges. The bounded-descent rope requires `core.failure/v1`, which Echo does
-not yet admit, so no judge reads its corpus entry yet.
+judges. The bounded-descent rope maps a typed failure with `attempt`, which
+Echo admits only on the effect-program route, so no judge reads its corpus
+entry under the shared-read schedule yet.
 
 `maxAllocatedBytes` keeps its cumulative meaning under both schedules: the
 runtime adds every charged allocation and never refunds. The shared-read
@@ -1340,8 +1378,9 @@ whether the scan ran or was refused at the scan bound. The size that decided
 each scan's bound and charge is therefore evidence, and `confirm_bucket_sizes`
 refuses an image whose recorded size differs from the bucket at its basis with
 `BucketSizeMismatch`; the layout is in
-[Generated Rules](../topics/GeneratedRules.md). Admitting graph reads into
-authored effect programs is separate work
+[Generated Rules](../topics/GeneratedRules.md). Authored effect programs may
+call the same reads as `echo.dpo@2` effect steps; effect derivation confirms
+their bucket sizes at the image's basis
 ([#982](https://github.com/flyingrobots/echo/issues/982)). A read image carrying a second, conflicting
 observation of one slot is refused as `InvalidImage`; a stale basis refuses
 with `BasisMismatch` before any read.

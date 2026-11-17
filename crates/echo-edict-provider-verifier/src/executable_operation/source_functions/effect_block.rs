@@ -14,6 +14,7 @@ use super::effect_intent::{abi, EffectSite};
 use super::{
     exact, get, members, sequence, string, unsigned, Charge, Check, Checker, Frame, Schema, Value,
 };
+use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -62,6 +63,8 @@ pub(super) struct Audit<'s, 'a> {
     pub(super) seen: BTreeSet<&'a str>,
     /// Failure binders, spent by their own arm and never in scope.
     pub(super) binders: BTreeSet<&'a str>,
+    /// The package's graph-read declaration (echo#982).
+    pub(super) graph: Option<GraphReads<'s>>,
 }
 impl<'a> Audit<'_, 'a> {
     fn first_use(&mut self, local: &'a Value) -> Check<&'a str> {
@@ -230,6 +233,34 @@ impl<'a> Checker<'a, '_> {
                 audit.first_use(local)?;
                 frame.define(local, expected)?;
             }
+            "attempt" => {
+                exact(node, &["kind", "binding", "value", "failureMap"])?;
+                // Each arm's payload reads only what precedes the attempt.
+                let mut worst = Charge::default();
+                for (_, reason) in members(get(node, "failureMap")?)? {
+                    let (payload, encoded) = self.obstruction(reason, frame)?;
+                    worst = Charge::choice(worst, payload);
+                    tally.obstruction_output = tally.obstruction_output.max(encoded);
+                }
+                let value = self.expression(get(node, "value")?, frame, 0)?;
+                let local = get(node, "binding")?;
+                let expected = self.types.local(local)?;
+                if !expected.encloses(&value.schema) {
+                    return Err(());
+                }
+                // The call runs, then either its result is checked or exactly
+                // one arm's payload is built: charge the larger.
+                tally.charge.append(value.charge)?;
+                tally.charge.append(Charge::choice(
+                    worst,
+                    Charge {
+                        ticks: expected.measure()?.checks,
+                        storage: 0,
+                    },
+                ))?;
+                audit.first_use(local)?;
+                frame.define(local, expected)?;
+            }
             "require" => {
                 exact(node, &["kind", "predicate", "onFailure"])?;
                 // Refuses later work; proves nothing for it.
@@ -296,8 +327,11 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let output = self.types.resolve(&site.output, 0)?;
-        let cost = abi(&site.intrinsic, &input, &output)?;
-        if operation(&site.intrinsic) != Some("node-atom-read") {
+        let cost = match site.graph_read() {
+            Some(read) => self.graph_read_charge(read, &input, &output, audit.graph)?,
+            None => abi(&site.intrinsic, &input, &output)?,
+        };
+        if operation(&site.intrinsic) != Some("node-atom-read") && site.graph_read().is_none() {
             tally.mutations = 1;
         }
         let arms = members(get(node, "obstructionMap")?)?;

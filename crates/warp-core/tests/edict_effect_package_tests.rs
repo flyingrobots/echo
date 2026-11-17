@@ -1768,3 +1768,7 @@ mod provider_corpus;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/structured.rs"]
 mod structured;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/typed_failures.rs"]
+mod typed_failures;

@@ -51,7 +51,7 @@ const WORD: RuntimeType = RuntimeType::Unsigned(u64::MAX);
 
 /// Running totals shared by every read step of one evaluation.
 #[derive(Default)]
-pub(super) struct Usage {
+pub(crate) struct Usage {
     pub reads: u64,
     pub read_bytes: u64,
     pub edge_scans: u64,
@@ -82,13 +82,20 @@ impl Usage {
 }
 
 /// Declared result bounds and the two types the selector must share.
-pub(super) struct ClosureShape {
+pub(crate) struct ClosureShape {
     node_bytes: u64,
     max_nodes: u64,
     max_edges: u64,
     max_occurrences: u64,
     node: RuntimeType,
     guide: RuntimeType,
+}
+
+impl ClosureShape {
+    /// The guide type every occurrence carries, which the read is started with.
+    pub(crate) const fn guide(&self) -> &RuntimeType {
+        &self.guide
+    }
 }
 
 fn fields<'a, const N: usize>(
@@ -134,7 +141,7 @@ fn exactly(ty: &RuntimeType, expected: &RuntimeType) -> Result<(), Error> {
 }
 
 /// The edge-read result: a nonempty-capacity list of `{ edgeId, toId }`.
-pub(super) fn edge_shape(ty: &RuntimeType) -> Result<u64, Error> {
+pub(crate) fn edge_shape(ty: &RuntimeType) -> Result<u64, Error> {
     let (row, max_edges) = list(ty, MAX_RESULT_EDGES)?;
     for field in fields(row, ["edgeId", "toId"])? {
         exactly(field, &ID)?;
@@ -155,7 +162,7 @@ fn node_shape(ty: &RuntimeType) -> Result<u64, Error> {
 }
 
 /// The closure result: `{ nodes, edges, occurrences }` with fixed row shapes.
-pub(super) fn closure_shape(ty: &RuntimeType) -> Result<ClosureShape, Error> {
+pub(crate) fn closure_shape(ty: &RuntimeType) -> Result<ClosureShape, Error> {
     let [nodes, edges, occurrences] = fields(ty, ["nodes", "edges", "occurrences"])?;
     let (node, max_nodes) = list(nodes, MAX_RESULT_NODES)?;
     let node_bytes = node_shape(node)?;
@@ -179,7 +186,7 @@ pub(super) fn closure_shape(ty: &RuntimeType) -> Result<ClosureShape, Error> {
 
 /// A selector is one source-owned helper `Candidate -> Decision` over the
 /// exact node and guide types of the closure result it guides.
-pub(super) fn selector_conforms(helper: &Helper, shape: &ClosureShape) -> Result<(), Error> {
+pub(crate) fn selector_conforms(helper: &Helper, shape: &ClosureShape) -> Result<(), Error> {
     let [parameter] = helper.params.as_slice() else {
         return Err(Error::UnsupportedProgram);
     };
@@ -234,7 +241,7 @@ fn flag(decision: &Value, name: &str) -> Result<bool, Error> {
 }
 
 /// Everything one read step borrows from the running evaluation.
-pub(super) struct Session<'a, A> {
+pub(crate) struct Session<'a, A> {
     pub graph: &'a GraphReads,
     pub helpers: &'a BTreeMap<String, Helper>,
     pub view: &'a mut A,
@@ -271,7 +278,7 @@ impl<A: NodeAtomAccess> Session<'_, A> {
 /// A present source with no matching edge yields the empty list; an absent
 /// source is a distinct failure. Every edge in the source's bucket counts
 /// toward the evaluation's scan bound, matching or not.
-pub(super) fn edges<A: NodeAtomAccess>(
+pub(crate) fn edges<A: NodeAtomAccess>(
     max_edges: u64,
     input: &Value,
     session: &mut Session<'_, A>,
@@ -479,7 +486,7 @@ impl Walk<'_> {
 /// materialized once per distinct node identity, recorded as an edge row, and
 /// offered to the selector as a candidate. A selected candidate becomes a new
 /// occurrence one level deeper, carrying the guide the selector assigned.
-pub(super) fn closure<A: NodeAtomAccess>(
+pub(crate) fn closure<A: NodeAtomAccess>(
     shape: &ClosureShape,
     input: &Value,
     session: &mut Session<'_, A>,

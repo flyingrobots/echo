@@ -235,10 +235,19 @@ pub(crate) fn expression(
         | Expr::ListConcat { .. } => {
             super::list_operations::evaluate(expr, locals, helpers, meter, depth)
         }
+        Expr::Option {
+            operation,
+            item,
+            args,
+        } => super::option_operations::evaluate(
+            *operation, item, args, locals, helpers, meter, depth,
+        ),
         Expr::Identity(intrinsic, args) => {
             super::identity::evaluate(*intrinsic, args, locals, helpers, meter, depth)
         }
         Expr::Constant(value) => meter.copy(value),
+        // A failure returns no value; its step is already charged.
+        Expr::Fail(failure) => Err(Error::UnmappedFailure(failure.clone())),
         Expr::Variant {
             identity,
             case,
@@ -594,6 +603,9 @@ pub(crate) fn validate(
     match (value, ty.representation()) {
         (_, RuntimeType::Variant { identity, cases }) => {
             super::variants::validate_value(value, identity, cases, meter, depth)
+        }
+        (_, RuntimeType::Option(item)) => {
+            super::option_operations::validate_value(value, item, meter, depth)
         }
         (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))

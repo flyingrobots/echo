@@ -241,7 +241,7 @@ fn decode_definitions(
                     reads_branch: true,
                     path: &[],
                 },
-                &definitions,
+                definitions,
                 definition.source_owned,
                 parser,
                 0,

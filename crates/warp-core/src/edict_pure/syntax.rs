@@ -249,6 +249,10 @@ impl Parser<'_> {
                 })
             }
             "call" => self.call(value, depth),
+            "fail" => {
+                exact_fields(value, &["kind", "failure"])?;
+                Ok(Expr::Fail(text_field(value, "failure")?.to_owned()))
+            }
             _ => Err(Error::UnsupportedProgram),
         }
     }

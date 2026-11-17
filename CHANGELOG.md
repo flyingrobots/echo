@@ -7,6 +7,17 @@
 
 ### Added
 
+- Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
+  lowerer and the verifier accept declared function failure sets, `fail` and
+  intent `attempt` nodes lowered as Target pure bindings with `failureArms`.
+  A mapped failure from a helper ends the run with exactly its declared
+  terminal obstruction and payload. Only that arm's payload is evaluated, and
+  the providers charge the costliest arm. Undeclared, unmapped or malformed
+  failure sets, a missing capability and lowered arms that differ from Core
+  refuse in all three judges. Ordered records (#997) remain unsupported.
+  A public compiler witness (`edict-effect-typed-failure`, Amblicit
+  `7dbcbc23`) obstructs with exactly its mapped `RangeInverted`.
+
 - Amblicit `Option<T>` values (#995, the Echo half of amblicit#261).
   warp-core, the provider lowerer and the provider verifier each admit
   `core.option/v1`, the `Option<T>` type and the calls

@@ -203,6 +203,16 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-structured-run" \
     --check
 
+  # Public source witness for a helper with a declared typed failure that
+  # the intent maps to a terminal obstruction (core.failure/v1, #996).
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name typed \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-typed-failure" \
+    --work-root "$witness_dir/effect-typed-failure-run" \
+    --check
+
   # Public source witness for the three echo.dpo@2 ContentAddressV1 identity
   # constructors, bound to the catalog v2 contracts (echo#972).
   cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \

@@ -882,8 +882,21 @@ fn pair_control<'a>(
 /// A Core instruction and its Target instruction agree in kind and content.
 fn same_instruction(node: &Value, kind: &str, instruction: &Value) -> Check<()> {
     {
+        // A pure binding with failure arms lowers an `attempt`.
+        let kind = if kind == "let" && map_field(instruction, "failureArms").is_some() {
+            "attempt"
+        } else {
+            kind
+        };
         equal_text(node, "kind", kind)?;
         let keys: &[&str] = match kind {
+            "attempt" => {
+                exact(instruction, &["id", "binding", "value", "failureArms"])?;
+                if get(node, "failureMap")? != get(instruction, "failureArms")? {
+                    return Err(());
+                }
+                &["binding", "value"]
+            }
             "let" => {
                 exact(instruction, &["id", "binding", "value"])?;
                 &["binding", "value"]

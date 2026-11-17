@@ -84,7 +84,7 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
 # separate verifier; the predecessor package must refuse the same source.
 # Building the compiler is heavy, so a local run must opt in explicitly.
 if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
-  readonly AMBLICIT_REVISION=0034605467fcace397e7e30e4219a74aca57f183
+  readonly AMBLICIT_REVISION=ce2ad2f5faed31147dc9cb5db05353d60b68396d
   readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
   readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
   readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"
@@ -158,5 +158,15 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-mutations" \
     --work-root "$witness_dir/effect-mutations-run" \
+    --check
+
+  # Public source witness for a bounded loop and both statement-branch arms,
+  # compiled to structured echo.span-ir/v3 under the current echo.dpo@2 profile.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name structured \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-structured" \
+    --work-root "$witness_dir/effect-structured-run" \
     --check
 fi

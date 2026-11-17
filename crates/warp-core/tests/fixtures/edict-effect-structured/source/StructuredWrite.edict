@@ -1,0 +1,25 @@
+package consumer.structured.program@1;
+use lawpack consumer.structured@1 digest "sha256:f50f7bf38dd9cb910ba1aa8c24908b931d3cc795fe60d05ba9c916d0baf93d7a" as fx;
+
+type Item = { create: Bool, node: fx.NodeWrite };
+type Input = {
+  anchor: Bytes<exact=32>,
+  initial: fx.NodeWrite,
+  items: List<Item, max=2>,
+};
+
+intent structured(input: Input) returns fx.Written
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let seeded: fx.Written = fx.ensureNode(input.initial);
+  for item in input.items bounded 2 {
+    if item.create {
+      let created: fx.Written = fx.createNode(item.node);
+    } else {
+      let ensured: fx.Written = fx.ensureNode(item.node);
+    }
+  }
+  return seeded;
+}

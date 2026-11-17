@@ -20,7 +20,9 @@ use crate::effect_publication::{encode_effect_publication, EffectPublicationInpu
 
 const SUBJECT: &str = "edict-effect-program";
 const BUNDLE_SCHEMA: &str = "echo.compiler-produced-effect-program/v1";
-const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
+/// The ordered and the structured Target IR contracts; the judgment decides
+/// which one a program's profile admits.
+const EFFECT_TARGET_IRS: [&str; 2] = ["echo.span-ir/v2", "echo.span-ir/v3"];
 
 fn unsupported(check: &str) -> ProviderRefusalV1 {
     crate::unsupported_semantics(SUBJECT, check)
@@ -133,9 +135,9 @@ fn bind_closure(
     request: &LoweringRequestV1,
     closure: &ClosureInputs<'_>,
 ) -> Result<(), ProviderRefusalV1> {
-    if closure.target_ir.artifact.reference.coordinate != ORDERED_TARGET_IR {
+    if !EFFECT_TARGET_IRS.contains(&closure.target_ir.artifact.reference.coordinate.as_str()) {
         return Err(unsupported(
-            "Target IR is not bound as the ordered echo.span-ir/v2",
+            "Target IR is not bound as the ordered echo.span-ir/v2 or the structured echo.span-ir/v3",
         ));
     }
     if text_field(target, "sourceCoreCoordinate")
@@ -149,6 +151,16 @@ fn bind_closure(
         SUBJECT,
         "effect Target IR target profile reference",
     )?;
+    let profile = validate_bound(&request.target_profile, "edict.target-profile/v1")?;
+    // @1 is frozen: authored flat v2 artifacts historically use its v1 profile.
+    if request.target_profile.reference.coordinate == "echo.dpo@2"
+        && text_field(required_map(&profile, "targetIr", SUBJECT)?, "id")
+            != Some(closure.target_ir.artifact.reference.coordinate.as_str())
+    {
+        return Err(unsupported(
+            "Target IR domain does not match the bound target profile",
+        ));
+    }
     let semantic = reference(target, "semanticClosure")?;
     require_resource_ref(
         reference(semantic, "sourceCore")?,

@@ -7,6 +7,7 @@
 //! all of them dominate the whole body; an unsigned `let` carries its proven
 //! cap to later nodes, earlier conjuncts of one `all` prove later ones, and a
 //! `require` proves nothing.
+use super::effect_block::Audit;
 use super::{
     exact, get, members, prepare, sequence, string, unsigned, Charge, Check, Checker, Frame,
     Schema, Types, Value,
@@ -20,7 +21,7 @@ const STORAGE_CEILING: u64 = 16 * 1024 * 1024;
 /// the 64-byte unit value the effect binds.
 const EMISSION_RESERVATION: u64 = 280;
 /// The most mutations one runtime evaluation emits.
-const EFFECT_COUNT_CEILING: usize = 1024;
+const EFFECT_COUNT_CEILING: u128 = 1024;
 /// What one root-warp atom read records beside its payload, in bytes: two
 /// 128-byte observations, two 64-byte authorizations and the 64-byte value.
 const READ_RECORDS: u128 = 448;
@@ -85,8 +86,6 @@ impl<'a> Checker<'a, '_> {
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
-        // Failure binders are spent by their own arm and never enter scope.
-        let mut binders = BTreeSet::new();
         let input = *frame.declared.get("arg.0").ok_or(())?;
         if get(input, "type")? != get(intent, "input")? {
             return Err(());
@@ -120,142 +119,20 @@ impl<'a> Checker<'a, '_> {
         for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
         }
-        let nodes = sequence(get(body, "nodes")?)?;
-        if sites.keys().any(|index| *index >= nodes.len()) {
+        let mut audit = Audit {
+            sites,
+            position: 0,
+            seen: BTreeSet::new(),
+            binders: BTreeSet::new(),
+        };
+        let tally = self.audit_block(body, &mut frame, &mut audit)?;
+        // Every effect site the relation established is an instruction here.
+        if sites.keys().any(|index| *index >= audit.position) {
             return Err(());
         }
-        // The largest obstruction payload a failure path encodes, and the
-        // mutations the body emits.
-        let mut obstruction_output = 0_u128;
-        let mut mutations = 0_usize;
-        for (index, node) in nodes.iter().enumerate() {
-            charge.append(Charge {
-                ticks: 1,
-                storage: 0,
-            })?;
-            let kind = string(get(node, "kind")?)?;
-            if (kind == "effect") != sites.contains_key(&index) {
-                return Err(());
-            }
-            match kind {
-                "let" => {
-                    exact(node, &["kind", "binding", "value"])?;
-                    let value = self.expression(get(node, "value")?, &frame, 0)?;
-                    let local = get(node, "binding")?;
-                    let expected = self.types.local(local)?;
-                    if !expected.encloses(&value.schema) {
-                        return Err(());
-                    }
-                    self.record_bound(local, get(node, "value")?, &expected)?;
-                    charge.append(value.charge)?;
-                    charge.append(Charge {
-                        ticks: expected.measure()?.checks,
-                        storage: 0,
-                    })?;
-                    frame.define(local, expected)?;
-                }
-                "attempt" => {
-                    exact(node, &["kind", "binding", "value", "failureMap"])?;
-                    // Each arm's payload reads only what precedes the attempt.
-                    let mut worst = Charge::default();
-                    for (_, reason) in members(get(node, "failureMap")?)? {
-                        let (payload, encoded) = self.obstruction(reason, &frame)?;
-                        worst = Charge::choice(worst, payload);
-                        obstruction_output = obstruction_output.max(encoded);
-                    }
-                    let value = self.expression(get(node, "value")?, &frame, 0)?;
-                    let local = get(node, "binding")?;
-                    let expected = self.types.local(local)?;
-                    if !expected.encloses(&value.schema) {
-                        return Err(());
-                    }
-                    // The call runs, then either its result is checked or
-                    // exactly one arm's payload is built: charge the larger.
-                    charge.append(value.charge)?;
-                    charge.append(Charge::choice(
-                        worst,
-                        Charge {
-                            ticks: expected.measure()?.checks,
-                            storage: 0,
-                        },
-                    ))?;
-                    frame.define(local, expected)?;
-                }
-                "require" => {
-                    exact(node, &["kind", "predicate", "onFailure"])?;
-                    // Refuses later work; proves nothing for it.
-                    charge.append(self.predicate(get(node, "predicate")?, &frame, 0)?.0)?;
-                    let failure = get(node, "onFailure")?;
-                    exact(failure, &["kind", "reason"])?;
-                    if string(get(failure, "kind")?)? != "terminal" {
-                        return Err(());
-                    }
-                    let (payload, encoded) = self.obstruction(get(failure, "reason")?, &frame)?;
-                    charge.append(payload)?;
-                    obstruction_output = obstruction_output.max(encoded);
-                }
-                _ => {
-                    exact(
-                        node,
-                        &["kind", "binding", "effect", "input", "obstructionMap"],
-                    )?;
-                    let site = sites.get(&index).ok_or(())?;
-                    let value = self.expression(get(node, "input")?, &frame, 0)?;
-                    let input = self.types.resolve(&site.input, 0)?;
-                    if !input.encloses(&value.schema) {
-                        return Err(());
-                    }
-                    let output = self.types.resolve(&site.output, 0)?;
-                    let cost = abi(&site.intrinsic, &input, &output)?;
-                    if operation(&site.intrinsic) != Some("node-atom-read") {
-                        mutations = mutations.checked_add(1).ok_or(())?;
-                    }
-                    let arms = members(get(node, "obstructionMap")?)?;
-                    if !arms.is_empty() {
-                        // A mapped read failure encodes an empty payload.
-                        let payload = Schema::Fields(BTreeMap::new()).measure()?;
-                        charge.append(payload.copy)?;
-                        obstruction_output = obstruction_output.max(payload.encoded);
-                    }
-                    for (_, arm) in arms {
-                        exact(arm, &["binder", "value"])?;
-                        let binder = get(arm, "binder")?;
-                        let id = string(get(binder, "id")?)?;
-                        if frame.declared.get(id).copied() != Some(binder)
-                            || frame.values.contains_key(id)
-                            || !binders.insert(id)
-                        {
-                            return Err(());
-                        }
-                        let reason = get(arm, "value")?;
-                        exact(reason, &["kind", "callee", "args", "typeArgs"])?;
-                        if string(get(reason, "kind")?)? != "call"
-                            || !sequence(get(reason, "args")?)?.is_empty()
-                            || !sequence(get(reason, "typeArgs")?)?.is_empty()
-                        {
-                            return Err(());
-                        }
-                    }
-                    let local = get(node, "binding")?;
-                    let declared = self.types.local(local)?;
-                    if declared != output {
-                        return Err(());
-                    }
-                    charge.append(value.charge)?;
-                    charge.append(Charge {
-                        ticks: input.measure()?.checks,
-                        storage: 0,
-                    })?;
-                    charge.append(cost)?;
-                    frame.define(local, declared)?;
-                }
-            }
-        }
-        if frame.values.len() + binders.len() != frame.declared.len()
-            || binders.iter().any(|id| frame.values.contains_key(id))
-        {
-            return Err(());
-        }
+        charge.append(tally.charge)?;
+        let obstruction_output = tally.obstruction_output;
+        let mutations = tally.mutations;
         let output = self.expression(get(body, "result")?, &frame, 0)?;
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
         if !expected.encloses(&output.schema) {
@@ -288,7 +165,7 @@ impl<'a> Checker<'a, '_> {
 
 /// Audits an effect's input and result against its intrinsic's runtime ABI
 /// and returns the charge of the effect itself.
-fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
+pub(super) fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
     let Schema::Fields(fields) = input.representation() else {
         return Err(());
     };
@@ -363,7 +240,11 @@ fn abi(intrinsic: &str, input: &Schema, output: &Schema) -> Check<Charge> {
 impl<'a> Checker<'a, '_> {
     /// A terminal obstruction reason: what building and encoding its payload
     /// charges, and the payload's largest encoding.
-    fn obstruction(&mut self, reason: &'a Value, frame: &Frame<'a>) -> Check<(Charge, u128)> {
+    pub(super) fn obstruction(
+        &mut self,
+        reason: &'a Value,
+        frame: &Frame<'a>,
+    ) -> Check<(Charge, u128)> {
         exact(reason, &["reasonKind", "payload"])?;
         if string(get(reason, "reasonKind")?)?.is_empty() {
             return Err(());

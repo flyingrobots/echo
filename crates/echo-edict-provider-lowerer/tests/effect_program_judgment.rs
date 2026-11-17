@@ -66,6 +66,23 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "structured-loop-control",
+    "structured-branch-control",
+    "structured-nested-control",
+    "structured-echo-dpo-1",
+    "structured-bound-below-list",
+    "structured-coordinate-bound",
+    "structured-leaked-local",
+    "structured-control-id-reused",
+    "structured-dropped-body",
+    "structured-ordered-with-control",
+    "structured-substituted-binder",
+    "structured-body-with-result",
+    "structured-loop-allocation-exact",
+    "structured-loop-allocation-short",
+    "structured-loop-under-budget",
+    "structured-mutation-count-control",
+    "structured-mutation-count-over",
 ];
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");
 

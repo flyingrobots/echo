@@ -17,7 +17,9 @@
   helpers. Substituted modules, unpinned modules and pins to absent
   modules refuse in all three. The compiler's own request is a lowerer
   witness, a shared corpus fixes the three verdicts, and warp-core runs
-  the control.
+  the control. A public compiler witness (`edict-effect-source-module`,
+  Amblicit `7dbcbc23`) builds through the promoted provider package
+  (lowerer `6961f32f`, verifier `beb32da9`).
 - Core ordered records (`orderedRecord`, #997). The runtime, the lowerer and
   the verifier evaluate a fallible record's fields in authored order, so
   `{ z: fail First, a: fail Second }` and `{ a: fail Second, z: fail First }`

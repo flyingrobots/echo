@@ -65,7 +65,7 @@ const SEMANTIC_DIGEST: &str =
 const RELEASE_DIGEST: &str =
     "sha256:c39449495281b51f978468d08c21e93bcfa423176063b41675da61e4674b0066";
 const PACKAGE_ARTIFACT_SHA256: &str =
-    "3405e2435986af123f5e4dcad3dc78877c2e15ffb9198acfab68e11346676779";
+    "4a03ae0d7b0edb2de0537508c7e52fcfd0ea055371bfe46049178d39a6783e37";
 const OTHER_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 

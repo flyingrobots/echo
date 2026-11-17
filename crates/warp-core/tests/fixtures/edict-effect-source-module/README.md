@@ -16,10 +16,17 @@ retain the `edict.source-closure/v1` envelope of both modules, and each judge
 requires the entry module's `use module` pin to name the retained leaf by its
 exact `edict.source/v1` identity.
 
-`source-module-executable-operation-package.hex` is the lowerer's package for
-the compiler request retained in
+The five retained `source-module-*.hex` files are public compiler output. The
+`effect_step_publication` example compiles this directory (output name
+`source-module`) through Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`
+and the promoted provider package (lowerer `6961f32f`, verifier `beb32da9`);
+`scripts/verify-edict-provider-host-v1.sh` reruns it with `--check`. The
+producer also requires the same program to be refused under `echo.dpo@1` and
+under a substituted `echo.dpo@2` profile. The package is byte-identical to the
+native lowerer's output for the compiler request retained in
 [`crates/echo-edict-provider-lowerer/tests/fixtures/source-module-effect`](../../../../echo-edict-provider-lowerer/tests/fixtures/source-module-effect).
-The shared provider corpus retains these bytes unchanged as
-`source-module-control`, and derives its two forged closures from them
+
+The shared provider corpus retains the package unchanged as
+`source-module-control`, and derives its two forged closures from it
 (`tests/edict_effect_package_tests/source_modules.rs`). Run with `v = 7`, the
 program returns `{ b: 7 }`.

@@ -9,11 +9,19 @@ and their input/result types. The application exercises an initial effect,
 a bounded loop, and both statement-conditional arms through the public compiler.
 
 The `effect_step_publication` example accepts this directory with the output name
-`structured`. It builds the lawpack, replaces the source import's zero digest
-with the actual manifest digest, and builds the application twice. Its retained
-outputs must come from that producer, including
-`structured-executable-operation-package.hex`; they are not authored Target IR.
-The zero digest is an unbuilt input placeholder, not a lawpack identity.
+`structured`. It builds the lawpack, replaces the source import's digest with
+the actual manifest digest, and builds the application twice. The retained
+source carries the digest that producer computed,
+`sha256:f50f7bf38dd9cb910ba1aa8c24908b931d3cc795fe60d05ba9c916d0baf93d7a`.
+The five retained `structured-*.hex` outputs, including
+`structured-executable-operation-package.hex`, were written by that producer
+with Amblicit `ce2ad2f5faed31147dc9cb5db05353d60b68396d`; they are not authored
+Target IR. `scripts/verify-edict-provider-host-v1.sh` reruns the producer with
+`--check` and requires the same bytes.
+
+| File | Domain-framed digest |
+| --- | --- |
+| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `60aa9ae3bf797283e13132ff27fcea4547aa6fef900fe60b479f3e2acb2bbd4d` |
 
 The intended runtime input sets `initial` to node A and supplies two items:
 `{create: true, node: B}`, then `{create: false, node: A}`. A successful private
@@ -28,8 +36,8 @@ The configuration retains a 1,024-byte input ceiling, 64-byte result ceiling,
 bytes. The shared node shape keeps the two-item input within the input ceiling;
 there is no extra unused atom-replacement payload in either branch.
 
-Draft evidence boundary: only the authored inputs exist at preparation time.
-Compiler publication, repeat-byte equality, profile substitution refusals, and
-native execution remain to be run. The runtime witness owns exact package
-policy, list-bound refusal, and effect-order assertions. Frozen `echo.dpo@1`
-fixtures are unchanged.
+The producer's own controls require the same source to be refused under
+`echo.dpo@1` and under a substituted `echo.dpo@2` profile. The runtime witness
+`crates/warp-core/tests/executable_operation_pipeline/public_structured_effect.rs`
+owns exact package policy, list-bound refusal, and effect-order assertions.
+Frozen `echo.dpo@1` fixtures are unchanged.

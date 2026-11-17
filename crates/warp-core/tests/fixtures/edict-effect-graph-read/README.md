@@ -33,7 +33,7 @@ a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `link-executable-operation-package.hex` | `echo:operation-package:v1` `34582b3d348721fe95a75436254d865a3a9c069244b255f14780f40591d4e2cb` |
+| `link-executable-operation-package.hex` | `echo:operation-package:v1` `31c092bec1c0b3a061232e01ab0fa2943469f22324f5e240f2d30d6fb1dbe4c1` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_graph_read_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

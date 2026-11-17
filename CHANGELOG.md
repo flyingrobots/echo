@@ -7,6 +7,20 @@
 
 ### Added
 
+- `echo.dpo@2.attachmentValueDigest(atomType, atom) -> Bytes<exact=32>`
+  (#1011), a fourth `ContentAddressV1` pure intrinsic, lets Edict source
+  compute the `expectedAtomDigest` a `ReplaceAtom` must name. The runtime
+  hashes with `content_address_v1::attachment_digest`, the function
+  admission compares against; it reproduces the frozen `attachment-new.hex`
+  vector. The catalog publishes it under `echo.content-address/v1` with cost
+  rule `{base: 68, perArgumentMax: [0, 1]}`, and the lowerer, verifier and
+  runtime each require all four identity contracts. A public Buffer-bump
+  witness (`edict-attachment-digest`, Amblicit `7dbcbc23`) reads the atom,
+  digests the bytes it read, and derives the replacement; a control that
+  digests unread bytes is refused. The `echo.dpo@2` profile digest is now
+  `7cadb97e`, every `echo.dpo@2` public fixture is recompiled, and the
+  components are promoted (lowerer `cd144677`, verifier `0d01aba8`).
+
 - Core ordered records (`orderedRecord`, #997). The runtime, the lowerer and
   the verifier evaluate a fallible record's fields in authored order, so
   `{ z: fail First, a: fail Second }` and `{ a: fail Second, z: fail First }`

@@ -560,7 +560,7 @@ const IDENTITY_EDGE_TYPE: (&str, &str) = (
     "echo.dpo@2.OutgoingEdge",
     "Record<edgeType:Bytes<exact=32>,to:Bytes<exact=32>>",
 );
-const IDENTITY_CONTRACTS: [(&str, &[&str], u64, &[u64]); 3] = [
+const IDENTITY_CONTRACTS: [(&str, &[&str], u64, &[u64]); 4] = [
     (
         "echo.dpo@2.contentAddress",
         &[
@@ -585,10 +585,16 @@ const IDENTITY_CONTRACTS: [(&str, &[&str], u64, &[u64]); 3] = [
         69,
         &[0, 0, 0],
     ),
+    (
+        "echo.dpo@2.attachmentValueDigest",
+        &[IDENTITY_ID, "Bytes<max=1048576>"],
+        68,
+        &[0, 1],
+    ),
 ];
 
 /// Whether identity calls are admitted: the pinned catalog under
-/// `echo.dpo@2` carries exactly Echo's three identity contracts and their
+/// `echo.dpo@2` carries exactly Echo's four identity contracts and their
 /// edge type, and Core imports exactly the selected profile as its target.
 /// A catalog carrying any of them otherwise, or under another profile, is
 /// refused rather than silently ignored.

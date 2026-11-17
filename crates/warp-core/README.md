@@ -123,7 +123,9 @@ Authored effect programs may call helpers that declare typed failures
 (`core.failure/v1`). A failure ends the helper and its callers up to the
 intent's `attempt`, which ends the run with the mapped terminal obstruction
 and payload; only that arm's payload is evaluated. The public witness is
-`tests/fixtures/edict-effect-typed-failure`.
+`tests/fixtures/edict-effect-typed-failure`. Pure helpers imported from a
+lawpack's exports must be total: a package whose exported helper body can
+fail is refused, because no call site maps an imported helper's failures.
 
 ## Documentation
 

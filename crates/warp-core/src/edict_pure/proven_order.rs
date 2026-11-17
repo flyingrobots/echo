@@ -90,17 +90,27 @@ fn limit_from(
             let mut bound = |value: u64| {
                 *limit = Some(limit.map_or(value, |current| current.min(value)));
             };
-            if matches!(op, "<=" | "==") {
+            // As native Target: `x < n` bounds x by n - 1, saturating at 0
+            // (a branch that never runs); `n > x` and `n >= x` mirror them.
+            let strict = matches!(op, "<" | ">");
+            let limit = |value: u64| {
+                if strict {
+                    value.saturating_sub(1)
+                } else {
+                    value
+                }
+            };
+            if matches!(op, "<=" | "<" | "==") {
                 if let Some(value) = constant(right) {
                     if key(left, parser)? == term {
-                        bound(value);
+                        bound(limit(value));
                     }
                 }
             }
-            if op == "==" {
+            if matches!(op, ">=" | ">" | "==") {
                 if let Some(value) = constant(left) {
                     if key(right, parser)? == term {
-                        bound(value);
+                        bound(limit(value));
                     }
                 }
             }

@@ -274,7 +274,9 @@ is refused before installation.
 Runtime helper validation also proves addition within its fresh frame using
 literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
 fact from its own conjunct prefixes or enclosing `then` arms that compares the
-term with a constant (`term <= c`, `term == c` or `c == term`). Other terms
+term with a constant: `term <= c`, `term < c` (as `c - 1`, saturating at 0),
+`term == c`, or the reversed forms `c >= term`, `c > term` and `c == term`, as
+native Target reads them (#1010). Other terms
 retain their full unsigned width, so zero identity is total and an unbounded
 parameter plus one refuses. Caller constraints and caller branches do not cross
 into a helper frame; a helper's own preconditions do (see function
@@ -366,8 +368,9 @@ judgment may assume these facts:
 A slice or subtraction needs an order fact over the same term, compared by
 canonical encoding. So `let at2 = at` followed by `slice(text, 0, at2)` is
 refused even under `at <= len(text)`; use the constrained term itself. An
-addition's constant bound is read only as `term <= c`, `term == c` or `c == term`; write
-`at < 11` or `11 > at` as `at <= 10`. A guard over a different term proves
+addition's constant bound is read from `term <= c`, `term < c` (as `c - 1`),
+`term == c` and the reversed forms `c >= term`, `c > term`, `c == term`, so
+`at < 11`, `11 > at` and `at <= 10` all bound `at` by 10 (#1010). A guard over a different term proves
 nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.rs`
 in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
 evaluation when it fails, so its predicate does hold at later nodes, but the

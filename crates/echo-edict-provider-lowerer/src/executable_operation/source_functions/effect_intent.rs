@@ -63,6 +63,7 @@ pub(in crate::executable_operation) fn judge(
     intent: &Value,
     sites: &BTreeMap<usize, EffectSite>,
     graph: Option<GraphReads<'_>>,
+    identity: bool,
 ) -> Check<()> {
     // Core names an unsigned width directly; the runtime has no `Int` kind.
     // A nominal entry has exactly its kind, contract and representation.
@@ -77,7 +78,7 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
-    judged(core, exports, 0)?.effect_intent(intent, sites, graph)
+    judged(core, exports, 0, identity)?.effect_intent(intent, sites, graph)
 }
 
 impl<'a> Judgment<'a> {

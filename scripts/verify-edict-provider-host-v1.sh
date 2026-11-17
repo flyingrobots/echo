@@ -84,7 +84,7 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
 # separate verifier; the predecessor package must refuse the same source.
 # Building the compiler is heavy, so a local run must opt in explicitly.
 if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
-  readonly AMBLICIT_REVISION=ce2ad2f5faed31147dc9cb5db05353d60b68396d
+  readonly AMBLICIT_REVISION=7dbcbc23d72705c5e224fc994a6c767881958912
   readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
   readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
   readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"
@@ -192,5 +192,15 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-graph-read" \
     --work-root "$witness_dir/effect-graph-read-run" \
+    --check
+
+  # Public source witness for the three echo.dpo@2 ContentAddressV1 identity
+  # constructors, bound to the catalog v2 contracts (echo#972).
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name identity \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-content-address" \
+    --work-root "$witness_dir/effect-identity-run" \
     --check
 fi

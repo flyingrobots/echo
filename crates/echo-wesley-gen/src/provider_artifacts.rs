@@ -500,6 +500,62 @@ verifier-report = {
   diagnosticAbi: resource-ref,
   diagnosticBytes: bstr,
 }
+
+; --- Frozen intrinsic catalog v1 (echo.dpo@1) ------------------------------
+; The frozen echo.dpo@1 catalog (flyingrobots/echo#985) is catalog API v1,
+; which the current upstream `intrinsics-document` no longer admits. These
+; rules are the exact closure of the upstream owning root as published in
+; Amblicit `function-preconditions-v1` (CDDL SHA-256 d83bb511...), with only
+; rule names namespaced. They reference nothing outside this namespace, so a
+; later upstream change cannot alter frozen admission.
+
+echo-frozen-catalog-v1-intrinsics-document = {
+  apiVersion: "edict.target-profile.intrinsics/v1",
+  intrinsics: { * tstr => echo-frozen-catalog-v1-intrinsic },
+}
+
+echo-frozen-catalog-v1-intrinsic = echo-frozen-catalog-v1-pure-intrinsic / echo-frozen-catalog-v1-effect-intrinsic
+
+echo-frozen-catalog-v1-pure-intrinsic = {
+  intrinsicClass: "pure",
+  typeParameters: [* tstr],
+  argumentTypes: [* echo-frozen-catalog-v1-core-type-ref],
+  returnType: echo-frozen-catalog-v1-core-type-ref,
+  guardSupport: false,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "none",
+}
+
+echo-frozen-catalog-v1-effect-intrinsic = {
+  intrinsicClass: "effect",
+  typeParameters: [* tstr],
+  argumentTypes: [* echo-frozen-catalog-v1-core-type-ref],
+  returnType: echo-frozen-catalog-v1-core-type-ref,
+  effectKind: echo-frozen-catalog-v1-effect-kind,
+  effectFailures: { * echo-frozen-catalog-v1-failure-ident => echo-frozen-catalog-v1-effect-failure-body },
+  guardSupport: bool,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "read" / "create" / "ensure" / "append" / "replace" /
+              "delete" / "custom",
+  canParticipateInAtomicGuard: bool,
+}
+
+echo-frozen-catalog-v1-core-type-ref = tstr
+
+echo-frozen-catalog-v1-effect-kind = "read" / "create" / "ensure" / "replace" / "delete" /
+              "append" / "reduce" / "semantic.emit" / "custom"
+
+echo-frozen-catalog-v1-effect-failure-body = {
+  authorityClass: echo-frozen-catalog-v1-authority-class,
+  payloadType: echo-frozen-catalog-v1-core-type-ref,
+}
+
+echo-frozen-catalog-v1-failure-ident = tstr .regexp "[A-Za-z_][A-Za-z0-9_]*"
+
+echo-frozen-catalog-v1-authority-class = "domainMappable" / "participantOwned" / "integrityFault" /
+                  "resourceFault" / "internalFault"
 "#;
 
 /// Stable failure categories returned by provider artifact construction.
@@ -1267,10 +1323,12 @@ fn resource_root(role: &str) -> Result<&'static str, ProviderArtifactGenerationE
 fn resource_edict_contract(role: &str) -> Option<&'static str> {
     match role {
         "resource.lawpack-exports" => Some("lawpack-exports"),
-        "resource.target-intrinsics" | "resource.target-intrinsics-2" => {
-            Some("target-profile-intrinsics")
-        }
+        "resource.target-intrinsics-2" => Some("target-profile-intrinsics"),
         "resource.target-operation-profiles" => Some("target-profile-operation-profiles"),
+        // Includes the frozen echo.dpo@1 catalog (`resource.target-intrinsics`):
+        // its owner is the generated `echo-frozen-catalog-v1-` projection of
+        // its original upstream schema, which `make_output` checks as the
+        // owning root; the current upstream contract admits catalog v2 only.
         _ => None,
     }
 }
@@ -2237,10 +2295,40 @@ fn build_runtime_intrinsics(
             }),
         );
     }
-    json!({
-        "apiVersion": "edict.target-profile.intrinsics/v1",
+    for pure in &declaration.pure_intrinsics {
+        let name = format!("{namespace}.{}", pure.operation);
+        intrinsics.insert(
+            name.clone(),
+            json!({
+                "intrinsicClass": "pure",
+                "typeParameters": [],
+                "argumentTypes": pure.argument_types,
+                "returnType": pure.return_type,
+                "guardSupport": false,
+                "footprintTemplate": format!("{name}.footprint"),
+                "costTemplate": format!("{name}.cost"),
+                "writeClass": "none",
+                "contractVersion": pure.contract_version,
+                "costRule": {
+                    "base": pure.cost_base,
+                    "perArgumentMax": pure.cost_per_argument_max,
+                },
+            }),
+        );
+    }
+    let mut catalog = json!({
+        "apiVersion": "edict.target-profile.intrinsics/v2",
         "intrinsics": intrinsics,
-    })
+    });
+    if !declaration.types.is_empty() {
+        catalog["types"] = declaration
+            .types
+            .iter()
+            .map(|(name, definition)| (format!("{namespace}.{name}"), json!(definition)))
+            .collect::<JsonMap<_, _>>()
+            .into();
+    }
+    catalog
 }
 
 /// An effect target profile: the selected profile with its own version,

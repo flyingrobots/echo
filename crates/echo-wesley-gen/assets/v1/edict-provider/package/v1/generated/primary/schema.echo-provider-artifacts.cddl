@@ -235,6 +235,9 @@ core-source-function = {
   returnType: core-type-ref,
   ? preconditions: [+ precondition-predicate],
   body: core-pure-block,
+  ; Sorted, unique failure coordinates of a function that may fail; omitted
+  ; for a total function. Requires core.failure/v1.
+  ? failures: [+ tstr],
 }
 
 ; A precondition uses only these predicate forms. `call` and `obstruction`
@@ -267,13 +270,19 @@ pure-let-node = {
 
 ; --- expressions and predicates -----------------------------------------
 
-core-expr = local-expr / const-expr / record-expr / field-expr /
+core-expr = local-expr / const-expr / record-expr / ordered-record-expr / field-expr /
             variant-expr / match-expr / fold-expr / call-expr / list-expr / map-expr /
-            if-expr
+            if-expr / fail-expr
 
 local-expr = { kind: "local", ref: local-ref }
 const-expr = { kind: "const", value: core-value }
 record-expr = { kind: "record", fields: { * tstr => core-expr } }
+; Fallible record construction evaluates entries strictly in array order.
+; Core integrity requires unique names and checks the field set and types.
+ordered-record-expr = {
+  kind: "orderedRecord",
+  fields: [1* { name: tstr, value: core-expr }],
+}
 field-expr = { kind: "field", base: core-expr, field: tstr }
 variant-expr = {
   kind: "variant",
@@ -316,6 +325,9 @@ if-expr = {
   then: core-expr,
   else: core-expr,
 }
+; Ends the enclosing source function with a declared failure (core.failure/v1).
+; Legal only in a function body whose `failures` lists it.
+fail-expr = { kind: "fail", failure: tstr }
 
 core-predicate = true-predicate / false-predicate / not-predicate /
                  all-predicate / any-predicate / compare-predicate /
@@ -384,12 +396,21 @@ core-block = {
 
 core-node = let-node / require-node / effect-node /
             external-action-request-node / guard-node / branch-node /
-            for-node / match-node / proof-obligation-node
+            for-node / match-node / proof-obligation-node /
+            attempt-node
 
 let-node = {
   kind: "let",
   binding: local-ref,
   value: core-expr,
+}
+; Binds a call to a failing source function and maps each failure coordinate
+; of the callee to a terminal obstruction reason (core.failure/v1).
+attempt-node = {
+  kind: "attempt",
+  binding: local-ref,
+  value: call-expr,
+  failureMap: { + tstr => obstruction-reason },
 }
 require-node = {
   kind: "require",
@@ -744,9 +765,19 @@ target-profile-manifest = {
 ; digest-bound semantic input and resolves coordinates within that artifact.
 ; Each map key MUST equal its record's `coordinate` field
 ; (EDICT-ABI-INTRINSIC-UNIQUE-001).
+; Catalog v2 (EDICT-TARGET-PURE-INTRINSIC-001): every pure intrinsic in the
+; catalog carries a complete monomorphic contract, whether or not a consumer
+; requires it. The catalog publishes every provider-owned named type that a
+; required pure signature reaches; admission checks that, this schema does not.
+; A v1 catalog is not a value of this rule; the publications that admit v1
+; are frozen under fixtures/provider-contracts/.
 intrinsics-document = {
-  apiVersion: "edict.target-profile.intrinsics/v1",
+  apiVersion: "edict.target-profile.intrinsics/v2",
   intrinsics: { * tstr => intrinsic },
+  ; Provider-owned named types that pure-intrinsic signatures reference, keyed
+  ; by a coordinate below the profile id. Each value is a structural
+  ; `Record<...>` core-type-ref whose fields are structural types.
+  ? types: { * tstr => tstr },
 }
 
 ; The artifact referenced by the manifest's `operationProfiles` resource-ref.
@@ -800,13 +831,31 @@ intrinsic = pure-intrinsic / effect-intrinsic
 
 pure-intrinsic = {
   intrinsicClass: "pure",
-  typeParameters: [* tstr],
+  ; Pure contracts are monomorphic.
+  typeParameters: [],
+  ; Ceiling types: an operand of the same family with a narrower bound fits.
   argumentTypes: [* core-type-ref],
   returnType: core-type-ref,
   guardSupport: false,
-  footprintTemplate: tstr,
-  costTemplate: tstr,
+  footprintTemplate: nonempty-text,
+  costTemplate: nonempty-text,
   writeClass: "none",
+  ; Semantic version of the constructor's contract; consumers require an
+  ; exact version.
+  contractVersion: nonempty-text,
+  costRule: pure-cost-rule,
+}
+
+nonempty-text = tstr .regexp "(?s).+"
+
+; Steps for one call: base plus, for each argument, its coefficient times the
+; size bound the verified program establishes for that operand (a Bytes
+; maximum or a List element maximum). The schema fixes the shape. For a
+; required contract, admission additionally requires one coefficient per
+; argument and a zero coefficient for every argument that is not Bytes or List.
+pure-cost-rule = {
+  base: uint,
+  perArgumentMax: [* uint],
 }
 
 effect-intrinsic = {
@@ -987,7 +1036,7 @@ target-ir-ordered-legacy = {
 target-ir-ordered-intent = {
   target-ir-intent-common,
   ? basis: core-expr,
-  ? pureBindings: [1* target-ir-pure-binding],
+  ? pureBindings: [1* target-ir-ordered-pure-binding],
   executionOrder: [* tstr .regexp "(?s).+"],
 }
 
@@ -1024,7 +1073,7 @@ target-ir-structured-legacy = {
 target-ir-structured-intent = {
   target-ir-intent-common,
   ? basis: core-expr,
-  ? pureBindings: [1* target-ir-pure-binding],
+  ? pureBindings: [1* target-ir-ordered-pure-binding],
   executionOrder: [* target-ir-order-entry],
 }
 
@@ -1108,6 +1157,16 @@ target-ir-pure-binding = {
   id: tstr .regexp "(?s).+",
   binding: local-ref,
   value: core-expr,
+}
+
+; Ordered (v2) and structured (v3) bindings may carry failure arms: the value
+; is a call to a failing source function, and each of its failure coordinates
+; maps to a terminal obstruction reason.
+target-ir-ordered-pure-binding = {
+  id: tstr .regexp "(?s).+",
+  binding: local-ref,
+  value: core-expr,
+  ? failureArms: { + tstr => obstruction-reason },
 }
 
 target-ir-step = {
@@ -1612,3 +1671,59 @@ verifier-report = {
   diagnosticAbi: resource-ref,
   diagnosticBytes: bstr,
 }
+
+; --- Frozen intrinsic catalog v1 (echo.dpo@1) ------------------------------
+; The frozen echo.dpo@1 catalog (flyingrobots/echo#985) is catalog API v1,
+; which the current upstream `intrinsics-document` no longer admits. These
+; rules are the exact closure of the upstream owning root as published in
+; Amblicit `function-preconditions-v1` (CDDL SHA-256 d83bb511...), with only
+; rule names namespaced. They reference nothing outside this namespace, so a
+; later upstream change cannot alter frozen admission.
+
+echo-frozen-catalog-v1-intrinsics-document = {
+  apiVersion: "edict.target-profile.intrinsics/v1",
+  intrinsics: { * tstr => echo-frozen-catalog-v1-intrinsic },
+}
+
+echo-frozen-catalog-v1-intrinsic = echo-frozen-catalog-v1-pure-intrinsic / echo-frozen-catalog-v1-effect-intrinsic
+
+echo-frozen-catalog-v1-pure-intrinsic = {
+  intrinsicClass: "pure",
+  typeParameters: [* tstr],
+  argumentTypes: [* echo-frozen-catalog-v1-core-type-ref],
+  returnType: echo-frozen-catalog-v1-core-type-ref,
+  guardSupport: false,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "none",
+}
+
+echo-frozen-catalog-v1-effect-intrinsic = {
+  intrinsicClass: "effect",
+  typeParameters: [* tstr],
+  argumentTypes: [* echo-frozen-catalog-v1-core-type-ref],
+  returnType: echo-frozen-catalog-v1-core-type-ref,
+  effectKind: echo-frozen-catalog-v1-effect-kind,
+  effectFailures: { * echo-frozen-catalog-v1-failure-ident => echo-frozen-catalog-v1-effect-failure-body },
+  guardSupport: bool,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "read" / "create" / "ensure" / "append" / "replace" /
+              "delete" / "custom",
+  canParticipateInAtomicGuard: bool,
+}
+
+echo-frozen-catalog-v1-core-type-ref = tstr
+
+echo-frozen-catalog-v1-effect-kind = "read" / "create" / "ensure" / "replace" / "delete" /
+              "append" / "reduce" / "semantic.emit" / "custom"
+
+echo-frozen-catalog-v1-effect-failure-body = {
+  authorityClass: echo-frozen-catalog-v1-authority-class,
+  payloadType: echo-frozen-catalog-v1-core-type-ref,
+}
+
+echo-frozen-catalog-v1-failure-ident = tstr .regexp "[A-Za-z_][A-Za-z0-9_]*"
+
+echo-frozen-catalog-v1-authority-class = "domainMappable" / "participantOwned" / "integrityFault" /
+                  "resourceFault" / "internalFault"

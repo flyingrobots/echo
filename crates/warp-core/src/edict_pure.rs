@@ -16,6 +16,9 @@ pub(crate) mod evaluate;
 mod fold_tests;
 mod function_preconditions;
 pub(crate) mod functions;
+mod identity;
+#[cfg(test)]
+mod identity_tests;
 mod list_operations;
 #[cfg(test)]
 mod list_operations_tests;
@@ -90,6 +93,9 @@ pub enum EvaluationError {
     HostAllocationFailed,
     /// The canonical result exceeds its output budget.
     OutputBudgetExceeded,
+    /// A content-address call named the same (edge type, target) outgoing
+    /// edge more than once. The edge set is refused, never deduplicated.
+    DuplicateOutgoingEdge,
 }
 
 /// Evaluates exact compiler-produced package bytes under a verified host pin.

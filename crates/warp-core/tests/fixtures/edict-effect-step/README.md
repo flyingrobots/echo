@@ -45,7 +45,7 @@ failure table for `node-atom-read` disagrees).
 
 | File | Domain-framed digest |
 | --- | --- |
-| `read-executable-operation-package.hex` | `echo:operation-package:v1` `9a7d14508dbf44f3203ab058b0eb72bcf307dc021dd7e9ba824778e5c8228400` |
+| `read-executable-operation-package.hex` | `echo:operation-package:v1` `5e3cf4837fb3e147fadae986a28a2094fe78275f12c67594c491bc560ba17958` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_read_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

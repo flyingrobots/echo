@@ -262,6 +262,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         bound: vec![],
         proven_sum: None,
         edge_scans: 0,
+        identity: false,
     };
     judgment
         .expression(value, &super::BTreeMap::new(), true, 0)

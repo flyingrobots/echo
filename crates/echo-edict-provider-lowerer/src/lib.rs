@@ -6,6 +6,9 @@
 //! performs no discovery or I/O and grants no Echo runtime authority.
 
 #![deny(unsafe_code)]
+// Provider guests run in Wasm: they must not print, and a stray trace once
+// shipped in a promoted component (echo#972).
+#![deny(clippy::print_stderr, clippy::print_stdout)]
 
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
@@ -859,7 +862,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "9dd70b479c45b7b17989128d849e36d361ada552664e55ec3c2f5b1e255c78ab";
+        "652a7e76479d31b53bedaf0987e6797e94a265fcad707a2d418f1b2769bcd579";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -896,7 +899,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "9dd70b479c45b7b17989128d849e36d361ada552664e55ec3c2f5b1e255c78ab",
+        "652a7e76479d31b53bedaf0987e6797e94a265fcad707a2d418f1b2769bcd579",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {

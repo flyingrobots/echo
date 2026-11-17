@@ -12,16 +12,16 @@ The `effect_step_publication` example accepts this directory with the output nam
 `structured`. It builds the lawpack, replaces the source import's digest with
 the actual manifest digest, and builds the application twice. The retained
 source carries the digest that producer computed,
-`sha256:f50f7bf38dd9cb910ba1aa8c24908b931d3cc795fe60d05ba9c916d0baf93d7a`.
+`sha256:91e70586671551d04d877fa998b83f82ff6223022e408bdcc0816ea0e171ae1d`.
 The five retained `structured-*.hex` outputs, including
 `structured-executable-operation-package.hex`, were written by that producer
-with Amblicit `ce2ad2f5faed31147dc9cb5db05353d60b68396d`; they are not authored
+with Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`; they are not authored
 Target IR. `scripts/verify-edict-provider-host-v1.sh` reruns the producer with
 `--check` and requires the same bytes.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `b62dd311346559e0f6c1c0b5656a3c556fba7012dbfa989e682f9885b926201d` |
+| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `e670a1f9e0502aa9905a0f3692d9b3c281fb38fa53d479588082f212214e49f1` |
 
 The intended runtime input sets `initial` to node A and supplies two items:
 `{create: true, node: B}`, then `{create: false, node: A}`. A successful private

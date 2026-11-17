@@ -199,13 +199,25 @@ pub fn encode_effect_publication(
     let law = policy_bytes(&config, "footprintLaw")?;
     let catalog = policy_bytes(&config, "intrinsicCatalog")?;
     let catalog_value = decode(catalog).map_err(|_| C)?;
-    exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
-    equals(
-        &catalog_value,
-        "apiVersion",
-        "edict.target-profile.intrinsics/v1",
-        C,
-    )?;
+    // The frozen echo.dpo@1 catalog is API v1 with two fields; echo.dpo@2's
+    // is catalog v2 and may also publish named types. Which one the selected
+    // profile pins is checked by the effect-resource relation.
+    match field(&catalog_value, "apiVersion", C)? {
+        V::Text(api) if api == "edict.target-profile.intrinsics/v1" => {
+            exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
+        }
+        V::Text(api) if api == "edict.target-profile.intrinsics/v2" => {
+            if field(&catalog_value, "types", C).is_ok() {
+                exact(&catalog_value, &["apiVersion", "intrinsics", "types"], C)?;
+                if !matches!(field(&catalog_value, "types", C)?, V::Map(_)) {
+                    return Err(C);
+                }
+            } else {
+                exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
+            }
+        }
+        _ => return Err(C),
+    }
     if !matches!(field(&catalog_value, "intrinsics", C)?, V::Map(_)) {
         return Err(C);
     }

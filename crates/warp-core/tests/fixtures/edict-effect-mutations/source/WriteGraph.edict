@@ -1,5 +1,5 @@
 package consumer.writes.program@1;
-use lawpack consumer.writes@1 digest "sha256:f31d55ec7f643ac489f22b439d2d9223f4c223f62d3e45f8b21ed61a1c7078f6" as fx;
+use lawpack consumer.writes@1 digest "sha256:eb799aebbd6b40336e5529357f4e5ff8b6e23438c6a1642fdbccd4cde4b61b43" as fx;
 type Input = { anchor: Bytes<exact=32>, node: fx.NodeWrite, created: fx.NodeWrite, atom: fx.AtomReplace, edge: fx.EdgeWrite, retarget: fx.EdgeReplace };
 intent write(input: Input) returns fx.Written
   profile fx.graphEffects

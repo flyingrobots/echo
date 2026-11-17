@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 685,775 bytes with SHA-256
-`c3ee9a5141b93c3218459d5ca6d406c6b5de9ae4ff825e3dea206a107eab877c`.
+The checked component is 700,151 bytes with SHA-256
+`99a39556defe3a87bbf0e4d42203cd84da6cf6662397fb4911099e2fd44f089a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 728,230 bytes
+`wit-component` version recorded above. Its checked component is 742,650 bytes
 with SHA-256
-`72b0e785684d6b445f5ee9c6404d1c6353d80ec1450939307793ffa8d331ec46`.
+`e54b58d5ceb7300416fa9bcc4d925c5099d0971c1a3e37f6709f537c0010c107`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,10 +56,10 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#991's source, was independently
+The current component pair, built from echo#996's source, was independently
 reproduced by the two G4 candidate jobs in
-[CI run 43937974912](https://github.com/flyingrobots/echo/actions/runs/43937974912)
-at source commit `c4255d353997da376d1519aed897c9794837de61`. Both copies of
+[CI run 44012829573](https://github.com/flyingrobots/echo/actions/runs/44012829573)
+at source commit `a39b9fb6ef50ed2a45c0cb2b49f29393fa0cf4d9`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

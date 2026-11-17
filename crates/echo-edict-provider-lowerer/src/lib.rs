@@ -6,6 +6,9 @@
 //! performs no discovery or I/O and grants no Echo runtime authority.
 
 #![deny(unsafe_code)]
+// Provider guests run in Wasm: they must not print, and a stray trace once
+// shipped in a promoted component (echo#972).
+#![deny(clippy::print_stderr, clippy::print_stdout)]
 
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,

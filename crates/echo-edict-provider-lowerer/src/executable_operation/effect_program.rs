@@ -81,9 +81,7 @@ fn effect_kind(intrinsic: &str) -> Option<&'static str> {
 
 /// Judges compiler-produced effect-program bytes.
 pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
-    let e972_t = std::time::Instant::now(); // E972-TEMP
     let bundle = decode(compiled_program).map_err(|_| ())?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     exact(
         &bundle,
         &[
@@ -95,32 +93,21 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
             "lowering_artifacts",
         ],
     )?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     equal_text(
         &bundle,
         "schema",
         "echo.compiler-produced-effect-program/v1",
     )?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let intent_name = nonempty(get(&bundle, "intent")?)?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let embedded = |key| decode(bytes(get(&bundle, key)?)?).map_err(|_| ());
     let module = embedded("core_artifact")?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let target = embedded("target_ir_artifact")?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let exports = embedded("lawpack_exports_artifact")?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let structured = artifacts(&module, &target, &exports)?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let intent = get(get(&module, "intents")?, intent_name)?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let lowered = get(get(&target, "intents")?, intent_name)?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     binding(intent, lowered)?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let pairs = correspondence(intent, lowered, structured)?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     let (sites, identity) = relation(
         &module,
         intent,
@@ -129,7 +116,6 @@ pub(crate) fn judge(compiled_program: &[u8]) -> Check<()> {
         &exports,
         get(&bundle, "lowering_artifacts")?,
     )?;
-    eprintln!("E972 t {} {:?}", line!(), e972_t.elapsed()); // E972-TEMP
     judge_effect_intent(&module, &exports, intent, &sites, identity)
 }
 

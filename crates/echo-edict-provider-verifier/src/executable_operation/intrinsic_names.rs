@@ -15,16 +15,22 @@ pub(crate) struct Namespace {
     pub(crate) coordinate: &'static str,
     /// The coordinate, and digest domain, of the catalog the profile pins.
     pub(crate) catalog: &'static str,
+    /// Whether structured `echo.span-ir/v3` control is admitted under the
+    /// profile: only `echo.dpo@2` carries it, and `echo.dpo@1` is frozen
+    /// (owner decision on flyingrobots/echo#947).
+    pub(crate) structured: bool,
 }
 
 const NAMESPACES: [Namespace; 2] = [
     Namespace {
         coordinate: "echo.dpo@1",
         catalog: "echo.dpo.intrinsics/v1",
+        structured: false,
     },
     Namespace {
         coordinate: "echo.dpo@2",
         catalog: "echo.dpo.intrinsics/v2",
+        structured: true,
     },
 ];
 

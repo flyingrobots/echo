@@ -444,14 +444,24 @@ fn replace_input(request: &mut verifier::VerificationRequestV1, role: &str, byte
 
 /// The refusal message of a verification request the verifier must refuse.
 fn verifier_refusal(request: verifier::VerificationRequestV1) -> String {
-    let refusal = verifier::verify(request).expect_err("refused before any report");
-    refusal.diagnostics[0].message.clone()
+    match verifier::verify(request) {
+        Err(refusal) => refusal.diagnostics[0].message.clone(),
+        Ok(success) => panic!(
+            "expected refusal before report, got {} output artifacts",
+            success.outputs.len()
+        ),
+    }
 }
 
 /// The refusal message of a lowering request the lowerer must refuse.
 fn lowerer_refusal(request: LoweringRequestV1) -> String {
-    let refusal = lower(request).expect_err("refused");
-    refusal.diagnostics[0].message.clone()
+    match lower(request) {
+        Err(refusal) => refusal.diagnostics[0].message.clone(),
+        Ok(success) => panic!(
+            "expected refusal, got {} output artifacts",
+            success.outputs.len()
+        ),
+    }
 }
 
 fn configuration_with(edit: impl FnOnce(&mut Value)) -> Vec<u8> {
@@ -601,7 +611,7 @@ fn both_routes_refuse_a_target_ir_bound_under_another_coordinate() {
         None,
         public_target(),
         "echo.span-ir/v1",
-        "Target IR is not bound as the ordered echo.span-ir/v2",
+        "Target IR is not bound as the ordered echo.span-ir/v2 or the structured echo.span-ir/v3",
     );
 }
 
@@ -704,18 +714,18 @@ fn both_routes_refuse_a_target_ir_naming_two_lawpacks() {
 
 // The `echo.dpo@2` effect target profile (flyingrobots/echo#985).
 //
-// Until the public compiler can target `echo.dpo@2`, these requests are the
-// public flat request re-pinned, artifact by artifact, to that profile: the
+// These deliberately invalid requests are the public flat v2 request
+// re-pinned, artifact by artifact, to the current v3-only profile: the
 // configuration carries its catalog, the adapter selects that configuration,
 // the lawpack accepts the profile and its Target IR, and Core, Target IR and
-// source name that lawpack. Oracles: the profile's own pins, and the binding
-// law that each profile admits only the catalog it pins.
+// source name that lawpack. The retained Target IR stays v2, so both routes
+// must refuse the profile/domain mismatch even without an effect step.
 
 const EFFECT_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo-2.cbor");
 const EFFECT_CATALOG: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
 );
-const EFFECT_PROFILE_ONLY: &str = "echo.dpo@2 admits only authored effect programs";
+const PROFILE_TARGET_IR_MISMATCH: &str = "Target IR domain does not match the bound target profile";
 
 fn pin(domain: &str, value: &Value) -> Value {
     Value::Array(vec![
@@ -820,56 +830,32 @@ fn echo_dpo_2_request() -> LoweringRequestV1 {
     request
 }
 
-/// The package the native lowerer emits for `request`.
-fn lowered(request: LoweringRequestV1) -> Vec<u8> {
-    lower(request)
-        .expect("the request lowers")
-        .outputs
-        .remove(0)
-        .artifact
-        .bytes
+#[test]
+fn lowerer_refuses_a_flat_no_effect_target_outside_the_echo_dpo_2_profile() {
+    let refusal = lowerer_refusal(echo_dpo_2_request());
+    assert!(
+        refusal.contains(PROFILE_TARGET_IR_MISMATCH),
+        "expected the checked profile/Target IR refusal, got: {refusal}"
+    );
 }
 
 #[test]
-fn a_program_bound_to_echo_dpo_2_lowers_and_verifies() {
-    let package = lowered(echo_dpo_2_request());
-    assert_ne!(
-        package,
+fn verifier_refuses_a_flat_no_effect_target_outside_the_echo_dpo_2_profile() {
+    // The public @1 package is deliberately unrelated. The checked-profile
+    // diagnostic must occur before package comparison; a package-mismatch
+    // report is not the refusal this test specifies.
+    let refusal = verifier_refusal(verification_request_for(
+        echo_dpo_2_request(),
         public_package(),
-        "the package binds the new profile"
-    );
-    let response = verifier::verify(verification_request_for(echo_dpo_2_request(), package))
-        .expect("bound request");
-    let report = decode(&response.outputs[0].artifact.bytes).expect("report");
-    assert_eq!(
-        field(&report, "outcome"),
-        &Value::Text("accepted".to_owned())
-    );
-}
-
-#[test]
-fn under_echo_dpo_2_both_routes_refuse_a_target_ir_bound_under_another_coordinate() {
-    let expected = "Target IR is not bound as the ordered echo.span-ir/v2";
-    let package = lowered(echo_dpo_2_request());
-    let mut lowering = echo_dpo_2_request();
-    let mut verification = verification_request_for(echo_dpo_2_request(), package);
-    let target = lowering.semantic_inputs[5].artifact.artifact.bytes.clone();
-    lowering.semantic_inputs[5].artifact = bound(
-        "echo.span-ir/v1",
-        "edict.target-ir.artifact/v1",
-        target.clone(),
-    );
-    verification.target_ir = transport(bound(
-        "echo.span-ir/v1",
-        "edict.target-ir.artifact/v1",
-        target,
     ));
-    assert!(lowerer_refusal(lowering).contains(expected));
-    assert!(verifier_refusal(verification).contains(expected));
+    assert!(
+        refusal.contains(PROFILE_TARGET_IR_MISMATCH),
+        "expected the checked profile/Target IR refusal, got: {refusal}"
+    );
 }
 
 #[test]
-fn each_profile_refuses_the_catalog_the_other_pins() {
+fn echo_dpo_1_refuses_the_echo_dpo_2_catalog() {
     // echo.dpo@1 with the echo.dpo@2 catalog, which declares the runtime's
     // effect intrinsics.
     let foreign = configuration_with(|configuration| {
@@ -887,69 +873,4 @@ fn each_profile_refuses_the_catalog_the_other_pins() {
     assert!(
         verifier_refusal(verification).contains("catalog is not the one the target profile pins")
     );
-
-    // echo.dpo@2 with the echo.dpo@1 catalog.
-    let own = retained!("flat-configuration.hex");
-    let mut lowering = echo_dpo_2_request();
-    lowering.semantic_inputs[4].artifact = bound(
-        "echo.operation-lowering-configuration/v1",
-        "echo.operation-lowering-configuration/v1",
-        own.clone(),
-    );
-    assert!(lowerer_refusal(lowering).contains("must match the selected target profile"));
-    let mut verification =
-        verification_request_for(echo_dpo_2_request(), lowered(echo_dpo_2_request()));
-    replace_input(&mut verification, "05-target-configuration", own);
-    assert!(
-        verifier_refusal(verification).contains("catalog is not the one the target profile pins")
-    );
-}
-
-#[test]
-fn echo_dpo_2_admits_only_authored_effect_programs() {
-    // Another executable-operation program kind under echo.dpo@2.
-    let bounded_read = encode(&Value::Map(vec![
-        (
-            Value::Text("apiVersion".to_owned()),
-            Value::Text("echo.operation-lowering-configuration/v1".to_owned()),
-        ),
-        (
-            Value::Text("programKind".to_owned()),
-            Value::Text("compiler-produced-bounded-read/v1".to_owned()),
-        ),
-        (Value::Text("maxReadBytes".to_owned()), Value::Integer(64)),
-        (Value::Text("maxReads".to_owned()), Value::Integer(1)),
-    ]))
-    .expect("configuration");
-    let mut lowering = echo_dpo_2_request();
-    lowering.semantic_inputs[4].artifact = bound(
-        "echo.operation-lowering-configuration/v1",
-        "echo.operation-lowering-configuration/v1",
-        bounded_read.clone(),
-    );
-    assert!(lowerer_refusal(lowering).contains(EFFECT_PROFILE_ONLY));
-    let mut verification =
-        verification_request_for(echo_dpo_2_request(), lowered(echo_dpo_2_request()));
-    replace_input(&mut verification, "05-target-configuration", bounded_read);
-    assert!(verifier_refusal(verification).contains(EFFECT_PROFILE_ONLY));
-
-    // The original target-IR route under echo.dpo@2.
-    let mut lowering = echo_dpo_2_request();
-    lowering.requested_outputs[0] = LoweringOutputRequest {
-        role: "target-ir.echo-dpo".to_owned(),
-        kind: LoweringOutputKind::TargetIr,
-        domain: "edict.target-ir.artifact/v1".to_owned(),
-    };
-    assert!(lowerer_refusal(lowering).contains(EFFECT_PROFILE_ONLY));
-    let mut verification =
-        verification_request_for(echo_dpo_2_request(), lowered(echo_dpo_2_request()));
-    verification.requested_outputs[0] = verifier::VerificationOutputRequest {
-        role: "verifier-report.echo-dpo".to_owned(),
-        kind: verifier::VerificationOutputKind::VerifierReport,
-        domain: "echo.verifier-report/v1".to_owned(),
-    };
-    verification
-        .semantic_inputs
-        .retain(|input| input.role != "executable-operation-package.echo");
-    assert!(verifier_refusal(verification).contains(EFFECT_PROFILE_ONLY));
 }

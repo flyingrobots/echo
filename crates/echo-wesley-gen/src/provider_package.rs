@@ -2012,7 +2012,7 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
         ("echo.operation-package/v1", "echo-operation-package"),
         ("echo.review-payload/v1", "review-payload"),
         ("echo.span-ir/v1", "echo-span-ir"),
-        ("echo.span-ir/v2", "echo-span-ir"),
+        ("echo.span-ir/v3", "echo-span-ir"),
         ("echo.verifier-report/v1", "verifier-report"),
         ("edict.authority-facts/v1", "authority-facts"),
         ("edict.core.module/v1", "core-module"),

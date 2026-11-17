@@ -94,9 +94,53 @@ fn bundle() -> Value {
     decode(bytes(field(&program, "compiled_program"))).expect("bundle")
 }
 
+#[test]
+fn the_public_compiler_bundle_uses_the_current_structured_effect_profile() {
+    // Oracle: the selected package profile pins one exact Target IR schema;
+    // this retained public compiler output must witness that current contract.
+    let profile = decode(EFFECT_PROFILE).expect("current effect profile");
+    let target = decode(bytes(field(&bundle(), "target_ir_artifact"))).expect("public Target IR");
+    assert_eq!(
+        field(&target, "domain"),
+        field(field(&profile, "targetIr"), "id"),
+        "the public compiler witness uses the current profile's Target IR"
+    );
+    assert_eq!(
+        field(&target, "kind"),
+        &Value::Text("structuredTargetIrArtifact".to_owned()),
+        "the v3 witness carries structured IR, rather than a renamed v2 artifact"
+    );
+    assert_eq!(
+        field(field(&target, "targetProfile"), "digest"),
+        &Value::Array(vec![
+            Value::Text("sha256".to_owned()),
+            Value::Bytes(
+                digest("edict.target-profile/v1", &profile)
+                    .expect("profile identity")
+                    .to_vec(),
+            ),
+        ]),
+        "the public compiler witness pins the current profile bytes"
+    );
+    let lawpack = decode(&retained!("write-lawpack.hex")).expect("public lawpack");
+    let Value::Array(adapters) = field(&lawpack, "targetAdapters") else {
+        panic!("target adapters")
+    };
+    assert_eq!(adapters.len(), 1, "one selected public target adapter");
+    assert_eq!(
+        field(&adapters[0], "acceptedTargetIr"),
+        field(&profile, "targetIr"),
+        "the authored lawpack accepts the exact current Target IR reference"
+    );
+}
+
 /// The lowering request the public compiler sent.
 fn lowering_request() -> LoweringRequestV1 {
     let bundle = bundle();
+    let target = decode(bytes(field(&bundle, "target_ir_artifact"))).expect("public Target IR");
+    let Value::Text(target_coordinate) = field(&target, "domain") else {
+        panic!("public Target IR domain")
+    };
     let embedded = |key| bytes(field(&bundle, key)).to_vec();
     let auxiliary = |role: &str, kind: &str, coordinate: &str, domain: &str, raw| SemanticInput {
         role: role.to_owned(),
@@ -158,7 +202,7 @@ fn lowering_request() -> LoweringRequestV1 {
             auxiliary(
                 "06-target-ir",
                 "target-ir",
-                "echo.span-ir/v2",
+                target_coordinate,
                 TARGET_IR,
                 embedded("target_ir_artifact"),
             ),

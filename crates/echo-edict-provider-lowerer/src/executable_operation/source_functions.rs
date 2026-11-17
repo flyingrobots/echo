@@ -22,6 +22,9 @@ mod order;
 mod read_cost;
 #[cfg(test)]
 mod read_cost_soundness_tests;
+mod shared_reads;
+#[cfg(test)]
+mod shared_reads_tests;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
@@ -109,6 +112,13 @@ struct Judgment<'a> {
     proven_sum: Option<(usize, u64)>,
     /// Declared graph scan allowance charged by every graph read.
     edge_scans: u64,
+    /// The module requires the shared-read schedule, `edict.core-cost/v2`.
+    shared: bool,
+    /// Under the shared-read schedule, the type this judgment established for
+    /// each expression, keyed by the node's address in the borrowed Core.
+    types: BTreeMap<usize, Ty>,
+    /// Shared-read cost of each completed source helper.
+    shared_costs: BTreeMap<String, Cost>,
 }
 
 /// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
@@ -128,6 +138,16 @@ pub(super) fn validate(
 }
 fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
     let mut proof = judged(core, exports, edge_scans)?;
+    if proof.shared {
+        // Read and graph charges have no shared-read rules.
+        if read || edge_scans != 0 {
+            return Err(());
+        }
+        for (_, intent) in members(get(core, "intents")?)? {
+            proof.shared_intent(intent)?;
+        }
+        return Ok(());
+    }
     // A graph read always needs its whole-intent budget judged.
     if super::map_field(core, "functions").is_none()
         && !unsigned_addition::present(core)?
@@ -239,6 +259,9 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
         bound: Vec::new(),
         proven_sum: None,
         edge_scans,
+        shared: shared_reads::required(core)?,
+        types: BTreeMap::new(),
+        shared_costs: BTreeMap::new(),
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -524,6 +547,20 @@ impl<'a> Judgment<'a> {
         Ok(fact)
     }
     fn expression(
+        &mut self,
+        value: &'a Value,
+        scope: &Scope<'a>,
+        source: bool,
+        prefix: usize,
+    ) -> Check<Fact> {
+        let fact = self.judged_expression(value, scope, source, prefix)?;
+        if self.shared {
+            self.types
+                .insert(std::ptr::from_ref(value).addr(), fact.ty.clone());
+        }
+        Ok(fact)
+    }
+    fn judged_expression(
         &mut self,
         value: &'a Value,
         scope: &Scope<'a>,

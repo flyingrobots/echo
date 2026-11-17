@@ -348,11 +348,7 @@ pub fn lowering_fixture_in(
     });
     let mut catalog = catalog;
     // The frozen echo.dpo@1 catalog is API v1; echo.dpo@2's is catalog v2.
-    set(
-        &mut catalog,
-        "apiVersion",
-        text(catalog_api(namespace)),
-    );
+    set(&mut catalog, "apiVersion", text(catalog_api(namespace)));
     let mut target_profile = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/profile.hex"
     ));

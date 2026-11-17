@@ -95,8 +95,11 @@ fn catalog(api: &str, complete: bool) -> Vec<u8> {
 #[test]
 fn current_catalog_contract_admits_a_complete_v2_pure_contract() {
     let pack = admit_provider_contract_pack_v1(SCHEMA, MANIFEST).expect("current publication");
-    pack.validate_contract_bytes(CATALOG, &catalog("edict.target-profile.intrinsics/v2", true))
-        .expect("a complete v2 pure contract is admitted");
+    pack.validate_contract_bytes(
+        CATALOG,
+        &catalog("edict.target-profile.intrinsics/v2", true),
+    )
+    .expect("a complete v2 pure contract is admitted");
 }
 
 #[test]

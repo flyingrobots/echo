@@ -278,7 +278,12 @@ fn echo_dpo_2_catalog_publishes_the_identity_contracts() {
         assert_eq!(field(intrinsic, "typeParameters"), &Value::Array(vec![]));
         assert_eq!(
             field(intrinsic, "argumentTypes"),
-            &Value::Array(arguments.iter().map(|ty| Value::Text((*ty).into())).collect()),
+            &Value::Array(
+                arguments
+                    .iter()
+                    .map(|ty| Value::Text((*ty).into()))
+                    .collect()
+            ),
             "{name}"
         );
         assert_eq!(text(field(intrinsic, "returnType")), ID, "{name}");
@@ -289,7 +294,11 @@ fn echo_dpo_2_catalog_publishes_the_identity_contracts() {
             "echo.content-address/v1"
         );
         let rule = field(intrinsic, "costRule");
-        assert_eq!(field(rule, "base"), &Value::Integer(i128::from(base)), "{name}");
+        assert_eq!(
+            field(rule, "base"),
+            &Value::Integer(i128::from(base)),
+            "{name}"
+        );
         assert_eq!(field(rule, "perArgumentMax"), &ints(per_argument), "{name}");
     }
     assert_eq!(

@@ -3526,7 +3526,10 @@ fn validate_effect_target_profiles<'a>(
                 .bytes()
                 .next()
                 .is_some_and(|byte| byte.is_ascii_lowercase())
-                && pure.operation.bytes().all(|byte| byte.is_ascii_alphanumeric());
+                && pure
+                    .operation
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric());
             if !valid_operation
                 || !operations.insert(pure.operation.as_str())
                 || pure.contract_version.is_empty()

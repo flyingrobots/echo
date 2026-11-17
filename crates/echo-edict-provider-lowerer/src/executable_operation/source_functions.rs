@@ -17,6 +17,8 @@ mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
 mod read_cost;
 #[cfg(test)]

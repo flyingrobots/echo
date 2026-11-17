@@ -59,6 +59,11 @@ fn record_fields(spec: &str) -> Result<Vec<(&str, &str)>, Error> {
 }
 
 impl Parser<'_> {
+    /// A type at an intent boundary: input or output.
+    pub(crate) fn boundary_ty(&mut self, name: &str, depth: usize) -> Result<RuntimeType, Error> {
+        self.ty(name, depth)
+    }
+
     pub(crate) fn enter(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);

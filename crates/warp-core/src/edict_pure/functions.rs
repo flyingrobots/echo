@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Closed source/imported helper authority, lexical scopes, and runtime apertures.
+use super::function_preconditions;
 use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
@@ -15,6 +16,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Definition<'a> {
     params: &'a [Value],
+    /// Static preconditions over `params`; empty for imported helpers and
+    /// for source functions without them.
+    preconditions: &'a [Value],
     body: &'a Value,
     result_type: &'a str,
     source_owned: bool,
@@ -74,6 +78,7 @@ pub(crate) fn definitions<'a>(
                     name.to_owned(),
                     Definition {
                         params: array(field(implementation, "params")?)?,
+                        preconditions: &[],
                         body,
                         result_type: text_field(item, "returnType")?,
                         source_owned: false,
@@ -107,7 +112,8 @@ pub(crate) fn definitions<'a>(
             {
                 return Err(Error::InvalidArtifact);
             }
-            exact_fields(value, &["params", "returnType", "body"])?;
+            let preconditions = function_preconditions::declared(value, coordinate, functions)
+                .map_err(|_| Error::InvalidArtifact)?;
             let coordinate = format!("{coordinate}.{name}");
             if coordinate.starts_with("core.")
                 || effect_names.contains(coordinate.as_str())
@@ -116,6 +122,7 @@ pub(crate) fn definitions<'a>(
                         coordinate,
                         Definition {
                             params: array(field(value, "params")?)?,
+                            preconditions,
                             body: field(value, "body")?,
                             result_type: text_field(value, "returnType")?,
                             source_owned: true,
@@ -132,8 +139,10 @@ pub(crate) fn definitions<'a>(
 }
 
 /// Decodes and checks every pure helper definition, used or not. A helper
-/// frame starts with no caller facts. An unsigned binding proven below its
-/// width carries that ceiling to the later bindings of the same body.
+/// frame starts with its own preconditions and no caller facts, and every
+/// call to a precondition-bearing helper is re-proven from the facts that
+/// dominate it. An unsigned binding proven below its width carries that
+/// ceiling to the later bindings of the same body.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
@@ -160,6 +169,27 @@ pub(crate) fn decode(
                 ty: parser.ty(text_field(parameter, "type")?, 0)?,
             });
         }
+        // Each precondition is a typed predicate over the parameters alone,
+        // judged assuming the ones before it. The body may assume them all:
+        // every call re-proves them (`check_calls`).
+        let facts: Vec<&Value> = definition.preconditions.iter().collect();
+        for (index, precondition) in definition.preconditions.iter().enumerate() {
+            check_predicate(
+                precondition,
+                &scope,
+                Proof {
+                    caps: &caps,
+                    facts: &facts[..index],
+                    branch: &[],
+                    reads_branch: true,
+                    path: &[],
+                },
+                &definitions,
+                definition.source_owned,
+                parser,
+                0,
+            )?;
+        }
         let mut pending = BTreeMap::new();
         for declaration in array(field(definition.body, "locals")?)? {
             local(declaration)?;
@@ -183,7 +213,7 @@ pub(crate) fn decode(
                 &scope,
                 Proof {
                     caps: &caps,
-                    facts: &[],
+                    facts: &facts,
                     branch: &[],
                     reads_branch: true,
                     path: &[],
@@ -198,7 +228,7 @@ pub(crate) fn decode(
                 return Err(Error::InvalidArtifact);
             }
             if let RuntimeType::Unsigned(max) = ty {
-                let cap = unsigned_ceiling(value, max, &caps, &[], parser, 0)?;
+                let cap = unsigned_ceiling(value, max, &caps, &facts, parser, 0)?;
                 if cap < max {
                     caps.insert(id, cap);
                 }
@@ -219,7 +249,7 @@ pub(crate) fn decode(
             &scope,
             Proof {
                 caps: &caps,
-                facts: &[],
+                facts: &facts,
                 branch: &[],
                 reads_branch: true,
                 path: &[],
@@ -281,6 +311,23 @@ pub(crate) fn decode(
             basis_roots.push(parser.expr(basis, 0)?);
         }
     }
+    let contracts = definitions
+        .iter()
+        .filter(|(_, definition)| !definition.preconditions.is_empty())
+        .map(|(name, definition)| {
+            (
+                name.clone(),
+                function_preconditions::Contract {
+                    params: definition.params,
+                    preconditions: definition.preconditions,
+                },
+            )
+        })
+        .collect();
+    function_preconditions::check_calls(core, &contracts).map_err(|refusal| match refusal {
+        function_preconditions::Refusal::Malformed => Error::InvalidArtifact,
+        function_preconditions::Refusal::Unproven => Error::UnsupportedProgram,
+    })?;
     check_roots(&helpers, basis_roots.iter(), std::iter::empty())?;
     Ok(helpers)
 }

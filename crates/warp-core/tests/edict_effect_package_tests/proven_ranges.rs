@@ -145,6 +145,8 @@ pub(super) fn package(constraints: Vec<V>, nodes: Vec<Node>, result: V) -> V {
             .map(|(index, predicate)| {
                 map([
                     ("coordinate", text(&format!("app.update@1.where.{index}"))),
+                    // The compiler marks each authored `where` conjunct.
+                    ("source", text("where")),
                     ("predicate", predicate),
                 ])
             })

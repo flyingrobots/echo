@@ -105,11 +105,11 @@ pub(crate) enum Expr {
 /// The `ContentAddressV1` identity a pure call computes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IdentityIntrinsic {
-    /// `echo.dpo@1.contentAddress`: a content node id.
+    /// `echo.dpo@2.contentAddress`: a content node id.
     ContentAddress,
-    /// `echo.dpo@1.contentEdgeId`: the id of an edge from a content node.
+    /// `echo.dpo@2.contentEdgeId`: the id of an edge from a content node.
     ContentEdgeId,
-    /// `echo.dpo@1.slotEdgeId`: the id of an edge from a mutable node.
+    /// `echo.dpo@2.slotEdgeId`: the id of an edge from a mutable node.
     SlotEdgeId,
 }
 

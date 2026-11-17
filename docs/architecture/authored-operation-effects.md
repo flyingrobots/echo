@@ -547,19 +547,22 @@ a digest alone could not be executed. One law is defined:
 ### Identity intrinsics
 
 An authored program computes `ContentAddressV1` ids by calling three pure
-intrinsics in Echo's target namespace. Each takes no type arguments and returns
+intrinsics in the current `echo.dpo@2` target namespace. The frozen
+`echo.dpo@1` profile does not name them (#985), and the runtime refuses an
+`echo.dpo@1` identity callee as `UnsupportedProgram`. Each takes no type arguments and returns
 one 32-byte id. Every id operand is exactly 32 bytes.
 
 | Coordinate                  | Operands, in order                                                                                                                             | Result                                |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `echo.dpo@1.contentAddress` | warp id, node type id, atom type id, atom bytes (at most 1,048,576), outgoing edges (a list of at most 16 `{edgeType, to}` records of two ids) | the content node id                   |
-| `echo.dpo@1.contentEdgeId`  | warp id, source node id, edge type id, target node id                                                                                          | the id of an edge from a content node |
-| `echo.dpo@1.slotEdgeId`     | warp id, source node id, edge type id                                                                                                          | the id of an edge from a mutable node |
+| `echo.dpo@2.contentAddress` | warp id, node type id, atom type id, atom bytes (at most 1,048,576), outgoing edges (a list of at most 16 `{edgeType, to}` records of two ids) | the content node id                   |
+| `echo.dpo@2.contentEdgeId`  | warp id, source node id, edge type id, target node id                                                                                          | the id of an edge from a content node |
+| `echo.dpo@2.slotEdgeId`     | warp id, source node id, edge type id                                                                                                          | the id of an edge from a mutable node |
 
 The intrinsics hash with `warp_core::content_address_v1` and add nothing to
 the law. Outgoing edges may be given in any order; every order names the same
 node. The atom and edge ceilings belong to this authoring interface, not to
-the law.
+the law. They stay at 16 edges and 1,048,576 bytes for this contract; a wider
+fan-out needs a separately versioned contract with revalidated costs.
 
 A call evaluates its operands once, left to right, and requires each value to
 inhabit its operand type; a value outside it is `InvalidArtifact`. A call with
@@ -583,8 +586,11 @@ is never deduplicated: the law refuses that set, and an id for the
 deduplicated set would name a node the program did not describe. The refusal
 comes after the call's work is charged, so a call that cannot pay for its
 operands reports the exhausted budget instead. The error carries no operand
-bytes. Whether this refusal should instead surface as an authored obstruction
-is undecided; see [Open questions](#open-questions).
+bytes. This is a typed runtime refusal, not an authored obstruction. An
+authored failure result would need a different result contract and
+typed-failure runtime support. A future recoverable constructor would be
+published separately and versioned, not changed in place (decision recorded
+on flyingrobots/echo#972).
 
 The runtime evaluator in `crates/warp-core/src/edict_pure/identity.rs`
 implements these calls in intent expressions and source helpers, and a module
@@ -2044,12 +2050,6 @@ provisional detail into an obligation when its test lands.
 - How `edict_read` exposes outgoing edges by type to Edict source, and how a
   bounded closure read guided by a pure Edict selector is expressed and
   budgeted. The metering of a single range read is defined above.
-- How a `contentAddress` call's duplicate-edge refusal reaches an author.
-  The runtime refuses with a typed evaluation error (see [Identity
-  intrinsics](#identity-intrinsics)). An authored obstruction would need a
-  result type other than a bare id, which is a different intrinsic contract.
-- Whether the 16-edge and 1,048,576-byte ceilings of `contentAddress` suit
-  Jim's rope. They follow the contract Amblicit's admission tests use.
 - Whether proposals larger than the Action-batch operation limit should ever
   be committable. This design says no: such a proposal is still representable
   as evidence (`BudgetExceeded`, posture `Proposed` with a `Derived` patch, as

@@ -8,9 +8,9 @@
 //!
 //! | Coordinate                  | Operands                                    |
 //! | --------------------------- | ------------------------------------------- |
-//! | `echo.dpo@1.contentAddress` | warp, node type, atom type, atom, edges     |
-//! | `echo.dpo@1.contentEdgeId`  | warp, source node, edge type, target node   |
-//! | `echo.dpo@1.slotEdgeId`     | warp, source node, edge type                |
+//! | `echo.dpo@2.contentAddress` | warp, node type, atom type, atom, edges     |
+//! | `echo.dpo@2.contentEdgeId`  | warp, source node, edge type, target node   |
+//! | `echo.dpo@2.slotEdgeId`     | warp, source node, edge type                |
 //!
 //! Every id operand is exactly 32 bytes. The atom is at most
 //! [`MAX_ATOM_BYTES`] raw bytes, and `edges` is a list of at most
@@ -59,9 +59,9 @@ impl IdentityIntrinsic {
     /// The intrinsic a callee coordinate names, if any.
     pub(super) fn named(callee: &str) -> Option<Self> {
         match callee {
-            "echo.dpo@1.contentAddress" => Some(Self::ContentAddress),
-            "echo.dpo@1.contentEdgeId" => Some(Self::ContentEdgeId),
-            "echo.dpo@1.slotEdgeId" => Some(Self::SlotEdgeId),
+            "echo.dpo@2.contentAddress" => Some(Self::ContentAddress),
+            "echo.dpo@2.contentEdgeId" => Some(Self::ContentEdgeId),
+            "echo.dpo@2.slotEdgeId" => Some(Self::SlotEdgeId),
             _ => None,
         }
     }

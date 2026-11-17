@@ -17,9 +17,9 @@ use super::{
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::BTreeMap;
 
-const CONTENT_ADDRESS: &str = "echo.dpo@1.contentAddress";
-const CONTENT_EDGE_ID: &str = "echo.dpo@1.contentEdgeId";
-const SLOT_EDGE_ID: &str = "echo.dpo@1.slotEdgeId";
+const CONTENT_ADDRESS: &str = "echo.dpo@2.contentAddress";
+const CONTENT_EDGE_ID: &str = "echo.dpo@2.contentEdgeId";
+const SLOT_EDGE_ID: &str = "echo.dpo@2.slotEdgeId";
 
 const NODE_ZERO_EDGES: &str =
     include_str!("../../tests/fixtures/content-address-v1/node-zero-edges.hex");
@@ -380,6 +380,32 @@ fn calls_with_the_wrong_arity_or_type_arguments_do_not_parse() {
 }
 
 #[test]
+fn the_frozen_profile_coordinate_names_no_identity_intrinsic() {
+    // `echo.dpo@1` is frozen (flyingrobots/echo#985): an old provider's
+    // coordinate must not reach the identity constructors.
+    for (name, wire) in [
+        (
+            "contentAddress",
+            call(
+                "echo.dpo@1.contentAddress",
+                &[],
+                node_arguments(ATOM, vec![]),
+            ),
+        ),
+        (
+            "contentEdgeId",
+            call("echo.dpo@1.contentEdgeId", &[], content_edge_arguments()),
+        ),
+        (
+            "slotEdgeId",
+            call("echo.dpo@1.slotEdgeId", &[], slot_edge_arguments()),
+        ),
+    ] {
+        assert_eq!(evaluated(&wire), Err(Error::UnsupportedProgram), "{name}");
+    }
+}
+
+#[test]
 fn a_call_charges_its_documented_work_for_the_atom_and_each_edge() -> Result<(), Error> {
     let edges = |count: u8| {
         (0..count)
@@ -543,7 +569,7 @@ fn a_module_cannot_define_a_helper_at_an_identity_intrinsic_coordinate() {
     let helper = || function("Bytes<exact=32>", "Bytes<exact=32>", atom_reference());
     for name in ["contentAddress", "contentEdgeId", "slotEdgeId"] {
         assert_eq!(
-            helpers(vec![(name, helper())], "echo.dpo@1"),
+            helpers(vec![(name, helper())], "echo.dpo@2"),
             Err(Error::InvalidArtifact),
             "{name}"
         );

@@ -7,6 +7,17 @@
 
 ### Added
 
+- Effect programs may call helpers from digest-pinned source modules
+  (#1009). The lowerer, the verifier and warp-core previously refused any
+  `echo.dpo@2` effect program built from an `edict.source-closure/v1`
+  source as outside the checked profile. Each now reads the closure,
+  requires every `use module` pin to name a retained module by its exact
+  `edict.source/v1` identity and the entry module's pins to reach every
+  retained module, and judges and runs the linked helpers as entry
+  helpers. Substituted modules, unpinned modules and pins to absent
+  modules refuse in all three. The compiler's own request is a lowerer
+  witness, a shared corpus fixes the three verdicts, and warp-core runs
+  the control.
 - Checked integer arithmetic and `min`/`max` (#998, the Echo half of
   amblicit#321). warp-core, the provider lowerer and the provider verifier
   each admit `core.integer.checked{Add,Sub,Mul,Div,Rem}<W>`, returning

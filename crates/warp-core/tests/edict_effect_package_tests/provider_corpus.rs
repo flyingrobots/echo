@@ -14,6 +14,7 @@ use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
 };
+use super::structured::{branch, counting_parts, forge, loop_parts, nest, Forgery, Parts};
 use super::*;
 use warp_core::edict_effects::EffectFrameError;
 use warp_core::edict_pure::EvaluationError;
@@ -1080,6 +1081,191 @@ fn entries() -> Vec<Entry> {
             read_capture,
         ),
     ]
+    .into_iter()
+    .chain(structured_entries())
+    .collect()
+}
+
+/// Steps and bytes far above any structured entry's worst case, so only the
+/// check an entry targets can refuse it.
+const STRUCTURED_AMPLE: u64 = 8 * 1024 * 1024;
+/// What the runtime allocates to run `structured-loop-control` on its largest
+/// input, three items each with a 1,024-byte atom: three times
+/// `ENSURE_NODE_WORST_ALLOCATION` plus the list's own cells. Pinned by
+/// execution in `structured_loop_needs_exactly_its_worst_case_allocation`.
+const STRUCTURED_LOOP_WORST_ALLOCATION: u64 = 18_325;
+/// The steps the runtime spends on that input.
+const STRUCTURED_LOOP_RUNTIME_STEPS: u64 = 158;
+/// The providers' static step ceiling for the same loop, which covers the
+/// runtime's 158 with the per-effect margin the flat program also has.
+const STRUCTURED_LOOP_STATIC_STEPS: u64 = 173;
+
+/// The structured loop's largest input: three items, each with a 1,024-byte
+/// atom.
+fn largest_structured_loop_input() -> Vec<u8> {
+    let (_, mut item) = loop_parts("echo.dpo@2", 3);
+    set(&mut item, "atomBytes", V::Bytes(vec![0x61; 1024]));
+    encoded(&V::Array(vec![item; 3]))
+}
+
+#[test]
+fn structured_loop_needs_exactly_its_worst_case_allocation() {
+    let input = largest_structured_loop_input();
+    let (result, steps, bytes) = run_metered(
+        &retained("structured-loop-allocation-exact"),
+        &input,
+        &Frame::widest(None),
+    );
+    result.expect("the worst case fits its exact allocation");
+    assert_eq!(
+        (steps, bytes),
+        (
+            STRUCTURED_LOOP_RUNTIME_STEPS,
+            STRUCTURED_LOOP_WORST_ALLOCATION
+        )
+    );
+    assert_eq!(
+        run_on(
+            &retained("structured-loop-allocation-short"),
+            &input,
+            &Frame::widest(None)
+        ),
+        evaluation(EvaluationError::AllocationBudgetExceeded),
+        "one byte less than the worst case must not be enough"
+    );
+    assert_eq!(
+        run_on(
+            &retained("structured-loop-under-budget"),
+            &input,
+            &Frame::widest(None)
+        ),
+        evaluation(EvaluationError::StepBudgetExceeded),
+        "one step less than the run must not be enough"
+    );
+}
+
+/// A structured loop of `max` items under `namespace`, edited, with ample
+/// declared budgets.
+fn structured_loop(namespace: &str, max: u16, edit: impl FnOnce(&mut Parts)) -> V {
+    let (mut parts, _) = loop_parts(namespace, max);
+    edit(&mut parts);
+    with_allocation(
+        &with_budget(&parts.publication(), STRUCTURED_AMPLE),
+        STRUCTURED_AMPLE,
+    )
+}
+
+/// Structured (`echo.span-ir/v3`) loops and branches under `echo.dpo@2`
+/// (#947): controls, the frozen `echo.dpo@1` profile, every fully repinned
+/// forgery of the loop, and the mutation ceiling multiplied by a bound.
+fn structured_entries() -> Vec<Entry> {
+    let entry = |name, accept, runtime, package: V| Entry {
+        name,
+        accept,
+        runtime,
+        package: as_published(package),
+    };
+    let mut entries = vec![
+        entry(
+            "structured-loop-control",
+            true,
+            Runtime::Accepts,
+            structured_loop("echo.dpo@2", 3, |_| {}),
+        ),
+        entry(
+            "structured-branch-control",
+            true,
+            Runtime::Accepts,
+            structured_loop("echo.dpo@2", 3, |parts| branch(parts, true)),
+        ),
+        entry(
+            "structured-nested-control",
+            true,
+            Runtime::Accepts,
+            structured_loop("echo.dpo@2", 3, nest),
+        ),
+        entry(
+            "structured-echo-dpo-1",
+            false,
+            Runtime::Refuses,
+            structured_loop("echo.dpo@1", 3, |_| {}),
+        ),
+    ];
+    for (name, forgery) in [
+        ("structured-bound-below-list", Forgery::BoundBelowList),
+        ("structured-coordinate-bound", Forgery::CoordinateBound),
+        ("structured-leaked-local", Forgery::LeakedLocal),
+        ("structured-control-id-reused", Forgery::ControlIdReused),
+        ("structured-dropped-body", Forgery::DroppedBody),
+        (
+            "structured-ordered-with-control",
+            Forgery::OrderedWithControl,
+        ),
+        ("structured-substituted-binder", Forgery::SubstitutedBinder),
+        ("structured-body-with-result", Forgery::BodyWithResult),
+    ] {
+        entries.push(entry(
+            name,
+            false,
+            Runtime::Refuses,
+            structured_loop("echo.dpo@2", 3, |parts| forge(parts, forgery)),
+        ));
+    }
+    // The loop's worst case, three items each with a 1,024-byte atom: both
+    // providers charge exactly the runtime's allocation, and their own step
+    // ceiling; one byte less is refused, and so is a step budget below what
+    // the runtime spends on that input.
+    let (mut parts, _) = loop_parts("echo.dpo@2", 3);
+    let control = with_budget(&parts.publication(), STRUCTURED_LOOP_STATIC_STEPS);
+    entries.push(entry(
+        "structured-loop-allocation-exact",
+        true,
+        Runtime::Accepts,
+        with_allocation(&control, STRUCTURED_LOOP_WORST_ALLOCATION),
+    ));
+    entries.push(entry(
+        "structured-loop-allocation-short",
+        false,
+        Runtime::Executes,
+        with_allocation(&control, STRUCTURED_LOOP_WORST_ALLOCATION - 1),
+    ));
+    entries.push(entry(
+        "structured-loop-under-budget",
+        false,
+        Runtime::Executes,
+        with_allocation(
+            &with_budget(&parts.publication(), STRUCTURED_LOOP_RUNTIME_STEPS - 1),
+            STRUCTURED_AMPLE,
+        ),
+    ));
+    // One effect site under a bound of 1,024 can emit the runtime's whole
+    // mutation ceiling; under 1,025 it can exceed it.
+    for (name, accept, runtime, max) in [
+        (
+            "structured-mutation-count-control",
+            true,
+            Runtime::Accepts,
+            1024,
+        ),
+        (
+            "structured-mutation-count-over",
+            false,
+            Runtime::Executes,
+            1025,
+        ),
+    ] {
+        let (mut parts, _) = counting_parts(max);
+        entries.push(entry(
+            name,
+            accept,
+            runtime,
+            with_allocation(
+                &with_budget(&parts.publication(), STRUCTURED_AMPLE),
+                STRUCTURED_AMPLE,
+            ),
+        ));
+    }
+    entries
 }
 
 /// The retained corpus bytes, embedded so the check reads no files.
@@ -1136,6 +1322,23 @@ const RETAINED: &[(&str, &str)] = retained![
     "read-and-return-control",
     "read-allocation-short",
     "read-captured-budget",
+    "structured-loop-control",
+    "structured-branch-control",
+    "structured-nested-control",
+    "structured-echo-dpo-1",
+    "structured-bound-below-list",
+    "structured-coordinate-bound",
+    "structured-leaked-local",
+    "structured-control-id-reused",
+    "structured-dropped-body",
+    "structured-ordered-with-control",
+    "structured-substituted-binder",
+    "structured-body-with-result",
+    "structured-loop-allocation-exact",
+    "structured-loop-allocation-short",
+    "structured-loop-under-budget",
+    "structured-mutation-count-control",
+    "structured-mutation-count-over",
 ];
 const VERDICTS: &str = include_str!(
     "../../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt"
@@ -1297,6 +1500,30 @@ fn the_runtime_refuses_each_executed_entry_when_it_runs() {
         ),
         Err(EffectFrameError::BudgetExceeded),
         "mutation-count-over"
+    );
+    // A bound multiplies the effect site: 1,024 emissions fit the mutation
+    // ceiling and the 1,025th exceeds it.
+    let (_, node) = counting_parts(1025);
+    let ticks = |count| {
+        encoded(&map([
+            ("node", node.clone()),
+            ("ticks", V::Array(vec![V::Integer(0); count])),
+        ]))
+    };
+    run_on(
+        &retained("structured-mutation-count-control"),
+        &ticks(1024),
+        &Frame::widest(None),
+    )
+    .expect("structured-mutation-count-control runs");
+    assert_eq!(
+        run_on(
+            &retained("structured-mutation-count-over"),
+            &ticks(1025),
+            &Frame::widest(None)
+        ),
+        Err(EffectFrameError::BudgetExceeded),
+        "structured-mutation-count-over"
     );
     // The captured read declares 1,048,576 steps, the same as the frame's
     // fixed step ceiling, so here the declared budget and the ceiling refuse

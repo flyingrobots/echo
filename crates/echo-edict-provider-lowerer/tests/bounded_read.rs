@@ -435,3 +435,90 @@ fn effect_catalog_must_match_the_selected_profile_before_body_lowering() {
         assert_eq!(refusal.subject.as_deref(), Some("effect-target-resources"));
     }
 }
+
+fn rebind_target(request: &mut LoweringRequestV1, coordinate: &str, edit: impl FnOnce(&mut Value)) {
+    let artifact = &mut request.semantic_inputs[5].artifact;
+    let mut value = decode(&artifact.artifact.bytes).expect("target artifact");
+    edit(&mut value);
+    *artifact = bound(
+        coordinate,
+        "edict.target-ir.artifact/v1",
+        encode(&value).expect("changed target"),
+    );
+}
+
+fn declare(target: &mut Value, domain: &str, kind: &str) {
+    mutate(target, "domain", |value| {
+        *value = Value::Text(domain.to_owned());
+    });
+    mutate(target, "kind", |value| {
+        *value = Value::Text(kind.to_owned());
+    });
+}
+
+/// Oracle: the ordered read profile is specified to admit only flat
+/// `echo.span-ir/v2` orders (Echo #947 safe state). Every case is rebound under
+/// a fresh digest, and the unchanged control proves the rebinding itself is
+/// accepted, so each refusal is caused by the structured declaration or entry.
+#[test]
+fn ordered_read_profile_refuses_structured_declarations_and_control_entries() {
+    const ORDERED: &str = "echo.span-ir/v2";
+    const STRUCTURED: &str = "echo.span-ir/v3";
+    let mut control = fixture();
+    rebind_target(&mut control, ORDERED, |_| {});
+    lower(control).expect("an unchanged rebound ordered target remains supported");
+
+    for (coordinate, domain, kind) in [
+        (STRUCTURED, STRUCTURED, "structuredTargetIrArtifact"),
+        (STRUCTURED, STRUCTURED, "orderedTargetIrArtifact"),
+        (ORDERED, STRUCTURED, "structuredTargetIrArtifact"),
+        (ORDERED, ORDERED, "structuredTargetIrArtifact"),
+        (STRUCTURED, ORDERED, "orderedTargetIrArtifact"),
+    ] {
+        let mut request = fixture();
+        rebind_target(&mut request, coordinate, |target| {
+            declare(target, domain, kind);
+        });
+        assert!(
+            lower(request).is_err(),
+            "{coordinate} reference with {domain} {kind} was lowered by the ordered read profile"
+        );
+    }
+
+    let mut request = fixture();
+    rebind_target(&mut request, ORDERED, |target| {
+        mutate(target, "intents", |intents| {
+            mutate(intents, "replaceRange", |intent| {
+                mutate(intent, "executionOrder", |order| {
+                    let Value::Array(entries) = order else {
+                        panic!("order")
+                    };
+                    let nested = std::mem::take(entries);
+                    entries.push(Value::Map(vec![
+                        (
+                            Value::Text("kind".to_owned()),
+                            Value::Text("branch".to_owned()),
+                        ),
+                        (
+                            Value::Text("id".to_owned()),
+                            Value::Text("branch.0".to_owned()),
+                        ),
+                        (
+                            Value::Text("predicate".to_owned()),
+                            Value::Map(vec![(
+                                Value::Text("kind".to_owned()),
+                                Value::Text("true".to_owned()),
+                            )]),
+                        ),
+                        (Value::Text("then".to_owned()), Value::Array(nested)),
+                        (Value::Text("else".to_owned()), Value::Array(vec![])),
+                    ]));
+                });
+            });
+        });
+    });
+    assert!(
+        lower(request).is_err(),
+        "a control entry was lowered under the flat ordered contract"
+    );
+}

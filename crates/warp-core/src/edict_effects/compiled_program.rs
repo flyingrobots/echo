@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Current compiler-artifact binding and ordered instruction correspondence.
+//! Current compiler-artifact binding and ordered or structured instruction
+//! correspondence.
 use crate::edict_pure::{
     values::{array, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
@@ -9,6 +10,9 @@ use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1 as digest,
     CanonicalValueV1 as Value,
 };
+
+/// The ordered Target IR contract.
+const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CompiledProgram {
@@ -62,8 +66,20 @@ impl CompiledProgram {
                 "sourceCoreCoordinate",
             ],
         )?;
-        require_text(&target, "domain", "echo.span-ir/v2")?;
-        require_text(&target, "kind", "orderedTargetIrArtifact")?;
+        // The ordered contract admits only a flat order of instruction ids;
+        // the structured one adds `for` and `branch` entries, and the
+        // lowering relation admits it only under `echo.dpo@2`.
+        match (text_field(&target, "domain")?, text_field(&target, "kind")?) {
+            (ORDERED_TARGET_IR, "orderedTargetIrArtifact") => {
+                for (_, intent) in map(field(&target, "intents")?)? {
+                    for entry in array(field(intent, "executionOrder")?)? {
+                        text(entry)?;
+                    }
+                }
+            }
+            (super::control_order::STRUCTURED_TARGET_IR, "structuredTargetIrArtifact") => {}
+            _ => return Err(Error::UnsupportedProgram),
+        }
         exact_fields(
             &exports,
             &[

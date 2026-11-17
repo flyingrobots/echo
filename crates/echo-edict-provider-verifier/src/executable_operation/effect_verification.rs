@@ -22,7 +22,9 @@ use echo_edict_canonical::{decode_canonical_cbor_v1, digest_canonical_value_byte
 
 const SUBJECT: &str = "edict-effect-program";
 const BUNDLE_SCHEMA: &str = "echo.compiler-produced-effect-program/v1";
-const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
+/// The ordered and the structured Target IR contracts; the judgment decides
+/// which one a program's profile admits.
+const EFFECT_TARGET_IRS: [&str; 2] = ["echo.span-ir/v2", "echo.span-ir/v3"];
 const PROGRAM_KIND: &str = "edict-effect-program/v1";
 const MAX_POLICY_BYTES: usize = 16 * 1024 * 1024;
 const MISMATCH: &str = "echo.verifier.effect-package-mismatch";
@@ -331,9 +333,9 @@ fn bind_closure(
     request: &VerificationRequestV1,
     closure: &ClosureInputs<'_>,
 ) -> Result<(), ProviderRefusalV1> {
-    if request.target_ir.reference.coordinate != ORDERED_TARGET_IR {
+    if !EFFECT_TARGET_IRS.contains(&request.target_ir.reference.coordinate.as_str()) {
         return Err(unsupported(
-            "Target IR is not bound as the ordered echo.span-ir/v2",
+            "Target IR is not bound as the ordered echo.span-ir/v2 or the structured echo.span-ir/v3",
         ));
     }
     if text_field(target, "sourceCoreCoordinate")
@@ -352,6 +354,16 @@ fn bind_closure(
         SUBJECT,
         "effect Target IR target profile reference",
     )?;
+    let profile = validate_bound(&request.target_profile, "edict.target-profile/v1")?;
+    // @1 is frozen: authored flat v2 artifacts historically use its v1 profile.
+    if request.target_profile.reference.coordinate == "echo.dpo@2"
+        && text_field(required_map(&profile, "targetIr", SUBJECT)?, "id")
+            != Some(request.target_ir.reference.coordinate.as_str())
+    {
+        return Err(unsupported(
+            "Target IR domain does not match the bound target profile",
+        ));
+    }
     let semantic = field(target, "semanticClosure")?;
     require_resource_ref(
         &field(&semantic, "sourceCore")?,

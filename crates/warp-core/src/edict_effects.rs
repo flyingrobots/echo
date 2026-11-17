@@ -13,6 +13,7 @@
 //! one exact full parent. Physical arena guarantees, scheduler integration and
 //! Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
+mod control_order;
 mod execution;
 mod failure_names;
 mod imported_types;

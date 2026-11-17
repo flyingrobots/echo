@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Ordered Core/Target correspondence and exact lexical local identities.
+//! Ordered or structured Core/Target correspondence and exact lexical local
+//! identities, with nested loop and branch scopes.
 use crate::edict_pure::{
     functions,
     model::{Expr, Helper, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES},
     syntax::Parser,
-    values::{array, exact_fields, field, map, require_text, text, text_field},
+    values::{array, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
 };
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
@@ -62,31 +63,135 @@ pub(super) fn validate<'a>(
     for constraint in constraints {
         scope.facts.push(field(constraint, "predicate")?);
     }
-    let mut lowered = BTreeMap::new();
-    for (collection, kind) in [
-        ("steps", "effect"),
-        ("requirements", "require"),
-        ("pureBindings", "let"),
-    ] {
-        if collection == "pureBindings" && field(target, collection).is_err() {
-            continue;
-        }
-        for node in array(field(target, collection)?)? {
-            let id = text_field(node, "id")?;
-            if id.is_empty() || lowered.insert(id, (kind, node)).is_some() {
-                return Err(Error::InvalidArtifact);
+    // The order tree corresponds to Core node for node; this pairs each Core
+    // instruction with its Target instruction by identity.
+    let lowered = super::control_order::instructions(intent, target)?
+        .into_iter()
+        .map(|(node, target)| (std::ptr::from_ref(node), target))
+        .collect::<BTreeMap<_, _>>();
+    validate_block(body, &mut scope, &lowered, signatures, 0)?;
+    scope.typed_expression(field(body, "result")?, text_field(intent, "output")?)?;
+    functions::check_roots(
+        &scope.helpers,
+        scope.expressions.iter(),
+        scope.predicates.iter(),
+    )?;
+    Ok(())
+}
+/// Each Core instruction's Target instruction, keyed by the node's address.
+type Lowered<'a> = BTreeMap<*const Value, &'a Value>;
+/// Checks one block's nodes in order. A loop body or branch arm is checked
+/// in a child scope: its locals are claimed from its own table and are not
+/// available after the block.
+fn validate_block<'a>(
+    body: &'a Value,
+    scope: &mut Scope<'a>,
+    lowered: &Lowered<'_>,
+    signatures: &BTreeMap<&str, &Value>,
+    depth: usize,
+) -> Result<(), Error> {
+    if depth > MAX_DEPTH {
+        return Err(Error::UnsupportedProgram);
+    }
+    for node in array(field(body, "nodes")?)? {
+        scope.parser.enter(depth)?;
+        match text_field(node, "kind")? {
+            "for" => validate_loop(node, scope, lowered, signatures, depth)?,
+            "branch" => {
+                // A branch predicate is not a fact for either arm; a missing
+                // fact only refuses more programs.
+                scope.predicate(field(node, "predicate")?)?;
+                for arm in ["then", "else"] {
+                    validate_child(field(node, arm)?, None, scope, lowered, signatures, depth)?;
+                }
+            }
+            _ => {
+                let target = *lowered
+                    .get(&std::ptr::from_ref(node))
+                    .ok_or(Error::InvalidArtifact)?;
+                validate_instruction(node, target, scope, signatures)?;
             }
         }
     }
-    let nodes = array(field(body, "nodes")?)?;
-    let order = array(field(target, "executionOrder")?)?;
-    if nodes.len() != order.len() || nodes.len() != lowered.len() {
+    if scope.inventory.keys().any(|id| !scope.used.contains(id)) {
         return Err(Error::InvalidArtifact);
     }
-    for (node, id) in nodes.iter().zip(order) {
-        scope.parser.enter(0)?;
-        let (kind, target) = lowered.remove(text(id)?).ok_or(Error::InvalidArtifact)?;
-        require_text(node, "kind", kind)?;
+    Ok(())
+}
+/// A bounded loop: a literal bound that covers the iterable's list type, and
+/// a binder that accepts its items, fresh in the body's own scope.
+fn validate_loop<'a>(
+    node: &'a Value,
+    scope: &mut Scope<'a>,
+    lowered: &Lowered<'_>,
+    signatures: &BTreeMap<&str, &Value>,
+    depth: usize,
+) -> Result<(), Error> {
+    let iterable = field(node, "iter")?;
+    scope.expression(iterable, None)?;
+    let RuntimeType::List { item, max } = scope.data_type(iterable)?.representation().clone()
+    else {
+        return Err(Error::InvalidArtifact);
+    };
+    let bound = field(node, "bound")?;
+    exact_fields(bound, &["kind", "value"])?;
+    require_text(bound, "kind", "literal")?;
+    if max > number(field(bound, "value")?)? {
+        return Err(Error::InvalidArtifact);
+    }
+    let binder = field(node, "binder")?;
+    let expected = scope.parser.ty(text_field(binder, "type")?, 0)?;
+    if item.is_some_and(|item| !functions::accepts(&expected, &item)) {
+        return Err(Error::InvalidArtifact);
+    }
+    validate_child(
+        field(node, "body")?,
+        Some(binder),
+        scope,
+        lowered,
+        signatures,
+        depth,
+    )
+}
+/// Checks a nested statement block in a child scope and restores the
+/// enclosing scope afterwards, so no local leaks out of the block.
+fn validate_child<'a>(
+    body: &'a Value,
+    binder: Option<&'a Value>,
+    scope: &mut Scope<'a>,
+    lowered: &Lowered<'_>,
+    signatures: &BTreeMap<&str, &Value>,
+    depth: usize,
+) -> Result<(), Error> {
+    let mut inventory = BTreeMap::new();
+    for local in array(field(body, "locals")?)? {
+        scope.parser.enter(depth)?;
+        functions::local(local)?;
+        scope.parser.ty(text_field(local, "type")?, 0)?;
+        let id = text_field(local, "id")?;
+        // Local identities are unique across the whole intent.
+        if inventory.insert(id, local).is_some() || scope.used.contains(id) {
+            return Err(Error::InvalidArtifact);
+        }
+    }
+    let parent_inventory = std::mem::replace(&mut scope.inventory, inventory);
+    let parent_available = scope.available.clone();
+    if let Some(binder) = binder {
+        scope.introduce(binder)?;
+    }
+    validate_block(body, scope, lowered, signatures, depth + 1)?;
+    scope.inventory = parent_inventory;
+    scope.available = parent_available;
+    Ok(())
+}
+fn validate_instruction<'a>(
+    node: &'a Value,
+    target: &Value,
+    scope: &mut Scope<'a>,
+    signatures: &BTreeMap<&str, &Value>,
+) -> Result<(), Error> {
+    {
+        let kind = text_field(node, "kind")?;
         match kind {
             "let" => {
                 exact_fields(node, &["kind", "binding", "value"])?;
@@ -127,7 +232,7 @@ pub(super) fn validate<'a>(
             "effect" => effect(
                 node,
                 target,
-                &mut scope,
+                scope,
                 signatures
                     .get(text_field(target, "id")?)
                     .copied()
@@ -136,15 +241,6 @@ pub(super) fn validate<'a>(
             _ => return Err(Error::UnsupportedProgram),
         }
     }
-    scope.typed_expression(field(body, "result")?, text_field(intent, "output")?)?;
-    if scope.used.len() != scope.inventory.len() {
-        return Err(Error::InvalidArtifact);
-    }
-    functions::check_roots(
-        &scope.helpers,
-        scope.expressions.iter(),
-        scope.predicates.iter(),
-    )?;
     Ok(())
 }
 fn equal(core: &Value, target: &Value, key: &str) -> Result<(), Error> {

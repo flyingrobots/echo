@@ -5,7 +5,8 @@
 //! lowerer and the runtime, and reaches the runtime's verdict on the shared
 //! retained corpus.
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1 as decode, encode_canonical_cbor_v1 as encode, CanonicalValueV1 as V,
+    decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1,
+    encode_canonical_cbor_v1 as encode, CanonicalValueV1 as V,
 };
 use echo_edict_provider_verifier::effect_package::{verify_effect_package, EffectPackageRefusal};
 
@@ -59,6 +60,23 @@ const RETAINED: &[(&str, &str)] = retained![
     "read-and-return-control",
     "read-allocation-short",
     "read-captured-budget",
+    "structured-loop-control",
+    "structured-branch-control",
+    "structured-nested-control",
+    "structured-echo-dpo-1",
+    "structured-bound-below-list",
+    "structured-coordinate-bound",
+    "structured-leaked-local",
+    "structured-control-id-reused",
+    "structured-dropped-body",
+    "structured-ordered-with-control",
+    "structured-substituted-binder",
+    "structured-body-with-result",
+    "structured-loop-allocation-exact",
+    "structured-loop-allocation-short",
+    "structured-loop-under-budget",
+    "structured-mutation-count-control",
+    "structured-mutation-count-over",
 ];
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");
@@ -77,6 +95,81 @@ fn field_mut<'a>(value: &'a mut V, key: &str) -> &'a mut V {
         .find(|(k, _)| k == &V::Text(key.into()))
         .unwrap_or_else(|| panic!("field {key}"))
         .1
+}
+fn zero_effect_package() -> Vec<u8> {
+    let bundle = hex::decode(
+        include_str!(
+            "../../echo-edict-provider-lowerer/tests/fixtures/current-effect-wire/bundle.hex"
+        )
+        .trim(),
+    )
+    .expect("zero-effect compiler bundle");
+    let source = hex::decode(
+        include_str!(
+            "../../echo-edict-provider-lowerer/tests/fixtures/current-effect-wire/source.hex"
+        )
+        .trim(),
+    )
+    .expect("source fixture");
+    let configuration = hex::decode(
+        include_str!("../../echo-edict-provider-lowerer/tests/fixtures/current-effect-wire/configuration.hex")
+            .trim(),
+    )
+    .expect("configuration fixture");
+    echo_edict_provider_lowerer::effect_publication::encode_effect_publication(
+        echo_edict_provider_lowerer::effect_publication::EffectPublicationInput {
+            compiler_program: &bundle,
+            application_schema_coordinate: "app.Exports",
+            source_artifact: &source,
+            source_domain: "edict.source/v1",
+            configuration: &configuration,
+        },
+    )
+    .expect("frozen zero-effect @1 serialization control")
+}
+
+fn zero_effect_package_with_dpo_2_target_profile() -> Vec<u8> {
+    let mut package = decode(&zero_effect_package()).expect("@1 package");
+    let V::Bytes(program_bytes) = field_mut(&mut package, "program").clone() else {
+        panic!("program bytes")
+    };
+    let mut program = decode(&program_bytes).expect("program");
+    let V::Bytes(bundle_bytes) = field_mut(&mut program, "compiled_program").clone() else {
+        panic!("compiler bundle bytes")
+    };
+    let mut bundle = decode(&bundle_bytes).expect("compiler bundle");
+    let V::Bytes(target_bytes) = field_mut(&mut bundle, "target_ir_artifact").clone() else {
+        panic!("Target IR bytes")
+    };
+    let mut target = decode(&target_bytes).expect("Target IR");
+    let profile = decode(include_bytes!(
+        "../resources/target-profile.echo-dpo-2.cbor"
+    ))
+    .expect("current @2 profile");
+    let profile_digest = digest_canonical_value_bytes_v1("edict.target-profile/v1", &profile)
+        .expect("@2 profile identity");
+    *field_mut(&mut target, "targetProfile") = V::Map(vec![
+        (V::Text("id".into()), V::Text("echo.dpo@2".into())),
+        (
+            V::Text("digest".into()),
+            V::Array(vec![
+                V::Text("sha256".into()),
+                V::Bytes(profile_digest.to_vec()),
+            ]),
+        ),
+    ]);
+    let target_identity = digest_canonical_value_bytes_v1("edict.target-ir.artifact/v1", &target)
+        .expect("Target IR identity");
+    *field_mut(&mut bundle, "target_ir_artifact") = V::Bytes(encode(&target).expect("Target IR"));
+    *field_mut(&mut program, "compiled_program") =
+        V::Bytes(encode(&bundle).expect("compiler bundle"));
+    *field_mut(&mut program, "target_ir_identity") = V::Bytes(target_identity.to_vec());
+    *field_mut(&mut package, "program") = V::Bytes(encode(&program).expect("program"));
+    *field_mut(
+        field_mut(&mut package, "semantic_closure"),
+        "target_ir_identity",
+    ) = V::Bytes(target_identity.to_vec());
+    encode(&package).expect("@2 zero-effect package")
 }
 fn verdicts() -> Vec<(String, bool)> {
     VERDICTS
@@ -115,6 +208,24 @@ fn the_verifier_reaches_every_retained_corpus_verdict() {
         }
     }
     assert_eq!(disagreements, Vec::<String>::new());
+}
+
+#[test]
+fn verifier_pure_judgment_keeps_the_zero_effect_echo_dpo_1_control() {
+    assert_eq!(
+        verify_effect_package(&zero_effect_package()),
+        Ok(()),
+        "the frozen ordered @1 zero-effect package remains admissible"
+    );
+}
+
+#[test]
+fn verifier_pure_judgment_rejects_zero_effect_echo_dpo_2_without_profile_artifacts() {
+    let refusal = verify_effect_package(&zero_effect_package_with_dpo_2_target_profile());
+    assert!(
+        matches!(refusal, Err(EffectPackageRefusal::UnsupportedProgram)),
+        "expected pure verifier to refuse unauthenticated @2 zero-effect Target; got {refusal:?}"
+    );
 }
 
 /// A valid program cannot be republished under another package's identities:

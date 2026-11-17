@@ -167,13 +167,13 @@ fn echo_dpo_2_names_its_own_catalog_and_the_ordered_target_ir() {
     assert_eq!(
         reference(field(value, "targetIr")),
         (
-            "echo.span-ir/v2".to_owned(),
+            "echo.span-ir/v3".to_owned(),
             target_ir.domain_framed_digest().to_owned()
         ),
     );
     assert_eq!(
         text(field(target_ir.canonical_value(), "domain")),
-        "echo.span-ir/v2"
+        "echo.span-ir/v3"
     );
     assert_eq!(
         text(field(target_ir.canonical_value(), "targetProfile")),

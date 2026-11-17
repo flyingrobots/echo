@@ -182,7 +182,7 @@ const EFFECT_PROFILE_RESOURCE_FIXTURES: &[GeneratedResourceFixture] = &[
     },
     GeneratedResourceFixture {
         path: "resource.target-ir-2.cbor",
-        domain: "echo.span-ir/v2",
+        domain: "echo.span-ir/v3",
         root: "echo-span-ir",
         bytes: include_bytes!(
             "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-ir-2.cbor"

@@ -338,7 +338,7 @@
     },
     {
       "role": "resource.target-ir-2",
-      "coordinate": "echo.span-ir/v2",
+      "coordinate": "echo.span-ir/v3",
       "schemaContract": "echo.span-ir/v1",
       "provision": "generated"
     },
@@ -439,7 +439,7 @@
       "version": "2",
       "intrinsicsResource": "resource.target-intrinsics-2",
       "targetIrResource": "resource.target-ir-2",
-      "targetIrDomain": "echo.span-ir/v2",
+      "targetIrDomain": "echo.span-ir/v3",
       "intrinsics": [
         {
           "operation": "node-atom-read",
@@ -912,7 +912,7 @@
       "rootRule": "echo-span-ir"
     },
     {
-      "domain": "echo.span-ir/v2",
+      "domain": "echo.span-ir/v3",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
       "rootRule": "echo-span-ir"

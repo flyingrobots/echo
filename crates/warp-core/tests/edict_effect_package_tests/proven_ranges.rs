@@ -160,6 +160,8 @@ pub(super) fn package_editing(
             .map(|(index, predicate)| {
                 map([
                     ("coordinate", text(&format!("app.update@1.where.{index}"))),
+                    // The compiler marks each authored `where` conjunct.
+                    ("source", text("where")),
                     ("predicate", predicate),
                 ])
             })

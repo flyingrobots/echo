@@ -1,0 +1,19 @@
+package consumer.links.program@1;
+use lawpack consumer.links@1 digest "sha256:4ab8c9a791484d5ea1c59a0db76a2a54682ff4cd0372083d706999ab878e97fc" as fx;
+type Input = { anchor: Bytes<exact=32>, read: fx.EdgeQuery, edgeId: Bytes<exact=32>, fromId: Bytes<exact=32> };
+intent link(input: Input) returns fx.Edges
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let observed: fx.Edges = fx.outgoing(input.read)
+    else {
+      sourceMissing(query) => fx.SourceMissing,
+      edgeBound(query) => fx.EdgeBoundExceeded,
+      scanBound(query) => fx.ScanBoundExceeded,
+    };
+  let target: Bytes<exact=32> = if 0u64 < listLen(observed) then listAt(observed, 0u64).toId else input.read.nodeId;
+  let write: fx.EdgeWrite = { warpId: input.read.warpId, edgeId: input.edgeId, fromId: input.fromId, toId: target, edgeType: input.read.edgeType };
+  let linked: fx.Written = fx.ensureEdge(write);
+  return observed;
+}

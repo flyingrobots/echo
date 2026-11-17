@@ -24,7 +24,7 @@ The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
 The checked component is 685,775 bytes with SHA-256
-`576a745d440662eb1517fe1719ae090faf89642ae6c79149c96ee05043405180`.
+`4cb31f46acf9d107d0e2330f3af28e96b4653f8078b1a0c09d515ed93f7ba36c`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -37,7 +37,7 @@ capability imports.
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
 `wit-component` version recorded above. Its checked component is 728,230 bytes
 with SHA-256
-`734f84b0f53551bde0788fce0118df6bd2cd8d6baa470c3cef65ef74e24b441a`.
+`a965c385f19717dcef3d87eaf4f0913fea1a50b951b2fc1c990046862dcc3c99`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's

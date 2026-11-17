@@ -16,7 +16,10 @@
   Option matches, Option variant constructors, ill-typed calls, a missing
   capability and Option-valued intent inputs or outputs are refused by all
   three. A shared corpus fixes the verdicts and warp-core executes each
-  accepted case. Artifacts without Option calls are judged as before.
+  accepted case. A public compiler witness publishes helpers that return and
+  consume an Option through the promoted provider package (lowerer
+  `4cb31f46`, verifier `a965c385`) and the runtime executes it. Artifacts
+  without Option calls are judged as before.
 - Echo adopts Amblicit's `typed-failures-v1` provider contract pack and
   publishes intrinsic catalog v2 for `echo.dpo@2`. The `echo.dpo@2` catalog
   declares the three `ContentAddressV1` identity constructors

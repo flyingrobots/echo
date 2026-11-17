@@ -44,7 +44,7 @@ pub(super) enum Forgery {
     ArmsDiffer,
 }
 
-fn int(value: u64) -> V {
+pub(super) fn int(value: u64) -> V {
     map([
         ("kind", text("const")),
         (
@@ -57,7 +57,7 @@ fn int(value: u64) -> V {
         ),
     ])
 }
-fn boolean(value: bool) -> V {
+pub(super) fn boolean(value: bool) -> V {
     map([
         ("kind", text("const")),
         (
@@ -66,7 +66,7 @@ fn boolean(value: bool) -> V {
         ),
     ])
 }
-fn call(callee: &str, types: &[&str], args: Vec<V>) -> V {
+pub(super) fn call(callee: &str, types: &[&str], args: Vec<V>) -> V {
     map([
         ("kind", text("call")),
         ("callee", text(callee)),
@@ -77,7 +77,7 @@ fn call(callee: &str, types: &[&str], args: Vec<V>) -> V {
         ("args", V::Array(args)),
     ])
 }
-fn branch(predicate: V, then: V, otherwise: V) -> V {
+pub(super) fn branch(predicate: V, then: V, otherwise: V) -> V {
     map([
         ("kind", text("if")),
         ("predicate", predicate),
@@ -85,7 +85,7 @@ fn branch(predicate: V, then: V, otherwise: V) -> V {
         ("else", otherwise),
     ])
 }
-fn fail(failure: &str) -> V {
+pub(super) fn fail(failure: &str) -> V {
     map([("kind", text("fail")), ("failure", text(failure))])
 }
 fn parameter(index: usize, alpha: &str) -> V {

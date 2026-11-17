@@ -1772,3 +1772,7 @@ mod structured;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/typed_failures.rs"]
 mod typed_failures;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/imported_failures.rs"]
+mod imported_failures;

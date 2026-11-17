@@ -9,6 +9,7 @@
 //! Regenerate with the ignored `regenerate_the_retained_provider_corpus` test.
 use super::abi_conformance::rename_read_failure;
 use super::execution::limits;
+use super::imported_failures::{imported_failure_program, Import};
 use super::mutations::{fixture, fixture_in, fixture_with, repeat_emission, Shape};
 use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
@@ -1133,6 +1134,32 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             typed_failure_program(TypedForgery::ArmsDiffer),
         ),
+        // Imported helpers with failing bodies (#1006); only the total
+        // control is accepted.
+        entry(
+            "imported-helper-total",
+            true,
+            Runtime::Accepts,
+            imported_failure_program(Import::Total),
+        ),
+        entry(
+            "imported-helper-fails",
+            false,
+            Runtime::Refuses,
+            imported_failure_program(Import::Fails),
+        ),
+        entry(
+            "imported-helper-fails-in-arm",
+            false,
+            Runtime::Refuses,
+            imported_failure_program(Import::FailsInArm),
+        ),
+        entry(
+            "imported-helper-fails-attempted",
+            false,
+            Runtime::Refuses,
+            imported_failure_program(Import::FailsAttempted),
+        ),
     ]
     .into_iter()
     .chain(structured_entries())
@@ -1383,6 +1410,10 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "imported-helper-total",
+    "imported-helper-fails",
+    "imported-helper-fails-in-arm",
+    "imported-helper-fails-attempted",
     "structured-loop-control",
     "structured-branch-control",
     "structured-nested-control",

@@ -1,0 +1,15 @@
+package consumer.effect.program@1;
+use lawpack consumer.effect@1 digest "sha256:b74d1dfd492e3d4c02f935e0981553d8e60989249282adc734ee0d8b5229894c" as fx;
+type Input = { anchor: Bytes<exact=32>, start: U64, end: U64 };
+fn span(start: U64, end: U64) -> U64 where start <= end {
+  return end - start;
+}
+intent settle(input: Input) returns fx.Count
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+  where input.start <= input.end
+{
+  let width: fx.Count = span(input.start, input.end);
+  return width;
+}

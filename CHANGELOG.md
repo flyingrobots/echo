@@ -7,6 +7,16 @@
 
 ### Added
 
+- Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
+  warp-core, the provider lowerer and the provider verifier each admit a
+  function's Core `preconditions` as Amblicit `1196396b` specifies them, judge
+  the body assuming them, and independently re-prove every call to the
+  function from the facts that dominate it, so a helper may subtract or slice
+  under a precondition. A Core that drops a precondition its body needs, or
+  whose call does not establish one, is refused by all three, and so is a
+  precondition-bearing fold step. Functions without preconditions are judged
+  exactly as before. A shared corpus translates every Core-level case of
+  Amblicit's precondition and forgery tests.
 - A second, separately versioned target profile, `echo.dpo@2`, in the checked
   provider package. Its catalog `echo.dpo.intrinsics/v2` declares the runtime's
   six effect intrinsics as `echo.dpo@2.*` and it names the ordered

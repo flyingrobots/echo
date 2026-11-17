@@ -16,7 +16,7 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-structured/structured-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "60aa9ae3bf797283e13132ff27fcea4547aa6fef900fe60b479f3e2acb2bbd4d";
+const PACKAGE_PIN: &str = "b62dd311346559e0f6c1c0b5656a3c556fba7012dbfa989e682f9885b926201d";
 const OPERATION: &str = "consumer.structured.program@1.structured";
 const AUTHORITY: &[u8] = b"consumer.structured.authority/v1";
 const NODE_TYPE: TypeId = TypeId([0x5b; 32]);

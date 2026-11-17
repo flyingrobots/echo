@@ -14,6 +14,7 @@ use super::{
     exact, get, includes, list, members, number, shape, string, Check, Cost, Judgment, Scope, Ty,
     Value,
 };
+use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -71,6 +72,8 @@ pub(super) struct Walk<'s> {
     /// Every local claimed anywhere in the body: identities are unique
     /// across the whole intent.
     pub(super) claimed: BTreeSet<String>,
+    /// The package's graph-read declaration (echo#982).
+    pub(super) graph: Option<GraphReads<'s>>,
 }
 
 impl<'a> Judgment<'a> {
@@ -317,8 +320,13 @@ impl<'a> Judgment<'a> {
             return Err(());
         }
         let output = self.ty(&site.output, 0)?;
-        let charge = abi(&site.intrinsic, &expected, &output)?;
-        let mutations = u64::from(operation(&site.intrinsic) != Some("node-atom-read"));
+        let charge = match site.graph_read() {
+            Some(read) => self.graph_read(read, &expected, &output, walk.graph)?,
+            None => abi(&site.intrinsic, &expected, &output)?,
+        };
+        let mutations = u64::from(
+            operation(&site.intrinsic) != Some("node-atom-read") && site.graph_read().is_none(),
+        );
         let mut cost = Cost::default();
         let mut obstruction_output = 0;
         let arms = members(get(node, "obstructionMap")?)?;

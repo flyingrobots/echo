@@ -1,6 +1,6 @@
 package consumer.identity.program@1;
-use lawpack consumer.identity@1 digest "sha256:735fddb8af8c1b01422e020ee398e0c775b63c239ae2c9df3e457d4917c985c5" as fx;
-use target echo.dpo@2 digest "sha256:73bf7e3c96124ffc793b893c32881018990213b4a956401ce72b1cadd5658682" as echo;
+use lawpack consumer.identity@1 digest "sha256:81cbd2527f86288cd7f42a757cdc595de4216966c671ff9f4e15d7ee52e8a59d" as fx;
+use target echo.dpo@2 digest "sha256:d17fbd0baf7bfddd9a6c9667e676db2ab45bae104e77550760340bc8f0736003" as echo;
 type Input = {
   warp: Bytes<exact=32>,
   nodeType: Bytes<exact=32>,

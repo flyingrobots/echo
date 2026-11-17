@@ -57,6 +57,20 @@
   public compiler fixture returns the six frozen identity vectors at runtime.
   Typed failures in the new pack are schema-admitted only.
 
+- Graph reads inside authored effect programs (#982). The `echo.dpo@2`
+  catalog declares `echo.dpo@2.outgoing-edge-read` and
+  `echo.dpo@2.closure-read` with the bounded-read route's failure sets, and
+  an effect program may call them as steps and use what they read in the
+  effects it commits. The lowering configuration declares them with the
+  optional `graphReads` record; the runtime, the lowerer and the verifier
+  each refuse an undeclared read, an unused declaration and a closure without
+  a conforming selector, and charge each read its whole scan allowance. Each
+  read is recorded in the effect's read image with its scanned bucket sizes,
+  and derivation confirms those sizes at the image's basis. A public-source
+  program that links a node to the target of an edge it read is lowered,
+  verified and run with no hand-built package. Adding the intrinsics changes
+  the `echo.dpo@2` profile identity, so the retained `echo.dpo@2` public
+  fixtures are recompiled; `echo.dpo@1` and its fixtures are unchanged.
 - Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
   warp-core, the provider lowerer and the provider verifier each admit a
   function's Core `preconditions` as Amblicit `1196396b` specifies them, judge

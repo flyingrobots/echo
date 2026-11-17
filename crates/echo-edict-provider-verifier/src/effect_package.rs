@@ -78,7 +78,12 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
     let program = canonical(bytes(get(&package, "program", E)?, E)?)?;
     envelope(&program)?;
     let compiled = bytes(get(&program, "compiled_program", E)?, E)?;
-    let judged = crate::executable_operation::effect_program::judge(compiled)
+    let graph = get(&program, "graph_reads", E)
+        .ok()
+        .map(crate::executable_operation::effect_program::graph_reads)
+        .transpose()
+        .map_err(|()| E)?;
+    let judged = crate::executable_operation::effect_program::judge(compiled, graph)
         .map_err(|()| EffectPackageRefusal::UnsupportedProgram)?;
     let closure = get(&package, "semantic_closure", E)?;
     // The lowerer names the judged Core as the canonical meaning; the runtime
@@ -221,7 +226,12 @@ const MAX_OUTPUT_TYPE_BYTES: usize = 1024;
 /// fields, schema, identity law, profiles and declared limits.
 fn envelope(program: &Value) -> Result<(), EffectPackageRefusal> {
     use EffectPackageRefusal::InvalidEnvelope as E;
-    exact_fields(program, &PROGRAM_FIELDS)?;
+    // A program whose steps read the graph also carries their declaration.
+    let mut fields = PROGRAM_FIELDS.to_vec();
+    if get(program, "graph_reads", E).is_ok() {
+        fields.push("graph_reads");
+    }
+    exact_fields(program, &fields)?;
     if text(get(program, "schema", E)?, E)? != "echo.operation-program/v1"
         || text(get(program, "kind", E)?, E)? != "edict-effect-program/v1"
         || unsigned(get(program, "identity_law", E)?)? != 1

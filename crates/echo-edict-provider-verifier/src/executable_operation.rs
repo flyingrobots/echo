@@ -230,7 +230,20 @@ pub(super) fn verify(
     let source = validate_source(&source, closure.source, &request.core)?;
 
     if effect_verification::is_configuration(&configuration) {
-        return effect_verification::verify(request, &closure, source_domain(closure.source)?);
+        let bound = effect_verification::Bound {
+            core: &core,
+            target: &target_ir,
+            exports: &exports,
+            lawpack: &lawpack,
+            adapter: &adapter,
+            configuration: &configuration,
+        };
+        return effect_verification::verify(
+            request,
+            &closure,
+            &bound,
+            source_domain(closure.source)?,
+        );
     }
     // `echo.dpo@2` exists only for authored effect programs.
     if profile != super::SelectedTargetProfile::Dpo {

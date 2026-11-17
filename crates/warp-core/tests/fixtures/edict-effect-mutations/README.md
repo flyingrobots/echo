@@ -32,7 +32,7 @@ a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `write-executable-operation-package.hex` | `echo:operation-package:v1` `2a655d8b9db2b0f2fda47c5f4f8b395c6be7357c94a7c8c3b13d8414f8f6cc98` |
+| `write-executable-operation-package.hex` | `echo:operation-package:v1` `862fcdc872e8dc37e4bbcfd278c8aac10f38025028e0c075564db9611fcb6581` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_mutation_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

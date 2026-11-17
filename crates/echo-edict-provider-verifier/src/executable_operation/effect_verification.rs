@@ -15,8 +15,8 @@ use super::{
     text_field, validate_bound, validate_compiler_lawpack, Artifact, BoundArtifact,
     CanonicalValueV1 as Value, ClosureInputs, Diagnostic, DiagnosticSeverity, ProviderRefusalV1,
     VerificationOutputArtifact, VerificationOutputKind, VerificationRequestV1,
-    VerificationSuccessV1, ADAPTER_DOMAIN, CONFIGURATION_DOMAIN, CORE_ABI, CORE_DOMAIN,
-    EXPORTS_DOMAIN, LAWPACK_DOMAIN, PACKAGE_SCHEMA, REPORT_DOMAIN, REPORT_ROLE, TARGET_IR_DOMAIN,
+    VerificationSuccessV1, CORE_ABI, CORE_DOMAIN, EXPORTS_DOMAIN, PACKAGE_SCHEMA, REPORT_DOMAIN,
+    REPORT_ROLE, TARGET_IR_DOMAIN,
 };
 use echo_edict_canonical::{decode_canonical_cbor_v1, digest_canonical_value_bytes_v1};
 
@@ -99,6 +99,19 @@ struct Configuration<'a> {
     graph_reads: Option<&'a Value>,
 }
 
+/// The request's artifacts, each already decoded and checked against its
+/// bound digest under its domain by the executable-operation route, so the
+/// effect route neither decodes nor digests them again.
+#[derive(Clone, Copy)]
+pub(super) struct Bound<'v> {
+    pub(super) core: &'v Value,
+    pub(super) target: &'v Value,
+    pub(super) exports: &'v Value,
+    pub(super) lawpack: &'v Value,
+    pub(super) adapter: &'v Value,
+    pub(super) configuration: &'v Value,
+}
+
 /// Verifies one effect package against the compiler request it lowers.
 ///
 /// # Errors
@@ -109,35 +122,37 @@ struct Configuration<'a> {
 pub(super) fn verify(
     request: &VerificationRequestV1,
     closure: &ClosureInputs<'_>,
+    bound: &Bound<'_>,
     source_domain: &str,
 ) -> Result<VerificationSuccessV1, ProviderRefusalV1> {
-    let core = validate_bound(&request.core, CORE_DOMAIN)?;
-    let target = validate_bound(&request.target_ir, TARGET_IR_DOMAIN)?;
-    let exports = validate_bound(&closure.exports.artifact, EXPORTS_DOMAIN)?;
-    let lawpack = validate_bound(&closure.lawpack.artifact, LAWPACK_DOMAIN)?;
-    let adapter = validate_bound(&closure.adapter.artifact, ADAPTER_DOMAIN)?;
-    let configuration_value =
-        validate_bound(&closure.configuration.artifact, CONFIGURATION_DOMAIN)?;
-    let configuration = configuration(&configuration_value, &request.target_profile)?;
-    let module = text_field(&core, "coordinate");
-    if text_field(&core, "apiVersion") != Some(CORE_ABI)
+    let Bound {
+        core,
+        target,
+        exports,
+        lawpack,
+        adapter,
+        configuration: configuration_value,
+    } = *bound;
+    let configuration = configuration(configuration_value, &request.target_profile)?;
+    let module = text_field(core, "coordinate");
+    if text_field(core, "apiVersion") != Some(CORE_ABI)
         || module != Some(request.core.reference.coordinate.as_str())
     {
         return Err(unsupported("Core is not the bound edict.core/v1 module"));
     }
-    let (intent_name, intent) = single_text_map_entry(required_map(&core, "intents", SUBJECT)?)
+    let (intent_name, intent) = single_text_map_entry(required_map(core, "intents", SUBJECT)?)
         .ok_or_else(|| unsupported("an effect program has exactly one intent"))?;
     validate_compiler_lawpack(
-        &lawpack,
-        &exports,
-        &adapter,
+        lawpack,
+        exports,
+        adapter,
         closure,
         &request.target_profile,
         intent,
         request,
     )?;
-    bind_closure(&core, &target, request, closure)?;
-    let (target_name, lowered) = single_text_map_entry(required_map(&target, "intents", SUBJECT)?)
+    bind_closure(core, target, request, closure)?;
+    let (target_name, lowered) = single_text_map_entry(required_map(target, "intents", SUBJECT)?)
         .ok_or_else(|| unsupported("Target IR has exactly one intent"))?;
     if target_name != intent_name {
         return Err(unsupported("Target IR lowers a different intent"));
@@ -400,12 +415,16 @@ fn raw(artifact: &BoundArtifact) -> Value {
     Value::Bytes(artifact.artifact.bytes.clone())
 }
 
+/// The identity of an artifact the executable-operation route has already
+/// bound: its reference digest, which that route checked equals the digest of
+/// the decoded artifact under exactly this domain.
 fn identity(artifact: &BoundArtifact, domain: &str) -> Result<Value, ProviderRefusalV1> {
-    let value = decode_canonical_cbor_v1(&artifact.artifact.bytes)
-        .map_err(|_| unsupported("a bound artifact is not canonical"))?;
-    digest_canonical_value_bytes_v1(domain, &value)
-        .map(|digest| Value::Bytes(digest.to_vec()))
-        .map_err(|_| unsupported("an artifact identity cannot be computed"))
+    if artifact.artifact.domain != domain || artifact.reference.digest.bytes.len() != 32 {
+        return Err(unsupported(
+            "an artifact identity is not bound under its domain",
+        ));
+    }
+    Ok(Value::Bytes(artifact.reference.digest.bytes.clone()))
 }
 
 fn label(value: &str) -> Value {

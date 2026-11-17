@@ -182,4 +182,15 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-structured" \
     --work-root "$witness_dir/effect-structured-run" \
     --check
+
+  # The same witness for a program that reads a node's outgoing edges through
+  # echo.dpo@2.outgoing-edge-read and writes an edge to what it read
+  # (echo#982), with the same echo.dpo@1 and substituted-profile controls.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name link \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-graph-read" \
+    --work-root "$witness_dir/effect-graph-read-run" \
+    --check
 fi

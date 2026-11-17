@@ -15,7 +15,7 @@
   extra entry keys and an ordered record with no fallible field refuse in all
   three judges, as Amblicit refuses them. Public compiler witnesses
   (`edict-effect-ordered-record-z` and `-a`, Amblicit `7dbcbc23`) obstruct
-  with exactly `FirstRaised` and `SecondRaised` through the promoted provider
+  with exactly `fx.FirstRaised` and `fx.SecondRaised` through the promoted provider
   package (lowerer `a218dd22`, verifier `2a272e29`).
 
 - Checked integer arithmetic and `min`/`max` (#998, the Echo half of

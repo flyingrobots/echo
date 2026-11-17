@@ -5,7 +5,8 @@
 //! under the `echo.dpo@2` effect target profile (flyingrobots/echo#985).
 //!
 //! `--fixtures` names a directory whose `source/` holds one authored lawpack,
-//! application and program; `--name` prefixes the retained files. The program
+//! application and program, and optionally `source/modules/` with the source
+//! modules the program pins (#1009); `--name` prefixes the retained files. The program
 //! is sent through a published Amblicit compiler binary and the checked
 //! provider package: the lowerer emits an `edict-effect-program/v1` package
 //! and the separate verifier reports on it. Nothing here constructs Core,
@@ -49,6 +50,8 @@ struct Layout {
     vendor: String,
     /// The program's pinned lawpack import, up to the digest.
     import: String,
+    /// Authored source modules, by file name, compiled beside the program.
+    modules: Vec<(String, String)>,
 }
 
 static LAYOUT: std::sync::OnceLock<Layout> = std::sync::OnceLock::new();
@@ -297,7 +300,33 @@ fn application_root(
     )?;
     copy_tree(provider, &root.join("provider"))?;
     fs::write(root.join("src/Program.edict"), program)?;
+    for (name, module) in &layout().modules {
+        fs::write(root.join("src").join(name), module)?;
+    }
     Ok(root.to_path_buf())
+}
+
+/// The authored source modules under `directory`, sorted by file name, or
+/// none when the fixture has no `modules/` directory.
+fn authored_modules(directory: &Path) -> Result<Vec<(String, String)>> {
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut modules = fs::read_dir(directory)?
+        .map(|entry| {
+            let name = entry?.file_name().to_string_lossy().into_owned();
+            ensure!(
+                Path::new(&name)
+                    .extension()
+                    .is_some_and(|extension| extension == "edict"),
+                "unexpected source module file {name}"
+            );
+            let module = String::from_utf8(read(&directory.join(&name))?)?;
+            Ok((name, module))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    modules.sort();
+    Ok(modules)
 }
 
 fn outputs(root: &Path) -> Result<Vec<Vec<u8>>> {
@@ -335,6 +364,12 @@ fn compare(evidence: &Path, fixtures: &Path) -> Result<()> {
         evidence.join("source").join(&layout().program),
         fixtures.join("source").join(&layout().program),
     ));
+    for (name, _) in &layout().modules {
+        pairs.push((
+            evidence.join("source/modules").join(name),
+            fixtures.join("source/modules").join(name),
+        ));
+    }
     let mut differing = Vec::new();
     for (fresh, retained) in pairs {
         let bytes = read(&fresh)?;
@@ -561,6 +596,7 @@ fn main() -> Result<()> {
         bail!("expected exactly one authored program, found {programs:?}");
     };
     let lawpack_document = &authored_lawpack["lawpack"];
+    let modules = authored_modules(&source.join("modules"))?;
     let loaded = Layout {
         name: arguments.name.clone(),
         program: program_name.clone(),
@@ -575,6 +611,7 @@ fn main() -> Result<()> {
                 .as_str()
                 .context("lawpack version")?
         ),
+        modules,
     };
     ensure!(LAYOUT.set(loaded).is_ok(), "layout loaded once");
     let authored = String::from_utf8(read(&source.join(&layout().program))?)?;
@@ -613,6 +650,12 @@ fn main() -> Result<()> {
         "repeating the public build changed the package or report"
     );
     fs::write(evidence.join("source").join(&layout().program), &program)?;
+    if !layout().modules.is_empty() {
+        fs::create_dir_all(evidence.join("source/modules"))?;
+        for (name, module) in &layout().modules {
+            fs::write(evidence.join("source/modules").join(name), module)?;
+        }
+    }
     let mut receipt = serde_json::json!({
         "schema": "echo.effect-step-publication/v1",
         "compilerSha256": sha256(&read_bounded(&arguments.compiler, MAX_COMPILER_BYTES)?),

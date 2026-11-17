@@ -59,6 +59,16 @@ fn record_fields(spec: &str) -> Result<Vec<(&str, &str)>, Error> {
 }
 
 impl Parser<'_> {
+    /// A type at an intent boundary: input or output. Option values live only
+    /// inside helpers; Echo defines no Option wire encoding.
+    pub(crate) fn boundary_ty(&mut self, name: &str, depth: usize) -> Result<RuntimeType, Error> {
+        let ty = self.ty(name, depth)?;
+        if ty.holds_option() {
+            return Err(Error::UnsupportedProgram);
+        }
+        Ok(ty)
+    }
+
     pub(crate) fn enter(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
@@ -97,6 +107,12 @@ impl Parser<'_> {
                 item: Some(Box::new(self.ty(item, depth + 1)?)),
                 max,
             });
+        }
+        if let Some(item) = name
+            .strip_prefix("Option<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return Ok(RuntimeType::Option(Box::new(self.ty(item, depth + 1)?)));
         }
         if let Some(spec) = name
             .strip_prefix("Record<")
@@ -146,6 +162,12 @@ impl Parser<'_> {
                 Ok(RuntimeType::Bytes { min, max })
             }
             "Variant" => self.variant_type(definition, name, depth),
+            "Option" => {
+                exact_fields(definition, &["kind", "item"])?;
+                Ok(RuntimeType::Option(Box::new(
+                    self.ty(text_field(definition, "item")?, depth + 1)?,
+                )))
+            }
             "List" => {
                 exact_fields(definition, &["kind", "item", "max"])?;
                 Ok(RuntimeType::List {
@@ -242,6 +264,9 @@ impl Parser<'_> {
         let types = array(field(value, "typeArgs")?)?;
         if super::list_operations::is_operation(callee) {
             return super::list_operations::parse(self, callee, args, types, depth);
+        }
+        if super::option_operations::is_operation(callee) {
+            return super::option_operations::parse(self, callee, args, types, depth);
         }
         if let Some(intrinsic) = IdentityIntrinsic::named(callee) {
             return super::identity::parse(self, intrinsic, args, types, depth);

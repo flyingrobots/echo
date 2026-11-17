@@ -508,6 +508,21 @@ result storage before reserving it. The ordered-read type judgments admit the
 same operations after whole-intent validation, including forward, reversed and
 negated strict bounds on equal-width words (`<`, `>`, and false `>=`/`<=`).
 
+They also implement Amblicit's `Option<T>` (flyingrobots/echo#995) under
+`core.option/v1`: the type, written `Option<T>` or as an `Option` type-table
+entry, and the calls `core.option.some`, `none`, `isSome`, `default` and
+`unwrap`, each with the item `T` as its only type argument. Option is not a
+variant. Each judge requires the operand's item to equal the type argument,
+and admits `unwrap` only on a local that a dominating fact proves present: the
+`isSome(x) == true` predicate of an enclosing `then` arm, its negation on an
+`else` arm, an earlier `all` conjunct or a negated earlier `any` disjunct. The
+compiler's source refinement is not trusted. Amblicit names no Option case
+labels, so a `match` on an Option or an Option variant constructor is refused.
+Option values stay inside helpers: an intent's input and output may not contain
+one, because Echo defines no Option wire encoding. At runtime an absent Option
+is `null` and a present one a one-item array; the providers charge it as one
+value cell plus its item.
+
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
 work bounds, charging the scanned bytes. Fields must have unique, lexically

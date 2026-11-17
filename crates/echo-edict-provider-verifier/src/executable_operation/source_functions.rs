@@ -23,6 +23,9 @@ mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
 mod read_charge;
 #[cfg(test)]
@@ -254,6 +257,11 @@ fn prepare<'a>(
                         "core.list.at",
                         "core.list.append",
                         "core.list.concat",
+                        "core.option.some",
+                        "core.option.none",
+                        "core.option.isSome",
+                        "core.option.default",
+                        "core.option.unwrap",
                     ]
                     .contains(&callee)
                     {
@@ -810,102 +818,122 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
-                    if list_operations::is_operation(name) {
-                        list_operations::authority(self.types.module, name, types)?;
-                        for operand in &declared {
-                            height = height.max(operand.measure()?.height + 1);
-                        }
-                    }
-                    height = height.max(1);
-                    let addition_proven = if name == "core.integer.add" {
-                        let [Schema::Word(max)] = declared.as_slice() else {
-                            return Err(());
-                        };
-                        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
-                            return Err(());
-                        }
-                        // The `then`-arm predicates are read only when the
-                        // dominating facts do not prove the sum.
-                        let cap = match unsigned_addition::prove(
-                            value,
-                            *max,
-                            &self.proven,
-                            &self.bound,
-                            self.types,
-                        ) {
-                            Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
-                                value,
-                                *max,
-                                &self.with_branch(),
-                                &self.bound,
-                                self.types,
-                            )?,
-                            judged => judged?,
-                        };
-                        self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
-                        true
-                    } else {
-                        false
-                    };
-                    let order_proven = match name {
-                        "core.list.at" | "core.list.append" => {
-                            self.list_domain(value, &declared)?
-                        }
-                        "core.integer.subtract" => {
-                            let [left, right] = arguments else {
-                                return Err(());
-                            };
-                            order::proven(left, right, &self.proven, self.types)?
-                                || (!self.branch.is_empty()
-                                    && order::proven(left, right, &self.branch, self.types)?)
-                        }
-                        "core.bytes.at" => {
-                            let ([coordinate], [Schema::Blob { low, .. }]) =
-                                (types, declared.as_slice())
-                            else {
-                                return Err(());
-                            };
-                            byte_at::valid(
-                                coordinate,
+                    if option_operations::is_operation(name) {
+                        option_operations::authority(self.types.module)?;
+                        let present = name == "core.option.unwrap"
+                            && option_operations::present(
                                 arguments,
-                                *low,
                                 &self.proven,
                                 &self.path,
                                 self.types,
-                            )?
+                            )?;
+                        let (schema, cost, option_height) =
+                            option_operations::infer(name, &argument_schemas, &declared, present)?;
+                        height = height.max(option_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else {
+                        if list_operations::is_operation(name) {
+                            list_operations::authority(self.types.module, name, types)?;
+                            for operand in &declared {
+                                height = height.max(operand.measure()?.height + 1);
+                            }
                         }
-                        "core.bytes.slice" => {
-                            let [coordinate] = types else {
+                        height = height.max(1);
+                        let addition_proven = if name == "core.integer.add" {
+                            let [Schema::Word(max)] = declared.as_slice() else {
                                 return Err(());
                             };
-                            order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
-                                || (!self.branch.is_empty()
+                            if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+                                return Err(());
+                            }
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
+                            let cap = match unsigned_addition::prove(
+                                value,
+                                *max,
+                                &self.proven,
+                                &self.bound,
+                                self.types,
+                            ) {
+                                Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
+                                    value,
+                                    *max,
+                                    &self.with_branch(),
+                                    &self.bound,
+                                    self.types,
+                                )?,
+                                judged => judged?,
+                            };
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
+                            true
+                        } else {
+                            false
+                        };
+                        let order_proven = match name {
+                            "core.list.at" | "core.list.append" => {
+                                self.list_domain(value, &declared)?
+                            }
+                            "core.integer.subtract" => {
+                                let [left, right] = arguments else {
+                                    return Err(());
+                                };
+                                order::proven(left, right, &self.proven, self.types)?
+                                    || (!self.branch.is_empty()
+                                        && order::proven(left, right, &self.branch, self.types)?)
+                            }
+                            "core.bytes.at" => {
+                                let ([coordinate], [Schema::Blob { low, .. }]) =
+                                    (types, declared.as_slice())
+                                else {
+                                    return Err(());
+                                };
+                                byte_at::valid(
+                                    coordinate,
+                                    arguments,
+                                    *low,
+                                    &self.proven,
+                                    &self.path,
+                                    self.types,
+                                )?
+                            }
+                            "core.bytes.slice" => {
+                                let [coordinate] = types else {
+                                    return Err(());
+                                };
+                                order::slice_in_range(
+                                    coordinate,
+                                    arguments,
+                                    &self.proven,
+                                    self.types,
+                                )? || (!self.branch.is_empty()
                                     && order::slice_in_range(
                                         coordinate,
                                         arguments,
                                         &self.with_branch(),
                                         self.types,
                                     )?)
-                        }
-                        _ => false,
-                    };
-                    let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
-                        if !declared.is_empty() {
-                            return Err(());
-                        }
-                        identity::infer(name, &argument_schemas)?
-                    } else {
-                        intrinsic(
-                            name,
-                            arguments,
-                            &argument_schemas,
-                            &declared,
-                            addition_proven,
-                            order_proven,
-                        )?
-                    };
-                    charge.append(intrinsic)?;
-                    schema
+                            }
+                            _ => false,
+                        };
+                        let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
+                            if !declared.is_empty() {
+                                return Err(());
+                            }
+                            identity::infer(name, &argument_schemas)?
+                        } else {
+                            intrinsic(
+                                name,
+                                arguments,
+                                &argument_schemas,
+                                &declared,
+                                addition_proven,
+                                order_proven,
+                            )?
+                        };
+                        charge.append(intrinsic)?;
+                        schema
+                    }
                 }
             }
             _ => return Err(()),
@@ -1029,6 +1057,9 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let input_type = self.types.local(input)?;
+        if option_operations::contains_option(&input_type) {
+            return Err(());
+        }
         let size = input_type.measure()?;
         let mut charge = size.copy;
         charge.append(Charge {
@@ -1093,7 +1124,7 @@ impl<'a> Checker<'a, '_> {
         }
         let output = self.expression(get(body, "result")?, &frame, 0)?;
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
-        if !expected.encloses(&output.schema) {
+        if option_operations::contains_option(&expected) || !expected.encloses(&output.schema) {
             return Err(());
         }
         let size = expected.measure()?;

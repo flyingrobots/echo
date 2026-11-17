@@ -7218,6 +7218,8 @@ mod public_typed_failure_effect;
 #[path = "executable_operation_pipeline/public_content_address_effect.rs"]
 mod public_content_address_effect;
 
+#[path = "executable_operation_pipeline/public_option_value.rs"]
+mod public_option_value;
 #[path = "executable_operation_pipeline/public_precondition_effect.rs"]
 mod public_precondition_effect;
 

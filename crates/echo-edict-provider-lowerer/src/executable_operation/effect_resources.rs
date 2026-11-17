@@ -34,13 +34,6 @@ pub(super) fn validate(
         return Err(invalid());
     }
     let catalog = decode_canonical_cbor_v1(bytes).map_err(|_| invalid())?;
-    require_exact_fields(&catalog, &["apiVersion", "intrinsics"], SUBJECT)
-        .map_err(|_| invalid())?;
-    if text_field(&catalog, "apiVersion") != Some("edict.target-profile.intrinsics/v1")
-        || map_field(&catalog, "intrinsics").and_then(as_map).is_none()
-    {
-        return Err(invalid());
-    }
     let profile = validate_bound(profile, "edict.target-profile/v1")?;
     // The catalog coordinate, which is also its digest domain, is the one the
     // selected profile's namespace pins.
@@ -49,9 +42,24 @@ pub(super) fn validate(
         text_field(&profile, "id").ok_or_else(invalid)?,
         text_field(&profile, "version").ok_or_else(invalid)?
     );
-    let catalog_domain = super::intrinsic_names::namespace(&coordinate)
-        .ok_or_else(invalid)?
-        .catalog;
+    let namespace = super::intrinsic_names::namespace(&coordinate).ok_or_else(invalid)?;
+    let catalog_domain = namespace.catalog;
+    // Catalog v2 may also publish named types; the frozen v1 catalog has
+    // exactly two fields.
+    let fields: &[&str] = if namespace.catalog_api == "edict.target-profile.intrinsics/v2"
+        && map_field(&catalog, "types").is_some()
+    {
+        &["apiVersion", "intrinsics", "types"]
+    } else {
+        &["apiVersion", "intrinsics"]
+    };
+    require_exact_fields(&catalog, fields, SUBJECT).map_err(|_| invalid())?;
+    if text_field(&catalog, "apiVersion") != Some(namespace.catalog_api)
+        || map_field(&catalog, "intrinsics").and_then(as_map).is_none()
+        || (fields.len() == 3 && map_field(&catalog, "types").and_then(as_map).is_none())
+    {
+        return Err(invalid());
+    }
     let reference = map_field(&profile, "intrinsics").ok_or_else(invalid)?;
     require_exact_fields(reference, &["id", "digest"], SUBJECT).map_err(|_| invalid())?;
     let identity =

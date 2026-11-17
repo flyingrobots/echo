@@ -17,6 +17,7 @@ mod fold_tests;
 #[cfg(test)]
 mod function_precondition_tests;
 mod function_preconditions;
+mod identity;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -140,7 +141,7 @@ fn each_intent<'a>(
     mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
 ) -> Check<()> {
     let mut types = Types::new(core);
-    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans)?;
+    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans, false)?;
     let mut checker = Checker {
         types: &mut types,
         definitions: &definitions,
@@ -151,6 +152,7 @@ fn each_intent<'a>(
         bound: Vec::new(),
         proven_sum: None,
         edge_scans,
+        identity: false,
     };
     // A graph read always needs its whole-intent charge judged.
     if super::map_field(core, "functions").is_none()
@@ -171,6 +173,7 @@ fn prepare<'a>(
     exports: &'a Value,
     types: &mut Types<'a>,
     edge_scans: u64,
+    identity_admitted: bool,
 ) -> Check<Prepared<'a>> {
     let definitions = inventory(core, exports, types)?;
     let mut pending = BTreeMap::new();
@@ -265,8 +268,15 @@ fn prepare<'a>(
             callers.entry(edge).or_default().push(name);
         }
     }
-    let summaries = summarize(&definitions, types, pending, &callers, edge_scans)?;
-    preconditions_are_typed(&definitions, &summaries, types)?;
+    let summaries = summarize(
+        &definitions,
+        types,
+        pending,
+        &callers,
+        edge_scans,
+        identity_admitted,
+    )?;
+    preconditions_are_typed(&definitions, &summaries, types, identity_admitted)?;
     // Every call to a precondition-bearing function proves its preconditions
     // from the facts that dominate it, wherever it is in the module.
     let contracts = definitions
@@ -293,6 +303,7 @@ fn preconditions_are_typed<'a>(
     definitions: &BTreeMap<String, Definition<'a>>,
     summaries: &BTreeMap<String, Summary>,
     types: &mut Types<'a>,
+    identity_admitted: bool,
 ) -> Check<()> {
     for definition in definitions.values() {
         if definition.preconditions.is_empty() {
@@ -312,6 +323,7 @@ fn preconditions_are_typed<'a>(
             bound: Vec::new(),
             proven_sum: None,
             edge_scans: 0,
+            identity: identity_admitted,
         };
         for precondition in definition.preconditions {
             checker.predicate(precondition, &frame, 0)?;
@@ -328,6 +340,7 @@ fn summarize<'a, 'n>(
     mut pending: BTreeMap<&'n str, usize>,
     callers: &BTreeMap<&'n str, Vec<&'n str>>,
     edge_scans: u64,
+    identity_admitted: bool,
 ) -> Check<BTreeMap<String, Summary>> {
     let mut ready: BTreeSet<&'n str> = pending
         .iter()
@@ -349,6 +362,7 @@ fn summarize<'a, 'n>(
             bound: Vec::new(),
             proven_sum: None,
             edge_scans,
+            identity: identity_admitted,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -488,6 +502,9 @@ struct Checker<'a, 'b> {
     proven_sum: Option<(usize, u64)>,
     /// Declared graph scan allowance charged by every graph read.
     edge_scans: u64,
+    /// Whether the pinned `echo.dpo@2` catalog was bound to Echo's exact
+    /// identity contracts; only then are identity calls admitted.
+    identity: bool,
 }
 impl<'a> Checker<'a, '_> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -853,14 +870,21 @@ impl<'a> Checker<'a, '_> {
                             }
                             _ => false,
                         };
-                        let (schema, intrinsic) = intrinsic(
-                            name,
-                            arguments,
-                            &argument_schemas,
-                            &declared,
-                            addition_proven,
-                            order_proven,
-                        )?;
+                        let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
+                            if !declared.is_empty() {
+                                return Err(());
+                            }
+                            identity::infer(name, &argument_schemas)?
+                        } else {
+                            intrinsic(
+                                name,
+                                arguments,
+                                &argument_schemas,
+                                &declared,
+                                addition_proven,
+                                order_proven,
+                            )?
+                        };
                         charge.append(intrinsic)?;
                         schema
                     }

@@ -17,6 +17,7 @@ mod fold_tests;
 #[cfg(test)]
 mod function_precondition_tests;
 mod function_preconditions;
+mod identity;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
@@ -120,6 +121,9 @@ struct Judgment<'a> {
     proven_sum: Option<(usize, u64)>,
     /// Declared graph scan allowance charged by every graph read.
     edge_scans: u64,
+    /// Whether the pinned `echo.dpo@2` catalog carries Echo's exact identity
+    /// contracts, which alone admits calls to them.
+    identity: bool,
 }
 
 /// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
@@ -138,7 +142,7 @@ pub(super) fn validate(
     })
 }
 fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
-    let mut proof = judged(core, exports, edge_scans)?;
+    let mut proof = judged(core, exports, edge_scans, false)?;
     // A graph read always needs its whole-intent budget judged.
     if super::map_field(core, "functions").is_none()
         && !unsigned_addition::present(core)?
@@ -154,14 +158,19 @@ fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> 
 /// The worst-case cost of each read intent, for measuring it against the runtime.
 #[cfg(test)]
 fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
-    let mut proof = judged(core, exports, edge_scans)?;
+    let mut proof = judged(core, exports, edge_scans, false)?;
     members(get(core, "intents")?)?
         .iter()
         .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
         .collect()
 }
 /// Inventories the module's helpers and judges every one of them.
-fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Judgment<'a>> {
+fn judged<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    identity: bool,
+) -> Check<Judgment<'a>> {
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -255,6 +264,7 @@ fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Jud
         bound: Vec::new(),
         proven_sum: None,
         edge_scans,
+        identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
@@ -763,6 +773,13 @@ impl<'a> Judgment<'a> {
                             cost = cost.plus(result.cost)?;
                             depth = depth.max(result.depth + 1);
                             result.ty
+                        }
+                        (name, actual, [])
+                            if self.identity && identity::parameters(name).is_some() =>
+                        {
+                            let (result, charged) = identity::judge(name, actual)?;
+                            cost = cost.plus(charged)?;
+                            result
                         }
                         (name, actual, declared) if list_operations::is_operation(name) => {
                             let result = self.list_operation(value, actual, declared)?;

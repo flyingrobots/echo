@@ -258,7 +258,9 @@ const GENERATED_RESOURCE_FIXTURES: &[GeneratedResourceFixture] = &[
     GeneratedResourceFixture {
         path: "resource.target-intrinsics.cbor",
         domain: "echo.dpo.intrinsics/v1",
-        root: "intrinsics-document",
+        // The frozen echo.dpo@1 catalog is API v1, owned by the generated
+        // projection of its original schema (echo#972).
+        root: "echo-frozen-catalog-v1-intrinsics-document",
         bytes: include_bytes!(
             "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor"
         ),

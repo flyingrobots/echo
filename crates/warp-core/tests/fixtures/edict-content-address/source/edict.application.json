@@ -1,0 +1,37 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "consumer.identity.program@1",
+  "sources": [
+    "src/Program.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/identity/manifest.cbor",
+      "exports": "vendor/identity/exports.cbor",
+      "adapter": "vendor/identity/adapter.cbor",
+      "targetConfiguration": "vendor/identity/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@2",
+    "providerPackage": "provider",
+    "pureIntrinsics": {
+      "catalog": "generated/resources/resource.target-intrinsics-2.cbor",
+      "required": [
+        {
+          "coordinate": "echo.dpo@2.contentAddress",
+          "contractVersion": "echo.content-address/v1"
+        },
+        {
+          "coordinate": "echo.dpo@2.contentEdgeId",
+          "contractVersion": "echo.content-address/v1"
+        },
+        {
+          "coordinate": "echo.dpo@2.slotEdgeId",
+          "contractVersion": "echo.content-address/v1"
+        }
+      ]
+    }
+  },
+  "outputDirectory": "application-output"
+}

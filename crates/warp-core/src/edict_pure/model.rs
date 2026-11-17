@@ -104,6 +104,8 @@ pub(crate) enum Expr {
         item: RuntimeType,
         args: Vec<Expr>,
     },
+    /// One of Echo's pure identity intrinsics over its operands, in call order.
+    Identity(IdentityIntrinsic, Vec<Expr>),
 }
 
 /// The closed `core.option/v1` operation set.
@@ -114,6 +116,17 @@ pub(crate) enum OptionOperation {
     IsSome,
     Default,
     Unwrap,
+}
+
+/// The `ContentAddressV1` identity a pure call computes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IdentityIntrinsic {
+    /// `echo.dpo@2.contentAddress`: a content node id.
+    ContentAddress,
+    /// `echo.dpo@2.contentEdgeId`: the id of an edge from a content node.
+    ContentEdgeId,
+    /// `echo.dpo@2.slotEdgeId`: the id of an edge from a mutable node.
+    SlotEdgeId,
 }
 
 #[derive(Debug, PartialEq, Eq)]

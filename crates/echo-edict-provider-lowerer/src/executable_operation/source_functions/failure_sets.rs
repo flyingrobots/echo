@@ -192,8 +192,10 @@ impl<'a> Sets<'a> {
 
 /// Judges every declared set, `fail` and `attempt` in `core`, whose source
 /// functions are named under `coordinate`, and the `core.failure/v1`
-/// capability, and returns the module's sets.
-pub(crate) fn judge<'a>(core: &'a Value, coordinate: &str) -> Check<Sets<'a>> {
+/// capability, and returns the module's sets. Pure helpers imported through
+/// `exports` are total: a body that can fail is refused, since no call site
+/// maps an imported helper's failures (flyingrobots/echo#1006).
+pub(crate) fn judge<'a>(core: &'a Value, exports: &Value, coordinate: &str) -> Check<Sets<'a>> {
     let functions = match get(core, "functions") {
         None => &[][..],
         Some(Value::Map(functions)) => functions.as_slice(),
@@ -231,6 +233,9 @@ pub(crate) fn judge<'a>(core: &'a Value, coordinate: &str) -> Check<Sets<'a>> {
         {
             return Err(());
         }
+    }
+    if let Some(imported) = get(exports, "pureFunctions") {
+        sets.total(imported)?;
     }
     let intents = match get(core, "intents") {
         Some(Value::Map(intents)) => intents.as_slice(),

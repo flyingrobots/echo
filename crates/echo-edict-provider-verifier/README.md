@@ -125,7 +125,7 @@ The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
 transport-to-model conversion. Its reproducibly built 728,230-byte checked
 component has SHA-256
-`72b0e785684d6b445f5ee9c6404d1c6353d80ec1450939307793ffa8d331ec46`.
+`1c1d51351b1db4f03bfbfa42996b45630bcf87475b038c7c51b602ddee85bd64`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

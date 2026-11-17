@@ -16,7 +16,7 @@
   three judges, as Amblicit refuses them. Public compiler witnesses
   (`edict-effect-ordered-record-z` and `-a`, Amblicit `7dbcbc23`) obstruct
   with exactly `FirstRaised` and `SecondRaised` through the promoted provider
-  package (lowerer `57144a17`, verifier `397a9f4e`).
+  package (lowerer `f9adef7d`, verifier `280c69fb`).
 
 - Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
   lowerer and the verifier accept declared function failure sets, `fail` and

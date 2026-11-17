@@ -7,6 +7,16 @@
 
 ### Added
 
+- Checked integer arithmetic and `min`/`max` (#998, the Echo half of
+  amblicit#321). warp-core, the provider lowerer and the provider verifier
+  each admit `core.integer.checked{Add,Sub,Mul,Div,Rem}<W>`, returning
+  `Option<W>` under `core.option/v1` and absent on overflow, underflow or a
+  zero divisor, and `core.integer.{min,max}<W>`, on `U8`, `U32` and `U64`
+  operands of exactly that width. `min` and `max` keep their upper bounds for
+  later addition proofs. Unknown names, other widths and mismatched operands
+  are refused by all three. A shared corpus fixes the verdicts at each width's
+  bounds, and warp-core executes each accepted case. Artifacts without these
+  calls are judged as before.
 - Amblicit `Option<T>` values (#995, the Echo half of amblicit#261).
   warp-core, the provider lowerer and the provider verifier each admit
   `core.option/v1`, the `Option<T>` type and the calls

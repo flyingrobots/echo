@@ -13,14 +13,23 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn validate<'a>(
     module: &Value,
-    intent: &Value,
+    intent: &'a Value,
     target_artifact: &Value,
     target: &'a Value,
     exports: &'a Value,
     artifacts: &Value,
 ) -> Result<BTreeMap<&'a str, &'a Value>, Error> {
     let steps = array(field(target, "steps")?)?;
+    let structured =
+        text_field(target_artifact, "domain")? == super::control_order::STRUCTURED_TARGET_IR;
     if steps.is_empty() {
+        // Without an effect step there are no lowering artifacts, so no
+        // profile is authenticated. Keep this path on the frozen @1 profile;
+        // @2 requires profile authentication from the effect artifacts.
+        let profile = field(target_artifact, "targetProfile")?;
+        if structured || text_field(profile, "id")? != "echo.dpo@1" {
+            return Err(Error::UnsupportedProgram);
+        }
         return if artifacts == &Value::Null {
             Ok(BTreeMap::new())
         } else {
@@ -63,11 +72,20 @@ pub(super) fn validate<'a>(
         return Err(Error::UnsupportedProgram);
     }
     require_text(&target_profile, "intrinsicNamespace", &profile_coordinate)?;
+    // Only Echo's two effect namespaces name runtime intrinsics; each pins
+    // its own catalog coordinate, which is also the catalog's digest domain.
+    let namespace =
+        super::intrinsic_names::namespace(&profile_coordinate).ok_or(Error::UnsupportedProgram)?;
+    // `echo.dpo@1` is frozen; only `echo.dpo@2` carries structured control
+    // (owner decision on flyingrobots/echo#947).
+    if structured && !namespace.structured {
+        return Err(Error::UnsupportedProgram);
+    }
     let catalog_reference = field(&target_profile, "intrinsics")?;
-    require_text(catalog_reference, "id", "echo.dpo.intrinsics/v1")?;
+    require_text(catalog_reference, "id", namespace.catalog)?;
     pinned(
         catalog_reference,
-        digest("echo.dpo.intrinsics/v1", &catalog).map_err(|_| Error::InvalidArtifact)?,
+        digest(namespace.catalog, &catalog).map_err(|_| Error::InvalidArtifact)?,
     )?;
     exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
     require_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;
@@ -95,10 +113,7 @@ pub(super) fn validate<'a>(
     if imports.next().is_some() || field(import, "ref")? != reference {
         return Err(Error::UnsupportedProgram);
     }
-    pinned(
-        field(&lawpack, "exports")?,
-        digest("edict.lawpack-exports/v1", exports).map_err(|_| Error::InvalidArtifact)?,
-    )?;
+    owner_pinned(field(&lawpack, "exports")?, exports)?;
     let mut matching = array(field(&lawpack, "targetAdapters")?)?
         .iter()
         .filter(|entry| {
@@ -116,10 +131,7 @@ pub(super) fn validate<'a>(
         "id",
         text_field(target_artifact, "domain")?,
     )?;
-    pinned(
-        field(entry, "adapter")?,
-        digest("edict.lawpack-adapter/v1", &adapter).map_err(|_| Error::InvalidArtifact)?,
-    )?;
+    owner_pinned(field(entry, "adapter")?, &adapter)?;
     let alias = alias(
         source,
         &coordinate,
@@ -129,17 +141,12 @@ pub(super) fn validate<'a>(
     super::imported_types::validate(module, exports, &coordinate)?;
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
     let authorized = array(field(profile, "semanticEffects")?)?;
-    let nodes = array(field(field(intent, "body")?, "nodes")?)?;
     let mut signatures = BTreeMap::new();
-    let steps = steps
-        .iter()
-        .map(|step| Ok((text_field(step, "id")?, step)))
-        .collect::<Result<BTreeMap<_, _>, Error>>()?;
-    for (core, id) in nodes.iter().zip(array(field(target, "executionOrder")?)?) {
+    for (core, lowered) in super::control_order::instructions(intent, target)? {
         if text_field(core, "kind")? != "effect" {
             continue;
         }
-        let lowered = *steps.get(text(id)?).ok_or(Error::InvalidArtifact)?;
+        let id = text_field(lowered, "id")?;
         let name = resolve(text_field(core, "effect")?, &alias, &coordinate)?;
         if !authorized
             .iter()
@@ -183,7 +190,7 @@ pub(super) fn validate<'a>(
             "type",
             text_field(effect, "outputType")?,
         )?;
-        signatures.insert(text(id)?, effect);
+        signatures.insert(id, effect);
         let failures = field(effect, "effectFailures")?;
         let mappings = map(field(implementation, "failureMappings")?)?;
         let source_arms = field(core, "obstructionMap")?;
@@ -235,6 +242,16 @@ pub(super) fn validate<'a>(
     }
     Ok(signatures)
 }
+/// A lawpack pin: the compiler frames the exports and adapter digests under
+/// the coordinate each reference names, not under a fixed artifact domain.
+fn owner_pinned(reference: &Value, value: &Value) -> Result<(), Error> {
+    let owner = text_field(reference, "id")?;
+    pinned(
+        reference,
+        digest(owner, value).map_err(|_| Error::InvalidArtifact)?,
+    )
+}
+
 fn pinned(reference: &Value, expected: [u8; 32]) -> Result<(), Error> {
     exact_fields(reference, &["id", "digest"])?;
     if text_field(reference, "id")?.is_empty() {

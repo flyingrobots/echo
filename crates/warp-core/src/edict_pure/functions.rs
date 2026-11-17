@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Closed source/imported helper authority, lexical scopes, and runtime apertures.
-use super::proven_order::{length_of, proven};
+use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
         Binding, Expr, Helper, IdentityIntrinsic, Parameter, Predicate, RuntimeType, MAX_DEPTH,
@@ -134,6 +134,9 @@ pub(crate) fn definitions<'a>(
     Ok(definitions)
 }
 
+/// Decodes and checks every pure helper definition, used or not. A helper
+/// frame starts with no caller facts. An unsigned binding proven below its
+/// width carries that ceiling to the later bindings of the same body.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
@@ -184,6 +187,8 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    branch: &[],
+                    reads_branch: true,
                     path: &[],
                 },
                 &definitions,
@@ -196,7 +201,7 @@ pub(crate) fn decode(
                 return Err(Error::InvalidArtifact);
             }
             if let RuntimeType::Unsigned(max) = ty {
-                let cap = unsigned_ceiling(value, max, &caps, parser, 0)?;
+                let cap = unsigned_ceiling(value, max, &caps, &[], parser, 0)?;
                 if cap < max {
                     caps.insert(id, cap);
                 }
@@ -218,6 +223,8 @@ pub(crate) fn decode(
             Proof {
                 caps: &caps,
                 facts: &[],
+                branch: &[],
+                reads_branch: true,
                 path: &[],
             },
             &definitions,
@@ -265,6 +272,8 @@ pub(crate) fn decode(
                 Proof {
                     caps: &caps,
                     facts: &[],
+                    branch: &[],
+                    reads_branch: true,
                     path: &[],
                 },
                 &definitions,
@@ -358,28 +367,76 @@ pub(super) fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType,
 
 pub(super) type Scope<'a> = BTreeMap<&'a str, &'a Value>;
 /// What is proven at one evaluation point: carried binding caps and the
-/// dominating order facts (earlier conjuncts of enclosing `all`s), plus
-/// signed branch/lazy-prefix truths used only by the strict lookup judgment.
+/// dominating facts (an intent's input constraints and earlier conjuncts of
+/// enclosing `all`s), the predicates of the enclosing `if`s whose `then` arm
+/// this point is in, plus signed branch/lazy-prefix truths used only by the
+/// strict lookup judgment.
 #[derive(Clone, Copy)]
 pub(crate) struct Proof<'c, 'v> {
     caps: &'c Caps<'c>,
     facts: &'c [&'v Value],
+    /// `then`-arm predicates, outermost first. An addition, subtraction or
+    /// slice reads them only when it is refused without them, so a node that
+    /// needs no branch fact pays nothing for one.
+    branch: &'c [&'v Value],
+    /// Whether this judgment may read `branch`. A judgment that is retried
+    /// with more facts after a refusal reads branch facts only in its last
+    /// attempt, so an earlier attempt costs what it cost before branch facts.
+    reads_branch: bool,
     path: &'c [(&'v Value, bool)],
 }
 impl<'c, 'v> Proof<'c, 'v> {
     /// What a caller has proven: binding caps it owns and dominating facts.
+    /// The judgment does not read branch facts.
     pub(crate) const fn new(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
         Self {
             caps,
             facts,
+            branch: &[],
+            reads_branch: false,
             path: &[],
         }
     }
+    /// As [`Proof::new`], for a judgment's last attempt: an addition,
+    /// subtraction or slice that the facts do not prove also reads the
+    /// predicates of its enclosing `then` arms.
+    pub(crate) const fn with_branch_facts(caps: &'c Caps<'c>, facts: &'c [&'v Value]) -> Self {
+        Self {
+            reads_branch: true,
+            ..Self::new(caps, facts)
+        }
+    }
+    /// The `then`-arm predicates this judgment may read.
+    const fn branch_facts(&self) -> &'c [&'v Value] {
+        if self.reads_branch {
+            self.branch
+        } else {
+            &[]
+        }
+    }
+    /// Whether `left >= right` holds here: first from the dominating facts,
+    /// then, only if they do not prove it, from the `then`-arm predicates.
+    fn ordered(
+        &self,
+        left: &Value,
+        right: &Value,
+        parser: &mut Parser<'_>,
+        depth: usize,
+    ) -> Result<bool, Error> {
+        let branch = self.branch_facts();
+        Ok(proven(left, right, self.facts, parser, depth)?
+            || (!branch.is_empty() && proven(left, right, branch, parser, depth)?))
+    }
 }
-/// Proven upper bounds of earlier unsigned bindings in the same helper body.
-/// Local identities are unique and immutable, so a cap names exactly the
-/// bound value. Bounds never cross helper results or record fields.
+/// Proven upper bounds of earlier unsigned bindings in the same helper or
+/// effect-program body. Local identities are unique and immutable, so a cap
+/// names exactly the bound value. Bounds never cross helper results, record
+/// fields or helper frames, and they narrow additions only; an order proof
+/// for a slice or subtraction still needs a fact over the same term.
 pub(crate) type Caps<'a> = BTreeMap<&'a str, u64>;
+/// Infers the runtime type of one Core expression. An unsigned addition is
+/// refused unless the proven ceilings of its operands sum within the type's
+/// width.
 pub(crate) fn infer<'v>(
     value: &'v Value,
     scope: &Scope<'_>,
@@ -553,10 +610,14 @@ pub(crate) fn infer<'v>(
             )?;
             let mut path = proof.path.to_vec();
             path.push((field(value, "predicate")?, true));
+            // As in Edict, the predicate is a fact inside the `then` arm.
+            let mut branch = proof.branch.to_vec();
+            branch.push(field(value, "predicate")?);
             let left = infer(
                 field(value, "then")?,
                 scope,
                 Proof {
+                    branch: &branch,
                     path: &path,
                     ..proof
                 },
@@ -725,21 +786,63 @@ pub(crate) fn infer<'v>(
                 ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
                     if left == expected && right == expected =>
                 {
-                    let left =
-                        unsigned_ceiling(&arguments[0], *max, proof.caps, parser, depth + 1)?;
-                    let right =
-                        unsigned_ceiling(&arguments[1], *max, proof.caps, parser, depth + 1)?;
-                    if left.checked_add(right).is_none_or(|sum| sum > *max) {
+                    // Judge the sum without facts first, at exactly the depth
+                    // and cost it had before facts bounded additions; read the
+                    // facts only when that does not fit.
+                    let fits = |facts: &[&Value], parser: &mut Parser<'_>| -> Result<bool, Error> {
+                        let left = unsigned_ceiling(
+                            &arguments[0],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        let right = unsigned_ceiling(
+                            &arguments[1],
+                            *max,
+                            proof.caps,
+                            facts,
+                            parser,
+                            depth + 1,
+                        )?;
+                        Ok(left.checked_add(right).is_some_and(|sum| sum <= *max))
+                    };
+                    // A nested sum that overflows without facts is refused
+                    // as `UnsupportedProgram`; that is "does not fit", not a
+                    // final answer.
+                    let fits_or_not =
+                        |facts: &[&Value], parser: &mut Parser<'_>| match fits(facts, parser) {
+                            Err(Error::UnsupportedProgram) => Ok(false),
+                            judged => judged,
+                        };
+                    // Then with the dominating facts, and only when those do
+                    // not suffice, with the `then`-arm predicates as well.
+                    let branch = proof.branch_facts();
+                    if !fits_or_not(&[], parser)?
+                        && (proof.facts.is_empty() || !fits_or_not(proof.facts, parser)?)
+                        && (branch.is_empty()
+                            || !fits(
+                                &proof
+                                    .facts
+                                    .iter()
+                                    .chain(branch)
+                                    .copied()
+                                    .collect::<Vec<_>>(),
+                                parser,
+                            )?)
+                    {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
                 }
                 // Partial intrinsics need a dominating order proof. A helper frame
-                // starts with no caller facts; only its own conjunct prefixes count.
+                // starts with no caller facts; only its own conjunct prefixes and
+                // enclosing `then` arms count.
                 ("core.integer.subtract", [left, right], [expected @ RuntimeType::Unsigned(_)])
                     if accepts(expected, left) && accepts(expected, right) =>
                 {
-                    if !proven(&arguments[0], &arguments[1], proof.facts, parser, depth + 1)? {
+                    if !proof.ordered(&arguments[0], &arguments[1], parser, depth + 1)? {
                         return Err(Error::UnsupportedProgram);
                     }
                     Ok(expected.clone())
@@ -757,8 +860,8 @@ pub(crate) fn infer<'v>(
                     );
                     let length = length_of(&types[0], &arguments[0]);
                     if !literal
-                        && (!proven(&arguments[2], &arguments[1], proof.facts, parser, depth + 1)?
-                            || !proven(&length, &arguments[2], proof.facts, parser, depth + 1)?)
+                        && (!proof.ordered(&arguments[2], &arguments[1], parser, depth + 1)?
+                            || !proof.ordered(&length, &arguments[2], parser, depth + 1)?)
                     {
                         return Err(Error::UnsupportedProgram);
                     }
@@ -772,13 +875,34 @@ pub(crate) fn infer<'v>(
     }
 }
 
-// Fresh helper frames receive no caller constraints. Constants and already
-// checked nested additions can narrow a bound; every other term has its full
-// declared width. The parser's combined work/depth ceiling covers this walk.
-fn unsigned_ceiling(
+/// The proven upper bound of the unsigned term `value`, whose type holds at
+/// most `max`. Constants, counts, carried binding caps and already checked
+/// nested additions can narrow a bound, and so can a dominating fact comparing
+/// the term with a constant; every other term has its full declared width.
+/// Fresh helper frames receive no caller facts. The parser's combined
+/// work/depth ceiling covers this walk.
+pub(crate) fn unsigned_ceiling(
     value: &Value,
     max: u64,
     caps: &Caps<'_>,
+    facts: &[&Value],
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<u64, Error> {
+    let structural = structural_ceiling(value, max, caps, facts, parser, depth)?;
+    Ok(upper_limit(value, facts, parser, depth + 1)?
+        .map_or(structural, |limit| structural.min(limit)))
+}
+
+/// The upper bound of `value` from its own shape, before any fact about the
+/// whole term is applied. `facts` are only forwarded to the nested-addition
+/// recursion; the structural ceiling itself comes from caps, counts and
+/// widths.
+fn structural_ceiling(
+    value: &Value,
+    max: u64,
+    caps: &Caps<'_>,
+    facts: &[&Value],
     parser: &mut Parser<'_>,
     depth: usize,
 ) -> Result<u64, Error> {
@@ -804,8 +928,15 @@ fn unsigned_ceiling(
         let [left, right] = array(field(value, "args")?)? else {
             return Err(Error::InvalidArtifact);
         };
-        return unsigned_ceiling(left, max, caps, parser, depth + 1)?
-            .checked_add(unsigned_ceiling(right, max, caps, parser, depth + 1)?)
+        return unsigned_ceiling(left, max, caps, facts, parser, depth + 1)?
+            .checked_add(unsigned_ceiling(
+                right,
+                max,
+                caps,
+                facts,
+                parser,
+                depth + 1,
+            )?)
             .ok_or(Error::UnsupportedProgram);
     }
     Ok(max)
@@ -867,6 +998,8 @@ pub(crate) fn check_predicate<'v>(
                     Proof {
                         caps: proof.caps,
                         facts: &prefix,
+                        branch: proof.branch,
+                        reads_branch: proof.reads_branch,
                         path: proof.path,
                     },
                     definitions,
@@ -1261,6 +1394,8 @@ mod predicate_validation_tests {
             Proof {
                 caps: &BTreeMap::new(),
                 facts: &[],
+                branch: &[],
+                reads_branch: true,
                 path: &[],
             },
             &BTreeMap::new(),
@@ -1334,6 +1469,8 @@ mod predicate_validation_tests {
                 Proof {
                     caps: &BTreeMap::new(),
                     facts: &[],
+                    branch: &[],
+                    reads_branch: true,
                     path: &[],
                 },
                 &BTreeMap::new(),
@@ -1394,6 +1531,8 @@ mod predicate_validation_tests {
                     Proof {
                         caps: &BTreeMap::new(),
                         facts: &[],
+                        branch: &[],
+                        reads_branch: true,
                         path: &[],
                     },
                     &BTreeMap::new(),

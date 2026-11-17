@@ -9,7 +9,6 @@ use super::{
 use echo_edict_canonical::{decode_canonical_cbor_v1, digest_canonical_value_bytes_v1};
 
 const SUBJECT: &str = "effect-target-resources";
-const CATALOG_DOMAIN: &str = "echo.dpo.intrinsics/v1";
 const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
 
 pub(super) fn is_configuration(value: &Value) -> bool {
@@ -43,15 +42,25 @@ pub(super) fn validate(
         return Err(invalid());
     }
     let profile = validate_bound(profile, "edict.target-profile/v1")?;
+    // The catalog coordinate, which is also its digest domain, is the one the
+    // selected profile's namespace pins.
+    let coordinate = format!(
+        "{}@{}",
+        text_field(&profile, "id").ok_or_else(invalid)?,
+        text_field(&profile, "version").ok_or_else(invalid)?
+    );
+    let catalog_domain = super::intrinsic_names::namespace(&coordinate)
+        .ok_or_else(invalid)?
+        .catalog;
     let reference = map_field(&profile, "intrinsics").ok_or_else(invalid)?;
     require_exact_fields(reference, &["id", "digest"], SUBJECT).map_err(|_| invalid())?;
     let identity =
-        digest_canonical_value_bytes_v1(CATALOG_DOMAIN, &catalog).map_err(|_| invalid())?;
+        digest_canonical_value_bytes_v1(catalog_domain, &catalog).map_err(|_| invalid())?;
     let expected = Value::Array(vec![
         canonical_text("sha256"),
         Value::Bytes(identity.to_vec()),
     ]);
-    if text_field(reference, "id") != Some(CATALOG_DOMAIN)
+    if text_field(reference, "id") != Some(catalog_domain)
         || map_field(reference, "digest") != Some(&expected)
     {
         return Err(invalid());

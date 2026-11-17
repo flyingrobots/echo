@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 543,117 bytes with SHA-256
-`873dfec859285f26cadff97a7aa602fd91bcbcba3a3d347918c3658c4575afaa`.
+The checked component is 685,775 bytes with SHA-256
+`c3ee9a5141b93c3218459d5ca6d406c6b5de9ae4ff825e3dea206a107eab877c`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 582,107 bytes
+`wit-component` version recorded above. Its checked component is 728,230 bytes
 with SHA-256
-`c9cc4a669a87f13d5b306357e8685cd4443871a14647b393bdc93b5fb1dd6f80`.
+`72b0e785684d6b445f5ee9c6404d1c6353d80ec1450939307793ffa8d331ec46`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,11 +56,15 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The bounded-list operation component pair was independently reproduced by the
-two G4 candidate jobs in [CI run 41390189265](https://github.com/flyingrobots/echo/actions/runs/41390189265)
-at source commit `1154d4c47fc06ed7c12ee828f8a1e3cdc102c219`. Both copies of
+The current component pair, built from echo#991's source, was independently
+reproduced by the two G4 candidate jobs in
+[CI run 43937974912](https://github.com/flyingrobots/echo/actions/runs/43937974912)
+at source commit `c4255d353997da376d1519aed897c9794837de61`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
+Both components' interfaces now call the effect-program judgment for an
+`edict-effect-program/v1` configuration, including its
+structured loop and branch statements under `echo.span-ir/v3`.
 
 Rebuild and check the artifact without rewriting it:
 

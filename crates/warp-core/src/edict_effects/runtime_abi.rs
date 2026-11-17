@@ -17,43 +17,28 @@ use crate::edict_pure::{
 use echo_edict_canonical::CanonicalValueV1 as Value;
 
 /// The Echo-owned ABI coordinates of one shared runtime intrinsic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct AbiContract {
     /// Coordinate the catalog must give as the single argument type.
-    pub(super) input: &'static str,
+    pub(super) input: String,
     /// Coordinate the catalog must give as the return type.
-    pub(super) result: &'static str,
+    pub(super) result: String,
 }
 
 /// The ABI contract of an exact runtime intrinsic identity, if it is one.
+///
+/// Its coordinates are `<intrinsic>.input` and `<intrinsic>.result` under the
+/// intrinsic's own namespace, so `echo.dpo@2.ensure-node` has
+/// `echo.dpo@2.ensure-node.input`.
 pub(super) fn contract(intrinsic: &str) -> Option<AbiContract> {
-    Some(match intrinsic {
-        "echo.dpo@1.node-atom-read" => AbiContract {
-            input: "echo.dpo@1.node-atom-read.input",
-            result: "echo.dpo@1.node-atom-read.result",
-        },
-        "echo.dpo@1.ensure-node" => AbiContract {
-            input: "echo.dpo@1.ensure-node.input",
-            result: "echo.dpo@1.ensure-node.result",
-        },
-        "echo.dpo@1.create-node" => AbiContract {
-            input: "echo.dpo@1.create-node.input",
-            result: "echo.dpo@1.create-node.result",
-        },
-        "echo.dpo@1.replace-atom" => AbiContract {
-            input: "echo.dpo@1.replace-atom.input",
-            result: "echo.dpo@1.replace-atom.result",
-        },
-        "echo.dpo@1.ensure-edge" => AbiContract {
-            input: "echo.dpo@1.ensure-edge.input",
-            result: "echo.dpo@1.ensure-edge.result",
-        },
-        "echo.dpo@1.replace-edge" => AbiContract {
-            input: "echo.dpo@1.replace-edge.input",
-            result: "echo.dpo@1.replace-edge.result",
-        },
-        _ => return None,
-    })
+    match super::intrinsic_names::operation(intrinsic)? {
+        "node-atom-read" | "ensure-node" | "create-node" | "replace-atom" | "ensure-edge"
+        | "replace-edge" => Some(AbiContract {
+            input: format!("{intrinsic}.input"),
+            result: format!("{intrinsic}.result"),
+        }),
+        _ => None,
+    }
 }
 
 pub(super) fn validate(
@@ -112,7 +97,7 @@ pub(super) fn validate(
     for expected in declared {
         let failure = field(failures, expected.catalog)?;
         require_text(failure, "authorityClass", expected.authority)?;
-        require_text(failure, "payloadType", abi.input)?;
+        require_text(failure, "payloadType", &abi.input)?;
     }
     Ok(())
 }

@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 543,117-byte checked lowerer component has SHA-256
-`873dfec859285f26cadff97a7aa602fd91bcbcba3a3d347918c3658c4575afaa` and has
+The refreshed 685,775-byte checked lowerer component has SHA-256
+`c3ee9a5141b93c3218459d5ca6d406c6b5de9ae4ff825e3dea206a107eab877c` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -206,10 +206,12 @@ Those remain explicit Echo runtime crossings.
 ## Current effect proposal serialization
 
 The native Rust API `effect_publication::encode_effect_publication` serializes
-untrusted proposals using the current `echo.operation-package/v1` and
+proposals using the current `echo.operation-package/v1` and
 `echo.operation-program/v1` effect kind. It preserves the compiler bundle's
-exact bytes, derives embedded Core/Target-IR/exports identities, carries explicit
-limits and graph/footprint data, and requires a declared obstruction coordinate.
+exact bytes, derives embedded Core/Target-IR/exports identities, and carries
+explicit limits and graph/footprint data. Each failure arm maps to an
+obstruction the program's own exports declare; a `require`'s reason kind is not
+checked against the exports.
 Its requested `authority_profile_identity` is derived only from the
 configuration's required `authorityProfile` label, by the same label digest
 fixed operations use; no caller supplies it.
@@ -217,10 +219,49 @@ It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
 retains the actual lawpack inside the compiled bundle, without a duplicate outer
 lawpack identity.
 
+Before serializing, publication runs the lowerer's own effect-program
+judgment, also available as `effect_publication::judge_effect_program`, and
+refuses an unsafe program with `UnsupportedProgram`. The judgment establishes
+the program's binding to its own artifacts, the pinned lawpack, adapter,
+profile and catalog that authorize each effect, each effect's intrinsic ABI and
+failure contract, declared obstructions, Core and Target IR correspondence, and
+the body's types, proven ranges and declared Core budget, under a static cost
+model over declared types that does not bound the runtime's meter. It does not
+judge graph-law semantics or grant authority. The verifier judges the same programs
+independently in `effect_package::verify_effect_package`.
+
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
-features are dev dependencies only. The factory does not verify compiler
-correspondence, graph-law semantics or authority. It is not yet called by the
-public lowerer, and it does not change the frozen WIT interface or enable
-installed effect execution. Producer integration and independent verification
-remain unfinished.
+features are dev dependencies only. Publication does not change the frozen WIT
+interface or enable installed effect execution.
+
+## Public effect route
+
+When the request's target configuration is `edict-effect-program/v1`, the
+component's generic executable-operation route lowers through this producer. It
+requires the bound single-intent Core, binds the request's lawpack, adapter and
+configuration to that Core and its ordered Target IR (the Target IR must name
+the bound profile, Core and single lawpack, and the Core must import exactly that
+lawpack), checks the adapter selects the configuration as the bounded-read and
+pure routes do, and assembles the compiler bundle from the request's own
+artifacts. Lowering artifacts (source, lawpack, adapter, the exact checked
+target profile and the configuration's catalog) are carried only when the
+program has effect steps. The checked `echo.dpo@1` profile pins a catalog whose
+only intrinsic is `echo.dpo@1.replace` and names `echo.span-ir/v1` as its
+Target IR, so the judgment refuses any effect step through the component
+today; flat programs without effect steps are published. The public compiler
+witness under `crates/warp-core/tests/fixtures/edict-effect-program` compiles
+one such program through the checked components. It passes because the effect
+judgment, like Echo's runtime, compares the profile's Target IR with the
+adapter's accepted ordered IR only for programs with effect steps; the checked
+profile names `echo.span-ir/v1` while effect adapters accept `echo.span-ir/v2`,
+the same tolerance the bounded-read route already has.
+
+The lowerer accepts exactly two target profiles: `echo.dpo@1` and the effect
+profile `echo.dpo@2` (#985). `echo.dpo@2` admits only this route; every other
+route refuses it with `echo.dpo@2 admits only authored effect programs`. Its
+catalog, `echo.dpo.intrinsics/v2`, declares the runtime's effect intrinsics as
+`echo.dpo@2.*` and it names `echo.span-ir/v2`, so effect steps can pass the
+judgment under it. The configuration's catalog must be the one the selected
+profile pins, and the judgment keys its intrinsic tables on the operation below
+either namespace.

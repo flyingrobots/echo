@@ -71,7 +71,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21";
+        "bcb3f840aed8f5345ec79beffa4a405bf578cb36bcd395be37ac6f9a57ecf463";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -108,7 +108,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21",
+        "bcb3f840aed8f5345ec79beffa4a405bf578cb36bcd395be37ac6f9a57ecf463",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {

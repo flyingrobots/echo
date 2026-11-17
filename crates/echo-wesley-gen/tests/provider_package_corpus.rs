@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest as _, Sha256};
 
 const EXPECTED_PROVIDER_DIGEST: &str =
-    "sha256:9058a1f5819850372d5406e41d162db8328ae9dca9f421cb54a14e38e2d30785";
+    "sha256:40ce7cd3ecc21ec206e9dd439d6be61db56b2ce84bd972dd44dd3528d0d5e32d";
 const EXPECTED_MANIFEST_RAW_SHA256: &str =
-    "492b2ac958c49f113500c5b29c12cc41e1b85f4071ef0c9f6424e5aeba3cbe98";
+    "0e5d9bb052c9de6740dd267da6e1f26297e9e75987fce456b1e1713ed393fc96";
 
-const PACKAGE_PATHS: [&str; 25] = [
+const PACKAGE_PATHS: [&str; 28] = [
     "components/lowerer.echo-dpo.component.wasm",
     "components/verifier.echo-dpo.component.wasm",
     "generated/evidence/provenance.provider-generation.json",
@@ -25,6 +25,7 @@ const PACKAGE_PATHS: [&str; 25] = [
     "generated/primary/generated-artifact-profile.echo-dpo-registration.cbor",
     "generated/primary/lawpack.echo-dpo.cbor",
     "generated/primary/schema.echo-provider-artifacts.cddl",
+    "generated/primary/target-profile.echo-dpo-2.cbor",
     "generated/primary/target-profile.echo-dpo.cbor",
     "generated/resources/resource.conformance-corpus.cbor",
     "generated/resources/resource.lawpack-compatibility.cbor",
@@ -34,7 +35,9 @@ const PACKAGE_PATHS: [&str; 25] = [
     "generated/resources/resource.target-bundle-profile.cbor",
     "generated/resources/resource.target-cost-algebra.cbor",
     "generated/resources/resource.target-footprint-algebra.cbor",
+    "generated/resources/resource.target-intrinsics-2.cbor",
     "generated/resources/resource.target-intrinsics.cbor",
+    "generated/resources/resource.target-ir-2.cbor",
     "generated/resources/resource.target-ir.cbor",
     "generated/resources/resource.target-lowerer-contract.cbor",
     "generated/resources/resource.target-obstruction-taxonomy.cbor",

@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use super::{
     instructions,
-    model::{Program, MAX_ARTIFACT_BYTES},
+    model::{GraphReads, Program, MAX_ARTIFACT_BYTES},
     ReadLimits,
 };
 use crate::edict_pure::{
@@ -27,7 +27,6 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
     if digest(PACKAGE_DOMAIN, &package).map_err(|_| Error::InvalidArtifact)? != pin {
         return Err(Error::PackageIdentityMismatch);
     }
-    envelope(&package)?;
     let program = embedded(&package, "program")?;
     exact_fields(
         &program,
@@ -60,10 +59,8 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
     require_text(&target, "domain", "echo.span-ir/v2")?;
     require_text(&target, "kind", "orderedTargetIrArtifact")?;
     require_text(&projection, "schema", "edict.result-projection/v1")?;
-    exact_fields(
-        &configuration,
-        &["apiVersion", "programKind", "maxReads", "maxReadBytes"],
-    )?;
+    let graph = graph_reads(&configuration, text_field(&core, "coordinate")?)?;
+    envelope(&package, graph.is_some())?;
     require_text(
         &configuration,
         "apiVersion",
@@ -114,7 +111,7 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
     };
     let input_type = parser.ty(text_field(intent, "input")?, 0)?;
     let output_type = parser.ty(text_field(intent, "output")?, 0)?;
-    let ordered = instructions::parse(target_intent, &mut parser, &input_id)?;
+    let ordered = instructions::parse(target_intent, &mut parser, &input_id, graph.is_some())?;
     if ordered.read_producers.len() as u64 > reads {
         return Err(Error::InvalidArtifact);
     }
@@ -163,6 +160,20 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
         }
     }
     crate::edict_pure::functions::check_roots(&helpers, expressions, predicates)?;
+    for instruction in &ordered.ordered {
+        let super::model::Instruction::Read(read) = instruction else {
+            continue;
+        };
+        if let super::model::ReadKind::Closure(shape) = &read.kind {
+            // The selector is the declared source helper, never a shape match.
+            let selector = graph
+                .as_ref()
+                .and_then(|graph| graph.selector.as_deref())
+                .and_then(|name| helpers.get(name))
+                .ok_or(Error::UnsupportedProgram)?;
+            super::graph::selector_conforms(selector, shape)?;
+        }
+    }
     Ok(Program {
         input_id,
         input_type,
@@ -177,10 +188,61 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
             max_reads: host.max_reads.min(reads),
             max_read_bytes: host.max_read_bytes.min(read_bytes),
         },
+        graph,
     })
 }
 
-fn envelope(package: &Value) -> Result<(), Error> {
+/// The optional graph-read declaration of the lowering configuration.
+///
+/// Its absence is the node-atom-only configuration, whose packages keep their
+/// explicit node aperture contract unchanged. Its presence declares the scan,
+/// node and depth ceilings and, for closure reads, the selector helper.
+fn graph_reads(configuration: &Value, coordinate: &str) -> Result<Option<GraphReads>, Error> {
+    let Ok(declared) = field(configuration, "graphReads") else {
+        exact_fields(
+            configuration,
+            &["apiVersion", "programKind", "maxReads", "maxReadBytes"],
+        )?;
+        return Ok(None);
+    };
+    exact_fields(
+        configuration,
+        &[
+            "apiVersion",
+            "programKind",
+            "maxReads",
+            "maxReadBytes",
+            "graphReads",
+        ],
+    )?;
+    let mut names = vec!["maxEdgeScans", "maxClosureNodes", "maxClosureDepth"];
+    let selector = if let Ok(name) = field(declared, "closureSelector") {
+        names.push("closureSelector");
+        let name = crate::edict_pure::values::text(name)?;
+        if name.is_empty() || name.len() > 1024 {
+            return Err(Error::InvalidArtifact);
+        }
+        Some(format!("{coordinate}.{name}"))
+    } else {
+        None
+    };
+    exact_fields(declared, &names)?;
+    let graph = GraphReads {
+        max_edge_scans: number(field(declared, "maxEdgeScans")?)?,
+        max_closure_nodes: number(field(declared, "maxClosureNodes")?)?,
+        max_closure_depth: number(field(declared, "maxClosureDepth")?)?,
+        selector,
+    };
+    if !(1..=65_536).contains(&graph.max_edge_scans)
+        || graph.max_closure_nodes > 4096
+        || graph.max_closure_depth > 256
+    {
+        return Err(Error::InvalidArtifact);
+    }
+    Ok(Some(graph))
+}
+
+fn envelope(package: &Value, graph_reads: bool) -> Result<(), Error> {
     exact_fields(
         package,
         &[
@@ -205,7 +267,13 @@ fn envelope(package: &Value) -> Result<(), Error> {
         ),
         (
             "footprint_contract_identity",
-            "echo.operation.footprint.explicit-node-read-aperture/v1",
+            // Discovered graph material cannot be named by an explicit node
+            // aperture, so a graph-read package declares the typed contract.
+            if graph_reads {
+                "echo.operation.footprint.typed-graph-read-aperture/v1"
+            } else {
+                "echo.operation.footprint.explicit-node-read-aperture/v1"
+            },
         ),
         (
             "interpreter_profile_identity",

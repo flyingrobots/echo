@@ -75,3 +75,98 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     --all-targets \
     -- \
     -D warnings
+
+# Public compiler witnesses for typed outgoing-edge and guided closure reads,
+# for a flat authored effect program, and for an authored effect program with
+# an effect step under the echo.dpo@2 effect target profile.
+# The unmodified Amblicit compiler, built from a pinned public revision,
+# compiles authored source through the checked provider package and its
+# separate verifier; the predecessor package must refuse the same source.
+# Building the compiler is heavy, so a local run must opt in explicitly.
+if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
+  readonly AMBLICIT_REVISION=ce2ad2f5faed31147dc9cb5db05353d60b68396d
+  readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
+  readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
+  readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"
+
+  if [[ ! -x "$AMBLICIT_ROOT/bin/amblicit" ]]; then
+    cargo +1.96.0 install --locked \
+      --git https://github.com/flyingrobots/amblicit \
+      --rev "$AMBLICIT_REVISION" \
+      --root "$AMBLICIT_ROOT" \
+      --bin amblicit \
+      amblicit-cli
+  fi
+
+  if ! git -C "$ROOT" cat-file -e "$OLD_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_PROVIDER_REVISION"
+  fi
+  mkdir -p "$ROOT/target"
+  witness_dir="$(mktemp -d "$ROOT/target/graph-read-witness.XXXXXX")"
+  readonly witness_dir
+  mkdir "$witness_dir/old-provider"
+  git -C "$ROOT" archive "$OLD_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-provider"
+
+  cargo +1.96.0 run --locked -p xtask --example graph_read_publication -- \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$GRAPH_READ_FIXTURES" \
+    --control "$ROOT/crates/echo-edict-provider-lowerer/tests/fixtures/node-atom-read/source" \
+    --work-root "$witness_dir/run" \
+    --check
+
+  # Public compiler witness for a flat authored effect program: the checked
+  # lowerer emits an edict-effect-program/v1 package and the separate verifier
+  # accepts it; the predecessor provider must refuse the same source.
+  readonly OLD_EFFECT_PROVIDER_REVISION=a9792ddc4d757a6c01e2e190c41ec9b521706472
+  if ! git -C "$ROOT" cat-file -e "$OLD_EFFECT_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_EFFECT_PROVIDER_REVISION"
+  fi
+  mkdir "$witness_dir/old-effect-provider"
+  git -C "$ROOT" archive "$OLD_EFFECT_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-effect-provider"
+
+  cargo +1.96.0 run --locked -p xtask --example effect_program_publication -- \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-effect-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-program" \
+    --work-root "$witness_dir/effect-run" \
+    --check
+
+  # Public compiler witness for an authored effect program with an effect step
+  # under the echo.dpo@2 effect target profile (#985): the checked lowerer
+  # emits its package and the separate verifier accepts it; the same program
+  # under echo.dpo@1, and under a substituted echo.dpo@2 profile, must be
+  # refused at Echo's lowerer, and so must the same read called without a
+  # failure map although its intrinsic declares failures.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name read \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-step" \
+    --work-root "$witness_dir/effect-step-run" \
+    --check
+
+  # The same witness for a program calling all five echo.dpo@2 mutation
+  # intrinsics without a failure map (amblicit#311), with the same controls.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name write \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-mutations" \
+    --work-root "$witness_dir/effect-mutations-run" \
+    --check
+
+  # Public source witness for a bounded loop and both statement-branch arms,
+  # compiled to structured echo.span-ir/v3 under the current echo.dpo@2 profile.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name structured \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-structured" \
+    --work-root "$witness_dir/effect-structured-run" \
+    --check
+fi

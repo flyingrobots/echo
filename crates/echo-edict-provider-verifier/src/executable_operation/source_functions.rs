@@ -2,11 +2,15 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+#[cfg(test)]
+mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod effect_block;
+mod effect_intent;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -15,6 +19,9 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod read_charge;
+#[cfg(test)]
+mod read_charge_soundness_tests;
 mod types;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -24,6 +31,7 @@ mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 use types::{Charge, Schema, Types};
 type Check<T> = Result<T, ()>;
@@ -84,17 +92,78 @@ impl<'a> Frame<'a> {
     }
 }
 
-pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    audit(core, exports, read).map_err(|()| {
+/// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
+/// the module declares no graph reads.
+pub(super) fn validate(
+    core: &Value,
+    exports: &Value,
+    read: bool,
+    edge_scans: u64,
+) -> Result<(), ProviderRefusalV1> {
+    audit(core, exports, read, edge_scans).map_err(|()| {
         super::super::unsupported_semantics(
             "core.source-functions-verification",
             "Core source functions are outside the checked pure-function profile",
         )
     })
 }
-fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
+fn audit(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
+    each_intent(core, exports, edge_scans, |checker, intent| {
+        checker.intent(intent, read)
+    })
+}
+/// The conservative charge of each read intent, for measuring it at runtime.
+#[cfg(test)]
+fn read_intent_charges(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Charge>> {
+    let mut charges = Vec::new();
+    each_intent(core, exports, edge_scans, |checker, intent| {
+        charges.push(checker.intent_charge(intent, true)?.0);
+        Ok(())
+    })?;
+    Ok(charges)
+}
+/// Audits every helper, then hands each intent that needs a whole-intent
+/// judgment to `judge`.
+fn each_intent<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
+) -> Check<()> {
     let mut types = Types::new(core);
-    let definitions = inventory(core, exports, &mut types)?;
+    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans)?;
+    let mut checker = Checker {
+        types: &mut types,
+        definitions: &definitions,
+        summaries: &summaries,
+        proven: Vec::new(),
+        branch: Vec::new(),
+        path: Vec::new(),
+        bound: Vec::new(),
+        proven_sum: None,
+        edge_scans,
+    };
+    // A graph read always needs its whole-intent charge judged.
+    if super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        judge(&mut checker, intent)?;
+    }
+    Ok(())
+}
+/// Inventories every helper and summarizes each one after its dependencies.
+type Prepared<'a> = (BTreeMap<String, Definition<'a>>, BTreeMap<String, Summary>);
+fn prepare<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    types: &mut Types<'a>,
+    edge_scans: u64,
+) -> Check<Prepared<'a>> {
+    let definitions = inventory(core, exports, types)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, definition) in &definitions {
@@ -133,7 +202,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                 }
                 "if" => {
                     let predicate = get(expression, "predicate")?;
-                    predicate_expressions(predicate, depth + 1, &mut types, &mut expressions)?;
+                    predicate_expressions(predicate, depth + 1, types, &mut expressions)?;
                     expressions.push((get(expression, "then")?, depth + 1));
                     expressions.push((get(expression, "else")?, depth + 1));
                 }
@@ -182,24 +251,38 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             callers.entry(edge).or_default().push(name);
         }
     }
-    let mut ready: BTreeSet<&str> = pending
+    let summaries = summarize(&definitions, types, pending, &callers, edge_scans)?;
+    Ok((definitions, summaries))
+}
+/// Summarizes every helper after its dependencies, so callers see complete
+/// summaries. No native recursion crosses a function edge.
+fn summarize<'a, 'n>(
+    definitions: &BTreeMap<String, Definition<'a>>,
+    types: &mut Types<'a>,
+    mut pending: BTreeMap<&'n str, usize>,
+    callers: &BTreeMap<&'n str, Vec<&'n str>>,
+    edge_scans: u64,
+) -> Check<BTreeMap<String, Summary>> {
+    let mut ready: BTreeSet<&'n str> = pending
         .iter()
         .filter_map(|(name, degree)| (*degree == 0).then_some(*name))
         .collect();
     let mut summaries = BTreeMap::new();
-    // No native recursion crosses a function edge. Dependencies receive their
-    // own complete summary before any caller can use it, in either name order.
+    // Dependencies receive their own complete summary before any caller can
+    // use it, in either name order.
     while let Some(name) = ready.pop_first() {
         types.step(0)?;
         let definition = definitions.get(name).ok_or(())?;
         let summary = Checker {
-            types: &mut types,
-            definitions: &definitions,
+            types: &mut *types,
+            definitions,
             summaries: &summaries,
             proven: Vec::new(),
+            branch: Vec::new(),
             path: Vec::new(),
             bound: Vec::new(),
             proven_sum: None,
+            edge_scans,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -219,22 +302,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
     if summaries.len() != definitions.len() {
         return Err(());
     }
-    let mut checker = Checker {
-        types: &mut types,
-        definitions: &definitions,
-        summaries: &summaries,
-        proven: Vec::new(),
-        path: Vec::new(),
-        bound: Vec::new(),
-        proven_sum: None,
-    };
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
-        return Ok(());
-    }
-    for (_, intent) in members(get(core, "intents")?)? {
-        checker.intent(intent, read)?;
-    }
-    Ok(())
+    Ok(summaries)
 }
 fn inventory<'a>(
     core: &'a Value,
@@ -337,12 +405,18 @@ struct Checker<'a, 'b> {
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
     proven: Vec<&'a Value>,
+    /// Predicates of the enclosing `if`s whose `then` arm is being judged,
+    /// outermost first. A range proof reads them only when it is refused
+    /// without them.
+    branch: Vec<&'a Value>,
     path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
     /// The refined cap of the addition `expression` last proved, keyed by the
     /// node's address, so the binding that holds it reuses the proof.
     proven_sum: Option<(usize, u64)>,
+    /// Declared graph scan allowance charged by every graph read.
+    edge_scans: u64,
 }
 impl<'a> Checker<'a, '_> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -369,6 +443,10 @@ impl<'a> Checker<'a, '_> {
             self.bound.push((local, cap));
         }
         Ok(())
+    }
+    /// The dominating facts followed by the `then`-arm predicates.
+    fn with_branch(&self) -> Vec<&'a Value> {
+        self.proven.iter().chain(&self.branch).copied().collect()
     }
     fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
@@ -551,7 +629,11 @@ impl<'a> Checker<'a, '_> {
                     self.predicate(get(value, "predicate")?, frame, depth + 1)?;
                 let boundary = self.path.len();
                 self.path.push((get(value, "predicate")?, true));
+                // As in Edict, the predicate is a fact inside the `then` arm.
+                let branch = self.branch.len();
+                self.branch.push(get(value, "predicate")?);
                 let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                self.branch.truncate(branch);
                 self.path.truncate(boundary);
                 self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, frame, depth + 1)?;
@@ -613,13 +695,24 @@ impl<'a> Checker<'a, '_> {
                         if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
                             return Err(());
                         }
-                        let cap = unsigned_addition::prove(
+                        // The `then`-arm predicates are read only when the
+                        // dominating facts do not prove the sum.
+                        let cap = match unsigned_addition::prove(
                             value,
                             *max,
                             &self.proven,
                             &self.bound,
                             self.types,
-                        )?;
+                        ) {
+                            Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
+                                value,
+                                *max,
+                                &self.with_branch(),
+                                &self.bound,
+                                self.types,
+                            )?,
+                            judged => judged?,
+                        };
                         self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                         true
                     } else {
@@ -634,6 +727,8 @@ impl<'a> Checker<'a, '_> {
                                 return Err(());
                             };
                             order::proven(left, right, &self.proven, self.types)?
+                                || (!self.branch.is_empty()
+                                    && order::proven(left, right, &self.branch, self.types)?)
                         }
                         "core.bytes.at" => {
                             let ([coordinate], [Schema::Blob { low, .. }]) =
@@ -655,6 +750,13 @@ impl<'a> Checker<'a, '_> {
                                 return Err(());
                             };
                             order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
+                                || (!self.branch.is_empty()
+                                    && order::slice_in_range(
+                                        coordinate,
+                                        arguments,
+                                        &self.with_branch(),
+                                        self.types,
+                                    )?)
                         }
                         _ => false,
                     };
@@ -767,7 +869,20 @@ impl<'a> Checker<'a, '_> {
         Ok((charge, height))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        let (charge, encoded) = self.intent_charge(intent, read)?;
+        let ceiling = get(intent, "coreEvaluationBudget")?;
+        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
+            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
+            || encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+    /// The conservative whole-intent charge and encoded output, before the budget.
+    fn intent_charge(&mut self, intent: &'a Value, read: bool) -> Check<(Charge, u128)> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;
@@ -827,13 +942,11 @@ impl<'a> Checker<'a, '_> {
                     charge.append(self.expression(get(node, "input")?, &frame, 0)?.charge)?;
                     let local = get(node, "binding")?;
                     let expected = self.types.local(local)?;
-                    let Schema::Blob { high, .. } = expected.representation() else {
-                        return Err(());
-                    };
-                    charge.append(Charge {
-                        ticks: u128::from(*high) + 1,
-                        storage: u128::from(*high) + 64,
-                    })?;
+                    charge.append(read_charge::read_charge(
+                        &expected,
+                        self.summaries,
+                        self.edge_scans,
+                    )?)?;
                     frame.define(local, expected)?;
                 }
                 _ => return Err(()),
@@ -854,14 +967,7 @@ impl<'a> Checker<'a, '_> {
             ticks: size.checks,
             storage: 0,
         })?;
-        let ceiling = get(intent, "coreEvaluationBudget")?;
-        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
-            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
-            || size.encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
-        {
-            return Err(());
-        }
-        Ok(())
+        Ok((charge, size.encoded))
     }
 }
 /// A count's needle is a Core constant of exactly one byte, checked
@@ -1119,7 +1225,7 @@ mod tests {
                 Value::Array(vec![map([("source", Value::Text("component".into()))])]),
             ),
         ]);
-        assert!(validate(&core, &exports, true).is_err());
+        assert!(validate(&core, &exports, true, 0).is_err());
     }
 
     #[test]
@@ -1129,7 +1235,7 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, true).is_ok());
+        assert!(validate(&core, &exports, true, 0).is_ok());
     }
     #[test]
     fn source_functions_accept_named_unsigned_int_aliases() {
@@ -1180,6 +1286,6 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
     }
 }

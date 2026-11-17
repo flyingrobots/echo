@@ -1,0 +1,32 @@
+package consumer.graph.read@1;
+use lawpack consumer.graph@1 digest "sha256:bcb80379655d8c422ec5b64ac11579e636c5dbe7911fcee468e287dc788acdf9" as graph;
+type Candidate = { guide: graph.Guide, depth: U64, slot: U64, parent: graph.NodeRow, child: graph.NodeRow };
+type Decision = { expand: Bool, guide: graph.Guide, wellFormed: Bool, sufficient: Bool };
+fn select(candidate: Candidate) -> Decision {
+  let split = len(candidate.parent.atomBytes);
+  let followA = if candidate.guide.followA == true && candidate.slot == 0u64 && candidate.guide.a < split || candidate.guide.followA == true && candidate.slot == 1u64 && candidate.guide.a >= split then true else false;
+  let followB = if candidate.guide.followB == true && candidate.slot == 0u64 && candidate.guide.b < split || candidate.guide.followB == true && candidate.slot == 1u64 && candidate.guide.b >= split then true else false;
+  let next: graph.Guide = { a: candidate.guide.a, b: candidate.guide.b, followA: followA, followB: followB, reach: candidate.guide.reach };
+  let expand = if followA == true || followB == true then true else false;
+  let sufficient = if expand == true && candidate.depth > candidate.guide.reach then false else true;
+  let wellFormed = if len(candidate.child.atomBytes) > 0u64 then true else false;
+  return { expand: expand, guide: next, wellFormed: wellFormed, sufficient: sufficient };
+}
+type Input = { read: graph.ClosureQuery };
+intent readClosure(input: Input) returns graph.Closure
+  profile graph.readGraph
+  basis input.read.nodeId
+  budget <= graph.readBudget
+{
+  let observed: graph.Closure = graph.closure(input.read)
+    else {
+      startMissing(query) => graph.StartMissing,
+      nodeBound(query) => graph.NodeBoundExceeded,
+      depthBound(query) => graph.DepthBoundExceeded,
+      scanBound(query) => graph.ScanBoundExceeded,
+      workBound(query) => graph.WorkBoundExceeded,
+      selectorInsufficient(query) => graph.SelectorInsufficient,
+      storageMalformed(query) => graph.StorageMalformed,
+    };
+  return observed;
+}

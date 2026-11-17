@@ -2,11 +2,15 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+#[cfg(test)]
+mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+mod effect_block;
+mod effect_intent;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
@@ -15,6 +19,9 @@ mod list_operations;
 mod list_tests;
 mod matches;
 mod order;
+mod read_cost;
+#[cfg(test)]
+mod read_cost_soundness_tests;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
@@ -23,6 +30,7 @@ mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 
 type Check<T> = Result<T, ()>;
@@ -89,23 +97,60 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    /// Predicates of the enclosing `if`s whose `then` arm is being judged,
+    /// outermost first. A range proof reads them only when it is refused
+    /// without them.
+    branch: Vec<&'a Value>,
     path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
     /// The refined cap of the addition `expression` last proved, keyed by the
     /// node's address, so the binding that holds it reuses the proof.
     proven_sum: Option<(usize, u64)>,
+    /// Declared graph scan allowance charged by every graph read.
+    edge_scans: u64,
 }
 
-pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    run(core, exports, read).map_err(|()| {
+/// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
+/// the module declares no graph reads.
+pub(super) fn validate(
+    core: &Value,
+    exports: &Value,
+    read: bool,
+    edge_scans: u64,
+) -> Result<(), ProviderRefusalV1> {
+    run(core, exports, read, edge_scans).map_err(|()| {
         super::super::unsupported_semantics(
             "core.source-functions",
             "Core source functions are outside the checked pure-function profile",
         )
     })
 }
-fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
+fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
+    let mut proof = judged(core, exports, edge_scans)?;
+    // A graph read always needs its whole-intent budget judged.
+    if super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        proof.intent(intent, read)?;
+    }
+    Ok(())
+}
+/// The worst-case cost of each read intent, for measuring it against the runtime.
+#[cfg(test)]
+fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
+    let mut proof = judged(core, exports, edge_scans)?;
+    members(get(core, "intents")?)?
+        .iter()
+        .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
+        .collect()
+}
+/// Inventories the module's helpers and judges every one of them.
+fn judged<'a>(core: &'a Value, exports: &'a Value, edge_scans: u64) -> Check<Judgment<'a>> {
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -189,20 +234,16 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        branch: Vec::new(),
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
+        edge_scans,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
         proof.function(&name, 1)?;
     }
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
-        return Ok(());
-    }
-    for (_, intent) in members(get(core, "intents")?)? {
-        proof.intent(intent, read)?;
-    }
-    Ok(())
+    Ok(proof)
 }
 impl<'a> Judgment<'a> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -233,6 +274,13 @@ impl<'a> Judgment<'a> {
             self.bound.push((local, cap));
         }
         Ok(())
+    }
+    /// Whether `left >= right` holds here: first from the dominating facts,
+    /// then, only if they do not prove it, from the `then`-arm predicates.
+    fn ordered(&mut self, left: &Value, right: &Value) -> Check<bool> {
+        Ok(order::proven(left, right, &self.proven, &mut self.work)?
+            || (!self.branch.is_empty()
+                && order::proven(left, right, &self.branch, &mut self.work)?))
     }
     /// The byte maximum of every counted operand an addition proof can reach,
     /// resolved through this module's type table so named byte types count.
@@ -318,6 +366,11 @@ impl<'a> Judgment<'a> {
         match string(get(definition, "kind")?)? {
             "Bool" => Ok(Ty::Bool),
             "Int" => self.ty(string(get(definition, "width")?)?, depth + 1),
+            // A table entry may also name an unsigned width directly, as Core does.
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                exact(definition, &["kind"])?;
+                self.ty(kind, depth + 1)
+            }
             "Nominal" => {
                 if string(get(definition, "contract")?)? != key {
                     return Err(());
@@ -391,10 +444,12 @@ impl<'a> Judgment<'a> {
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_branch = std::mem::take(&mut self.branch);
         let caller_path = std::mem::take(&mut self.path);
         let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.branch = caller_branch;
         self.path = caller_path;
         self.bound = caller_bounds;
         self.active.remove(name);
@@ -595,7 +650,11 @@ impl<'a> Judgment<'a> {
                     self.predicate(get(value, "predicate")?, scope, source, prefix + 1)?;
                 let checkpoint = self.path.len();
                 self.path.push((get(value, "predicate")?, true));
+                // As in Edict, the predicate is a fact inside the `then` arm.
+                let branch = self.branch.len();
+                self.branch.push(get(value, "predicate")?);
                 let yes = self.expression(get(value, "then")?, scope, source, prefix + 1)?;
+                self.branch.truncate(branch);
                 self.path.truncate(checkpoint);
                 self.path.push((get(value, "predicate")?, false));
                 let no = self.expression(get(value, "else")?, scope, source, prefix + 1)?;
@@ -725,8 +784,32 @@ impl<'a> Judgment<'a> {
                                 locals: &self.bound,
                                 counts: &counts,
                             };
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
                             let cap =
-                                unsigned_addition::prove(value, *max, &facts, &mut self.work)?;
+                                match unsigned_addition::prove(value, *max, &facts, &mut self.work)
+                                {
+                                    Err(()) if !self.branch.is_empty() => {
+                                        let predicates: Vec<&Value> = self
+                                            .proven
+                                            .iter()
+                                            .chain(&self.branch)
+                                            .copied()
+                                            .collect();
+                                        let facts = unsigned_addition::Facts {
+                                            predicates: &predicates,
+                                            locals: &self.bound,
+                                            counts: &counts,
+                                        };
+                                        unsigned_addition::prove(
+                                            value,
+                                            *max,
+                                            &facts,
+                                            &mut self.work,
+                                        )?
+                                    }
+                                    judged => judged?,
+                                };
                             self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                             cost = cost.plus(Cost {
                                 steps: 3,
@@ -739,12 +822,7 @@ impl<'a> Judgment<'a> {
                                 && includes(expected, right)
                                 && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            if !order::proven(
-                                &arguments[0],
-                                &arguments[1],
-                                &self.proven,
-                                &mut self.work,
-                            )? {
+                            if !self.ordered(&arguments[0], &arguments[1])? {
                                 return Err(());
                             }
                             cost = cost.plus(Cost {
@@ -764,17 +842,9 @@ impl<'a> Judgment<'a> {
                                 (Ok(start), Ok(end)) if start <= end && end <= *min => end - start,
                                 _ => {
                                     let length = order::length_of(&types[0], &arguments[0]);
-                                    if !order::proven(
-                                        &arguments[2],
-                                        &arguments[1],
-                                        &self.proven,
-                                        &mut self.work,
-                                    )? || !order::proven(
-                                        &length,
-                                        &arguments[2],
-                                        &self.proven,
-                                        &mut self.work,
-                                    )? {
+                                    if !self.ordered(&arguments[2], &arguments[1])?
+                                        || !self.ordered(&length, &arguments[2])?
+                                    {
                                         return Err(());
                                     }
                                     *max
@@ -868,7 +938,20 @@ impl<'a> Judgment<'a> {
         ))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        let (cost, output) = self.intent_cost(intent, read)?;
+        let budget = get(intent, "coreEvaluationBudget")?;
+        if cost.steps > number(get(budget, "maxSteps")?)?
+            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
+            || output > number(get(budget, "maxOutputBytes")?)?
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+    /// The worst-case whole-intent cost and output bytes, before the budget.
+    fn intent_cost(&mut self, intent: &'a Value, read: bool) -> Check<(Cost, u64)> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;
@@ -941,13 +1024,11 @@ impl<'a> Judgment<'a> {
                     cost =
                         cost.plus(self.expression(get(node, "input")?, &scope, true, 0)?.cost)?;
                     let declared = self.declaration(get(node, "binding")?, &mut scope)?;
-                    let Ty::Bytes(_, max) = declared.representation() else {
-                        return Err(());
-                    };
-                    cost = cost.plus(Cost {
-                        steps: max.checked_add(1).ok_or(())?,
-                        bytes: max.checked_add(64).ok_or(())?,
-                    })?;
+                    cost = cost.plus(read_cost::read_cost(
+                        &declared,
+                        &self.completed,
+                        self.edge_scans,
+                    )?)?;
                 }
                 "require" if read => {
                     cost =
@@ -971,14 +1052,7 @@ impl<'a> Judgment<'a> {
             steps: validations,
             bytes: 0,
         })?;
-        let budget = get(intent, "coreEvaluationBudget")?;
-        if cost.steps > number(get(budget, "maxSteps")?)?
-            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
-            || output > number(get(budget, "maxOutputBytes")?)?
-        {
-            return Err(());
-        }
-        Ok(())
+        Ok((cost, output))
     }
 }
 fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
@@ -1231,7 +1305,7 @@ mod tests {
                 Value::Array(vec![map([("source", Value::Text("component".into()))])]),
             ),
         ]);
-        assert!(validate(&core, &exports, true).is_err());
+        assert!(validate(&core, &exports, true, 0).is_err());
     }
 
     #[test]
@@ -1241,7 +1315,7 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, true).is_ok());
+        assert!(validate(&core, &exports, true, 0).is_ok());
     }
     #[test]
     fn source_functions_accept_named_unsigned_int_aliases() {
@@ -1292,6 +1366,6 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
     }
 }

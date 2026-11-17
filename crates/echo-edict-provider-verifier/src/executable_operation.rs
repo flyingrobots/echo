@@ -4,6 +4,9 @@
 
 mod bounded_read;
 mod capabilities;
+pub(crate) mod effect_program;
+mod effect_verification;
+mod intrinsic_names;
 mod record_type;
 mod source_functions;
 
@@ -208,7 +211,7 @@ pub(super) fn is_requested(request: &VerificationRequestV1) -> bool {
 pub(super) fn verify(
     request: &VerificationRequestV1,
 ) -> Result<VerificationSuccessV1, ProviderRefusalV1> {
-    validate_target_profile(&request.target_profile)?;
+    let profile = validate_target_profile(&request.target_profile)?;
     validate_requested_output(request)?;
     let core = validate_bound(&request.core, CORE_DOMAIN)?;
     let target_ir = validate_bound(&request.target_ir, TARGET_IR_DOMAIN)?;
@@ -225,6 +228,14 @@ pub(super) fn verify(
         RESULT_PROJECTION_DOMAIN,
     )?;
     let source = validate_source(&source, closure.source, &request.core)?;
+
+    if effect_verification::is_configuration(&configuration) {
+        return effect_verification::verify(request, &closure, source_domain(closure.source)?);
+    }
+    // `echo.dpo@2` exists only for authored effect programs.
+    if profile != super::SelectedTargetProfile::Dpo {
+        return Err(super::effect_profile_only(&request.target_profile));
+    }
 
     if bounded_read::selected(&configuration) {
         return bounded_read::verify(request, &closure);
@@ -352,7 +363,7 @@ fn verify_compiler_produced_pure(
         request,
     )?;
     validate_pure_target_ir(target_ir, request, closure.lawpack, intent_name, intent)?;
-    source_functions::validate(core, exports, false)?;
+    source_functions::validate(core, exports, false, 0)?;
     if !crate::pure_relation::preserves(intent, target_ir, intent_name) {
         return Err(super::unsupported_semantics(
             "target-ir.echo-pure-relation",

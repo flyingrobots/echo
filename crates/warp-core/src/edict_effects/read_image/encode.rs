@@ -24,6 +24,19 @@ pub(in crate::edict_effects) fn export(
     if limit < 16 {
         return Err(Error::ExportLimitExceeded);
     }
+    // Atom rows hash their whole payload. A recording frame may retain an
+    // atom it refused to deliver without charging its payload, so the content
+    // this export would hash is bounded here by the same storage ceiling.
+    let mut hashed = 0_u64;
+    for value in source.readings.values() {
+        if let SlotReading::Attachment(Some(AttachmentValue::Atom(atom))) = value {
+            hashed = u64::try_from(atom.bytes.len())
+                .ok()
+                .and_then(|length| hashed.checked_add(length))
+                .filter(|total| *total <= super::super::EFFECT_READ_STORAGE_CEILING_V1)
+                .ok_or(Error::ExportLimitExceeded)?;
+        }
+    }
     let mut rows = Vec::new();
     rows.try_reserve_exact(source.authorized_reads.len())
         .map_err(|_| Error::HostAllocationFailed)?;
@@ -43,7 +56,7 @@ pub(in crate::edict_effects) fn export(
     })?;
     let size = rows
         .len()
-        .checked_mul(192)
+        .checked_mul(200)
         .and_then(|n| {
             pair_count
                 .checked_mul(64)
@@ -110,11 +123,15 @@ fn prepare<'a>(
     row.slot = EffectSlotRow::from_slot(slot)?;
     row.read_type = ty.0;
     match (slot, value) {
-        (SlotId::Node(_), SlotReading::Node(Some(record))) if record.ty == ty => {
+        (SlotId::Node(key), SlotReading::Node(Some(record))) if record.ty == ty => {
             let mut hash = blake3::Hasher::new();
             hash.update(b"echo.bridge.node-value.v1\0");
             hash.update(&record.ty.0);
             row.subject = hash.finalize().into();
+            if let Some(length) = source.observed_buckets.get(&key) {
+                row.bucket = 1;
+                row.bucket_len_le = length.to_le();
+            }
         }
         (SlotId::Node(_), SlotReading::Node(None))
         | (SlotId::Edge(_), SlotReading::Edge(None))

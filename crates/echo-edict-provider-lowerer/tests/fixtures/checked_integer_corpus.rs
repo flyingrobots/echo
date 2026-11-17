@@ -58,8 +58,13 @@ fn local(id: &str, ty: &str) -> Value {
         ("type", text(ty)),
     ])
 }
+/// A parameter as Amblicit spells it: id `arg.N`, alpha name `$argN`.
 fn param(index: usize, ty: &str) -> Value {
-    local(&format!("arg.{index}"), ty)
+    map([
+        ("id", text(&format!("arg.{index}"))),
+        ("alphaName", text(&format!("$arg{index}"))),
+        ("type", text(ty)),
+    ])
 }
 fn read(local: &Value) -> Value {
     map([("kind", text("local")), ("ref", local.clone())])
@@ -513,6 +518,90 @@ pub(crate) fn cases() -> Vec<Case> {
         ),
     ] {
         cases.refuse(name, "U64", result);
+    }
+    // An unchecked sum whose operand bounds come from separate `&&`
+    // conjuncts, as Amblicit emits `a <= 10 && b <= 10` (a binary `all`).
+    let le = |left: Value, right: Value| {
+        map([
+            ("kind", text("compare")),
+            ("op", text("<=")),
+            ("left", left),
+            ("right", right),
+        ])
+    };
+    let sum = |a: Value, b: Value| typed("core.integer.add", vec!["U64"], vec![a, b]);
+    let both = map([
+        ("kind", text("all")),
+        (
+            "values",
+            Value::Array(vec![
+                le(arg(0, "U64"), u64v(10)),
+                le(arg(1, "U64"), u64v(10)),
+            ]),
+        ),
+    ]);
+    let guarded = map([
+        ("kind", text("if")),
+        ("predicate", both),
+        ("then", sum(arg(0, "U64"), arg(1, "U64"))),
+        ("else", u64v(0)),
+    ]);
+    cases.push(
+        "a_sum_bounded_by_two_conjuncts",
+        Some(vec![(3, 6), (11, 0)]),
+        vec![
+            (
+                "pair",
+                function(vec![param(0, "U64"), param(1, "U64")], "U64", guarded),
+            ),
+            main_fn("U64", call("pair", vec![v(), v()])),
+        ],
+        "U64",
+        vec![CAPABILITY],
+    );
+    {
+        let both = || {
+            map([
+                ("kind", text("all")),
+                (
+                    "values",
+                    Value::Array(vec![
+                        le(arg(0, "U64"), u64v(10)),
+                        le(arg(1, "U64"), u64v(10)),
+                    ]),
+                ),
+            ])
+        };
+        let mut pair = function(
+            vec![param(0, "U64"), param(1, "U64")],
+            "U64",
+            sum(arg(0, "U64"), arg(1, "U64")),
+        );
+        if let Value::Map(fields) = &mut pair {
+            fields.push((text("preconditions"), Value::Array(vec![both()])));
+        }
+        let guarded_main = map([
+            ("kind", text("if")),
+            (
+                "predicate",
+                map([
+                    ("kind", text("all")),
+                    (
+                        "values",
+                        Value::Array(vec![le(v(), u64v(10)), le(v(), u64v(10))]),
+                    ),
+                ]),
+            ),
+            ("then", call("pair", vec![v(), v()])),
+            ("else", u64v(0)),
+        ]);
+        cases.push(
+            "a_precondition_sum_bounded_by_two_conjuncts",
+            Some(vec![(3, 6), (11, 0)]),
+            vec![("pair", pair), main_fn("U64", guarded_main)],
+            "U64",
+            vec![CAPABILITY],
+        );
     }
     cases.0
 }

@@ -5,8 +5,8 @@ use super::function_preconditions;
 use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
-        Binding, Expr, Helper, IdentityIntrinsic, Parameter, Predicate, RuntimeType, MAX_DEPTH,
-        MAX_PROGRAM_NODES,
+        Binding, Expr, Helper, IdentityIntrinsic, IntegerOperation, Parameter, Predicate,
+        RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
     },
     syntax::Parser,
     values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
@@ -58,10 +58,10 @@ pub(crate) fn definitions<'a>(
             "core.list/v1",
             super::list_operations::is_operation as fn(&str) -> bool,
         ),
-        (
-            super::option_operations::CAPABILITY,
-            super::option_operations::is_operation,
-        ),
+        (super::option_operations::CAPABILITY, |name: &str| {
+            super::option_operations::is_operation(name)
+                || super::integer_operations::is_checked(name)
+        }),
     ] {
         if !capabilities.contains(capability) {
             for artifact in [core, exports] {
@@ -866,6 +866,9 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::integer_operations::is_operation(name) {
+                return super::integer_operations::infer(name, types, &actual);
+            }
             if super::option_operations::is_operation(name) {
                 let [item] = declared.as_slice() else {
                     return Err(Error::InvalidArtifact);
@@ -1071,6 +1074,22 @@ fn structural_ceiling(
     }
     if text_field(value, "kind")? == "const" {
         return unsigned_literal(value);
+    }
+    if text_field(value, "kind")? == "call" {
+        let callee = text_field(value, "callee")?;
+        if callee == "core.integer.min" || callee == "core.integer.max" {
+            // `min` is at most either operand's ceiling; `max` at most the larger.
+            let [left, right] = array(field(value, "args")?)? else {
+                return Err(Error::InvalidArtifact);
+            };
+            let left = unsigned_ceiling(left, max, caps, facts, parser, depth + 1)?;
+            let right = unsigned_ceiling(right, max, caps, facts, parser, depth + 1)?;
+            return Ok(if callee == "core.integer.min" {
+                left.min(right)
+            } else {
+                left.max(right)
+            });
+        }
     }
     if text_field(value, "kind")? == "call" && text_field(value, "callee")? == "core.integer.add" {
         let [left, right] = array(field(value, "args")?)? else {
@@ -1371,6 +1390,22 @@ impl Heights<'_> {
                     maximum = maximum.max(self.expr(argument, depth + 1)?);
                 }
                 maximum + 1
+            }
+            Expr::Integer {
+                operation,
+                left,
+                right,
+                ..
+            } => {
+                // A checked result is an Option cell around the word.
+                let shell = usize::from(!matches!(
+                    operation,
+                    IntegerOperation::Min | IntegerOperation::Max
+                ));
+                self.expr(left, depth + 1)?
+                    .max(self.expr(right, depth + 1)?)
+                    .max(shell)
+                    + 1
             }
             Expr::Option { item, args, .. } => {
                 // A present Option nests its item one level below the value.

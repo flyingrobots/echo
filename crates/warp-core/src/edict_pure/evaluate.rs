@@ -231,6 +231,14 @@ pub(crate) fn expression(
         | Expr::ListConcat { .. } => {
             super::list_operations::evaluate(expr, locals, helpers, meter, depth)
         }
+        Expr::Integer {
+            operation,
+            max,
+            left,
+            right,
+        } => super::integer_operations::evaluate(
+            *operation, *max, left, right, locals, helpers, meter, depth,
+        ),
         Expr::Option {
             operation,
             item,

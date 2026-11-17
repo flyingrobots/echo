@@ -30,6 +30,13 @@ pub(super) fn present(core: &Value) -> Check<bool> {
                     && matches!(
                         string(get(value, "callee").unwrap_or(&Value::Null)),
                         Ok("core.integer.add"
+                            | "core.integer.min"
+                            | "core.integer.max"
+                            | "core.integer.checkedAdd"
+                            | "core.integer.checkedSub"
+                            | "core.integer.checkedMul"
+                            | "core.integer.checkedDiv"
+                            | "core.integer.checkedRem"
                             | "core.integer.subtract"
                             | "core.bytes.slice"
                             | "core.bytes.at"
@@ -143,6 +150,23 @@ fn ceiling(
         };
         u128::from(ceiling(a, max, caps, locals, types, depth + 1)?)
             + u128::from(ceiling(b, max, caps, locals, types, depth + 1)?)
+    } else if string(get(expr, "kind")?)? == "call"
+        && matches!(
+            string(get(expr, "callee")?)?,
+            "core.integer.min" | "core.integer.max"
+        )
+    {
+        // `min` is at most either operand's ceiling; `max` at most the larger.
+        let [a, b] = sequence(get(expr, "args")?)? else {
+            return Err(());
+        };
+        let a = ceiling(a, max, caps, locals, types, depth + 1)?;
+        let b = ceiling(b, max, caps, locals, types, depth + 1)?;
+        u128::from(if string(get(expr, "callee")?)? == "core.integer.min" {
+            a.min(b)
+        } else {
+            a.max(b)
+        })
     } else if string(get(expr, "kind")?)? == "call"
         && string(get(expr, "callee")?)? == "core.bytes.count"
     {

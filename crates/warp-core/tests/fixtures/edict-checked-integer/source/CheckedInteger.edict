@@ -1,0 +1,75 @@
+package consumer.effect.program@1;
+use lawpack consumer.effect@1 digest "sha256:b74d1dfd492e3d4c02f935e0981553d8e60989249282adc734ee0d8b5229894c" as fx;
+type Input = { anchor: Bytes<exact=32>, op: U64, start: U64, end: U64, small: U8, mid: U32 };
+fn apply(op: U64, a: U64, b: U64) -> Option<U64> {
+  return if op == 0u64 then checkedAdd(a, b)
+    else if op == 1u64 then checkedSub(a, b)
+    else if op == 2u64 then checkedMul(a, b)
+    else if op == 3u64 then checkedDiv(a, b)
+    else if op == 4u64 then checkedRem(a, b)
+    else if op == 5u64 then some(min(a, b))
+    else some(max(a, b));
+}
+fn addTopU8(x: U8) -> Bool { let r = checkedAdd(x, 0u8); return isSome(r) && unwrap(r) == x; }
+fn addOverU8(x: U8) -> Bool { let r = checkedAdd(x, 1u8); return !isSome(r); }
+fn subUnderU8(x: U8) -> Bool { let r = checkedSub(0u8, x); return !isSome(r); }
+fn subSelfU8(x: U8) -> Bool { let r = checkedSub(x, x); return isSome(r) && unwrap(r) == 0u8; }
+fn mulOverU8(x: U8) -> Bool { let r = checkedMul(x, 2u8); return !isSome(r); }
+fn mulOneU8(x: U8) -> Bool { let r = checkedMul(x, 1u8); return isSome(r) && unwrap(r) == x; }
+fn divZeroU8(x: U8) -> Bool { let r = checkedDiv(x, 0u8); return !isSome(r); }
+fn divSelfU8(x: U8) -> Bool { let r = checkedDiv(x, x); return isSome(r) && unwrap(r) == 1u8; }
+fn remZeroU8(x: U8) -> Bool { let r = checkedRem(x, 0u8); return !isSome(r); }
+fn remSelfU8(x: U8) -> Bool { let r = checkedRem(x, x); return isSome(r) && unwrap(r) == 0u8; }
+fn minMaxU8(x: U8) -> Bool { return min(x, 0u8) == 0u8 && max(x, 0u8) == x; }
+fn boundsU8(x: U8) -> U64 {
+  return if !addTopU8(x) then 1u64
+    else if !addOverU8(x) then 2u64
+    else if !subUnderU8(x) then 3u64
+    else if !subSelfU8(x) then 4u64
+    else if !mulOverU8(x) then 5u64
+    else if !mulOneU8(x) then 6u64
+    else if !divZeroU8(x) then 7u64
+    else if !divSelfU8(x) then 8u64
+    else if !remZeroU8(x) then 9u64
+    else if !remSelfU8(x) then 10u64
+    else if !minMaxU8(x) then 11u64
+    else 0u64;
+}
+fn addTopU32(x: U32) -> Bool { let r = checkedAdd(x, 0u32); return isSome(r) && unwrap(r) == x; }
+fn addOverU32(x: U32) -> Bool { let r = checkedAdd(x, 1u32); return !isSome(r); }
+fn subUnderU32(x: U32) -> Bool { let r = checkedSub(0u32, x); return !isSome(r); }
+fn subSelfU32(x: U32) -> Bool { let r = checkedSub(x, x); return isSome(r) && unwrap(r) == 0u32; }
+fn mulOverU32(x: U32) -> Bool { let r = checkedMul(x, 2u32); return !isSome(r); }
+fn mulOneU32(x: U32) -> Bool { let r = checkedMul(x, 1u32); return isSome(r) && unwrap(r) == x; }
+fn divZeroU32(x: U32) -> Bool { let r = checkedDiv(x, 0u32); return !isSome(r); }
+fn divSelfU32(x: U32) -> Bool { let r = checkedDiv(x, x); return isSome(r) && unwrap(r) == 1u32; }
+fn remZeroU32(x: U32) -> Bool { let r = checkedRem(x, 0u32); return !isSome(r); }
+fn remSelfU32(x: U32) -> Bool { let r = checkedRem(x, x); return isSome(r) && unwrap(r) == 0u32; }
+fn minMaxU32(x: U32) -> Bool { return min(x, 0u32) == 0u32 && max(x, 0u32) == x; }
+fn boundsU32(x: U32) -> U64 {
+  return if !addTopU32(x) then 1u64
+    else if !addOverU32(x) then 2u64
+    else if !subUnderU32(x) then 3u64
+    else if !subSelfU32(x) then 4u64
+    else if !mulOverU32(x) then 5u64
+    else if !mulOneU32(x) then 6u64
+    else if !divZeroU32(x) then 7u64
+    else if !divSelfU32(x) then 8u64
+    else if !remZeroU32(x) then 9u64
+    else if !remSelfU32(x) then 10u64
+    else if !minMaxU32(x) then 11u64
+    else 0u64;
+}
+fn run(op: U64, a: U64, b: U64, small: U8, mid: U32) -> U64 {
+  return if op == 7u64 then boundsU8(small)
+    else if op == 8u64 then boundsU32(mid)
+    else default(apply(op, a, b), 42u64);
+}
+intent settle(input: Input) returns fx.Count
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let width: fx.Count = run(input.op, input.start, input.end, input.small, input.mid);
+  return width;
+}

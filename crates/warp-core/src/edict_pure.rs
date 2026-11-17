@@ -10,6 +10,8 @@
 //! constant uses the same deterministic copy charges as other runtime values;
 //! package-size limits bound decoding before evaluation.
 
+#[cfg(test)]
+mod checked_integer_tests;
 mod decode;
 pub(crate) mod evaluate;
 pub(crate) mod failure_sets;
@@ -20,6 +22,7 @@ pub(crate) mod functions;
 mod identity;
 #[cfg(test)]
 mod identity_tests;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_operations_tests;

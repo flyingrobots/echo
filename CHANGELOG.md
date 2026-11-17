@@ -7,6 +7,19 @@
 
 ### Added
 
+- Checked integer arithmetic and `min`/`max` (#998, the Echo half of
+  amblicit#321). warp-core, the provider lowerer and the provider verifier
+  each admit `core.integer.checked{Add,Sub,Mul,Div,Rem}<W>`, returning
+  `Option<W>` under `core.option/v1` and absent on overflow, underflow or a
+  zero divisor, and `core.integer.{min,max}<W>`, on `U8`, `U32` and `U64`
+  operands of exactly that width. `min` and `max` keep their upper bounds for
+  later addition proofs. Unknown names, other widths and mismatched operands
+  are refused by all three. A shared corpus fixes the verdicts at each width's
+  bounds, and warp-core executes each accepted case. A public compiler witness
+  publishes every checked form and `min`/`max` through the promoted provider
+  package (lowerer `05c5d39e`, verifier `a6b967f0`) and the runtime checks
+  each result at the type bounds. Artifacts without these calls are judged as
+  before.
 - Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
   lowerer and the verifier accept declared function failure sets, `fail` and
   intent `attempt` nodes lowered as Target pure bindings with `failureArms`.

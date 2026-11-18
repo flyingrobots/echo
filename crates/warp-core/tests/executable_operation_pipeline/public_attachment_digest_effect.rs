@@ -23,8 +23,8 @@ use warp_core::edict_pure::{EvaluationError, EvaluationLimits};
 use warp_core::{
     make_head_id, AdmittedEchoOperationInvocation, AtomPayload, AttachmentValue,
     EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationBudgetV1,
-    EchoOperationInvocationAdmissionPolicy, EngineBuilder, GraphStore, InboxPolicy, NodeId,
-    NodeKey, NodeRecord, PlaybackMode, TrustedRuntimeHost, TypeId, WarpId, WarpOp, WorldlineId,
+    EchoOperationInvocationAdmissionPolicy, EffectPackageHost, EngineBuilder, GraphStore,
+    InboxPolicy, NodeId, NodeKey, NodeRecord, PlaybackMode, TypeId, WarpId, WarpOp, WorldlineId,
     WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
 
@@ -65,7 +65,7 @@ fn limits() -> EvaluationLimits {
     }
 }
 
-fn host(atom_type: TypeId, atom: &[u8]) -> (TrustedRuntimeHost, WriterHeadKey) {
+fn host(atom_type: TypeId, atom: &[u8]) -> (EffectPackageHost, WriterHeadKey) {
     let mut store = GraphStore::new(WARP);
     store.insert_node(ROOT, NodeRecord { ty: BUFFER_TYPE });
     store.insert_node(BUFFER, NodeRecord { ty: BUFFER_TYPE });
@@ -95,10 +95,7 @@ fn host(atom_type: TypeId, atom: &[u8]) -> (TrustedRuntimeHost, WriterHeadKey) {
         ))
         .expect("head");
     let engine = EngineBuilder::new(store, ROOT).build();
-    (
-        TrustedRuntimeHost::new(runtime, engine).expect("host"),
-        head,
-    )
+    (EffectPackageHost::new(runtime, engine).expect("host"), head)
 }
 
 fn id(bytes: impl AsRef<[u8]>) -> Value {
@@ -179,7 +176,7 @@ fn invocation(
 }
 
 struct Run {
-    host: TrustedRuntimeHost,
+    host: EffectPackageHost,
     output: Result<Vec<u8>, EffectFrameError>,
     completed: Option<(AdmittedEchoOperationInvocation, CompletedEffectEvaluation)>,
 }

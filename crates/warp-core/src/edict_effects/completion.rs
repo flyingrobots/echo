@@ -34,7 +34,7 @@ pub enum EffectCompletionError {
 pub struct CompletedEffectEvaluation {
     execution: AuthoredExecution,
     reads: EffectReadSetImage,
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(feature = "trusted_runtime")]
     authority: crate::echo_operation::EchoOperationEvaluationAuthorityV1,
 }
 impl CompletedEffectEvaluation {
@@ -43,19 +43,19 @@ impl CompletedEffectEvaluation {
         reads: EffectReadSetImage,
         authority: crate::echo_operation::EchoOperationEvaluationAuthorityV1,
     ) -> Self {
-        // Without the native owner feature there is no runtime-bound frame
+        // Without the trusted runtime there is no runtime-bound frame
         // constructor or derivation crossing. Retaining owner authority is
         // required precisely when that owner crossing is compiled.
-        #[cfg(not(feature = "native_rule_bootstrap"))]
+        #[cfg(not(feature = "trusted_runtime"))]
         drop(authority);
         Self {
             execution,
             reads,
-            #[cfg(feature = "native_rule_bootstrap")]
+            #[cfg(feature = "trusted_runtime")]
             authority,
         }
     }
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn is_owned_by(
         &self,
         authority: &crate::echo_operation::EchoOperationEvaluationAuthorityV1,

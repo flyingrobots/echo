@@ -24,7 +24,8 @@
   (`relation.source-alias`), `tooLarge` declared `resourceFault` where Echo's
   node-atom-read table says `integrityFault` (`relation.intrinsic-contract`),
   and its failure arm then mapping to a `resourceFault` obstruction
-  (`relation.failure-arms`).
+  (`relation.failure-arms`). The components are promoted from byte-equal G4
+  candidates (lowerer `77b830be`, verifier `acdd9bf4`).
 
 - `echo.dpo@2.attachmentValueDigest(atomType, atom) -> Bytes<exact=32>`
   (#1011), a fourth `ContentAddressV1` pure intrinsic, lets Edict source

@@ -609,6 +609,21 @@ cost rules `contentAddress {base: 71, perArgumentMax: [0, 0, 0, 1, 67]}`,
 declarations (`pureIntrinsics` and `types`). The frozen `echo.dpo@1` catalog
 stays API v1 and declares none of them.
 
+**Helpers and fold steps.** An identity call is admitted wherever a pure
+expression is: in the intent body, in a source helper and in a fold step,
+which is a helper. All three judges admit it under the same pinned contracts
+and charge it in the caller's or helper's summary. Before
+flyingrobots/echo#1005 the verifier's helper call graph admitted only module
+helpers and core builtins, so it refused a package the lowerer accepted when
+a helper called a constructor. The public witness
+`crates/warp-core/tests/fixtures/edict-helper-identity` computes an id in a
+helper and chains two ids in a fold step, and the shared corpus
+`crates/echo-edict-provider-lowerer/tests/fixtures/helper_identity_corpus.rs`
+holds the lowerer, the verifier and warp-core to one verdict on it, on the
+intent-body fixture, and on three forgeries of the helper package: the frozen
+`echo.dpo@1` catalog in its lowering artifacts, a helper calling
+`echo.dpo@1.contentAddress`, and a one-step declared budget.
+
 **Admission.** The lowerer, the separate verifier and the runtime each state
 the contract themselves and admit identity calls only when the pinned
 `echo.dpo@2` catalog carries exactly those three entries and the edge type,

@@ -1,5 +1,5 @@
 package consumer.identity.program@1;
-use lawpack consumer.identity@1 digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" as fx;
+use lawpack consumer.identity@1 digest "sha256:81cbd2527f86288cd7f42a757cdc595de4216966c671ff9f4e15d7ee52e8a59d" as fx;
 use target echo.dpo@2 digest "sha256:d17fbd0baf7bfddd9a6c9667e676db2ab45bae104e77550760340bc8f0736003" as echo;
 type Id = Bytes<exact=32>;
 type Input = {
@@ -8,6 +8,8 @@ type Input = {
   atomType: Id,
   atom: Bytes<max=16>,
   edgeA: Id,
+  storedType: Id,
+  storedAtomType: Id,
 };
 type Output = {
   helperNode: Id,
@@ -39,9 +41,9 @@ intent ids(input: Input) returns Output
   let chain = fold(start, parentStep, 2u64);
   let node: fx.NodeWrite = {
     atomBytes: input.atom,
-    atomType: input.atomType,
-    nodeId: helperNode,
-    nodeType: input.nodeType,
+    atomType: input.storedAtomType,
+    nodeId: leafId(input.warp, input.storedType, input.storedAtomType, input.atom),
+    nodeType: input.storedType,
     warpId: input.warp,
   };
   let written: fx.Written = fx.ensureNode(node);

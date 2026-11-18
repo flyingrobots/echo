@@ -41,6 +41,7 @@ mod unsigned_addition;
 mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use echo_edict_canonical::CanonicalValueV1 as Value;
 pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
@@ -154,7 +155,7 @@ pub(super) fn validate(
     })
 }
 fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
-    let mut proof = judged(core, exports, edge_scans, false)?;
+    let mut proof = judged(core, exports, edge_scans, false, &mut Trail::new())?;
     // A graph read always needs its whole-intent budget judged.
     if super::map_field(core, "functions").is_none()
         && !unsigned_addition::present(core)?
@@ -170,7 +171,7 @@ fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> 
 /// The worst-case cost of each read intent, for measuring it against the runtime.
 #[cfg(test)]
 fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
-    let mut proof = judged(core, exports, edge_scans, false)?;
+    let mut proof = judged(core, exports, edge_scans, false, &mut Trail::new())?;
     members(get(core, "intents")?)?
         .iter()
         .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
@@ -182,10 +183,13 @@ fn judged<'a>(
     exports: &'a Value,
     edge_scans: u64,
     identity: bool,
+    trail: &mut Trail,
 ) -> Check<Judgment<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
+    trail.at(R::FailureSets, &["core"]);
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
     failure_sets::judge(core, coordinate)?;
+    trail.at(R::HelperInventory, &["exports", "pureFunctions"]);
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -232,6 +236,7 @@ fn judged<'a>(
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
     let source_functions = super::map_field(core, "functions")
         .map(members)
         .transpose()?
@@ -282,8 +287,10 @@ fn judged<'a>(
         identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
+        trail.at(R::HelperFunction, &["functions", &name]);
         proof.function(&name, 1)?;
     }
+    trail.at(R::HelperPreconditions, &["core"]);
     // Every call to a precondition-bearing function proves its preconditions
     // from the facts that dominate it, wherever it is in the module.
     let contracts = proof

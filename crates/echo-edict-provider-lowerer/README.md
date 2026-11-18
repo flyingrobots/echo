@@ -230,6 +230,33 @@ model over declared types that does not bound the runtime's meter. It does not
 judge graph-law semantics or grant authority. The verifier judges the same programs
 independently in `effect_package::verify_effect_package`.
 
+## Refusal reasons
+
+`UnsupportedProgram` carries a `refusal_reason::ProgramRefusal` that names the
+check that refused and the artifact path it was reading, such as
+`effect-program.relation.source-alias` at `/lowering_artifacts/source_artifact`
+or `effect-program.budget.steps` at
+`/core/intents/<intent>/coreEvaluationBudget`. `RefusalReason::code` returns
+the stable code; a code never changes meaning. Codes are grouped by stage:
+`bundle-envelope`, the `*-envelope` and `core-pin` checks, `intent-*`,
+`correspondence.*` (Core and Target IR node for node), `relation.*` (the pinned
+profile, catalog, lawpack, adapter, source alias and each effect's
+authorization, intrinsic contract and failure arms),
+`graph-read-declaration`, `type-table`, `failure-sets`, `helpers.*`,
+`input-binding`, `basis`, `input-constraint`, `body.*` (one node, with its
+path under `body/nodes/<n>`) and `budget.*`. Paths are at most 256 bytes; a
+longer path is cut at a character boundary and ends in `...`.
+
+On the component route the refusal keeps its kind (`UnsupportedSemantics`)
+and its first diagnostic, `echo.provider.unsupported-semantics`, and adds a
+second diagnostic whose code is that code followed by `.` and the reason
+code, with the message `refused at <path>`. The second diagnostic is added
+only when the request's `max_diagnostic_count` is at least 2 and both fit in
+`max_total_response_bytes`, so a refusal never exceeds the host's limits.
+The shared corpus pins the code each refused entry reaches
+(`tests/fixtures/effect-programs/reasons.txt`), and the verifier names the
+same code for every entry.
+
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host
 features are dev dependencies only. Publication does not change the frozen WIT

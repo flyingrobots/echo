@@ -42,6 +42,7 @@ mod unsigned_addition;
 mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use echo_edict_canonical::CanonicalValueV1 as Value;
 pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
@@ -153,7 +154,14 @@ fn each_intent<'a>(
     mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
 ) -> Check<()> {
     let mut types = Types::new(core);
-    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans, false)?;
+    let (definitions, summaries) = prepare(
+        core,
+        exports,
+        &mut types,
+        edge_scans,
+        false,
+        &mut Trail::new(),
+    )?;
     let mut checker = Checker {
         types: &mut types,
         definitions: &definitions,
@@ -186,14 +194,18 @@ fn prepare<'a>(
     types: &mut Types<'a>,
     edge_scans: u64,
     identity_admitted: bool,
+    trail: &mut Trail,
 ) -> Check<Prepared<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
+    trail.at(R::FailureSets, &["core"]);
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
     failure_sets::judge(core, coordinate)?;
-    let definitions = inventory(core, exports, types)?;
+    trail.at(R::HelperInventory, &["exports", "pureFunctions"]);
+    let definitions = inventory(core, exports, types, trail)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, definition) in &definitions {
+        trail.at(R::HelperFunction, &["functions", name]);
         let mut edges = BTreeSet::new();
         let mut expressions = Vec::new();
         for binding in sequence(get(definition.body, "bindings")?)? {
@@ -298,11 +310,12 @@ fn prepare<'a>(
     let summaries = summarize(
         &definitions,
         types,
-        pending,
-        &callers,
+        (pending, &callers),
         edge_scans,
         identity_admitted,
+        trail,
     )?;
+    trail.at(R::HelperPreconditions, &["core"]);
     preconditions_are_typed(&definitions, &summaries, types, identity_admitted)?;
     // Every call to a precondition-bearing function proves its preconditions
     // from the facts that dominate it, wherever it is in the module.
@@ -364,10 +377,10 @@ fn preconditions_are_typed<'a>(
 fn summarize<'a, 'n>(
     definitions: &BTreeMap<String, Definition<'a>>,
     types: &mut Types<'a>,
-    mut pending: BTreeMap<&'n str, usize>,
-    callers: &BTreeMap<&'n str, Vec<&'n str>>,
+    (mut pending, callers): (BTreeMap<&'n str, usize>, &BTreeMap<&'n str, Vec<&'n str>>),
     edge_scans: u64,
     identity_admitted: bool,
+    trail: &mut Trail,
 ) -> Check<BTreeMap<String, Summary>> {
     let mut ready: BTreeSet<&'n str> = pending
         .iter()
@@ -377,6 +390,7 @@ fn summarize<'a, 'n>(
     // Dependencies receive their own complete summary before any caller can
     // use it, in either name order.
     while let Some(name) = ready.pop_first() {
+        trail.at(R::HelperFunction, &["functions", name]);
         types.step(0)?;
         let definition = definitions.get(name).ok_or(())?;
         let summary = Checker {
@@ -406,6 +420,7 @@ fn summarize<'a, 'n>(
             }
         }
     }
+    trail.at(R::HelperInventory, &["core", "functions"]);
     if summaries.len() != definitions.len() {
         return Err(());
     }
@@ -415,6 +430,7 @@ fn inventory<'a>(
     core: &'a Value,
     exports: &'a Value,
     types: &mut Types<'_>,
+    trail: &mut Trail,
 ) -> Check<BTreeMap<String, Definition<'a>>> {
     let mut definitions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
@@ -464,6 +480,7 @@ fn inventory<'a>(
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
     let source_functions = super::map_field(core, "functions")
         .map(members)
         .transpose()?

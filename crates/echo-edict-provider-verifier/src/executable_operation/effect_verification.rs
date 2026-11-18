@@ -18,6 +18,7 @@ use super::{
     VerificationSuccessV1, CORE_ABI, CORE_DOMAIN, EXPORTS_DOMAIN, PACKAGE_SCHEMA, REPORT_DOMAIN,
     REPORT_ROLE, TARGET_IR_DOMAIN,
 };
+use crate::effect_package::{EffectPackageRefusal, ProgramRefusal};
 use echo_edict_canonical::{decode_canonical_cbor_v1, digest_canonical_value_bytes_v1};
 
 const SUBJECT: &str = "edict-effect-program";
@@ -168,7 +169,8 @@ pub(super) fn verify(
         &configuration,
     )?;
     let actual = &closure.package.artifact.artifact.bytes;
-    let refusal = if crate::effect_package::verify_effect_package(actual).is_err() {
+    let judged = crate::effect_package::verify_effect_package(actual);
+    let refusal = if judged.is_err() {
         Some((REFUSED, "the effect-program judgment refuses the package"))
     } else if actual != &expected {
         Some((
@@ -178,26 +180,59 @@ pub(super) fn verify(
     } else {
         None
     };
-    report(request, closure, refusal)
+    let reason = match judged {
+        Err(EffectPackageRefusal::UnsupportedProgram(program)) => Some(program),
+        _ => None,
+    };
+    report(request, closure, refusal, reason.as_ref())
+}
+
+/// The diagnostic naming the check that refused the program: its code extends
+/// [`REFUSED`], so the list stays strictly ascending. It is added only when
+/// the host's limits admit a second diagnostic of its size; the path is
+/// already bounded, so it never exceeds a few hundred bytes.
+fn reason_diagnostic(
+    request: &VerificationRequestV1,
+    first: &Diagnostic,
+    program: &ProgramRefusal,
+) -> Option<Diagnostic> {
+    let reason = Diagnostic {
+        code: format!("{REFUSED}.{}", program.reason().code()),
+        severity: DiagnosticSeverity::Error,
+        message: format!("refused at {}", program.path()),
+        repair: None,
+    };
+    let bytes = [first, &reason]
+        .iter()
+        .map(|diagnostic| diagnostic.code.len() + diagnostic.message.len())
+        .sum::<usize>();
+    let fits =
+        u64::try_from(bytes).is_ok_and(|bytes| bytes <= request.limits.max_total_response_bytes);
+    (request.limits.max_diagnostic_count >= 2 && fits).then_some(reason)
 }
 
 fn report(
     request: &VerificationRequestV1,
     closure: &ClosureInputs<'_>,
     refusal: Option<(&str, &str)>,
+    reason: Option<&ProgramRefusal>,
 ) -> Result<VerificationSuccessV1, ProviderRefusalV1> {
     let (outcome, diagnostics, bytes) = match refusal {
         None => ("accepted", Vec::new(), Vec::new()),
-        Some((code, message)) => (
-            "rejected",
-            vec![Diagnostic {
+        Some((code, message)) => {
+            let first = Diagnostic {
                 code: code.to_owned(),
                 severity: DiagnosticSeverity::Error,
                 message: message.to_owned(),
                 repair: None,
-            }],
-            code.as_bytes().to_vec(),
-        ),
+            };
+            let second = reason.and_then(|program| reason_diagnostic(request, &first, program));
+            (
+                "rejected",
+                std::iter::once(first).chain(second).collect(),
+                code.as_bytes().to_vec(),
+            )
+        }
     };
     let report = build_report(
         &closure.package.artifact.reference,

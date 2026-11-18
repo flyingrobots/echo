@@ -97,6 +97,9 @@ const RETAINED: &[(&str, &str)] = retained![
 ];
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");
+/// The check each refused entry targets, shared with the lowerer.
+const REASONS: &str =
+    include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/reasons.txt");
 
 fn package_bytes(name: &str) -> Vec<u8> {
     let hex = RETAINED
@@ -215,15 +218,45 @@ fn the_verifier_reaches_every_retained_corpus_verdict() {
     let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = verify_effect_package(&package_bytes(&name));
-        let expected = if accept {
-            Ok(())
-        } else {
-            Err(EffectPackageRefusal::UnsupportedProgram)
+        let agrees = match &judged {
+            Ok(()) => accept,
+            Err(EffectPackageRefusal::UnsupportedProgram(_)) => !accept,
+            Err(_) => false,
         };
-        if judged != expected {
-            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
+        if !agrees {
+            disagreements.push(format!("{name}: expected accept={accept}, got {judged:?}"));
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
+}
+
+/// Every refused entry names the check its one edit targets, the same code
+/// the lowerer names.
+#[test]
+fn the_verifier_names_the_check_each_refused_entry_targets() {
+    let reasons = REASONS
+        .lines()
+        .map(|line| line.split_once(' ').expect("entry"))
+        .collect::<Vec<_>>();
+    let refused = verdicts()
+        .into_iter()
+        .filter_map(|(name, accept)| (!accept).then_some(name))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        refused.iter().map(String::as_str).collect::<Vec<_>>(),
+        "every refused entry has exactly one reason, in corpus order"
+    );
+    let mut disagreements = Vec::new();
+    for (name, code) in &reasons {
+        match verify_effect_package(&package_bytes(name)) {
+            Err(EffectPackageRefusal::UnsupportedProgram(refusal))
+                if refusal.reason().code() == *code => {}
+            other => disagreements.push(format!("{name}: expected {code}, got {other:?}")),
+        }
+    }
+    // Zero witnesses would pass vacuously.
+    assert!(reasons.len() >= 10, "{} refused entries", reasons.len());
     assert_eq!(disagreements, Vec::<String>::new());
 }
 
@@ -240,7 +273,11 @@ fn verifier_pure_judgment_keeps_the_zero_effect_echo_dpo_1_control() {
 fn verifier_pure_judgment_rejects_zero_effect_echo_dpo_2_without_profile_artifacts() {
     let refusal = verify_effect_package(&zero_effect_package_with_dpo_2_target_profile());
     assert!(
-        matches!(refusal, Err(EffectPackageRefusal::UnsupportedProgram)),
+        matches!(
+            &refusal,
+            Err(EffectPackageRefusal::UnsupportedProgram(program))
+                if program.reason().code() == "effect-program.relation.no-effect-profile"
+        ),
         "expected pure verifier to refuse unauthenticated @2 zero-effect Target; got {refusal:?}"
     );
 }

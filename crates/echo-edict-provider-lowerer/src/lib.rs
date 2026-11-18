@@ -19,6 +19,7 @@ use echo_edict_canonical::{
 mod component;
 pub mod effect_publication;
 mod executable_operation;
+pub mod refusal_reason;
 
 const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {
     major: 1,
@@ -2153,6 +2154,43 @@ fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
         "echo.provider.local-reference-out-of-scope",
         "Core local reference is not in scope",
     )
+}
+
+/// Refuse an effect program outside the lowerer's judgment, adding a second
+/// diagnostic that names the refusing check and the artifact path it read.
+///
+/// The reason diagnostic's code extends the refusal's own code, so the list
+/// stays strictly ascending. It is added only when the host's response limits
+/// admit a second diagnostic of its size; its path is already bounded by
+/// [`refusal_reason::MAX_PATH_BYTES`], so it never exceeds a few hundred bytes.
+fn unsupported_program(
+    subject: &str,
+    check: &str,
+    program: &refusal_reason::ProgramRefusal,
+    limits: ResponseLimitsV1,
+) -> ProviderRefusalV1 {
+    let mut refusal = unsupported_semantics(subject, check);
+    let reason = Diagnostic {
+        code: format!(
+            "echo.provider.unsupported-semantics.{}",
+            program.reason().code()
+        ),
+        severity: DiagnosticSeverity::Error,
+        message: format!("refused at {}", program.path()),
+        repair: None,
+    };
+    let bytes = refusal
+        .diagnostics
+        .iter()
+        .chain(std::iter::once(&reason))
+        .map(|diagnostic| diagnostic.code.len() + diagnostic.message.len())
+        .sum::<usize>();
+    let fits_bytes =
+        u64::try_from(bytes).is_ok_and(|bytes| bytes <= limits.max_total_response_bytes);
+    if limits.max_diagnostic_count >= 2 && fits_bytes {
+        refusal.diagnostics.push(reason);
+    }
+    refusal
 }
 
 /// Refuse semantics outside the lowering closure, naming the check that fired.

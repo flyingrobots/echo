@@ -16,7 +16,9 @@ use super::{
     ProviderRefusalV1, ADAPTER_DOMAIN, CORE_ABI, CORE_DOMAIN, EXPORTS_DOMAIN, LAWPACK_DOMAIN,
     PACKAGE_DOMAIN, PACKAGE_ROLE, TARGET_IR_DOMAIN,
 };
-use crate::effect_publication::{encode_effect_publication, EffectPublicationInput};
+use crate::effect_publication::{
+    encode_effect_publication, EffectPublicationError, EffectPublicationInput,
+};
 
 const SUBJECT: &str = "edict-effect-program";
 const BUNDLE_SCHEMA: &str = "echo.compiler-produced-effect-program/v1";
@@ -87,7 +89,12 @@ pub(super) fn lower(
         source_domain,
         configuration: &closure.configuration.artifact.artifact.bytes,
     })
-    .map_err(|error| unsupported(&error.to_string()))?;
+    .map_err(|error| match &error {
+        EffectPublicationError::UnsupportedProgram(program) => {
+            crate::unsupported_program(SUBJECT, &error.to_string(), program, request.limits)
+        }
+        _ => unsupported(&error.to_string()),
+    })?;
     within_response_limits(request, &package)?;
     Ok(LoweringSuccessV1 {
         outputs: vec![LoweringOutputArtifact {

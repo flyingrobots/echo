@@ -345,6 +345,14 @@
 
 ### Fixed
 
+- A failure in an imported lawpack helper can no longer escape unmapped
+  (#1006). The runtime, the lowerer and the verifier accepted a forged package
+  whose intent called an exported pure helper whose body fails, outright or in
+  one branch, with no `attempt`. All three now require every exported pure
+  helper body to be failure-free. Amblicit already refuses to publish such a
+  helper, so compiler-produced packages are unaffected. Four shared-corpus
+  entries fix the verdicts.
+
 - Both provider components now accept an authored effect program whose intent
   has a `where` clause. Core input constraints carry `coordinate`, `source`
   and `predicate`; the effect-intent judgments required only the first and

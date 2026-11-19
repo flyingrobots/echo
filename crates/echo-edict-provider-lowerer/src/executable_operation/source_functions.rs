@@ -185,7 +185,7 @@ fn judged<'a>(
 ) -> Check<Judgment<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
-    failure_sets::judge(core, coordinate)?;
+    failure_sets::judge(core, exports, coordinate)?;
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)

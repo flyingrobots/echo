@@ -169,7 +169,8 @@ pub(crate) fn decode(
     let definitions = definitions(core, exports, parser.coordinate)?;
     // Declared failure sets, `fail` and `attempt` are judged over the whole
     // module before any body is typed.
-    super::failure_sets::judge(core, parser.coordinate).map_err(|()| Error::InvalidArtifact)?;
+    super::failure_sets::judge(core, exports, parser.coordinate)
+        .map_err(|()| Error::InvalidArtifact)?;
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.

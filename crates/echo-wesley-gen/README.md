@@ -18,7 +18,7 @@ The preferred input is GraphQL SDL lowered directly through the published
 fixtures and compatibility while consumers move off the historical JavaScript
 generator. Direct SDL lowering records the exact pinned `wesley-core` version
 in the provenance bound into each generated Rust artifact hash. The exact
-`0.3.0-alpha.2` dependency disables default features: this synchronous compiler
+`0.3.0-alpha.4` dependency disables default features: this synchronous compiler
 consumer does not need Wesley's optional async resilience stack.
 
 Echo's external Edict provider uses a separate strict source contract:

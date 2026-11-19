@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 774,557 bytes with SHA-256
-`17f9b8a8447fe2ce7eb6fc64f0bf6387c0eb9af894bb61fba1827ca3cc81f4df`.
+The checked component is 777,242 bytes with SHA-256
+`c6a4e7ccaeea9c690d9946bd3605b915438253287af629140d0b68f232ede26d`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 815,882 bytes
+`wit-component` version recorded above. Its checked component is 815,883 bytes
 with SHA-256
-`e62528aa61586fee5d70c8acce59fad749290ea698cc2fc77edf8ad30a049464`.
+`c74a98885f63ad713cc3cfe945e2aebdad4cbf7fd51104167154b5d6c2e75947`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,11 +56,12 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#1002's source (the shared-read
-cost schedule, merged with echo#1003, echo#1014, echo#1006 and echo#1008), was
+The current component pair, built from echo#1025's source (the canonical
+decode node budget sized from the provider host's input cap, and named
+artifact-binding refusals, on main `53c78e8a`), was
 independently reproduced by the two G4 candidate jobs in
-[CI run 44454153081](https://github.com/flyingrobots/echo/actions/runs/44454153081)
-at source commit `38bf799b5bb8f8415c15931b739d072daf466ca6`. Both copies of
+[CI run 44477269788](https://github.com/flyingrobots/echo/actions/runs/44477269788)
+at source commit `f69a5f45b1596fee17df1abd80dfac733609ee06`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

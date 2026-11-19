@@ -11,14 +11,16 @@
 #![deny(clippy::print_stderr, clippy::print_stdout)]
 
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
-    encode_canonical_cbor_v1, CanonicalValueV1,
+    digest_canonical_value_bytes_v1, encode_canonical_cbor_v1, CanonicalValueV1,
 };
 
+mod artifact_binding;
 #[cfg(target_arch = "wasm32")]
 mod component;
 pub mod effect_publication;
 mod executable_operation;
+
+use artifact_binding::validate_binding;
 
 const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {
     major: 1,
@@ -340,12 +342,15 @@ enum SelectedTargetProfile {
 fn validate_target_profile(
     profile: &BoundArtifact,
 ) -> Result<SelectedTargetProfile, ProviderRefusalV1> {
-    validate_binding(profile).map_err(|()| {
-        refusal(
-            ProviderRefusalKind::InvalidSemanticArtifact,
-            "target-profile.echo-dpo",
-            "echo.provider.invalid-target-profile-artifact",
-            "the target-profile artifact is not canonically digest-bound",
+    validate_binding(profile).map_err(|failure| {
+        failure.refuse(
+            refusal(
+                ProviderRefusalKind::InvalidSemanticArtifact,
+                "target-profile.echo-dpo",
+                "echo.provider.invalid-target-profile-artifact",
+                "the target-profile artifact is not canonically digest-bound",
+            ),
+            profile,
         )
     })?;
     let selected = match (
@@ -418,8 +423,12 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
                 "semantic input role or kind differs from the checked DPO closure order",
             ));
         }
-        validate_binding(&input.artifact)
-            .map_err(|()| invalid_artifact(&input.role, "artifact binding is invalid"))?;
+        validate_binding(&input.artifact).map_err(|failure| {
+            failure.refuse(
+                invalid_artifact(&input.role, "artifact binding is invalid"),
+                &input.artifact,
+            )
+        })?;
         if input.artifact.reference.coordinate != coordinate
             || input.artifact.artifact.domain != domain
             || input.artifact.artifact.bytes != bytes
@@ -441,8 +450,12 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
             "lowerability input role, kind, or domain differs from the checked closure",
         ));
     }
-    let value = validate_binding(&lowerability.artifact)
-        .map_err(|()| invalid_artifact(&lowerability.role, "artifact binding is invalid"))?;
+    let value = validate_binding(&lowerability.artifact).map_err(|failure| {
+        failure.refuse(
+            invalid_artifact(&lowerability.role, "artifact binding is invalid"),
+            &lowerability.artifact,
+        )
+    })?;
     if lowerability.artifact.reference.coordinate != LOWERABILITY_COORDINATE {
         return Err(invalid_artifact(
             &lowerability.role,
@@ -1596,8 +1609,12 @@ fn lower_core(
             "Core domain is invalid",
         ));
     }
-    let value = validate_binding(core)
-        .map_err(|()| invalid_artifact("core.echo-provider", "Core binding is invalid"))?;
+    let value = validate_binding(core).map_err(|failure| {
+        failure.refuse(
+            invalid_artifact("core.echo-provider", "Core binding is invalid"),
+            core,
+        )
+    })?;
     let api_version = text_field(&value, "apiVersion")
         .ok_or_else(|| invalid_artifact("core.echo-provider", "Core apiVersion is absent"))?;
     if api_version != CORE_ABI {
@@ -1882,22 +1899,6 @@ fn lower_effect_node<'a>(
         input_local,
         binding,
     })
-}
-
-fn validate_binding(bound: &BoundArtifact) -> Result<CanonicalValueV1, ()> {
-    if bound.reference.coordinate.is_empty()
-        || bound.reference.digest.algorithm != DigestAlgorithm::Sha256
-        || bound.reference.digest.bytes.len() != 32
-        || bound.artifact.domain.is_empty()
-    {
-        return Err(());
-    }
-    let value = decode_canonical_cbor_v1(&bound.artifact.bytes).map_err(|_| ())?;
-    let computed = digest_canonical_value_v1(&bound.artifact.domain, &value).map_err(|_| ())?;
-    if computed != digest_review(&bound.reference.digest) {
-        return Err(());
-    }
-    Ok(value)
 }
 
 fn digest_review(digest: &Digest) -> String {

@@ -545,7 +545,7 @@ fn match_populated_frame_accounting() -> super::Check<()> {
                 edge_scans: 0,
                 shared: false,
                 types: super::BTreeMap::new(),
-                shared_costs: super::BTreeMap::new(),
+                shared_costs: super::shared_reads::Reachable::default(),
                 identity: false,
             };
             let mut scope = super::Scope::new();

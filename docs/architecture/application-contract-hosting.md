@@ -646,7 +646,7 @@ local affected-test routing select the same feature explicitly.
 
 A pure Core module that requires the capability `core.cost.shared-reads/v1`
 is metered and judged under Amblicit's shared-read schedule,
-`edict.core-cost/v2` (amblicit#324, Amblicit `da1574f1`). Every module without
+`edict.core-cost/v2` (amblicit#324, #336 and #340; Amblicit `26a201e7`). Every module without
 the capability keeps the copying schedule described above, exactly as before.
 
 The schedule is only sound if reads really are cheap, so the runtime runs such
@@ -665,12 +665,22 @@ evaluator is unchanged. Under the schedule:
   plus key and label bytes; shared children are not charged again;
 - `listAt` costs nothing more and does not rescan the list; `listLen` costs
   one fresh cell; `listAppend` and `listConcat` cost a new shell with one cell
-  per result item;
+  per result item. Statically, that shell is sized by the result's provable
+  length when one exists (amblicit#336): bounds come from list literals,
+  appends and concatenations and flow through locals, record fields, branches
+  (only when both arms prove one), calls and folds; a fold is charged round by
+  round until its bounds stop changing. Any other list is charged at its
+  declared maximum;
 - a call costs one step per parameter plus two, and a fold one step per
   iteration plus the call; arguments, results and fold state are passed by
   reference;
-- unsigned arithmetic costs one step per operand cell, and its scalar result
-  is held inline;
+- unsigned, checked and `min`/`max` integer operations cost one step per
+  operand cell, and the `Option` readers `isSome`, `unwrap` and `default`
+  one step per operand cell plus their operand and result bytes; each such
+  prelude call is also charged its result's full size as a new value, in
+  steps and bytes (amblicit#340). At runtime a word, a checked result with
+  its presence cell, or an `isSome` flag is charged as it is built, while
+  `unwrap` and `default` share their item;
 - a match costs one step per arm plus one, and one more for a payload binder;
 - a comparison scans both operands in full;
 - the intent's input and output are validated and converted at full size, two
@@ -694,17 +704,17 @@ Echo admits the capability on the pure route only. The read, graph-read and
 effect routes have no shared-read rules: the runtime's shared helper decoder
 refuses the capability there, and the lowerer and verifier refuse it on those
 routes too. Under the schedule, byte intrinsics and imported helpers are
-refused by all three, because the schedule leaves the storage of a computed
-byte string uncharged. Identity intrinsics, `Option` operations, ordered
-records, checked integer operations and `fail` have no shared-read rule in
-Echo either, and the runtime refuses them; a pure
+refused by all three until Echo implements their charge. Identity
+intrinsics, `Option` constructors, ordered records and `fail` have no
+shared-read rule in Echo yet either, and the runtime refuses them; a pure
 intent cannot call a failing helper, because only an effect program's
 `attempt` maps failures.
 
 The [shared corpus](../../crates/warp-core/tests/fixtures/edict-core-cost-v2/README.md)
 holds Core modules that the pinned compiler produced at their minimum budgets,
 together with their producer. All three judges read the same bytes. For each
-of Amblicit's four adversarial programs that Echo admits, the lowerer and
+of Amblicit's four adversarial programs that Echo admits, and Echo's own
+`integers` program, the lowerer and
 verifier admit the compiler minimum and refuse one step, one allocated byte or
 one output byte less. The runtime runs the worst-case input within the minimum
 and refuses one step or byte below its own metered work. Generated inputs stay

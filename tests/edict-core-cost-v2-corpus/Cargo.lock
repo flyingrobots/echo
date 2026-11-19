@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "amblicit-syntax"
 version = "0.11.0-alpha.1"
-source = "git+https://github.com/flyingrobots/amblicit?rev=da1574f169cda98206440e4d8f785b1ea9e01fcf#da1574f169cda98206440e4d8f785b1ea9e01fcf"
+source = "git+https://github.com/flyingrobots/amblicit?rev=26a201e7fe9d07beb60655463fb8e25270e10150#26a201e7fe9d07beb60655463fb8e25270e10150"
 dependencies = [
  "bunny-num",
  "serde",

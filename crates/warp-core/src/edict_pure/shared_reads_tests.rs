@@ -3,7 +3,7 @@
 //! The runtime meter against the shared `edict.core-cost/v2` corpus.
 //!
 //! Oracles: each program's budget is the compiler minimum recorded in the
-//! corpus (Amblicit `da1574f1`, `edict.core-cost/v2`); each expected result is
+//! corpus (Amblicit `26a201e7`, `edict.core-cost/v2`); each expected result is
 //! computed by hand from the program text and also equals the copying
 //! evaluator's result. The copying usages are change-detection goldens
 //! measured with the copying evaluator as it is on `origin/main` at `ed37a03d`;

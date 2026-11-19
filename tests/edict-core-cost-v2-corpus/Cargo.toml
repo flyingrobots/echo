@@ -14,7 +14,7 @@ description = "Producer of the shared edict.core-cost/v2 corpus from the pinned 
 resolver = "2"
 
 [dependencies]
-amblicit-syntax = { git = "https://github.com/flyingrobots/amblicit", rev = "da1574f169cda98206440e4d8f785b1ea9e01fcf" }
+amblicit-syntax = { git = "https://github.com/flyingrobots/amblicit", rev = "26a201e7fe9d07beb60655463fb8e25270e10150" }
 
 [lints.rust]
 missing_docs = "deny"

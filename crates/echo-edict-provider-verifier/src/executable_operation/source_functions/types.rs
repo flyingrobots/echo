@@ -217,8 +217,8 @@ pub(super) struct Types<'a> {
     /// Under the shared-read schedule, the schema the audit established for
     /// each expression, keyed by the node's address in the borrowed module.
     pub audited: BTreeMap<usize, Schema>,
-    /// Shared-read charge of each audited source helper.
-    pub shared_helpers: BTreeMap<String, Charge>,
+    /// Shared-read list-length bounds and the helper charges under them.
+    pub shared_helpers: super::shared_charge::Lengths,
 }
 impl<'a> Types<'a> {
     pub(super) fn new(module: &'a Value) -> Self {
@@ -228,7 +228,7 @@ impl<'a> Types<'a> {
             // A malformed inventory is refused by the audit itself.
             shared: super::shared_charge::required(module).unwrap_or(false),
             audited: BTreeMap::new(),
-            shared_helpers: BTreeMap::new(),
+            shared_helpers: super::shared_charge::Lengths::default(),
         }
     }
     pub(super) fn proof_work(&mut self, bytes: usize) -> Check<()> {

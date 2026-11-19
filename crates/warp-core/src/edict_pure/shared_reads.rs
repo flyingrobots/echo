@@ -8,8 +8,10 @@
 //! schedule's one-step reads are real O(1) work rather than a lowered charge.
 //! The intent's input and output are still converted, validated and charged at
 //! full size: two steps per cell and their bytes. Comparisons scan both
-//! operands in full. Checked integers, `min`/`max` and the `Option`
-//! consumers keep their copying charge: one step per operand cell. Byte and
+//! operands in full. Integer operations and the `Option` consumers charge
+//! one step per operand cell, and a result they build (a word, a checked
+//! result, an `isSome` flag) is charged in full as a new value
+//! (amblicit#340). Byte and
 //! identity intrinsics, `Option` constructors and imported helpers have no
 //! shared-read rule in Echo yet, so a module that uses them is refused before
 //! evaluation.

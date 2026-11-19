@@ -3,7 +3,7 @@
 //! The verifier's charge check against the shared `edict.core-cost/v2` corpus.
 //!
 //! Oracles: each module's Core budget is the compiler minimum (Amblicit
-//! `da1574f1`, `edict.core-cost/v2`), so the verifier must admit it and refuse
+//! `26a201e7`, `edict.core-cost/v2`), so the verifier must admit it and refuse
 //! one step or one byte less. The copying costs are change-detection goldens
 //! measured with this audit as it is on `origin/main` at `ed37a03d`.
 #![allow(

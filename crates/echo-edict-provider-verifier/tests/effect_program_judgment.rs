@@ -506,28 +506,55 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
     );
 }
 
-/// The admitted `read-control` package with one more required Core
-/// capability, every Core and Target IR pin recomputed.
-fn read_control_with_capability(capability: &str) -> Vec<u8> {
+/// A retained package edited and repinned: its Core requires `capability` as
+/// well, when given, and its intent's Core budget (in Core and Target IR
+/// alike) is set on the axes given. Every Core and Target IR pin is
+/// recomputed.
+fn edited(
+    name: &str,
+    capability: Option<&str>,
+    steps: Option<u64>,
+    bytes_: Option<u64>,
+) -> Vec<u8> {
     let bytes_of = |value: &V| {
         let V::Bytes(bytes) = value else {
             panic!("bytes")
         };
         bytes.clone()
     };
-    let mut package = decode(&package_bytes("read-control")).expect("package");
+    let mut package = decode(&package_bytes(name)).expect("package");
     let mut program = decode(&bytes_of(field_mut(&mut package, "program"))).expect("program");
     let mut bundle =
         decode(&bytes_of(field_mut(&mut program, "compiled_program"))).expect("compiler bundle");
-    let mut module = decode(&bytes_of(field_mut(&mut bundle, "core_artifact"))).expect("Core");
-    let V::Array(capabilities) = field_mut(&mut module, "requiredCoreCapabilities") else {
-        panic!("capabilities")
+    let V::Text(intent) = field_mut(&mut bundle, "intent").clone() else {
+        panic!("intent")
     };
-    capabilities.push(V::Text(capability.into()));
-    let core_identity =
-        digest_canonical_value_bytes_v1("edict.core.module/v1", &module).expect("Core identity");
+    let mut module = decode(&bytes_of(field_mut(&mut bundle, "core_artifact"))).expect("Core");
+    if let Some(capability) = capability {
+        let V::Array(capabilities) = field_mut(&mut module, "requiredCoreCapabilities") else {
+            panic!("capabilities")
+        };
+        capabilities.push(V::Text(capability.into()));
+    }
     let mut target =
         decode(&bytes_of(field_mut(&mut bundle, "target_ir_artifact"))).expect("Target IR");
+    for (axis, value) in [("maxSteps", steps), ("maxAllocatedBytes", bytes_)] {
+        let Some(value) = value else { continue };
+        let value = V::Integer(i128::from(value));
+        *field_mut(
+            field_mut(
+                field_mut(field_mut(&mut module, "intents"), &intent),
+                "coreEvaluationBudget",
+            ),
+            axis,
+        ) = value.clone();
+        let V::Map(intents) = field_mut(&mut target, "intents") else {
+            panic!("Target IR intents")
+        };
+        *field_mut(field_mut(&mut intents[0].1, "coreEvaluationBudget"), axis) = value;
+    }
+    let core_identity =
+        digest_canonical_value_bytes_v1("edict.core.module/v1", &module).expect("Core identity");
     *field_mut(
         field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore"),
         "digest",
@@ -550,17 +577,91 @@ fn read_control_with_capability(capability: &str) -> Vec<u8> {
     encode(&package).expect("package")
 }
 
-/// The effect route has no shared-read meter, so the verifier refuses a
-/// module that requires `core.cost.shared-reads/v1`, as the runtime does.
+const SHARED: &str = "core.cost.shared-reads/v1";
+
+/// Programs whose expressions all have a shared-read rule in Echo.
+const SHARED_PROGRAMS: [&str; 5] = [
+    "read-control",
+    "ensure-node-control",
+    "structured-loop-control",
+    "structured-branch-control",
+    "structured-nested-control",
+];
+
+/// The smallest step and allocation budgets the verifier admits, each
+/// searched with the other axis ample.
+fn minimum(name: &str, capability: Option<&str>) -> (u64, u64) {
+    const AMPLE: u64 = 1 << 40;
+    let search = |admits: &dyn Fn(u64) -> bool| {
+        assert!(admits(AMPLE), "{name}: refused even with an ample budget");
+        let (mut low, mut high) = (0_u64, AMPLE);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if admits(middle) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        high
+    };
+    let steps = search(&|steps| {
+        verify_effect_package(&edited(name, capability, Some(steps), Some(AMPLE))).is_ok()
+    });
+    let bytes_ = search(&|bytes_| {
+        verify_effect_package(&edited(name, capability, Some(AMPLE), Some(bytes_))).is_ok()
+    });
+    (steps, bytes_)
+}
+
+/// Control for the repinning: an unused capability added the same way still
+/// verifies.
 #[test]
-fn effect_packages_refuse_the_shared_read_schedule() {
-    // Control: an unused capability with the same re-pinning still verifies.
+fn an_unused_capability_added_by_the_same_edit_still_verifies() {
     assert_eq!(
-        verify_effect_package(&read_control_with_capability("core.variant/v1")),
+        verify_effect_package(&edited("read-control", Some("core.variant/v1"), None, None)),
         Ok(())
     );
+}
+
+/// An effect package that requires the shared-read schedule is audited under
+/// it (echo#1016); byte operations, which have no Echo rule yet, are refused.
+#[test]
+fn effect_packages_are_audited_under_the_shared_read_schedule() {
+    for name in SHARED_PROGRAMS {
+        assert_eq!(
+            verify_effect_package(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}"
+        );
+    }
     assert_eq!(
-        verify_effect_package(&read_control_with_capability("core.cost.shared-reads/v1")),
+        verify_effect_package(&edited("slice-proven", Some(SHARED), None, None)),
         Err(EffectPackageRefusal::UnsupportedProgram)
+    );
+}
+
+/// The verifier's minimums under both schedules equal the lowerer's, which
+/// `effect_program_minimums_under_each_schedule` in the lowerer pins
+/// independently (oracle: the other judge).
+#[test]
+fn effect_package_minimums_equal_the_lowerer_minimums() {
+    let measured: Vec<_> = SHARED_PROGRAMS
+        .iter()
+        .map(|name| (*name, minimum(name, None), minimum(name, Some(SHARED))))
+        .collect();
+    assert_eq!(
+        measured,
+        [
+            (
+                "read-control",
+                (2_097_226, 9_441_348),
+                (2_097_257, 4_195_841)
+            ),
+            ("ensure-node-control", (41, 4258), (29, 2301)),
+            ("structured-loop-control", (173, 18_325), (107, 6903)),
+            ("structured-branch-control", (179, 18_453), (177, 7031)),
+            ("structured-nested-control", (456, 48_136), (254, 13_742)),
+        ]
     );
 }

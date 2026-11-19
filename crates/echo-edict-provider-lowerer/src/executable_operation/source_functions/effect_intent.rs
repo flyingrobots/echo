@@ -78,11 +78,6 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
-    // Effect bodies are charged by the copying schedule only; the runtime's
-    // effect route refuses the shared-read schedule, so lowering does too.
-    if super::shared_reads::required(core)? {
-        return Err(());
-    }
     judged(core, exports, 0, identity)?.effect_intent(intent, sites, graph)
 }
 
@@ -97,6 +92,7 @@ impl<'a> Judgment<'a> {
         self.branch.clear();
         self.path.clear();
         self.bound.clear();
+        self.effect_start();
         let body = get(intent, "body")?;
         let mut pending = self.block_locals(body)?;
         let mut walk = Walk {
@@ -123,7 +119,7 @@ impl<'a> Judgment<'a> {
             if fact.ty.representation() != &Ty::Bytes(32, 32) {
                 return Err(());
             }
-            cost = cost.plus(fact.cost)?;
+            cost = cost.plus(self.effect_value(basis, fact.cost)?)?;
         }
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
@@ -138,10 +134,9 @@ impl<'a> Judgment<'a> {
                 return Err(());
             }
             string(get(constraint, "coordinate")?)?;
-            cost = cost.plus(
-                self.predicate(get(constraint, "predicate")?, &scope, true, 0)?
-                    .0,
-            )?;
+            let predicate = get(constraint, "predicate")?;
+            let copying = self.predicate(predicate, &scope, true, 0)?.0;
+            cost = cost.plus(self.effect_condition(predicate, copying)?)?;
         }
         for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
@@ -153,13 +148,15 @@ impl<'a> Judgment<'a> {
             return Err(());
         }
         cost = cost.plus(totals.cost)?;
-        let result = self.expression(get(body, "result")?, &scope, true, 0)?;
+        let result_value = get(body, "result")?;
+        let result = self.expression(result_value, &scope, true, 0)?;
+        let result_cost = self.effect_value(result_value, result.cost)?;
         let expected = self.ty(string(get(intent, "output")?)?, 0)?;
         if !includes(&expected, &result.ty) {
             return Err(());
         }
         let (scratch, validations, output, _) = shape(&expected)?;
-        cost = cost.plus(result.cost)?.plus(scratch)?.plus(Cost {
+        cost = cost.plus(result_cost)?.plus(scratch)?.plus(Cost {
             steps: validations,
             bytes: 0,
         })?;
@@ -407,7 +404,24 @@ impl Judgment<'_> {
             };
             times(node, closure.nodes)?.plus(times(range, ranges)?)?
         };
-        super::read_cost::read_cost(output, &self.completed, scans)?
+        // Under the shared-read schedule a closure charges its declared
+        // selector, the only helper the runtime calls; the copying schedule
+        // keeps the costliest helper of the module.
+        let selected: BTreeMap<String, super::Fact>;
+        let helpers = if self.shared {
+            let coordinate = string(get(self.core, "coordinate")?)?;
+            let declared = graph.selector.map(|name| format!("{coordinate}.{name}"));
+            selected = self
+                .completed
+                .iter()
+                .filter(|(name, _)| Some(name.as_str()) == declared.as_deref())
+                .map(|(name, fact)| (name.clone(), fact.clone()))
+                .collect();
+            &selected
+        } else {
+            &self.completed
+        };
+        super::read_cost::read_cost(output, helpers, scans)?
             .plus(records)?
             .plus(Cost {
                 steps: 0,

@@ -142,7 +142,9 @@ impl<'a> Checker<'a, '_> {
         audit: &mut Audit<'_, 'a>,
     ) -> Check<Tally> {
         exact(node, &["kind", "binder", "iter", "bound", "body"])?;
-        let iterable = self.expression(get(node, "iter")?, frame, 0)?;
+        let iter = get(node, "iter")?;
+        let iterable = self.expression(iter, frame, 0)?;
+        let iterable_charge = self.effect_value(iter, iterable.charge)?;
         let Schema::Sequence { element, bound } = iterable.schema.representation().clone() else {
             return Err(());
         };
@@ -176,7 +178,7 @@ impl<'a> Checker<'a, '_> {
         };
         iteration.add(self.audit_block(block, &mut nested, audit)?)?;
         let mut tally = Tally {
-            charge: iterable.charge,
+            charge: iterable_charge,
             ..Tally::default()
         };
         tally.add(iteration.repeated(count)?)?;
@@ -191,7 +193,9 @@ impl<'a> Checker<'a, '_> {
     ) -> Check<Tally> {
         exact(node, &["kind", "predicate", "then", "else"])?;
         // The predicate proves nothing for either arm.
-        let (charge, _) = self.predicate(get(node, "predicate")?, frame, 0)?;
+        let condition = get(node, "predicate")?;
+        let (copying, _) = self.predicate(condition, frame, 0)?;
+        let charge = self.effect_condition(condition, copying)?;
         let then_block = get(node, "then")?;
         let else_block = get(node, "else")?;
         let mut then_frame = self.nested(then_block, frame)?;
@@ -218,14 +222,18 @@ impl<'a> Checker<'a, '_> {
         match kind {
             "let" => {
                 exact(node, &["kind", "binding", "value"])?;
-                let value = self.expression(get(node, "value")?, frame, 0)?;
+                let node_value = get(node, "value")?;
+                let value = self.expression(node_value, frame, 0)?;
                 let local = get(node, "binding")?;
                 let expected = self.types.local(local)?;
                 if !expected.encloses(&value.schema) {
                     return Err(());
                 }
-                self.record_bound(local, get(node, "value")?, &expected)?;
-                tally.charge.append(value.charge)?;
+                self.record_bound(local, node_value, &expected)?;
+                tally
+                    .charge
+                    .append(self.effect_value(node_value, value.charge)?)?;
+                self.effect_bound(local, node_value)?;
                 tally.charge.append(Charge {
                     ticks: expected.measure()?.checks,
                     storage: 0,
@@ -242,7 +250,8 @@ impl<'a> Checker<'a, '_> {
                     worst = Charge::choice(worst, payload);
                     tally.obstruction_output = tally.obstruction_output.max(encoded);
                 }
-                let value = self.expression(get(node, "value")?, frame, 0)?;
+                let node_value = get(node, "value")?;
+                let value = self.expression(node_value, frame, 0)?;
                 let local = get(node, "binding")?;
                 let expected = self.types.local(local)?;
                 if !expected.encloses(&value.schema) {
@@ -250,7 +259,10 @@ impl<'a> Checker<'a, '_> {
                 }
                 // The call runs, then either its result is checked or exactly
                 // one arm's payload is built: charge the larger.
-                tally.charge.append(value.charge)?;
+                tally
+                    .charge
+                    .append(self.effect_value(node_value, value.charge)?)?;
+                self.effect_bound(local, node_value)?;
                 tally.charge.append(Charge::choice(
                     worst,
                     Charge {
@@ -264,9 +276,11 @@ impl<'a> Checker<'a, '_> {
             "require" => {
                 exact(node, &["kind", "predicate", "onFailure"])?;
                 // Refuses later work; proves nothing for it.
+                let condition = get(node, "predicate")?;
+                let copying = self.predicate(condition, frame, 0)?.0;
                 tally
                     .charge
-                    .append(self.predicate(get(node, "predicate")?, frame, 0)?.0)?;
+                    .append(self.effect_condition(condition, copying)?)?;
                 let failure = get(node, "onFailure")?;
                 exact(failure, &["kind", "reason"])?;
                 if string(get(failure, "kind")?)? != "terminal" {
@@ -280,15 +294,16 @@ impl<'a> Checker<'a, '_> {
                 // On failure the runtime builds this record and encodes it as
                 // the obstruction payload, under the result's output ceiling.
                 let mut fields = BTreeMap::new();
-                tally.charge.append(Charge {
+                let mut building = Charge {
                     ticks: 1,
                     storage: 64,
-                })?;
-                for (name, value) in members(get(reason, "payload")?)? {
+                };
+                let entries = members(get(reason, "payload")?)?;
+                for (name, value) in entries {
                     let name = string(name)?;
                     let checked = self.expression(value, frame, 0)?;
-                    tally.charge.append(checked.charge)?;
-                    tally.charge.append(Charge {
+                    building.append(checked.charge)?;
+                    building.append(Charge {
                         ticks: 0,
                         storage: 64 + name.len() as u128,
                     })?;
@@ -296,6 +311,10 @@ impl<'a> Checker<'a, '_> {
                         return Err(());
                     }
                 }
+                if let Some(shared) = self.effect_payload(entries)? {
+                    building = shared;
+                }
+                tally.charge.append(building)?;
                 let payload = Schema::Fields(fields).measure()?;
                 tally.charge.append(payload.copy)?;
                 tally.obstruction_output = payload.encoded;
@@ -321,7 +340,8 @@ impl<'a> Checker<'a, '_> {
             &["kind", "binding", "effect", "input", "obstructionMap"],
         )?;
         let mut tally = Tally::default();
-        let value = self.expression(get(node, "input")?, frame, 0)?;
+        let input_value = get(node, "input")?;
+        let value = self.expression(input_value, frame, 0)?;
         let input = self.types.resolve(&site.input, 0)?;
         if !input.encloses(&value.schema) {
             return Err(());
@@ -364,7 +384,9 @@ impl<'a> Checker<'a, '_> {
         if declared != output {
             return Err(());
         }
-        tally.charge.append(value.charge)?;
+        tally
+            .charge
+            .append(self.effect_value(input_value, value.charge)?)?;
         tally.charge.append(Charge {
             ticks: input.measure()?.checks,
             storage: 0,

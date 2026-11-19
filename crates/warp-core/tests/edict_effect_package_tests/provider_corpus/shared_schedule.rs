@@ -101,3 +101,34 @@ fn structured_branches_and_nesting_match_the_copying_schedule() {
         );
     }
 }
+
+/// The provider lowerer's minimum budgets for each program under the shared
+/// schedule, as `effect_program_minimums_under_each_schedule` in
+/// `echo-edict-provider-lowerer` measures and pins them: (steps, bytes).
+const LOWERER_SHARED_MINIMUMS: [(&str, u64, u64); 5] = [
+    ("read-control", 2_097_257, 4_195_841),
+    ("ensure-node-control", 29, 2301),
+    ("structured-loop-control", 107, 6903),
+    ("structured-branch-control", 177, 7031),
+    ("structured-nested-control", 254, 13_742),
+];
+
+/// The runtime never charges more than the lowerer's static bound: each
+/// program, given exactly the lowerer's shared minimum as its Core budget,
+/// runs its largest input here to the copying schedule's result. The read
+/// runs a 400,000-byte atom, the largest the frame's fixed step ceiling lets
+/// either schedule read.
+#[test]
+fn effect_runs_never_exceed_the_lowerer_minimum() {
+    for (name, steps, bytes) in LOWERER_SHARED_MINIMUMS {
+        let (input, frame) = match name {
+            "read-control" => (read_input(), Frame::widest(Some(400_000))),
+            "ensure-node-control" => (largest_ensure_node_input(), Frame::widest(None)),
+            _ => (largest_structured_loop_input(), Frame::widest(None)),
+        };
+        let package = retained(name);
+        let exact = with_allocation(&with_budget(&shared(&package), steps), bytes);
+        let copying = run_on(&package, &input, &frame);
+        assert_eq!(run_on(&exact, &input, &frame), copying, "{name}");
+    }
+}

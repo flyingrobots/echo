@@ -369,6 +369,61 @@ impl<'a> Judgment<'a> {
         Ok(self.reach(value)?.get(&Vec::new()).copied())
     }
 
+    /// An effect body's expression costs its shared-read work under the
+    /// schedule, and `copying` otherwise. Effect steps themselves keep their
+    /// copying charge under either schedule.
+    pub(super) fn effect_value(&mut self, value: &'a Value, copying: Cost) -> Check<Cost> {
+        if self.shared {
+            self.shared_expression(value)
+        } else {
+            Ok(copying)
+        }
+    }
+
+    /// As `effect_value`, for a predicate.
+    pub(super) fn effect_condition(&mut self, predicate: &'a Value, copying: Cost) -> Check<Cost> {
+        if self.shared {
+            self.shared_predicate(predicate)
+        } else {
+            Ok(copying)
+        }
+    }
+
+    /// Under the schedule, records the list-length bounds of a value an
+    /// effect body binds, as the compiler does for each `let`.
+    pub(super) fn effect_bound(&mut self, binding: &'a Value, value: &'a Value) -> Check<()> {
+        if self.shared {
+            let reach = self.reach(value)?;
+            let id = string(get(binding, "id")?)?;
+            self.shared_costs.locals.insert(id.to_owned(), reach);
+        }
+        Ok(())
+    }
+
+    /// Under the schedule, building an obstruction payload record of these
+    /// fields: its shell, as any record, plus each field's shared-read work.
+    /// `None` keeps the copying charge.
+    pub(super) fn effect_payload(
+        &mut self,
+        fields: &[(&'a Value, &'a Value)],
+    ) -> Check<Option<Cost>> {
+        if !self.shared {
+            return Ok(None);
+        }
+        let mut shell = CELL;
+        let mut work = steps(1);
+        for (name, value) in fields {
+            shell = shell.plus(CELL.field(string(name)?)?)?;
+            work = work.plus(self.shared_expression(value)?)?;
+        }
+        Ok(Some(work.plus(shell.evaluation()?)?))
+    }
+
+    /// Starts a new effect intent with no proven bounds of its own.
+    pub(super) fn effect_start(&mut self) {
+        self.shared_costs.locals.clear();
+    }
+
     /// The recorded type of an expression the ordinary judgment admitted.
     fn recorded(&self, value: &Value) -> Check<&Ty> {
         self.types.get(&std::ptr::from_ref(value).addr()).ok_or(())

@@ -252,20 +252,46 @@ fn entry<'a>(value: &'a mut V, key: &str) -> &'a mut V {
         .1
 }
 
-/// The admitted `read-control` program with one more required capability,
-/// its Core re-encoded and the Target IR's Core pin recomputed.
-fn with_capability(capability: &str) -> Vec<u8> {
+/// A retained program edited and repinned: its Core requires `capability`
+/// as well, when given, and its intent's Core budget (in Core and in the
+/// Target IR alike) is set on the axes given.
+fn edited(
+    name: &str,
+    capability: Option<&str>,
+    steps: Option<u64>,
+    bytes_: Option<u64>,
+) -> Vec<u8> {
     use echo_edict_canonical::{
         digest_canonical_value_bytes_v1 as digest, encode_canonical_cbor_v1 as encode,
     };
-    let mut bundle = decode(&compiled_program("read-control")).expect("bundle");
-    let mut module = decode(bytes(get(&bundle, "core_artifact"))).expect("core");
-    let V::Array(capabilities) = entry(&mut module, "requiredCoreCapabilities") else {
-        panic!("capabilities")
+    let mut bundle = decode(&compiled_program(name)).expect("bundle");
+    let V::Text(intent) = get(&bundle, "intent").clone() else {
+        panic!("intent")
     };
-    capabilities.push(V::Text(capability.into()));
-    let pin = digest("edict.core.module/v1", &module).expect("core digest");
+    let mut module = decode(bytes(get(&bundle, "core_artifact"))).expect("core");
+    if let Some(capability) = capability {
+        let V::Array(capabilities) = entry(&mut module, "requiredCoreCapabilities") else {
+            panic!("capabilities")
+        };
+        capabilities.push(V::Text(capability.into()));
+    }
     let mut target = decode(bytes(get(&bundle, "target_ir_artifact"))).expect("target");
+    for (axis, value) in [("maxSteps", steps), ("maxAllocatedBytes", bytes_)] {
+        let Some(value) = value else { continue };
+        let value = V::Integer(i128::from(value));
+        *entry(
+            entry(
+                entry(entry(&mut module, "intents"), &intent),
+                "coreEvaluationBudget",
+            ),
+            axis,
+        ) = value.clone();
+        let V::Map(intents) = entry(&mut target, "intents") else {
+            panic!("target intents")
+        };
+        *entry(entry(&mut intents[0].1, "coreEvaluationBudget"), axis) = value;
+    }
+    let pin = digest("edict.core.module/v1", &module).expect("core digest");
     *entry(
         entry(entry(&mut target, "semanticClosure"), "sourceCore"),
         "digest",
@@ -275,17 +301,93 @@ fn with_capability(capability: &str) -> Vec<u8> {
     encode(&bundle).expect("bundle bytes")
 }
 
-/// The effect route has no shared-read meter, so it refuses a module that
-/// requires `core.cost.shared-reads/v1`; the runtime's effect route does too.
+const SHARED: &str = "core.cost.shared-reads/v1";
+
+/// The smallest step and allocation budgets the judgment admits for a
+/// program, each searched with the other axis ample.
+fn minimum(name: &str, capability: Option<&str>) -> (u64, u64) {
+    const AMPLE: u64 = 1 << 40;
+    let search = |admits: &dyn Fn(u64) -> bool| {
+        assert!(admits(AMPLE), "{name}: refused even with an ample budget");
+        let (mut low, mut high) = (0_u64, AMPLE);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if admits(middle) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        high
+    };
+    let steps = search(&|steps| {
+        judge_effect_program(&edited(name, capability, Some(steps), Some(AMPLE))).is_ok()
+    });
+    let bytes_ = search(&|bytes_| {
+        judge_effect_program(&edited(name, capability, Some(AMPLE), Some(bytes_))).is_ok()
+    });
+    (steps, bytes_)
+}
+
+/// Programs whose expressions all have a shared-read rule in Echo.
+const SHARED_PROGRAMS: [&str; 5] = [
+    "read-control",
+    "ensure-node-control",
+    "structured-loop-control",
+    "structured-branch-control",
+    "structured-nested-control",
+];
+
+/// An effect program that requires the shared-read schedule is judged under
+/// it: admitted when its expressions have Echo rules (echo#1016).
 #[test]
-fn effect_programs_refuse_the_shared_read_schedule() {
-    // Control: an unused capability with the same re-pinning is still admitted.
+fn effect_programs_are_judged_under_the_shared_read_schedule() {
+    for name in SHARED_PROGRAMS {
+        assert_eq!(
+            judge_effect_program(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}"
+        );
+    }
+}
+
+/// Byte operations have no shared-read rule in Echo yet, so a program using
+/// one is refused under the schedule though the copying schedule admits it.
+#[test]
+fn byte_operations_are_refused_under_the_shared_read_schedule() {
     assert_eq!(
-        judge_effect_program(&with_capability("core.variant/v1")),
+        judge_effect_program(&edited("slice-proven", None, None, None)),
         Ok(())
     );
     assert_eq!(
-        judge_effect_program(&with_capability("core.cost.shared-reads/v1")),
+        judge_effect_program(&edited("slice-proven", Some(SHARED), None, None)),
         Err(EffectPublicationError::UnsupportedProgram)
+    );
+}
+
+/// The judgment's own minimum budgets under each schedule (change-detection
+/// goldens, measured by this judgment). The runtime test
+/// `effect_runs_never_exceed_the_lowerer_minimum` in warp-core asserts its
+/// worst-case charge stays within the shared minimums recorded here.
+#[test]
+fn effect_program_minimums_under_each_schedule() {
+    let measured: Vec<_> = SHARED_PROGRAMS
+        .iter()
+        .map(|name| (*name, minimum(name, None), minimum(name, Some(SHARED))))
+        .collect();
+    // (name, copying (steps, bytes), shared (steps, bytes))
+    assert_eq!(
+        measured,
+        [
+            (
+                "read-control",
+                (2_097_226, 9_441_348),
+                (2_097_257, 4_195_841)
+            ),
+            ("ensure-node-control", (41, 4258), (29, 2301)),
+            ("structured-loop-control", (173, 18_325), (107, 6903)),
+            ("structured-branch-control", (179, 18_453), (177, 7031)),
+            ("structured-nested-control", (456, 48_136), (254, 13_742)),
+        ]
     );
 }

@@ -77,11 +77,6 @@ pub(in crate::executable_operation) fn judge(
         }
     }
     let mut types = Types::new(core);
-    // Effect bodies are charged by the copying schedule only; the runtime's
-    // effect route refuses the shared-read schedule, so the verifier does too.
-    if types.shared {
-        return Err(());
-    }
     let (definitions, summaries) = prepare(core, exports, &mut types, 0, identity)?;
     Checker {
         types: &mut types,
@@ -113,6 +108,7 @@ impl<'a> Checker<'a, '_> {
         self.branch.clear();
         self.path.clear();
         self.bound.clear();
+        self.effect_start();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
@@ -134,7 +130,7 @@ impl<'a> Checker<'a, '_> {
             if checked.schema.representation() != &(Schema::Blob { low: 32, high: 32 }) {
                 return Err(());
             }
-            charge.append(checked.charge)?;
+            charge.append(self.effect_value(basis, checked.charge)?)?;
         }
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
@@ -149,7 +145,9 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             string(get(constraint, "coordinate")?)?;
-            charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
+            let predicate = get(constraint, "predicate")?;
+            let copying = self.predicate(predicate, &frame, 0)?.0;
+            charge.append(self.effect_condition(predicate, copying)?)?;
         }
         for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
@@ -169,13 +167,15 @@ impl<'a> Checker<'a, '_> {
         charge.append(tally.charge)?;
         let obstruction_output = tally.obstruction_output;
         let mutations = tally.mutations;
-        let output = self.expression(get(body, "result")?, &frame, 0)?;
+        let result = get(body, "result")?;
+        let output = self.expression(result, &frame, 0)?;
+        let result_charge = self.effect_value(result, output.charge)?;
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
         if !expected.encloses(&output.schema) {
             return Err(());
         }
         let size = expected.measure()?;
-        charge.append(output.charge)?;
+        charge.append(result_charge)?;
         charge.append(size.copy)?;
         charge.append(Charge {
             ticks: size.checks,
@@ -413,7 +413,24 @@ impl Checker<'_, '_> {
         let graph = graph.ok_or(())?;
         let input = fields_of(input)?;
         let scans = graph.max_edge_scans;
-        let mut charge = super::read_charge::read_charge(output, self.summaries, scans)?;
+        // Under the shared-read schedule a closure charges its declared
+        // selector, the only helper the runtime calls; the copying schedule
+        // keeps the costliest helper of the module.
+        let selected: BTreeMap<String, _>;
+        let summaries = if self.types.shared {
+            let module = string(get(self.types.module, "coordinate")?)?;
+            let declared = graph.selector.map(|name| format!("{module}.{name}"));
+            selected = self
+                .summaries
+                .iter()
+                .filter(|(name, _)| Some(name.as_str()) == declared.as_deref())
+                .map(|(name, summary)| (name.clone(), *summary))
+                .collect();
+            &selected
+        } else {
+            self.summaries
+        };
+        let mut charge = super::read_charge::read_charge(output, summaries, scans)?;
         charge.append(Charge {
             ticks: 0,
             storage: u128::from(scans) * SECOND_ROW_BYTES,
@@ -503,7 +520,8 @@ impl<'a> Checker<'a, '_> {
             ticks: 1,
             storage: 64,
         };
-        for (name, value) in members(get(reason, "payload")?)? {
+        let entries = members(get(reason, "payload")?)?;
+        for (name, value) in entries {
             let name = string(name)?;
             let checked = self.expression(value, frame, 0)?;
             charge.append(checked.charge)?;
@@ -514,6 +532,9 @@ impl<'a> Checker<'a, '_> {
             if fields.insert(name.to_owned(), checked.schema).is_some() {
                 return Err(());
             }
+        }
+        if let Some(shared) = self.effect_payload(entries)? {
+            charge = shared;
         }
         let payload = Schema::Fields(fields).measure()?;
         charge.append(payload.copy)?;

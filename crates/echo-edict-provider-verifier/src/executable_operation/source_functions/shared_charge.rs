@@ -372,6 +372,66 @@ impl<'a> Checker<'a, '_> {
         Ok(self.bounds(node)?.get(&Vec::new()).copied())
     }
 
+    /// An effect body's expression charges its shared-read work under the
+    /// schedule and `copying` otherwise; effect steps keep their copying
+    /// charge under either.
+    pub(super) fn effect_value(&mut self, node: &'a Value, copying: Charge) -> Check<Charge> {
+        if self.types.shared {
+            self.shared_value(node)
+        } else {
+            Ok(copying)
+        }
+    }
+
+    /// As `effect_value`, for a predicate.
+    pub(super) fn effect_condition(
+        &mut self,
+        predicate: &'a Value,
+        copying: Charge,
+    ) -> Check<Charge> {
+        if self.types.shared {
+            self.shared_condition(predicate)
+        } else {
+            Ok(copying)
+        }
+    }
+
+    /// Under the schedule, the list-length bounds of a value an effect body
+    /// binds, kept for later list shells.
+    pub(super) fn effect_bound(&mut self, local: &'a Value, node: &'a Value) -> Check<()> {
+        if self.types.shared {
+            let bounds = self.bounds(node)?;
+            let id = string(get(local, "id")?)?;
+            self.types
+                .shared_helpers
+                .frame
+                .insert(id.to_owned(), bounds);
+        }
+        Ok(())
+    }
+
+    /// Under the schedule, building an obstruction payload record: one tick,
+    /// its shell as any record's, and each field's shared-read work. `None`
+    /// keeps the copying charge.
+    pub(super) fn effect_payload(&mut self, fields: &'a [(Value, Value)]) -> Check<Option<Charge>> {
+        if !self.types.shared {
+            return Ok(None);
+        }
+        let mut shell = Footprint::CELL;
+        let mut charge = ticks(1);
+        for (name, value) in fields {
+            shell = shell.with(Footprint::CELL.keyed(string(name)?)?)?;
+            charge.append(self.shared_value(value)?)?;
+        }
+        charge.append(shell.built()?)?;
+        Ok(Some(charge))
+    }
+
+    /// Starts an effect intent with no proven bounds of its own.
+    pub(super) fn effect_start(&mut self) {
+        self.types.shared_helpers.frame.clear();
+    }
+
     /// The schema the ordinary audit recorded for this node.
     fn audited(&self, node: &Value) -> Check<&Schema> {
         self.types

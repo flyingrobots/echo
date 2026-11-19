@@ -204,7 +204,7 @@ pub(crate) fn decode(
     parser: &mut Parser<'_>,
 ) -> Result<BTreeMap<String, Helper>, Error> {
     let definitions = definitions(core, exports, parser.coordinate)?;
-    decode_definitions(core, &definitions, parser)
+    decode_definitions(core, exports, &definitions, parser)
 }
 
 /// The pure-package entry: also admits the shared-read schedule and returns
@@ -216,17 +216,22 @@ pub(crate) fn decode_pure(
 ) -> Result<(BTreeMap<String, Helper>, CostSchedule), Error> {
     let (definitions, schedule) =
         admitted_definitions(core, exports, parser.coordinate, SharedReadAdmission::Admit)?;
-    Ok((decode_definitions(core, &definitions, parser)?, schedule))
+    Ok((
+        decode_definitions(core, exports, &definitions, parser)?,
+        schedule,
+    ))
 }
 
 fn decode_definitions(
     core: &Value,
+    exports: &Value,
     definitions: &BTreeMap<String, Definition<'_>>,
     parser: &mut Parser<'_>,
 ) -> Result<BTreeMap<String, Helper>, Error> {
     // Declared failure sets, `fail` and `attempt` are judged over the whole
     // module before any body is typed.
-    super::failure_sets::judge(core, parser.coordinate).map_err(|()| Error::InvalidArtifact)?;
+    super::failure_sets::judge(core, exports, parser.coordinate)
+        .map_err(|()| Error::InvalidArtifact)?;
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.

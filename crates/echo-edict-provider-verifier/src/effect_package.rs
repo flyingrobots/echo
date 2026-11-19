@@ -10,8 +10,10 @@ use echo_edict_canonical::{
     CanonicalValueV1 as Value,
 };
 
+pub use crate::refusal_reason::{ProgramRefusal, RefusalReason};
+
 /// Why an authored effect package was refused.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectPackageRefusal {
     /// The bytes are not a canonical authored effect package.
     InvalidEnvelope,
@@ -19,8 +21,9 @@ pub enum EffectPackageRefusal {
     /// package carries.
     InvalidBinding,
     /// The compiled effect program is unsafe or does not match its own
-    /// artifacts, intrinsic contracts or declared budget.
-    UnsupportedProgram,
+    /// artifacts, intrinsic contracts or declared budget. The refusal names
+    /// the check that refused and the artifact path it was reading.
+    UnsupportedProgram(ProgramRefusal),
 }
 
 impl std::fmt::Display for EffectPackageRefusal {
@@ -28,7 +31,7 @@ impl std::fmt::Display for EffectPackageRefusal {
         f.write_str(match self {
             Self::InvalidEnvelope => "not a canonical authored effect package",
             Self::InvalidBinding => "the package does not name the program it carries",
-            Self::UnsupportedProgram => {
+            Self::UnsupportedProgram(_) => {
                 "the compiled effect program is outside the checked profile"
             }
         })
@@ -84,7 +87,7 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
         .transpose()
         .map_err(|()| E)?;
     let judged = crate::executable_operation::effect_program::judge(compiled, graph)
-        .map_err(|()| EffectPackageRefusal::UnsupportedProgram)?;
+        .map_err(EffectPackageRefusal::UnsupportedProgram)?;
     let closure = get(&package, "semantic_closure", E)?;
     // The lowerer names the judged Core as the canonical meaning; the runtime
     // carries that claim into the installed operation and its receipts.

@@ -16,6 +16,7 @@ use super::{
 };
 use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// What one block can cost at most.
@@ -65,8 +66,25 @@ pub(super) struct Audit<'s, 'a> {
     pub(super) binders: BTreeSet<&'a str>,
     /// The package's graph-read declaration (echo#982).
     pub(super) graph: Option<GraphReads<'s>>,
+    /// The running check and the node it audits.
+    pub(super) trail: &'s mut Trail,
 }
 impl<'a> Audit<'_, 'a> {
+    /// Audits `check` inside the child `segment`, which is left once the
+    /// child is accepted.
+    fn within<T>(
+        &mut self,
+        segment: &str,
+        reason: R,
+        check: impl FnOnce(&mut Self) -> Check<T>,
+    ) -> Check<T> {
+        self.trail.enter(segment);
+        self.trail.mark(reason);
+        let value = check(self)?;
+        self.trail.leave();
+        Ok(value)
+    }
+
     fn first_use(&mut self, local: &'a Value) -> Check<&'a str> {
         let id = string(get(local, "id")?)?;
         if self.seen.insert(id) {
@@ -87,7 +105,9 @@ impl<'a> Checker<'a, '_> {
         audit: &mut Audit<'_, 'a>,
     ) -> Check<Tally> {
         let mut tally = Tally::default();
-        for node in sequence(get(body, "nodes")?)? {
+        for (place, node) in sequence(get(body, "nodes")?)?.iter().enumerate() {
+            audit.trail.enter(format!("nodes/{place}"));
+            audit.trail.mark(R::NodeKind);
             tally.add(Tally {
                 charge: Charge {
                     ticks: 1,
@@ -108,8 +128,12 @@ impl<'a> Checker<'a, '_> {
                     self.audit_instruction(kind, node, position, frame, audit)?
                 }
             };
+            audit.trail.mark(R::CostOverflow);
             tally.add(node_tally)?;
+            audit.trail.leave();
         }
+        // Every local the frame declares is defined or spent by a node.
+        audit.trail.mark(R::LocalClaim);
         for id in frame.declared.keys() {
             let defined = frame.values.contains_key(id);
             if defined == audit.binders.contains(id) {
@@ -142,7 +166,10 @@ impl<'a> Checker<'a, '_> {
         audit: &mut Audit<'_, 'a>,
     ) -> Check<Tally> {
         exact(node, &["kind", "binder", "iter", "bound", "body"])?;
-        let iterable = self.expression(get(node, "iter")?, frame, 0)?;
+        let iterable = audit.within("iter", R::Expression, |_| {
+            self.expression(get(node, "iter")?, frame, 0)
+        })?;
+        audit.trail.mark(R::LoopBound);
         let Schema::Sequence { element, bound } = iterable.schema.representation().clone() else {
             return Err(());
         };
@@ -158,9 +185,13 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let block = get(node, "body")?;
+        audit.trail.enter("body");
+        audit.trail.mark(R::BlockLocals);
         let mut nested = self.nested(block, frame)?;
         let binder = get(node, "binder")?;
+        audit.trail.mark(R::LocalClaim);
         audit.first_use(binder)?;
+        audit.trail.mark(R::LoopBinder);
         let item = self.types.local(binder)?;
         if element.is_some_and(|element| !item.encloses(&element)) {
             return Err(());
@@ -175,6 +206,8 @@ impl<'a> Checker<'a, '_> {
             ..Tally::default()
         };
         iteration.add(self.audit_block(block, &mut nested, audit)?)?;
+        audit.trail.leave();
+        audit.trail.mark(R::CostOverflow);
         let mut tally = Tally {
             charge: iterable.charge,
             ..Tally::default()
@@ -191,13 +224,22 @@ impl<'a> Checker<'a, '_> {
     ) -> Check<Tally> {
         exact(node, &["kind", "predicate", "then", "else"])?;
         // The predicate proves nothing for either arm.
-        let (charge, _) = self.predicate(get(node, "predicate")?, frame, 0)?;
+        let (charge, _) = audit.within("predicate", R::Expression, |_| {
+            self.predicate(get(node, "predicate")?, frame, 0)
+        })?;
         let then_block = get(node, "then")?;
         let else_block = get(node, "else")?;
+        audit.trail.enter("then");
+        audit.trail.mark(R::BlockLocals);
         let mut then_frame = self.nested(then_block, frame)?;
         let then_tally = self.audit_block(then_block, &mut then_frame, audit)?;
+        audit.trail.leave();
+        audit.trail.enter("else");
+        audit.trail.mark(R::BlockLocals);
         let mut else_frame = self.nested(else_block, frame)?;
         let else_tally = self.audit_block(else_block, &mut else_frame, audit)?;
+        audit.trail.leave();
+        audit.trail.mark(R::CostOverflow);
         let mut tally = Tally {
             charge,
             ..Tally::default()
@@ -218,18 +260,24 @@ impl<'a> Checker<'a, '_> {
         match kind {
             "let" => {
                 exact(node, &["kind", "binding", "value"])?;
-                let value = self.expression(get(node, "value")?, frame, 0)?;
+                let value = audit.within("value", R::Expression, |_| {
+                    self.expression(get(node, "value")?, frame, 0)
+                })?;
                 let local = get(node, "binding")?;
+                audit.trail.mark(R::BindingType);
                 let expected = self.types.local(local)?;
                 if !expected.encloses(&value.schema) {
                     return Err(());
                 }
+                audit.trail.mark(R::Expression);
                 self.record_bound(local, get(node, "value")?, &expected)?;
+                audit.trail.mark(R::CostOverflow);
                 tally.charge.append(value.charge)?;
                 tally.charge.append(Charge {
                     ticks: expected.measure()?.checks,
                     storage: 0,
                 })?;
+                audit.trail.mark(R::LocalClaim);
                 audit.first_use(local)?;
                 frame.define(local, expected)?;
             }
@@ -237,17 +285,24 @@ impl<'a> Checker<'a, '_> {
                 exact(node, &["kind", "binding", "value", "failureMap"])?;
                 // Each arm's payload reads only what precedes the attempt.
                 let mut worst = Charge::default();
+                audit.trail.enter("failureMap");
+                audit.trail.mark(R::Obstruction);
                 for (_, reason) in members(get(node, "failureMap")?)? {
                     let (payload, encoded) = self.obstruction(reason, frame)?;
                     worst = Charge::choice(worst, payload);
                     tally.obstruction_output = tally.obstruction_output.max(encoded);
                 }
-                let value = self.expression(get(node, "value")?, frame, 0)?;
+                audit.trail.leave();
+                let value = audit.within("value", R::Expression, |_| {
+                    self.expression(get(node, "value")?, frame, 0)
+                })?;
                 let local = get(node, "binding")?;
+                audit.trail.mark(R::BindingType);
                 let expected = self.types.local(local)?;
                 if !expected.encloses(&value.schema) {
                     return Err(());
                 }
+                audit.trail.mark(R::CostOverflow);
                 // The call runs, then either its result is checked or exactly
                 // one arm's payload is built: charge the larger.
                 tally.charge.append(value.charge)?;
@@ -258,15 +313,19 @@ impl<'a> Checker<'a, '_> {
                         storage: 0,
                     },
                 ))?;
+                audit.trail.mark(R::LocalClaim);
                 audit.first_use(local)?;
                 frame.define(local, expected)?;
             }
             "require" => {
                 exact(node, &["kind", "predicate", "onFailure"])?;
                 // Refuses later work; proves nothing for it.
-                tally
-                    .charge
-                    .append(self.predicate(get(node, "predicate")?, frame, 0)?.0)?;
+                let predicate = audit.within("predicate", R::Expression, |_| {
+                    self.predicate(get(node, "predicate")?, frame, 0)
+                })?;
+                tally.charge.append(predicate.0)?;
+                audit.trail.enter("onFailure");
+                audit.trail.mark(R::Require);
                 let failure = get(node, "onFailure")?;
                 exact(failure, &["kind", "reason"])?;
                 if string(get(failure, "kind")?)? != "terminal" {
@@ -299,6 +358,7 @@ impl<'a> Checker<'a, '_> {
                 let payload = Schema::Fields(fields).measure()?;
                 tally.charge.append(payload.copy)?;
                 tally.obstruction_output = payload.encoded;
+                audit.trail.leave();
             }
             "effect" => {
                 let site = audit.sites.get(&position).ok_or(())?;
@@ -321,11 +381,15 @@ impl<'a> Checker<'a, '_> {
             &["kind", "binding", "effect", "input", "obstructionMap"],
         )?;
         let mut tally = Tally::default();
-        let value = self.expression(get(node, "input")?, frame, 0)?;
+        let value = audit.within("input", R::Expression, |_| {
+            self.expression(get(node, "input")?, frame, 0)
+        })?;
+        audit.trail.mark(R::EffectInput);
         let input = self.types.resolve(&site.input, 0)?;
         if !input.encloses(&value.schema) {
             return Err(());
         }
+        audit.trail.mark(R::EffectAbi);
         let output = self.types.resolve(&site.output, 0)?;
         let cost = match site.graph_read() {
             Some(read) => self.graph_read_charge(read, &input, &output, audit.graph)?,
@@ -334,6 +398,7 @@ impl<'a> Checker<'a, '_> {
         if operation(&site.intrinsic) != Some("node-atom-read") && site.graph_read().is_none() {
             tally.mutations = 1;
         }
+        audit.trail.mark(R::LocalClaim);
         let arms = members(get(node, "obstructionMap")?)?;
         if !arms.is_empty() {
             // A mapped read failure encodes an empty payload.
@@ -360,16 +425,19 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let local = get(node, "binding")?;
+        audit.trail.mark(R::EffectOutput);
         let declared = self.types.local(local)?;
         if declared != output {
             return Err(());
         }
+        audit.trail.mark(R::CostOverflow);
         tally.charge.append(value.charge)?;
         tally.charge.append(Charge {
             ticks: input.measure()?.checks,
             storage: 0,
         })?;
         tally.charge.append(cost)?;
+        audit.trail.mark(R::LocalClaim);
         audit.first_use(local)?;
         frame.define(local, declared)?;
         Ok(tally)

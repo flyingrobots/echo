@@ -19,6 +19,7 @@ use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
 };
+use super::source_modules::{source_module_program, Forgery as ModuleForgery};
 use super::structured::{branch, counting_parts, forge, loop_parts, nest, Forgery, Parts};
 use super::typed_failures::{
     typed_failure_input, typed_failure_program, Forgery as TypedForgery, REASON,
@@ -1138,6 +1139,26 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             typed_failure_program(TypedForgery::ArmsDiffer),
         ),
+        // A helper from a digest-pinned source module: the control and each
+        // forged closure pin (`source_modules.rs`).
+        entry(
+            "source-module-control",
+            true,
+            Runtime::Accepts,
+            source_module_program(ModuleForgery::None),
+        ),
+        entry(
+            "source-module-substituted",
+            false,
+            Runtime::Refuses,
+            source_module_program(ModuleForgery::Substituted),
+        ),
+        entry(
+            "source-module-unpinned",
+            false,
+            Runtime::Refuses,
+            source_module_program(ModuleForgery::Unpinned),
+        ),
         // Imported helpers with failing bodies (#1006); only the total
         // control is accepted.
         entry(
@@ -1470,6 +1491,9 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "source-module-control",
+    "source-module-substituted",
+    "source-module-unpinned",
     "imported-helper-total",
     "imported-helper-fails",
     "imported-helper-fails-in-arm",
@@ -1768,6 +1792,22 @@ fn a_mapped_typed_failure_obstructs_with_its_declared_reason() {
             payload: encoded(&map([("at", V::Integer(5))])),
         }),
         "remaining(5, 3) fails Underflow, which the intent maps to RangeInverted"
+    );
+}
+
+/// A source-module helper runs as an entry helper does: `leaf.same(v)`
+/// returns its argument (the source in
+/// `fixtures/edict-effect-source-module/source/modules/Leaf.edict`).
+#[test]
+fn a_source_module_helper_runs_in_the_program_that_pins_it() {
+    let input = encoded(&map([
+        ("v", V::Integer(7)),
+        ("w", V::Bytes(vec![0x11; 32])),
+    ]));
+    assert_eq!(
+        run(&retained("source-module-control"), &input),
+        Ok(encoded(&map([("b", V::Integer(7))]))),
+        "same(7) returns 7 after the ensureNode effect"
     );
 }
 

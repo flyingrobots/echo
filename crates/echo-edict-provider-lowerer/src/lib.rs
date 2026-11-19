@@ -19,6 +19,7 @@ mod artifact_binding;
 mod component;
 pub mod effect_publication;
 mod executable_operation;
+pub mod refusal_reason;
 
 use artifact_binding::validate_binding;
 
@@ -2154,6 +2155,33 @@ fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
         "echo.provider.local-reference-out-of-scope",
         "Core local reference is not in scope",
     )
+}
+
+/// Refuse an effect program outside the lowerer's judgment, adding a second
+/// diagnostic that names the refusing check and the artifact path it read.
+///
+/// The reason diagnostic's code extends the refusal's own code, so the list
+/// stays strictly ascending. Like every provider result it is independent of
+/// the host's response limits (the frozen WIT contract): it is always two
+/// diagnostics, and the path is bounded by
+/// [`refusal_reason::MAX_PATH_BYTES`], so the refusal never exceeds a few
+/// hundred bytes. Enforcing a smaller host bound is the host's.
+fn unsupported_program(
+    subject: &str,
+    check: &str,
+    program: &refusal_reason::ProgramRefusal,
+) -> ProviderRefusalV1 {
+    let mut refusal = unsupported_semantics(subject, check);
+    refusal.diagnostics.push(Diagnostic {
+        code: format!(
+            "echo.provider.unsupported-semantics.{}",
+            program.reason().code()
+        ),
+        severity: DiagnosticSeverity::Error,
+        message: format!("refused at {}", program.path()),
+        repair: None,
+    });
+    refusal
 }
 
 /// Refuse semantics outside the lowering closure, naming the check that fired.

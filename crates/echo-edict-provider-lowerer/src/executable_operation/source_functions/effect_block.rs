@@ -16,6 +16,7 @@ use super::{
 };
 use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The worst case of one block.
@@ -64,7 +65,7 @@ impl Totals {
 pub(super) type Pending<'a> = BTreeMap<&'a str, &'a Value>;
 
 /// State shared by every block of one body.
-pub(super) struct Walk<'s> {
+pub(super) struct Walk<'s, 't> {
     pub(super) sites: &'s BTreeMap<usize, EffectSite>,
     /// The next instruction's position in the pre-order walk, the key the
     /// lowering relation gave each effect site.
@@ -74,6 +75,25 @@ pub(super) struct Walk<'s> {
     pub(super) claimed: BTreeSet<String>,
     /// The package's graph-read declaration (echo#982).
     pub(super) graph: Option<GraphReads<'s>>,
+    /// The running check and the node it judges.
+    pub(super) trail: &'t mut Trail,
+}
+
+impl Walk<'_, '_> {
+    /// Judges `check` inside the child `segment`, which is left once the
+    /// child is accepted.
+    fn within<T>(
+        &mut self,
+        segment: &str,
+        reason: R,
+        check: impl FnOnce(&mut Self) -> Check<T>,
+    ) -> Check<T> {
+        self.trail.enter(segment);
+        self.trail.mark(reason);
+        let value = check(self)?;
+        self.trail.leave();
+        Ok(value)
+    }
 }
 
 impl<'a> Judgment<'a> {
@@ -102,10 +122,12 @@ impl<'a> Judgment<'a> {
         body: &'a Value,
         scope: &mut Scope<'a>,
         mut pending: Pending<'a>,
-        walk: &mut Walk<'_>,
+        walk: &mut Walk<'_, '_>,
     ) -> Check<Totals> {
         let mut totals = Totals::default();
-        for node in list(get(body, "nodes")?)? {
+        for (position, node) in list(get(body, "nodes")?)?.iter().enumerate() {
+            walk.trail.enter(format!("nodes/{position}"));
+            walk.trail.mark(R::NodeKind);
             // Every node, control or instruction, is one runtime step.
             totals = totals.then(Totals::costing(Cost { steps: 1, bytes: 0 }))?;
             let node_totals = match string(get(node, "kind")?)? {
@@ -118,8 +140,12 @@ impl<'a> Judgment<'a> {
                     self.effect_instruction(kind, node, site, scope, &mut pending, walk)?
                 }
             };
+            walk.trail.mark(R::CostOverflow);
             totals = totals.then(node_totals)?;
+            walk.trail.leave();
         }
+        // Every local the block declares is introduced by one of its nodes.
+        walk.trail.mark(R::LocalClaim);
         if !pending.is_empty() {
             return Err(());
         }
@@ -133,10 +159,13 @@ impl<'a> Judgment<'a> {
         &mut self,
         node: &'a Value,
         scope: &Scope<'a>,
-        walk: &mut Walk<'_>,
+        walk: &mut Walk<'_, '_>,
     ) -> Check<Totals> {
         exact(node, &["kind", "binder", "iter", "bound", "body"])?;
-        let iterable = self.expression(get(node, "iter")?, scope, true, 0)?;
+        let iterable = walk.within("iter", R::Expression, |_| {
+            self.expression(get(node, "iter")?, scope, true, 0)
+        })?;
+        walk.trail.mark(R::LoopBound);
         let Ty::List(item, max) = iterable.ty.representation().clone() else {
             return Err(());
         };
@@ -150,15 +179,21 @@ impl<'a> Judgment<'a> {
             return Err(());
         }
         let body = get(node, "body")?;
+        walk.trail.enter("body");
+        walk.trail.mark(R::BlockLocals);
         let mut pending = self.block_locals(body)?;
         let mut child = scope.clone();
         let binder = get(node, "binder")?;
+        walk.trail.mark(R::LocalClaim);
         claim(binder, &mut pending, walk)?;
+        walk.trail.mark(R::LoopBinder);
         let binder_ty = self.declaration(binder, &mut child)?;
         if item.is_some_and(|item| !includes(&binder_ty, &item)) {
             return Err(());
         }
         let body = self.effect_block(body, &mut child, pending, walk)?;
+        walk.trail.leave();
+        walk.trail.mark(R::CostOverflow);
         let iteration = Totals::costing(Cost {
             steps: shape(&binder_ty)?.1.checked_add(1).ok_or(())?,
             bytes: 0,
@@ -173,18 +208,24 @@ impl<'a> Judgment<'a> {
         &mut self,
         node: &'a Value,
         scope: &Scope<'a>,
-        walk: &mut Walk<'_>,
+        walk: &mut Walk<'_, '_>,
     ) -> Check<Totals> {
         exact(node, &["kind", "predicate", "then", "else"])?;
         // A branch predicate is not a fact for either arm.
-        let (predicate, _) = self.predicate(get(node, "predicate")?, scope, true, 0)?;
+        let (predicate, _) = walk.within("predicate", R::Expression, |_| {
+            self.predicate(get(node, "predicate")?, scope, true, 0)
+        })?;
         let mut arms = Vec::with_capacity(2);
         for arm in ["then", "else"] {
             let body = get(node, arm)?;
+            walk.trail.enter(arm);
+            walk.trail.mark(R::BlockLocals);
             let pending = self.block_locals(body)?;
             let mut child = scope.clone();
             arms.push(self.effect_block(body, &mut child, pending, walk)?);
+            walk.trail.leave();
         }
+        walk.trail.mark(R::CostOverflow);
         let [then, otherwise] = arms.as_slice() else {
             return Err(());
         };
@@ -204,7 +245,7 @@ impl<'a> Judgment<'a> {
         site: Option<&EffectSite>,
         scope: &mut Scope<'a>,
         pending: &mut Pending<'a>,
-        walk: &mut Walk<'_>,
+        walk: &mut Walk<'_, '_>,
     ) -> Check<Totals> {
         match kind {
             "let" => {
@@ -212,13 +253,19 @@ impl<'a> Judgment<'a> {
                 if site.is_some() {
                     return Err(());
                 }
+                walk.trail.mark(R::LocalClaim);
                 claim(get(node, "binding")?, pending, walk)?;
-                let fact = self.expression(get(node, "value")?, scope, true, 0)?;
+                let fact = walk.within("value", R::Expression, |_| {
+                    self.expression(get(node, "value")?, scope, true, 0)
+                })?;
+                walk.trail.mark(R::BindingType);
                 let ty = self.declaration(get(node, "binding")?, scope)?;
                 if !includes(&ty, &fact.ty) {
                     return Err(());
                 }
+                walk.trail.mark(R::Expression);
                 self.record_bound(get(node, "binding")?, get(node, "value")?, &ty)?;
+                walk.trail.mark(R::CostOverflow);
                 Ok(Totals::costing(fact.cost.plus(Cost {
                     steps: shape(&ty)?.1,
                     bytes: 0,
@@ -229,20 +276,28 @@ impl<'a> Judgment<'a> {
                 if site.is_some() {
                     return Err(());
                 }
+                walk.trail.mark(R::LocalClaim);
                 claim(get(node, "binding")?, pending, walk)?;
                 // Each arm's payload reads only what precedes the attempt.
                 let mut worst = Cost::default();
                 let mut obstruction_output = 0;
+                walk.trail.enter("failureMap");
+                walk.trail.mark(R::Obstruction);
                 for (_, reason) in members(get(node, "failureMap")?)? {
                     let (charge, encoded) = self.obstruction(reason, scope)?;
                     worst = worst.maximum(charge);
                     obstruction_output = obstruction_output.max(encoded);
                 }
-                let fact = self.expression(get(node, "value")?, scope, true, 0)?;
+                walk.trail.leave();
+                let fact = walk.within("value", R::Expression, |_| {
+                    self.expression(get(node, "value")?, scope, true, 0)
+                })?;
+                walk.trail.mark(R::BindingType);
                 let ty = self.declaration(get(node, "binding")?, scope)?;
                 if !includes(&ty, &fact.ty) {
                     return Err(());
                 }
+                walk.trail.mark(R::CostOverflow);
                 // The call runs, then either its result is validated or
                 // exactly one arm's payload is built: charge the larger.
                 Ok(Totals {
@@ -260,7 +315,13 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
                 // A require refuses later work; it is not a proof for it.
-                let mut cost = self.predicate(get(node, "predicate")?, scope, true, 0)?.0;
+                let mut cost = walk
+                    .within("predicate", R::Expression, |_| {
+                        self.predicate(get(node, "predicate")?, scope, true, 0)
+                    })?
+                    .0;
+                walk.trail.enter("onFailure");
+                walk.trail.mark(R::Require);
                 let failure = get(node, "onFailure")?;
                 exact(failure, &["kind", "reason"])?;
                 if string(get(failure, "kind")?)? != "terminal" {
@@ -291,6 +352,7 @@ impl<'a> Judgment<'a> {
                 }
                 let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
                 cost = cost.plus(payload)?.plus(scratch)?;
+                walk.trail.leave();
                 Ok(Totals {
                     cost,
                     mutations: 0,
@@ -308,17 +370,21 @@ impl<'a> Judgment<'a> {
         site: &EffectSite,
         scope: &mut Scope<'a>,
         pending: &mut Pending<'a>,
-        walk: &mut Walk<'_>,
+        walk: &mut Walk<'_, '_>,
     ) -> Check<Totals> {
         exact(
             node,
             &["kind", "binding", "effect", "input", "obstructionMap"],
         )?;
-        let fact = self.expression(get(node, "input")?, scope, true, 0)?;
+        let fact = walk.within("input", R::Expression, |_| {
+            self.expression(get(node, "input")?, scope, true, 0)
+        })?;
+        walk.trail.mark(R::EffectInput);
         let expected = self.ty(&site.input, 0)?;
         if !includes(&expected, &fact.ty) {
             return Err(());
         }
+        walk.trail.mark(R::EffectAbi);
         let output = self.ty(&site.output, 0)?;
         let charge = match site.graph_read() {
             Some(read) => self.graph_read(read, &expected, &output, walk.graph)?,
@@ -336,6 +402,7 @@ impl<'a> Judgment<'a> {
             cost = cost.plus(scratch)?;
             obstruction_output = encoded;
         }
+        walk.trail.mark(R::LocalClaim);
         for (_, arm) in arms {
             exact(arm, &["binder", "value"])?;
             claim(get(arm, "binder")?, pending, walk)?;
@@ -349,10 +416,12 @@ impl<'a> Judgment<'a> {
             }
         }
         claim(get(node, "binding")?, pending, walk)?;
+        walk.trail.mark(R::EffectOutput);
         let declared = self.declaration(get(node, "binding")?, scope)?;
         if declared != output {
             return Err(());
         }
+        walk.trail.mark(R::CostOverflow);
         cost = cost
             .plus(fact.cost)?
             .plus(Cost {
@@ -372,7 +441,7 @@ impl<'a> Judgment<'a> {
 pub(super) fn claim<'a>(
     local: &'a Value,
     pending: &mut Pending<'a>,
-    walk: &mut Walk<'_>,
+    walk: &mut Walk<'_, '_>,
 ) -> Check<()> {
     let id = string(get(local, "id")?)?;
     if pending.remove(id) == Some(local) && walk.claimed.insert(id.to_owned()) {

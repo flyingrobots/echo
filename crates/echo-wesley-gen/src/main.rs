@@ -25,7 +25,7 @@ use ir::{OpKind, TypeKind, WesleyIR};
 const ECHO_IR_VERSION: &str = "echo-ir/v1";
 const DEFAULT_CODEC_ID: &str = LITTLE_ENDIAN_CODEC_V1_ID;
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
-const WESLEY_CORE_VERSION: &str = "0.3.0-alpha.2";
+const WESLEY_CORE_VERSION: &str = "0.3.0-alpha.4";
 
 #[derive(Parser)]
 #[command(

@@ -242,3 +242,50 @@ fn publication_refuses_what_the_judgment_refuses() {
     }
     assert_eq!(disagreements, Vec::<String>::new());
 }
+
+fn entry<'a>(value: &'a mut V, key: &str) -> &'a mut V {
+    let V::Map(fields) = value else { panic!("map") };
+    &mut fields
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text(key.into()))
+        .unwrap_or_else(|| panic!("field {key}"))
+        .1
+}
+
+/// The admitted `read-control` program with one more required capability,
+/// its Core re-encoded and the Target IR's Core pin recomputed.
+fn with_capability(capability: &str) -> Vec<u8> {
+    use echo_edict_canonical::{
+        digest_canonical_value_bytes_v1 as digest, encode_canonical_cbor_v1 as encode,
+    };
+    let mut bundle = decode(&compiled_program("read-control")).expect("bundle");
+    let mut module = decode(bytes(get(&bundle, "core_artifact"))).expect("core");
+    let V::Array(capabilities) = entry(&mut module, "requiredCoreCapabilities") else {
+        panic!("capabilities")
+    };
+    capabilities.push(V::Text(capability.into()));
+    let pin = digest("edict.core.module/v1", &module).expect("core digest");
+    let mut target = decode(bytes(get(&bundle, "target_ir_artifact"))).expect("target");
+    *entry(
+        entry(entry(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = V::Array(vec![V::Text("sha256".into()), V::Bytes(pin.to_vec())]);
+    *entry(&mut bundle, "core_artifact") = V::Bytes(encode(&module).expect("core bytes"));
+    *entry(&mut bundle, "target_ir_artifact") = V::Bytes(encode(&target).expect("target bytes"));
+    encode(&bundle).expect("bundle bytes")
+}
+
+/// The effect route has no shared-read meter, so it refuses a module that
+/// requires `core.cost.shared-reads/v1`; the runtime's effect route does too.
+#[test]
+fn effect_programs_refuse_the_shared_read_schedule() {
+    // Control: an unused capability with the same re-pinning is still admitted.
+    assert_eq!(
+        judge_effect_program(&with_capability("core.variant/v1")),
+        Ok(())
+    );
+    assert_eq!(
+        judge_effect_program(&with_capability("core.cost.shared-reads/v1")),
+        Err(EffectPublicationError::UnsupportedProgram)
+    );
+}

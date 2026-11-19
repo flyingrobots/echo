@@ -16,9 +16,14 @@ pub(super) fn validate(core: &Value) -> Result<(), ProviderRefusalV1> {
                 "required capability is not text",
             ));
         };
+        // The shared-read cost schedule is judged by `source_functions`.
         if !matches!(
             name.as_str(),
-            "core.variant/v1" | "core.fold/v1" | "core.list/v1" | "core.option/v1"
+            "core.variant/v1"
+                | "core.fold/v1"
+                | "core.list/v1"
+                | "core.option/v1"
+                | "core.cost.shared-reads/v1"
         ) || !supported.insert(name.as_str())
         {
             return Err(super::super::unsupported_semantics(

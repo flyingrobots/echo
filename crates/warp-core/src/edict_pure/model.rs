@@ -259,4 +259,6 @@ pub(crate) struct Program {
     pub helpers: BTreeMap<String, Helper>,
     pub result: Expr,
     pub limits: EvaluationLimits,
+    /// The Core work schedule the program is metered under.
+    pub schedule: super::functions::CostSchedule,
 }

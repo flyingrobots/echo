@@ -840,7 +840,7 @@ impl EchoOperationProgram {
         if text_map(value.clone())?.get("kind") == Some(&text_value("edict-effect-program/v1")) {
             return crate::edict_effects::EffectProgram::from_value(&value)
                 .map(|program| Self::EdictEffect(Arc::new(program)))
-                .map_err(|_| invalid_structure("invalid authored-effect program"));
+                .map_err(program_refusal);
         }
         let mut fields = exact_text_map(
             value,
@@ -2346,9 +2346,7 @@ impl ExecutableOperationPackage {
                     self.semantic_closure.application_schema_identity,
                 )
                 .map_err(|_| {
-                    invalid_structure(
-                        "compiled Core, selected operation and semantic closure disagree",
-                    )
+                    program_refusal(crate::edict_effects::EffectProgramRefusal::CompiledBinding)
                 })?;
 
             if self.semantic_closure.target_ir_identity != effect.target_ir_identity()
@@ -2481,6 +2479,25 @@ pub enum EchoOperationArtifactErrorKindV1 {
 pub struct EchoOperationArtifactErrorV1 {
     kind: EchoOperationArtifactErrorKindV1,
     detail: String,
+    reason: Option<crate::edict_effects::EffectProgramRefusal>,
+}
+
+impl EchoOperationArtifactErrorKindV1 {
+    /// The stable machine-readable code of this category.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::MalformedCanonicalBytes => "artifact.malformed-canonical-bytes",
+            Self::InvalidStructure => "artifact.invalid-structure",
+            Self::NonCanonical => "artifact.non-canonical",
+            Self::EmptyOperationCoordinate => "artifact.empty-operation-coordinate",
+            Self::EmptyObstructionCoordinate => "artifact.empty-obstruction-coordinate",
+            Self::UnsupportedTargetProfile => "artifact.unsupported-target-profile",
+            Self::UnsupportedSchema => "artifact.unsupported-schema",
+            Self::UnsupportedProgram => "artifact.unsupported-program",
+            Self::InvalidBudget => "artifact.invalid-budget",
+        }
+    }
 }
 
 impl EchoOperationArtifactErrorV1 {
@@ -2488,6 +2505,22 @@ impl EchoOperationArtifactErrorV1 {
     #[must_use]
     pub const fn kind(&self) -> EchoOperationArtifactErrorKindV1 {
         self.kind
+    }
+
+    /// Returns the authored-effect program check that refused, when one did.
+    #[must_use]
+    pub const fn reason(&self) -> Option<crate::edict_effects::EffectProgramRefusal> {
+        self.reason
+    }
+
+    /// Returns the stable reason code: the refusing authored-effect check's
+    /// `effect-program.*` code, or else the category's `artifact.*` code.
+    #[must_use]
+    pub const fn reason_code(&self) -> &'static str {
+        match self.reason {
+            Some(reason) => reason.code(),
+            None => self.kind.code(),
+        }
     }
 
     /// Returns deterministic diagnostic detail.
@@ -2645,6 +2678,31 @@ impl EchoOperationAdmissionError {
     #[must_use]
     pub const fn artifact(&self) -> Option<&EchoOperationArtifactErrorV1> {
         self.artifact.as_ref()
+    }
+
+    /// Returns the stable reason code naming the check that refused: the
+    /// artifact's code when decoding refused, or else the policy check's
+    /// `admission.*` code.
+    #[must_use]
+    pub const fn reason_code(&self) -> &'static str {
+        if let Some(artifact) = &self.artifact {
+            return artifact.reason_code();
+        }
+        match self.kind {
+            EchoOperationAdmissionErrorKind::ArtifactInvalid => "admission.artifact-invalid",
+            EchoOperationAdmissionErrorKind::PackageIdentityMismatch => {
+                "admission.package-identity-mismatch"
+            }
+            EchoOperationAdmissionErrorKind::OperationCoordinateMismatch => {
+                "admission.operation-coordinate-mismatch"
+            }
+            EchoOperationAdmissionErrorKind::AuthorityProfileMismatch => {
+                "admission.authority-profile-mismatch"
+            }
+            EchoOperationAdmissionErrorKind::BudgetExceedsPolicy => {
+                "admission.budget-exceeds-policy"
+            }
+        }
     }
 }
 
@@ -8210,6 +8268,18 @@ fn artifact_error(
     EchoOperationArtifactErrorV1 {
         kind,
         detail: detail.into(),
+        reason: None,
+    }
+}
+
+/// An authored-effect program refusal, naming its check in the detail too.
+fn program_refusal(
+    reason: crate::edict_effects::EffectProgramRefusal,
+) -> EchoOperationArtifactErrorV1 {
+    EchoOperationArtifactErrorV1 {
+        kind: EchoOperationArtifactErrorKindV1::InvalidStructure,
+        detail: format!("invalid authored-effect program: {}", reason.code()),
+        reason: Some(reason),
     }
 }
 

@@ -35,6 +35,9 @@ mod public_structured_effect;
 #[path = "executable_operation_pipeline/public_graph_read_effect.rs"]
 mod public_graph_read_effect;
 
+#[path = "executable_operation_pipeline/public_basis_read_effect.rs"]
+mod public_basis_read_effect;
+
 #[path = "executable_operation_pipeline/public_typed_failure_effect.rs"]
 mod public_typed_failure_effect;
 

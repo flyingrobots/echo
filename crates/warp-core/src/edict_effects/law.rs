@@ -15,6 +15,15 @@ pub enum EffectLawError {
     /// The bounded input is not an exact canonical footprint-law value.
     #[error("invalid canonical footprint law")]
     InvalidLaw,
+    /// `max_reads` is above the effect profile's 4,096.
+    #[error("footprint law max_reads is above 4096")]
+    MaxReads,
+    /// `max_writes` is above the effect profile's 256.
+    #[error("footprint law max_writes is above 256")]
+    MaxWrites,
+    /// `max_range_edges` is above the effect profile's 65,536.
+    #[error("footprint law max_range_edges is above 65536")]
+    MaxRangeEdges,
 }
 
 /// Host-selected typed footprint permissions, not an admitted package capability.
@@ -41,8 +50,9 @@ impl EffectFootprintLaw {
     /// be zero; ceilings are 4096 reads, 256 writes and 65536 bucket edges.
     ///
     /// # Errors
-    /// Refuses noncanonical CBOR, missing/extra fields, malformed or unordered
-    /// sets, and counts outside the effect-profile ceilings.
+    /// Refuses noncanonical CBOR, missing/extra fields and malformed or
+    /// unordered sets with [`EffectLawError::InvalidLaw`], and a count above
+    /// its effect-profile ceiling with that ceiling's variant.
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EffectLawError> {
         if u64::try_from(bytes.len()).map_err(|_| EffectLawError::InvalidLaw)?
             > super::EFFECT_READ_STORAGE_CEILING_V1
@@ -50,10 +60,11 @@ impl EffectFootprintLaw {
             return Err(EffectLawError::InvalidLaw);
         }
         let value = decode_canonical_cbor_v1(bytes).map_err(|_| EffectLawError::InvalidLaw)?;
-        Self::parse(&value).map_err(|_| EffectLawError::InvalidLaw)
+        Self::parse(&value)
     }
 
-    fn parse(value: &Value) -> Result<Self, EvaluationError> {
+    fn parse(value: &Value) -> Result<Self, EffectLawError> {
+        let shape = |_: EvaluationError| EffectLawError::InvalidLaw;
         exact_fields(
             value,
             &[
@@ -67,22 +78,30 @@ impl EffectFootprintLaw {
                 "max_writes",
                 "max_range_edges",
             ],
-        )?;
-        let max_reads = number(field(value, "max_reads")?)?;
-        let max_writes = number(field(value, "max_writes")?)?;
-        let max_range_edges = number(field(value, "max_range_edges")?)?;
-        if max_reads > 4096 || max_writes > 256 || max_range_edges > 65536 {
-            return Err(EvaluationError::InvalidArtifact);
+        )
+        .map_err(shape)?;
+        let count = |name: &str| number(field(value, name)?);
+        let max_reads = count("max_reads").map_err(shape)?;
+        let max_writes = count("max_writes").map_err(shape)?;
+        let max_range_edges = count("max_range_edges").map_err(shape)?;
+        if max_reads > 4096 {
+            return Err(EffectLawError::MaxReads);
+        }
+        if max_writes > 256 {
+            return Err(EffectLawError::MaxWrites);
+        }
+        if max_range_edges > 65536 {
+            return Err(EffectLawError::MaxRangeEdges);
         }
         Ok(Self {
-            nodes: ids(value, "read_node_types")?,
-            atoms: ids(value, "atom_types")?,
-            portals: ids(value, "portal_owner_types")?,
-            ranges: ids(value, "range_edge_types")?,
+            nodes: ids(value, "read_node_types").map_err(shape)?,
+            atoms: ids(value, "atom_types").map_err(shape)?,
+            portals: ids(value, "portal_owner_types").map_err(shape)?,
+            ranges: ids(value, "range_edge_types").map_err(shape)?,
             max_reads,
             max_range_edges,
-            write_nodes: ids(value, "write_node_types")?,
-            write_edges: ids(value, "write_edge_types")?,
+            write_nodes: ids(value, "write_node_types").map_err(shape)?,
+            write_edges: ids(value, "write_edge_types").map_err(shape)?,
             max_writes,
         })
     }

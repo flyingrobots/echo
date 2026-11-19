@@ -345,6 +345,24 @@
 
 ### Fixed
 
+- Echo's provider lowerer and verifier now refuse a footprint law or graph
+  schema that warp-core admission refuses (#1023). Both judges deferred those
+  contents to the runtime, so they accepted jedit#296's basis-read witness
+  (package `8e99859a`), whose law declares `max_writes = 1024`, while
+  admission refused it with a generic `InvalidStructure`. The spec caps
+  `max_writes` at 256, so admission was right. Publication refuses with
+  `EffectPublicationError::Contract` and the verifier with
+  `EffectPackageRefusal::Contract`. Every package-admission refusal now names
+  its check: `EchoOperationAdmissionError::reason_code` returns an
+  `effect-program.*` code in the #1018 scheme (for example
+  `effect-program.footprint-law.max-writes`), an `artifact.*` code or an
+  `admission.*` code. `EffectLawError` has `MaxReads`, `MaxWrites` and
+  `MaxRangeEdges` variants. The shared effect-program corpus gains
+  `footprint-writes-at-ceiling` and `footprint-writes-over-ceiling`, and a new
+  verifier test admits every corpus package through `EffectPackageHost` and
+  requires the same verdict in the same reason class.
+
+||||||| 0d1f74a0
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package
   whose intent called an exported pure helper whose body fails, outright or in

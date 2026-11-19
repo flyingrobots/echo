@@ -37,72 +37,39 @@ pub struct EffectProgram {
     graph_reads: Option<crate::edict_read::GraphReads>,
 }
 impl EffectProgram {
-    pub(crate) fn from_value(value: &Value) -> Result<Self, EvaluationError> {
-        let mut fields = vec![
-            "schema",
-            "kind",
-            "interpreter_profile_identity",
-            "intrinsic_profile_identity",
-            "compiled_program",
-            "target_ir_identity",
-            "identity_law",
-            "graph_schema",
-            "footprint_law",
-            "max_input_bytes",
-            "max_result_bytes",
-            "max_allocated_bytes",
-            "output_type",
-        ];
-        // A program whose steps read the graph declares their ceilings, as
-        // the bounded-read configuration does; any other keeps its fields.
-        if field(value, "graph_reads").is_ok() {
-            fields.push("graph_reads");
-        }
-        exact_fields(value, &fields)?;
-        require_text(value, "schema", "echo.operation-program/v1")?;
-        require_text(value, "kind", "edict-effect-program/v1")?;
-        if number(field(value, "identity_law")?)? != 1 {
-            return Err(EvaluationError::InvalidArtifact);
-        }
-        for (key, label) in [
-            (
-                "interpreter_profile_identity",
-                "echo.operation-interpreter.edict-effect/v1",
-            ),
-            (
-                "intrinsic_profile_identity",
-                "echo.operation-intrinsics.edict-effect/v1",
-            ),
-        ] {
-            if hash(field(value, key)?)?
-                != domain_hash(b"echo:operation-profile:v1\0", label.as_bytes())
-            {
-                return Err(EvaluationError::InvalidArtifact);
-            }
-        }
-        let schema = EffectGraphSchema::from_canonical_bytes(bytes(field(value, "graph_schema")?)?)
-            .map_err(|_| EvaluationError::InvalidArtifact)?;
-        let law_bytes = bytes(field(value, "footprint_law")?)?;
-        let law = EffectFootprintLaw::from_canonical_bytes(law_bytes)
-            .map_err(|_| EvaluationError::InvalidArtifact)?;
+    /// Prepares the program payload, naming the check that refuses it.
+    pub(crate) fn from_value(value: &Value) -> Result<Self, super::EffectProgramRefusal> {
+        use super::EffectProgramRefusal as R;
+        let envelope = |_: EvaluationError| R::ProgramEnvelope;
+        let limits = |_: EvaluationError| R::ResourceLimits;
+        program_envelope(value).map_err(envelope)?;
+        let schema = EffectGraphSchema::from_canonical_bytes(
+            bytes(field(value, "graph_schema").map_err(envelope)?).map_err(envelope)?,
+        )
+        .map_err(|_| R::GraphSchema)?;
+        let law_bytes =
+            bytes(field(value, "footprint_law").map_err(envelope)?).map_err(envelope)?;
+        let law = EffectFootprintLaw::from_canonical_bytes(law_bytes)?;
         let mut footprint = blake3::Hasher::new();
         footprint.update(b"echo:operation-footprint-law:v1\0");
         footprint.update(law_bytes);
-        let max_input_bytes = number(field(value, "max_input_bytes")?)?;
-        let max_result_bytes = number(field(value, "max_result_bytes")?)?;
-        let max_allocated_bytes = number(field(value, "max_allocated_bytes")?)?;
-        let output_type = coordinate(field(value, "output_type")?)?;
+        let limit = |name: &str| number(field(value, name)?);
+        let max_input_bytes = limit("max_input_bytes").map_err(limits)?;
+        let max_result_bytes = limit("max_result_bytes").map_err(limits)?;
+        let max_allocated_bytes = limit("max_allocated_bytes").map_err(limits)?;
+        let output_type =
+            coordinate(field(value, "output_type").map_err(limits)?).map_err(limits)?;
         if max_input_bytes > 65536
             || max_result_bytes > 65536
             || max_allocated_bytes > EFFECT_READ_STORAGE_CEILING_V1
             || output_type.len() > 1024
         {
-            return Err(EvaluationError::InvalidArtifact);
+            return Err(R::ResourceLimits);
         }
-        let compiled_contract = super::compiled_program::CompiledProgram::parse(bytes(field(
-            value,
-            "compiled_program",
-        )?)?)?;
+        let compiled =
+            bytes(field(value, "compiled_program").map_err(envelope)?).map_err(envelope)?;
+        let compiled_contract = super::compiled_program::CompiledProgram::parse(compiled)
+            .map_err(|_| R::CompiledProgram)?;
         let graph_reads = field(value, "graph_reads")
             .ok()
             .map(|declared| {
@@ -111,19 +78,21 @@ impl EffectProgram {
                     compiled_contract.module_coordinate()?,
                 )
             })
-            .transpose()?;
+            .transpose()
+            .map_err(|_| R::GraphReadDeclaration)?;
         Ok(Self {
             value: value.clone(),
             identity: crate::echo_operation::program_identity_bytes(
                 &echo_edict_canonical::encode_canonical_cbor_v1(value)
-                    .map_err(|_| EvaluationError::InvalidArtifact)?,
+                    .map_err(|_| R::ProgramEnvelope)?,
             ),
-            compiled: bytes(field(value, "compiled_program")?)?.to_vec(),
+            compiled: compiled.to_vec(),
             compiled_contract,
             graph_reads,
             schema,
             law,
-            target_ir: hash(field(value, "target_ir_identity")?)?,
+            target_ir: hash(field(value, "target_ir_identity").map_err(envelope)?)
+                .map_err(envelope)?,
             footprint: footprint.finalize().into(),
             output_type: output_type.to_owned(),
             max_input_bytes,
@@ -243,4 +212,51 @@ pub(super) fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     h.update(&(bytes.len() as u64).to_le_bytes());
     h.update(bytes);
     h.finalize().into()
+}
+
+/// The program's exact fields, schema, kind, identity law and profile pins.
+fn program_envelope(value: &Value) -> Result<(), EvaluationError> {
+    let mut fields = vec![
+        "schema",
+        "kind",
+        "interpreter_profile_identity",
+        "intrinsic_profile_identity",
+        "compiled_program",
+        "target_ir_identity",
+        "identity_law",
+        "graph_schema",
+        "footprint_law",
+        "max_input_bytes",
+        "max_result_bytes",
+        "max_allocated_bytes",
+        "output_type",
+    ];
+    // A program whose steps read the graph declares their ceilings, as
+    // the bounded-read configuration does; any other keeps its fields.
+    if field(value, "graph_reads").is_ok() {
+        fields.push("graph_reads");
+    }
+    exact_fields(value, &fields)?;
+    require_text(value, "schema", "echo.operation-program/v1")?;
+    require_text(value, "kind", "edict-effect-program/v1")?;
+    if number(field(value, "identity_law")?)? != 1 {
+        return Err(EvaluationError::InvalidArtifact);
+    }
+    for (key, label) in [
+        (
+            "interpreter_profile_identity",
+            "echo.operation-interpreter.edict-effect/v1",
+        ),
+        (
+            "intrinsic_profile_identity",
+            "echo.operation-intrinsics.edict-effect/v1",
+        ),
+    ] {
+        if hash(field(value, key)?)?
+            != domain_hash(b"echo:operation-profile:v1\0", label.as_bytes())
+        {
+            return Err(EvaluationError::InvalidArtifact);
+        }
+    }
+    Ok(())
 }

@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 754,155 bytes with SHA-256
-`f308374f0730231076ca4b9a72c35642b242d2d484a20b5486f1faef02234e3d`.
+The checked component is 757,686 bytes with SHA-256
+`a21744de6738eb8416ff7884398869f576dde10ad99b055db0bfd41524ef27a0`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 794,165 bytes
+`wit-component` version recorded above. Its checked component is 797,141 bytes
 with SHA-256
-`41b465575be0ceb68c4c146b7e76a86c7bcc6d7315d23ca51cc16581cc580a0e`.
+`394b4431573c7ce24326dbbfb4623bae2bdea248000d2f28e0519604ffd0c6c7`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,11 +56,12 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#1006's source (imported
-helpers must be total, merged with echo#1003 and echo#1014), was
-independently reproduced by the two G4 candidate jobs in
-[CI run 44060167861](https://github.com/flyingrobots/echo/actions/runs/44060167861)
-at source commit `089e0afce0294a41848c96b5a75e19bffbe92f9c`. Both copies of
+The current component pair, built from echo#1023's source (the provider
+refuses the footprint laws and graph schemas runtime admission refuses,
+merged with echo#1006), was independently reproduced by the two G4
+candidate jobs in
+[CI run 44454007264](https://github.com/flyingrobots/echo/actions/runs/44454007264)
+at source commit `1f68a8de92edb78747b1a41ac30a1b1c81ba8e87`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

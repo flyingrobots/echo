@@ -8,6 +8,7 @@ use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1,
     encode_canonical_cbor_v1 as encode, CanonicalValueV1 as V,
 };
+use echo_edict_provider_verifier::effect_contract::ContractRefusal;
 use echo_edict_provider_verifier::effect_package::{verify_effect_package, EffectPackageRefusal};
 
 /// The retained corpus, embedded so the judgment reads no files.
@@ -98,7 +99,11 @@ const RETAINED: &[(&str, &str)] = retained![
     "structured-loop-under-budget",
     "structured-mutation-count-control",
     "structured-mutation-count-over",
+    "footprint-writes-at-ceiling",
+    "footprint-writes-over-ceiling",
 ];
+/// The entry refused by its footprint law, not by its program (echo#1023).
+const LAW_REFUSED: &str = "footprint-writes-over-ceiling";
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");
 
@@ -221,6 +226,10 @@ fn the_verifier_reaches_every_retained_corpus_verdict() {
         let judged = verify_effect_package(&package_bytes(&name));
         let expected = if accept {
             Ok(())
+        } else if name == LAW_REFUSED {
+            Err(EffectPackageRefusal::Contract(
+                ContractRefusal::FootprintMaxWrites,
+            ))
         } else {
             Err(EffectPackageRefusal::UnsupportedProgram)
         };
@@ -449,14 +458,6 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
             }),
         ),
         (
-            "an undecodable graph schema",
-            program(&|p| *field_mut(p, "graph_schema") = V::Bytes(Vec::new())),
-        ),
-        (
-            "an undecodable footprint law",
-            program(&|p| *field_mut(p, "footprint_law") = V::Bytes(Vec::new())),
-        ),
-        (
             "an unknown budget field",
             package(&|p| insert(field_mut(p, "budget_ceiling"), "unexpected", V::Integer(0))),
         ),
@@ -504,4 +505,17 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
         Vec::<&str>::new(),
         "envelopes the verifier did not refuse"
     );
+    // An undecodable schema or law is refused by the check runtime admission
+    // names for it (echo#1023).
+    for (field, refusal) in [
+        ("graph_schema", ContractRefusal::GraphSchema),
+        ("footprint_law", ContractRefusal::FootprintLaw),
+    ] {
+        let package = program(&|p| *field_mut(p, field) = V::Bytes(Vec::new()));
+        assert_eq!(
+            verify_effect_package(&encode(&package).expect("package")),
+            Err(EffectPackageRefusal::Contract(refusal)),
+            "{field}"
+        );
+    }
 }

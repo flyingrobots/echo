@@ -24,6 +24,8 @@ mod lowering_relation;
 mod mutations;
 pub use mutations::EffectMutation;
 mod package;
+mod program_refusal;
+pub use program_refusal::EffectProgramRefusal;
 mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};
 mod completion;

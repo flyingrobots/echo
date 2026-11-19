@@ -21,6 +21,8 @@ pub enum EffectPackageRefusal {
     /// The compiled effect program is unsafe or does not match its own
     /// artifacts, intrinsic contracts or declared budget.
     UnsupportedProgram,
+    /// The graph schema or footprint law is one runtime admission refuses.
+    Contract(crate::effect_contract::ContractRefusal),
 }
 
 impl std::fmt::Display for EffectPackageRefusal {
@@ -31,6 +33,7 @@ impl std::fmt::Display for EffectPackageRefusal {
             Self::UnsupportedProgram => {
                 "the compiled effect program is outside the checked profile"
             }
+            Self::Contract(refusal) => refusal.code(),
         })
     }
 }
@@ -256,11 +259,13 @@ fn envelope(program: &Value) -> Result<(), EffectPackageRefusal> {
             return Err(E);
         }
     }
-    // The runtime parses both; the verifier requires each to be one canonical
-    // value. Their contents are the runtime's to admit.
-    for field in ["graph_schema", "footprint_law"] {
-        canonical(bytes(get(program, field, E)?, E)?)?;
-    }
+    // The runtime refuses a schema or law outside its shape or the effect
+    // profile's ceilings at admission, so the verifier refuses it too, naming
+    // the same check (echo#1023).
+    crate::effect_contract::judge_graph_schema(bytes(get(program, "graph_schema", E)?, E)?)
+        .map_err(EffectPackageRefusal::Contract)?;
+    crate::effect_contract::judge_footprint_law(bytes(get(program, "footprint_law", E)?, E)?)
+        .map_err(EffectPackageRefusal::Contract)?;
     Ok(())
 }
 /// The runtime's identity for a named operation profile.

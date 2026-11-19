@@ -718,6 +718,7 @@ fn entries() -> Vec<Entry> {
         runtime,
         package: as_published(package),
     };
+    let law_entries = footprint_law_entries(&read_control);
     vec![
         entry("read-control", true, Runtime::Accepts, read_control),
         entry(
@@ -1196,7 +1197,41 @@ fn entries() -> Vec<Entry> {
     ]
     .into_iter()
     .chain(structured_entries())
+    .chain(law_entries)
     .collect()
+}
+
+/// `package` with its footprint law's `max_writes` set to `writes`, its
+/// footprint contract identity rebound to the new law.
+fn with_max_writes(package: &V, writes: i128) -> V {
+    let mut program = decode(get(package, "program"));
+    let mut law = decode(get(&program, "footprint_law"));
+    set(&mut law, "max_writes", V::Integer(writes));
+    set(&mut program, "footprint_law", V::Bytes(encoded(&law)));
+    let mut package = package.clone();
+    set(&mut package, "program", V::Bytes(encoded(&program)));
+    set(&mut package, "footprint_contract_identity", footprint(&law));
+    package
+}
+
+/// The read control with a footprint law at and one over the effect
+/// profile's 256-write ceiling (echo#1023): the provider must refuse what
+/// runtime admission refuses, for the same named check.
+fn footprint_law_entries(read_control: &V) -> Vec<Entry> {
+    vec![
+        Entry {
+            name: "footprint-writes-at-ceiling",
+            accept: true,
+            runtime: Runtime::Accepts,
+            package: as_published(with_max_writes(read_control, 256)),
+        },
+        Entry {
+            name: "footprint-writes-over-ceiling",
+            accept: false,
+            runtime: Runtime::Refuses,
+            package: as_published(with_max_writes(read_control, 257)),
+        },
+    ]
 }
 
 /// Steps and bytes far above any structured entry's worst case, so only the
@@ -1469,6 +1504,8 @@ const RETAINED: &[(&str, &str)] = retained![
     "structured-loop-under-budget",
     "structured-mutation-count-control",
     "structured-mutation-count-over",
+    "footprint-writes-at-ceiling",
+    "footprint-writes-over-ceiling",
 ];
 const VERDICTS: &str = include_str!(
     "../../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt"

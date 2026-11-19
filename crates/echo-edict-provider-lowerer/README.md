@@ -219,6 +219,13 @@ It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
 retains the actual lawpack inside the compiled bundle, without a duplicate outer
 lawpack identity.
 
+Publication refuses a configured graph schema or footprint law that runtime
+admission would refuse: either outside its exact canonical shape, or a law
+above the effect profile's 4,096 reads, 256 writes or 65,536 edges per range
+read. It refuses with `EffectPublicationError::Contract`, whose code
+(`effect-program.graph-schema` or `effect-program.footprint-law*`) is the one
+admission reports for the same check (echo#1023).
+
 Before serializing, publication runs the lowerer's own effect-program
 judgment, also available as `effect_publication::judge_effect_program`, and
 refuses an unsafe program with `UnsupportedProgram`. The judgment establishes

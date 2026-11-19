@@ -4,6 +4,7 @@
 //! The lowerer judges authored effect programs itself, before publication,
 //! and reaches the runtime's verdict on the shared retained corpus.
 use echo_edict_canonical::{decode_canonical_cbor_v1 as decode, CanonicalValueV1 as V};
+use echo_edict_provider_lowerer::effect_contract::ContractRefusal;
 use echo_edict_provider_lowerer::effect_publication::{
     encode_effect_publication, judge_effect_program, EffectPublicationError, EffectPublicationInput,
 };
@@ -92,7 +93,11 @@ const RETAINED: &[(&str, &str)] = retained![
     "structured-loop-under-budget",
     "structured-mutation-count-control",
     "structured-mutation-count-over",
+    "footprint-writes-at-ceiling",
+    "footprint-writes-over-ceiling",
 ];
+/// The entry refused by its footprint law, not by its program (echo#1023).
+const LAW_REFUSED: &str = "footprint-writes-over-ceiling";
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");
 
 fn get<'a>(value: &'a V, key: &str) -> &'a V {
@@ -147,7 +152,8 @@ fn the_lowerer_reaches_every_retained_corpus_verdict() {
     let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = judge_effect_program(&compiled_program(&name));
-        let expected = if accept {
+        // The law entry's program is sound; publication refuses its law.
+        let expected = if accept || name == LAW_REFUSED {
             Ok(())
         } else {
             Err(EffectPublicationError::UnsupportedProgram)
@@ -159,74 +165,85 @@ fn the_lowerer_reaches_every_retained_corpus_verdict() {
     assert_eq!(disagreements, Vec::<String>::new());
 }
 
+/// Publishes entry `name` under the configuration its own package names,
+/// with `law` in place of its footprint law when given.
+fn publish(name: &str, law: Option<Vec<u8>>) -> Result<Vec<u8>, EffectPublicationError> {
+    let program = compiled_program(name);
+    let package = package(name);
+    let program_value = decode(bytes(get(&package, "program"))).expect("program");
+    let catalog = {
+        let bundle = decode(&program).expect("bundle");
+        match get(&bundle, "lowering_artifacts") {
+            V::Null => echo_edict_canonical::encode_canonical_cbor_v1(&V::Map(vec![
+                (
+                    V::Text("apiVersion".into()),
+                    V::Text("edict.target-profile.intrinsics/v1".into()),
+                ),
+                (V::Text("intrinsics".into()), V::Map(vec![])),
+            ]))
+            .expect("empty catalog"),
+            lowering => bytes(get(lowering, "intrinsics_artifact")).to_vec(),
+        }
+    };
+    let field = |key: &str| get(&program_value, key).clone();
+    let configuration = echo_edict_canonical::encode_canonical_cbor_v1(&V::Map(
+        [
+            (
+                "apiVersion",
+                V::Text("echo.operation-lowering-configuration/v1".into()),
+            ),
+            ("programKind", V::Text("edict-effect-program/v1".into())),
+            ("identityLaw", V::Integer(1)),
+            ("intrinsicCatalog", V::Bytes(catalog)),
+            ("graphSchema", field("graph_schema")),
+            (
+                "footprintLaw",
+                law.map_or_else(|| field("footprint_law"), V::Bytes),
+            ),
+            ("maxInputBytes", field("max_input_bytes")),
+            ("maxResultBytes", field("max_result_bytes")),
+            ("maxAllocatedBytes", field("max_allocated_bytes")),
+            (
+                "budgetCeiling",
+                V::Map(vec![
+                    (V::Text("steps".into()), V::Integer(1)),
+                    (V::Text("readBytes".into()), V::Integer(0)),
+                    (V::Text("writeBytes".into()), V::Integer(0)),
+                ]),
+            ),
+            ("authorityProfile", V::Text("app.effect-writer@1".into())),
+        ]
+        .into_iter()
+        .map(|(k, v)| (V::Text(k.into()), v))
+        .collect(),
+    ))
+    .expect("configuration");
+    let source = echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(
+        b"package app;
+"
+        .to_vec(),
+    ))
+    .expect("source");
+    encode_effect_publication(EffectPublicationInput {
+        compiler_program: &program,
+        application_schema_coordinate: "app.Exports",
+        source_artifact: &source,
+        source_domain: "edict.source/v1",
+        configuration: &configuration,
+    })
+}
+
 /// Publication runs the same judgment, so a refused program is never
 /// serialized into a package.
 #[test]
 fn publication_refuses_what_the_judgment_refuses() {
     let mut disagreements = Vec::new();
     for (name, accept) in verdicts() {
-        let program = compiled_program(&name);
-        let package = package(&name);
-        let program_value = decode(bytes(get(&package, "program"))).expect("program");
-        let catalog = {
-            let bundle = decode(&program).expect("bundle");
-            match get(&bundle, "lowering_artifacts") {
-                V::Null => echo_edict_canonical::encode_canonical_cbor_v1(&V::Map(vec![
-                    (
-                        V::Text("apiVersion".into()),
-                        V::Text("edict.target-profile.intrinsics/v1".into()),
-                    ),
-                    (V::Text("intrinsics".into()), V::Map(vec![])),
-                ]))
-                .expect("empty catalog"),
-                lowering => bytes(get(lowering, "intrinsics_artifact")).to_vec(),
-            }
-        };
-        let field = |key: &str| get(&program_value, key).clone();
-        let configuration = echo_edict_canonical::encode_canonical_cbor_v1(&V::Map(
-            [
-                (
-                    "apiVersion",
-                    V::Text("echo.operation-lowering-configuration/v1".into()),
-                ),
-                ("programKind", V::Text("edict-effect-program/v1".into())),
-                ("identityLaw", V::Integer(1)),
-                ("intrinsicCatalog", V::Bytes(catalog)),
-                ("graphSchema", field("graph_schema")),
-                ("footprintLaw", field("footprint_law")),
-                ("maxInputBytes", field("max_input_bytes")),
-                ("maxResultBytes", field("max_result_bytes")),
-                ("maxAllocatedBytes", field("max_allocated_bytes")),
-                (
-                    "budgetCeiling",
-                    V::Map(vec![
-                        (V::Text("steps".into()), V::Integer(1)),
-                        (V::Text("readBytes".into()), V::Integer(0)),
-                        (V::Text("writeBytes".into()), V::Integer(0)),
-                    ]),
-                ),
-                ("authorityProfile", V::Text("app.effect-writer@1".into())),
-            ]
-            .into_iter()
-            .map(|(k, v)| (V::Text(k.into()), v))
-            .collect(),
-        ))
-        .expect("configuration");
-        let source = echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(
-            b"package app;
-"
-            .to_vec(),
-        ))
-        .expect("source");
-        let published = encode_effect_publication(EffectPublicationInput {
-            compiler_program: &program,
-            application_schema_coordinate: "app.Exports",
-            source_artifact: &source,
-            source_domain: "edict.source/v1",
-            configuration: &configuration,
-        });
+        let published = publish(&name, None);
         match (accept, &published) {
             (true, Ok(_)) | (false, Err(EffectPublicationError::UnsupportedProgram)) => {}
+            (false, Err(EffectPublicationError::Contract(ContractRefusal::FootprintMaxWrites)))
+                if name == LAW_REFUSED => {}
             (true, Err(error)) => {
                 disagreements.push(format!("{name}: publication refused: {error:?}"));
             }
@@ -237,4 +254,36 @@ fn publication_refuses_what_the_judgment_refuses() {
         }
     }
     assert_eq!(disagreements, Vec::<String>::new());
+}
+
+/// The footprint law with `max_writes` set to `writes`, from entry `name`.
+fn law_with_writes(name: &str, writes: i128) -> Vec<u8> {
+    let program = decode(bytes(get(&package(name), "program"))).expect("program");
+    let V::Map(mut law) = decode(bytes(get(&program, "footprint_law"))).expect("law") else {
+        panic!("law map")
+    };
+    law.iter_mut()
+        .find(|(key, _)| key == &V::Text("max_writes".into()))
+        .expect("max_writes")
+        .1 = V::Integer(writes);
+    echo_edict_canonical::encode_canonical_cbor_v1(&V::Map(law)).expect("law")
+}
+
+/// Runtime admission refuses a law above the effect profile's 256 writes, so
+/// publication refuses it and names the check; at the ceiling it publishes
+/// (echo#1023).
+#[test]
+fn publication_refuses_a_law_above_the_write_ceiling() {
+    assert!(publish("read-control", Some(law_with_writes("read-control", 256))).is_ok());
+    let refused = publish("read-control", Some(law_with_writes("read-control", 257)));
+    assert_eq!(
+        refused,
+        Err(EffectPublicationError::Contract(
+            ContractRefusal::FootprintMaxWrites
+        ))
+    );
+    assert_eq!(
+        refused.expect_err("refused").to_string(),
+        "effect-program.footprint-law.max-writes"
+    );
 }

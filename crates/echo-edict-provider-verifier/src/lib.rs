@@ -15,6 +15,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod component;
+pub mod effect_contract;
 pub mod effect_package;
 mod executable_operation;
 mod pure_projection;

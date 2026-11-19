@@ -491,15 +491,13 @@ fn the_lowerer_names_the_refusing_check_beside_its_refusal() {
     );
 }
 
+/// The frozen WIT contract: a provider's result is independent of the host's
+/// limits, so a refusal that fits both bounds is byte-identical under each.
 #[test]
-fn the_lowerer_omits_the_reason_when_one_diagnostic_is_admitted() {
-    let refusal = lower(starved_request(1)).expect_err("a one-step budget is refused");
-    let codes = refusal
-        .diagnostics
-        .iter()
-        .map(|diagnostic| diagnostic.code.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(codes, vec!["echo.provider.unsupported-semantics"]);
+fn the_lowerer_refusal_is_independent_of_the_response_limits() {
+    let roomy = lower(starved_request(8)).expect_err("a one-step budget is refused");
+    let tight = lower(starved_request(2)).expect_err("a one-step budget is refused");
+    assert_eq!(roomy, tight);
 }
 
 #[test]

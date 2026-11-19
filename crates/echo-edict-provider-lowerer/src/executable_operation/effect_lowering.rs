@@ -91,7 +91,7 @@ pub(super) fn lower(
     })
     .map_err(|error| match &error {
         EffectPublicationError::UnsupportedProgram(program) => {
-            crate::unsupported_program(SUBJECT, &error.to_string(), program, request.limits)
+            crate::unsupported_program(SUBJECT, &error.to_string(), program)
         }
         _ => unsupported(&error.to_string()),
     })?;

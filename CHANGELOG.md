@@ -14,10 +14,10 @@
   `effect-program.budget.steps`, and a bounded path into the Core, Target IR
   or lowering artifacts, at most 256 bytes. The component refusal keeps its
   kind and first diagnostic, and adds
-  `echo.provider.unsupported-semantics.<code>` (`refused at <path>`) when the
-  host's limits admit a second diagnostic; the verifier's `rejected` report
-  adds `echo.verifier.effect-program-refused.<code>` the same way, and its
-  report bytes do not change. A shared `reasons.txt` pins the code each of
+  `echo.provider.unsupported-semantics.<code>` (`refused at <path>`),
+  independent of the host's response limits; the verifier's `rejected`
+  report adds `echo.verifier.effect-program-refused.<code>` the same way, and
+  its report bytes do not change. A shared `reasons.txt` pins the code each of
   the 49 refused corpus entries reaches, and the lowerer and verifier each
   name it. The jedit#296 basis-read witness, previously refused with no
   detail, names three causes in turn: comment lines before `package`

@@ -287,7 +287,11 @@ fn judged<'a>(
         identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
-        trail.at(R::HelperFunction, &["functions", &name]);
+        let origin = helper_origin(core, exports, &name, proof.functions[&name].source);
+        trail.at(
+            R::HelperFunction,
+            &origin.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
         proof.function(&name, 1)?;
     }
     trail.at(R::HelperPreconditions, &["core"]);
@@ -309,6 +313,37 @@ fn judged<'a>(
         .collect();
     function_preconditions::check_calls(core, &contracts).map_err(|_| ())?;
     Ok(proof)
+}
+/// Where a helper is declared, for refusal paths: a source function under
+/// `/core/functions/<name>`, an imported one at its index in
+/// `/exports/pureFunctions`. `name` is the qualified lookup name.
+fn helper_origin(core: &Value, exports: &Value, name: &str, source: bool) -> Vec<String> {
+    if source {
+        let local = match super::map_field(core, "coordinate") {
+            Some(Value::Text(coordinate)) => name
+                .strip_prefix(coordinate.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(name),
+            _ => name,
+        };
+        return vec!["core".to_owned(), "functions".to_owned(), local.to_owned()];
+    }
+    let index = match super::map_field(exports, "pureFunctions") {
+        Some(Value::Array(items)) => items.iter().position(|item| {
+            matches!(super::map_field(item, "coordinate"), Some(Value::Text(c)) if c == name)
+        }),
+        _ => None,
+    };
+    index.map_or_else(
+        || vec!["functions".to_owned(), name.to_owned()],
+        |index| {
+            vec![
+                "exports".to_owned(),
+                "pureFunctions".to_owned(),
+                index.to_string(),
+            ]
+        },
+    )
 }
 impl<'a> Judgment<'a> {
     /// An unsigned binding carries its proven cap to later evaluation in the

@@ -273,3 +273,55 @@ fn publication_refuses_what_the_judgment_refuses() {
     }
     assert_eq!(disagreements, Vec::<String>::new());
 }
+
+/// The adapter artifact embedded in `compiled`, with its class replaced.
+fn with_adapter_class(compiled: &[u8], class: &str) -> Vec<u8> {
+    let mut bundle = decode(compiled).expect("bundle");
+    let V::Map(fields) = &mut bundle else {
+        panic!("bundle")
+    };
+    let lowering = &mut fields
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("lowering_artifacts".into()))
+        .expect("lowering artifacts")
+        .1;
+    let V::Map(lowering) = lowering else {
+        panic!("lowering")
+    };
+    let slot = &mut lowering
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("adapter_artifact".into()))
+        .expect("adapter")
+        .1;
+    let V::Bytes(bytes) = slot else {
+        panic!("adapter bytes")
+    };
+    let mut adapter = decode(bytes).expect("adapter");
+    let V::Map(entries) = &mut adapter else {
+        panic!("adapter map")
+    };
+    entries
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("class".into()))
+        .expect("class")
+        .1 = V::Text(class.into());
+    *slot = V::Bytes(echo_edict_canonical::encode_canonical_cbor_v1(&adapter).expect("adapter"));
+    echo_edict_canonical::encode_canonical_cbor_v1(&bundle).expect("bundle")
+}
+
+/// An adapter outside the declarative class is refused as the adapter, at
+/// the adapter artifact, not as the lawpack checked just before it.
+#[test]
+fn an_undeclared_adapter_class_is_named_as_the_adapter() {
+    let compiled = with_adapter_class(&compiled_program("read-control"), "procedural");
+    match judge_effect_program(&compiled) {
+        Err(EffectPublicationError::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.relation.adapter",
+                "/lowering_artifacts/adapter_artifact"
+            )
+        ),
+        other => panic!("expected the adapter check, got {other:?}"),
+    }
+}

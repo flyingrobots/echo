@@ -500,8 +500,10 @@ fn relation<'a>(
     members(catalog)?;
     trail.at(R::Lawpack, &["lowering_artifacts", "lawpack_artifact"]);
     equal_text(&lawpack, "apiVersion", "edict.lawpack/v1")?;
+    trail.at(R::Adapter, &["lowering_artifacts", "adapter_artifact"]);
     equal_text(&adapter, "apiVersion", "edict.lawpack-adapter/v1")?;
     equal_text(&adapter, "class", "declarative")?;
+    trail.at(R::Lawpack, &["lowering_artifacts", "lawpack_artifact"]);
     let lawpack_coordinate = format!(
         "{}@{}",
         string(get(&lawpack, "id")?)?,

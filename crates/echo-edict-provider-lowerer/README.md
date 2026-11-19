@@ -250,9 +250,10 @@ longer path is cut at a character boundary and ends in `...`.
 On the component route the refusal keeps its kind (`UnsupportedSemantics`)
 and its first diagnostic, `echo.provider.unsupported-semantics`, and adds a
 second diagnostic whose code is that code followed by `.` and the reason
-code, with the message `refused at <path>`. The second diagnostic is added
-only when the request's `max_diagnostic_count` is at least 2 and both fit in
-`max_total_response_bytes`, so a refusal never exceeds the host's limits.
+code, with the message `refused at <path>`. As the frozen WIT requires, the
+refusal is independent of the request's response limits: it is always these
+two diagnostics, a few hundred bytes at most with the path bounded, and the
+host enforces any smaller bound.
 The shared corpus pins the code each refused entry reaches
 (`tests/fixtures/effect-programs/reasons.txt`), and the verifier names the
 same code for every entry.

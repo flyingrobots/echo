@@ -204,8 +204,27 @@ fn prepare<'a>(
     let definitions = inventory(core, exports, types, trail)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let origins = definitions
+        .iter()
+        .map(|(name, definition)| {
+            (
+                name.as_str(),
+                helper_origin(core, exports, name, definition.source),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mark = |trail: &mut Trail, name: &str| {
+        let origin = origins.get(name).map_or_else(
+            || vec!["functions".to_owned(), name.to_owned()],
+            Clone::clone,
+        );
+        trail.at(
+            R::HelperFunction,
+            &origin.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+    };
     for (name, definition) in &definitions {
-        trail.at(R::HelperFunction, &["functions", name]);
+        mark(trail, name);
         let mut edges = BTreeSet::new();
         let mut expressions = Vec::new();
         for binding in sequence(get(definition.body, "bindings")?)? {
@@ -313,8 +332,12 @@ fn prepare<'a>(
         (pending, &callers),
         edge_scans,
         identity_admitted,
-        trail,
+        &mut |name| mark(trail, name),
     )?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
+    if summaries.len() != definitions.len() {
+        return Err(());
+    }
     trail.at(R::HelperPreconditions, &["core"]);
     preconditions_are_typed(&definitions, &summaries, types, identity_admitted)?;
     // Every call to a precondition-bearing function proves its preconditions
@@ -372,6 +395,37 @@ fn preconditions_are_typed<'a>(
     }
     Ok(())
 }
+/// Where a helper is declared, for refusal paths: a source function under
+/// `/core/functions/<name>`, an imported one at its index in
+/// `/exports/pureFunctions`. `name` is the qualified lookup name.
+fn helper_origin(core: &Value, exports: &Value, name: &str, source: bool) -> Vec<String> {
+    if source {
+        let local = match super::map_field(core, "coordinate") {
+            Some(Value::Text(coordinate)) => name
+                .strip_prefix(coordinate.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(name),
+            _ => name,
+        };
+        return vec!["core".to_owned(), "functions".to_owned(), local.to_owned()];
+    }
+    let index = match super::map_field(exports, "pureFunctions") {
+        Some(Value::Array(items)) => items.iter().position(|item| {
+            matches!(super::map_field(item, "coordinate"), Some(Value::Text(c)) if c == name)
+        }),
+        _ => None,
+    };
+    index.map_or_else(
+        || vec!["functions".to_owned(), name.to_owned()],
+        |index| {
+            vec![
+                "exports".to_owned(),
+                "pureFunctions".to_owned(),
+                index.to_string(),
+            ]
+        },
+    )
+}
 /// Summarizes every helper after its dependencies, so callers see complete
 /// summaries. No native recursion crosses a function edge.
 fn summarize<'a, 'n>(
@@ -380,7 +434,7 @@ fn summarize<'a, 'n>(
     (mut pending, callers): (BTreeMap<&'n str, usize>, &BTreeMap<&'n str, Vec<&'n str>>),
     edge_scans: u64,
     identity_admitted: bool,
-    trail: &mut Trail,
+    mark: &mut dyn FnMut(&str),
 ) -> Check<BTreeMap<String, Summary>> {
     let mut ready: BTreeSet<&'n str> = pending
         .iter()
@@ -390,7 +444,7 @@ fn summarize<'a, 'n>(
     // Dependencies receive their own complete summary before any caller can
     // use it, in either name order.
     while let Some(name) = ready.pop_first() {
-        trail.at(R::HelperFunction, &["functions", name]);
+        mark(name);
         types.step(0)?;
         let definition = definitions.get(name).ok_or(())?;
         let summary = Checker {
@@ -419,10 +473,6 @@ fn summarize<'a, 'n>(
                 }
             }
         }
-    }
-    trail.at(R::HelperInventory, &["core", "functions"]);
-    if summaries.len() != definitions.len() {
-        return Err(());
     }
     Ok(summaries)
 }

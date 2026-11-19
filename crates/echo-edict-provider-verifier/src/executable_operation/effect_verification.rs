@@ -188,27 +188,16 @@ pub(super) fn verify(
 }
 
 /// The diagnostic naming the check that refused the program: its code extends
-/// [`REFUSED`], so the list stays strictly ascending. It is added only when
-/// the host's limits admit a second diagnostic of its size; the path is
-/// already bounded, so it never exceeds a few hundred bytes.
-fn reason_diagnostic(
-    request: &VerificationRequestV1,
-    first: &Diagnostic,
-    program: &ProgramRefusal,
-) -> Option<Diagnostic> {
-    let reason = Diagnostic {
+/// [`REFUSED`], so the list stays strictly ascending. Like every provider
+/// result it is independent of the host's response limits; its path is
+/// bounded, so it never exceeds a few hundred bytes.
+fn reason_diagnostic(program: &ProgramRefusal) -> Diagnostic {
+    Diagnostic {
         code: format!("{REFUSED}.{}", program.reason().code()),
         severity: DiagnosticSeverity::Error,
         message: format!("refused at {}", program.path()),
         repair: None,
-    };
-    let bytes = [first, &reason]
-        .iter()
-        .map(|diagnostic| diagnostic.code.len() + diagnostic.message.len())
-        .sum::<usize>();
-    let fits =
-        u64::try_from(bytes).is_ok_and(|bytes| bytes <= request.limits.max_total_response_bytes);
-    (request.limits.max_diagnostic_count >= 2 && fits).then_some(reason)
+    }
 }
 
 fn report(
@@ -226,7 +215,7 @@ fn report(
                 message: message.to_owned(),
                 repair: None,
             };
-            let second = reason.and_then(|program| reason_diagnostic(request, &first, program));
+            let second = reason.map(reason_diagnostic);
             (
                 "rejected",
                 std::iter::once(first).chain(second).collect(),

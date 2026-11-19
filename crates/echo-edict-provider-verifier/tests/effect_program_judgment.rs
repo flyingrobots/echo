@@ -538,3 +538,36 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
         "envelopes the verifier did not refuse"
     );
 }
+
+/// An adapter outside the declarative class is refused as the adapter, at
+/// the adapter artifact, not as the lawpack checked just before it.
+#[test]
+fn an_undeclared_adapter_class_is_named_as_the_adapter() {
+    let package = decode(&package_bytes("read-control")).expect("package");
+    let edited = with_program(&package, |program| {
+        let V::Bytes(compiled) = field_mut(program, "compiled_program") else {
+            panic!("compiled program")
+        };
+        let mut bundle = decode(compiled).expect("bundle");
+        let V::Bytes(adapter_bytes) = field_mut(
+            field_mut(&mut bundle, "lowering_artifacts"),
+            "adapter_artifact",
+        ) else {
+            panic!("adapter bytes")
+        };
+        let mut adapter = decode(adapter_bytes).expect("adapter");
+        *field_mut(&mut adapter, "class") = V::Text("procedural".into());
+        *adapter_bytes = encode(&adapter).expect("adapter");
+        *compiled = encode(&bundle).expect("bundle");
+    });
+    match verify_effect_package(&encode(&edited).expect("package")) {
+        Err(EffectPackageRefusal::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.relation.adapter",
+                "/lowering_artifacts/adapter_artifact"
+            )
+        ),
+        other => panic!("expected the adapter check, got {other:?}"),
+    }
+}

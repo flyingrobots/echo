@@ -2160,17 +2160,18 @@ fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
 /// diagnostic that names the refusing check and the artifact path it read.
 ///
 /// The reason diagnostic's code extends the refusal's own code, so the list
-/// stays strictly ascending. It is added only when the host's response limits
-/// admit a second diagnostic of its size; its path is already bounded by
-/// [`refusal_reason::MAX_PATH_BYTES`], so it never exceeds a few hundred bytes.
+/// stays strictly ascending. Like every provider result it is independent of
+/// the host's response limits (the frozen WIT contract): it is always two
+/// diagnostics, and the path is bounded by
+/// [`refusal_reason::MAX_PATH_BYTES`], so the refusal never exceeds a few
+/// hundred bytes. Enforcing a smaller host bound is the host's.
 fn unsupported_program(
     subject: &str,
     check: &str,
     program: &refusal_reason::ProgramRefusal,
-    limits: ResponseLimitsV1,
 ) -> ProviderRefusalV1 {
     let mut refusal = unsupported_semantics(subject, check);
-    let reason = Diagnostic {
+    refusal.diagnostics.push(Diagnostic {
         code: format!(
             "echo.provider.unsupported-semantics.{}",
             program.reason().code()
@@ -2178,18 +2179,7 @@ fn unsupported_program(
         severity: DiagnosticSeverity::Error,
         message: format!("refused at {}", program.path()),
         repair: None,
-    };
-    let bytes = refusal
-        .diagnostics
-        .iter()
-        .chain(std::iter::once(&reason))
-        .map(|diagnostic| diagnostic.code.len() + diagnostic.message.len())
-        .sum::<usize>();
-    let fits_bytes =
-        u64::try_from(bytes).is_ok_and(|bytes| bytes <= limits.max_total_response_bytes);
-    if limits.max_diagnostic_count >= 2 && fits_bytes {
-        refusal.diagnostics.push(reason);
-    }
+    });
     refusal
 }
 

@@ -68,6 +68,10 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "imported-helper-total",
+    "imported-helper-fails",
+    "imported-helper-fails-in-arm",
+    "imported-helper-fails-attempted",
     "ordered-record-z-first",
     "ordered-record-a-first",
     "ordered-record-guarded-z-first",
@@ -569,5 +573,70 @@ fn an_undeclared_adapter_class_is_named_as_the_adapter() {
             )
         ),
         other => panic!("expected the adapter check, got {other:?}"),
+    }
+}
+
+/// The admitted `read-control` package with one more required Core
+/// capability, every Core and Target IR pin recomputed.
+fn read_control_with_capability(capability: &str) -> Vec<u8> {
+    let bytes_of = |value: &V| {
+        let V::Bytes(bytes) = value else {
+            panic!("bytes")
+        };
+        bytes.clone()
+    };
+    let mut package = decode(&package_bytes("read-control")).expect("package");
+    let mut program = decode(&bytes_of(field_mut(&mut package, "program"))).expect("program");
+    let mut bundle =
+        decode(&bytes_of(field_mut(&mut program, "compiled_program"))).expect("compiler bundle");
+    let mut module = decode(&bytes_of(field_mut(&mut bundle, "core_artifact"))).expect("Core");
+    let V::Array(capabilities) = field_mut(&mut module, "requiredCoreCapabilities") else {
+        panic!("capabilities")
+    };
+    capabilities.push(V::Text(capability.into()));
+    let core_identity =
+        digest_canonical_value_bytes_v1("edict.core.module/v1", &module).expect("Core identity");
+    let mut target =
+        decode(&bytes_of(field_mut(&mut bundle, "target_ir_artifact"))).expect("Target IR");
+    *field_mut(
+        field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = V::Array(vec![
+        V::Text("sha256".into()),
+        V::Bytes(core_identity.to_vec()),
+    ]);
+    let target_identity = digest_canonical_value_bytes_v1("edict.target-ir.artifact/v1", &target)
+        .expect("Target IR identity");
+    *field_mut(&mut bundle, "core_artifact") = V::Bytes(encode(&module).expect("Core"));
+    *field_mut(&mut bundle, "target_ir_artifact") = V::Bytes(encode(&target).expect("Target IR"));
+    *field_mut(&mut program, "compiled_program") =
+        V::Bytes(encode(&bundle).expect("compiler bundle"));
+    *field_mut(&mut program, "target_ir_identity") = V::Bytes(target_identity.to_vec());
+    *field_mut(&mut package, "program") = V::Bytes(encode(&program).expect("program"));
+    let closure = field_mut(&mut package, "semantic_closure");
+    *field_mut(closure, "core_identity") = V::Bytes(core_identity.to_vec());
+    *field_mut(closure, "canonical_meaning_identity") = V::Bytes(core_identity.to_vec());
+    *field_mut(closure, "target_ir_identity") = V::Bytes(target_identity.to_vec());
+    encode(&package).expect("package")
+}
+
+/// The effect route has no shared-read meter, so the verifier refuses a
+/// module that requires `core.cost.shared-reads/v1`, as the runtime does.
+#[test]
+fn effect_packages_refuse_the_shared_read_schedule() {
+    // Control: an unused capability with the same re-pinning still verifies.
+    assert_eq!(
+        verify_effect_package(&read_control_with_capability("core.variant/v1")),
+        Ok(())
+    );
+    match verify_effect_package(&read_control_with_capability("core.cost.shared-reads/v1")) {
+        Err(EffectPackageRefusal::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.shared-read-schedule",
+                "/core/requiredCoreCapabilities"
+            )
+        ),
+        other => panic!("expected the shared-read schedule check, got {other:?}"),
     }
 }

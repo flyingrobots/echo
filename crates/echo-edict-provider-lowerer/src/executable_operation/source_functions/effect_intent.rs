@@ -81,6 +81,12 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
+    // Effect bodies are charged by the copying schedule only; the runtime's
+    // effect route refuses the shared-read schedule, so lowering does too.
+    trail.at(R::SharedReadSchedule, &["core", "requiredCoreCapabilities"]);
+    if super::shared_reads::required(core)? {
+        return Err(());
+    }
     judged(core, exports, 0, identity, trail)?.effect_intent(
         intent_name,
         intent,

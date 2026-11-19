@@ -77,6 +77,9 @@ pub enum RefusalReason {
     GraphReadDeclaration,
     /// A type-table entry outside the runtime's kinds.
     TypeTable,
+    /// The module requires the shared-read cost schedule, which the effect
+    /// route does not meter.
+    SharedReadSchedule,
     /// The module's declared failure sets, `fail` or `attempt` forms.
     FailureSets,
     /// The helper inventory: imported or source helper declarations.
@@ -164,6 +167,7 @@ impl RefusalReason {
             Self::FailureArms => "effect-program.relation.failure-arms",
             Self::GraphReadDeclaration => "effect-program.graph-read-declaration",
             Self::TypeTable => "effect-program.type-table",
+            Self::SharedReadSchedule => "effect-program.shared-read-schedule",
             Self::FailureSets => "effect-program.failure-sets",
             Self::HelperInventory => "effect-program.helpers.inventory",
             Self::HelperFunction => "effect-program.helpers.function",

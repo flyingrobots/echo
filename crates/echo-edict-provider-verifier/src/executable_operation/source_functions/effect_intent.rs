@@ -80,6 +80,12 @@ pub(in crate::executable_operation) fn judge(
         }
     }
     let mut types = Types::new(core);
+    // Effect bodies are charged by the copying schedule only; the runtime's
+    // effect route refuses the shared-read schedule, so the verifier does too.
+    trail.at(R::SharedReadSchedule, &["core", "requiredCoreCapabilities"]);
+    if types.shared {
+        return Err(());
+    }
     let (definitions, summaries) = prepare(core, exports, &mut types, 0, identity, trail)?;
     Checker {
         types: &mut types,

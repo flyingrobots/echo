@@ -18,7 +18,7 @@
   independent of the host's response limits; the verifier's `rejected`
   report adds `echo.verifier.effect-program-refused.<code>` the same way, and
   its report bytes do not change. A shared `reasons.txt` pins the code each of
-  the 49 refused corpus entries reaches, and the lowerer and verifier each
+  the 52 refused corpus entries reaches, and the lowerer and verifier each
   name it. The jedit#296 basis-read witness, previously refused with no
   detail, names three causes in turn: comment lines before `package`
   (`relation.source-alias`), `tooLarge` declared `resourceFault` where Echo's
@@ -27,6 +27,18 @@
   (`relation.failure-arms`). The components are promoted from byte-equal G4
   candidates (lowerer `cf941a0c`, verifier `18f6cf71`).
 
+- The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
+  amblicit#324). warp-core, the provider lowerer and the provider verifier
+  admit a pure module that requires `core.cost.shared-reads/v1`. The runtime
+  evaluates it on immutable, reference-counted values, so local, field,
+  element and fold-state reads are O(1) and charge one step; construction
+  charges only its shell. Both providers judge the module with the compiler's
+  own static rules, so they admit exactly the compiler's minimum budget and
+  refuse one step or byte less. The read, graph-read and effect routes refuse
+  the capability, and so do byte intrinsics and imported helpers under it.
+  Modules without the capability are metered and judged exactly as before. A
+  shared corpus, produced by the pinned compiler and rechecked in CI, drives
+  all three judges.
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact
@@ -364,6 +376,14 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- A failure in an imported lawpack helper can no longer escape unmapped
+  (#1006). The runtime, the lowerer and the verifier accepted a forged package
+  whose intent called an exported pure helper whose body fails, outright or in
+  one branch, with no `attempt`. All three now require every exported pure
+  helper body to be failure-free. Amblicit already refuses to publish such a
+  helper, so compiler-produced packages are unaffected. Four shared-corpus
+  entries fix the verdicts.
 
 - Both provider components now accept an authored effect program whose intent
   has a `where` clause. Core input constraints carry `coordinate`, `source`

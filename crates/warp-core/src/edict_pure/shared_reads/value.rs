@@ -2,7 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! This module owns the shared value representation of `edict.core-cost/v2`.
 //!
-//! Scalars are held inline. Byte strings, lists, records and variants are
+//! Scalars are held inline. An `Option` is absent or a presence around one
+//! shared item. Byte strings, lists, records and variants are
 //! immutable and reference-counted, so a clone is one reference-count update
 //! whatever the value's size: reading a local, field, element or fold state
 //! never copies. Record keys and variant labels borrow the program's own text.
@@ -21,6 +22,10 @@ pub(super) enum Shared<'p> {
     List(Rc<[Shared<'p>]>),
     Record(Rc<[(&'p str, Shared<'p>)]>),
     Variant(Rc<Tagged<'p>>),
+    /// An absent `Option`.
+    Absent,
+    /// A present `Option` around its shared item.
+    Present(Rc<Shared<'p>>),
 }
 
 /// A closed-union value: its type identity, case and optional payload.
@@ -104,7 +109,8 @@ impl Shared<'_> {
     /// The walk visits every cell once.
     pub(super) fn full_size(&self) -> Result<Size, Error> {
         match self {
-            Self::Bool(_) | Self::Integer(_) => Ok(CELL),
+            // Absence is one cell; a presence is one cell plus its item.
+            Self::Bool(_) | Self::Integer(_) | Self::Absent => Ok(CELL),
             Self::Bytes(bytes) => CELL.plus(Size {
                 cells: 0,
                 bytes: length(bytes.len())?,
@@ -115,6 +121,7 @@ impl Shared<'_> {
             Self::Record(fields) => fields.iter().try_fold(CELL, |total, (key, value)| {
                 total.plus(value.full_size()?)?.field(key)
             }),
+            Self::Present(item) => CELL.plus(item.full_size()?),
             Self::Variant(tagged) => {
                 let payload = match &tagged.payload {
                     Some(payload) => payload.full_size()?,
@@ -148,6 +155,15 @@ pub(super) fn from_canonical<'p>(
         {
             Ok(Shared::Bytes(Rc::from(bytes.as_slice())))
         }
+        (Value::Null, RuntimeType::Option(_)) => Ok(Shared::Absent),
+        (Value::Array(items), RuntimeType::Option(item)) => match items.as_slice() {
+            [value] => Ok(Shared::Present(Rc::new(from_canonical(
+                value,
+                item,
+                depth + 1,
+            )?))),
+            _ => Err(Error::InvalidArtifact),
+        },
         (Value::Array(items), RuntimeType::List { item, max }) if length(items.len())? <= *max => {
             let item = item.as_deref().ok_or(Error::InvalidArtifact)?;
             let items = items
@@ -210,6 +226,10 @@ pub(super) fn to_canonical(
             if (*min..=*max).contains(&length(bytes.len())?) =>
         {
             Ok(Value::Bytes(bytes.to_vec()))
+        }
+        (Shared::Absent, RuntimeType::Option(_)) => Ok(Value::Null),
+        (Shared::Present(value), RuntimeType::Option(item)) => {
+            Ok(Value::Array(vec![to_canonical(value, item, depth + 1)?]))
         }
         (Shared::List(items), RuntimeType::List { item, max }) if length(items.len())? <= *max => {
             let item = item.as_deref().ok_or(Error::InvalidArtifact)?;

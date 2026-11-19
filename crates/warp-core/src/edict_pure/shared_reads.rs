@@ -8,8 +8,11 @@
 //! schedule's one-step reads are real O(1) work rather than a lowered charge.
 //! The intent's input and output are still converted, validated and charged at
 //! full size: two steps per cell and their bytes. Comparisons scan both
-//! operands in full. Byte and identity intrinsics and imported helpers have no shared-read
-//! rule in Echo, so a module that uses them is refused before evaluation.
+//! operands in full. Checked integers, `min`/`max` and the `Option`
+//! consumers keep their copying charge: one step per operand cell. Byte and
+//! identity intrinsics, `Option` constructors and imported helpers have no
+//! shared-read rule in Echo yet, so a module that uses them is refused before
+//! evaluation.
 //!
 //! The copying evaluator in `evaluate.rs` is unchanged and still meters every
 //! module without the capability.
@@ -18,7 +21,7 @@ mod value;
 
 use super::{
     evaluate::Meter,
-    model::{Expr, Predicate, Program},
+    model::{Expr, OptionOperation, Predicate, Program},
     EvaluationError as Error, EvaluationResult,
 };
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
@@ -120,10 +123,13 @@ fn admit_expression(expr: &Expr) -> Result<(), Error> {
         | Expr::ByteSlice { .. }
         | Expr::ByteConcat { .. }
         | Expr::Identity(..)
-        | Expr::Option { .. }
+        | Expr::Option {
+            operation: OptionOperation::Some | OptionOperation::None,
+            ..
+        }
         | Expr::Fail(_)
-        | Expr::OrderedRecord(_)
-        | Expr::Integer { .. } => Err(Error::UnsupportedProgram),
+        | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
+        Expr::Option { args, .. } => args.iter().try_for_each(admit_expression),
         Expr::Variant {
             payload: Some(value),
             ..
@@ -151,7 +157,8 @@ fn admit_expression(expr: &Expr) -> Result<(), Error> {
         }
         | Expr::ListConcat { left, right, .. }
         | Expr::UnsignedAdd { left, right, .. }
-        | Expr::UnsignedSubtract { left, right, .. } => {
+        | Expr::UnsignedSubtract { left, right, .. }
+        | Expr::Integer { left, right, .. } => {
             admit_expression(left)?;
             admit_expression(right)
         }

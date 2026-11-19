@@ -43,6 +43,11 @@ they use, so the Echo copies differ as follows:
 | `matches` | None | |
 | `rope` | None | |
 
+`integers` is Echo's own program (echo#1016). It exercises every checked
+integer call, `min` and `max` in a fold, and the `Option` consumers `isSome`
+and `unwrap`. Its output is total because Echo's intent output has no
+`Option` encoding.
+
 The rope's intent maps a typed failure with `attempt` (`let … else { … }`).
 Echo admits `attempt` only on the effect-program route, which has no
 shared-read rules, so no Echo judge reads `rope.core.cbor.hex` yet. Its

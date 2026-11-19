@@ -22,6 +22,8 @@ const NESTED: &str =
     include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/nested.core.cbor.hex");
 const MATCHES: &str =
     include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/matches.core.cbor.hex");
+const INTEGERS: &str =
+    include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/integers.core.cbor.hex");
 const SHARED: &str = "core.cost.shared-reads/v1";
 
 fn core(hex: &str) -> Value {
@@ -119,6 +121,11 @@ fn nested_list_rebuilding_folds_are_judged_at_the_compiler_minimum() {
 #[test]
 fn variant_state_with_payload_binders_is_judged_at_the_compiler_minimum() {
     assert_minimum_is_exact(MATCHES);
+}
+
+#[test]
+fn checked_integers_and_min_max_are_judged_at_the_compiler_minimum() {
+    assert_minimum_is_exact(INTEGERS);
 }
 
 #[test]

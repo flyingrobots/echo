@@ -10,9 +10,10 @@
 //! one step per parameter plus one for the result; a fold charges every
 //! iteration of its bound. Comparisons scan both operands at their full
 //! static size, and the intent's input and output are charged at full size.
-//! Unsigned arithmetic keeps its copying charge, one step per operand cell.
-//! Byte intrinsics and imported helpers have no shared-read rule in Echo, so
-//! the module is refused.
+//! Unsigned and checked arithmetic and min/max keep their copying charge, one
+//! step per operand cell; an `Option` consumer adds its operand and result
+//! bytes. Byte intrinsics, `Option` constructors and imported helpers have no
+//! shared-read rule in Echo yet, so the module is refused.
 //!
 //! The ordinary judgment runs first and alone establishes typing, totality and
 //! depth; this pass reads the types it recorded and only computes cost.
@@ -281,14 +282,35 @@ impl<'a> Judgment<'a> {
                 };
                 Size::list_shell(*max)?.evaluation()
             }
-            // Unsigned arithmetic keeps its copying charge: one step per
-            // operand cell.
-            "core.integer.add" | "core.integer.subtract" => {
+            // Unsigned arithmetic, checked integers and min/max keep their
+            // copying charge: one step per operand cell.
+            "core.integer.add"
+            | "core.integer.subtract"
+            | "core.integer.checkedAdd"
+            | "core.integer.checkedSub"
+            | "core.integer.checkedMul"
+            | "core.integer.checkedDiv"
+            | "core.integer.checkedRem"
+            | "core.integer.min"
+            | "core.integer.max" => {
                 let mut cells = 0_u64;
                 for argument in list(get(value, "args")?)? {
                     cells = cells.checked_add(self.size(argument)?.cells).ok_or(())?;
                 }
                 Ok(steps(cells))
+            }
+            // An Option consumer keeps its copying charge: one step per
+            // operand cell plus the bytes of its operands and result.
+            "core.option.isSome" | "core.option.unwrap" | "core.option.default" => {
+                let mut cost = self.size(value)?.bytes;
+                for argument in list(get(value, "args")?)? {
+                    let size = self.size(argument)?;
+                    cost = cost
+                        .checked_add(size.cells)
+                        .and_then(|cost| cost.checked_add(size.bytes))
+                        .ok_or(())?;
+                }
+                Ok(steps(cost))
             }
             _ if callee.starts_with("core.") => Err(()),
             _ => self.shared_function(callee),

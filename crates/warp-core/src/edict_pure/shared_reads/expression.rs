@@ -10,7 +10,11 @@
 use super::value::{Shared, Size, Tagged, CELL};
 use crate::edict_pure::{
     evaluate::Meter,
-    model::{Comparison, Expr, Helper, MatchArm, Predicate, RuntimeType},
+    integer_operations,
+    model::{
+        Comparison, Expr, Helper, IntegerOperation, MatchArm, OptionOperation, Predicate,
+        RuntimeType,
+    },
     EvaluationError as Error,
 };
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -139,6 +143,37 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ListAt { .. }
             | Expr::ListAppend { .. }
             | Expr::ListConcat { .. } => self.list_operation(expr, locals, depth),
+            Expr::Integer {
+                operation,
+                max,
+                left,
+                right,
+            } => {
+                let (Shared::Integer(left), Shared::Integer(right)) = (
+                    self.expression(left, locals, depth + 1)?,
+                    self.expression(right, locals, depth + 1)?,
+                ) else {
+                    return Err(Error::InvalidArtifact);
+                };
+                // One step per operand cell; the result, and a checked
+                // result's presence, are held inline.
+                self.meter.charge_steps(2)?;
+                let word = |value: i128| {
+                    u64::try_from(value)
+                        .ok()
+                        .filter(|value| value <= max)
+                        .ok_or(Error::InvalidArtifact)
+                };
+                let result = integer_operations::apply(*operation, *max, word(left)?, word(right)?)
+                    .map(|value| Shared::Integer(i128::from(value)));
+                if matches!(operation, IntegerOperation::Min | IntegerOperation::Max) {
+                    return result.ok_or(Error::InvalidArtifact);
+                }
+                Ok(result.map_or(Shared::Absent, |value| Shared::Present(Rc::new(value))))
+            }
+            Expr::Option {
+                operation, args, ..
+            } => self.option_operation(*operation, args, locals, depth),
             // Byte intrinsics are refused before evaluation; see `admit`.
             Expr::ByteUtf8 { .. }
             | Expr::ByteAt { .. }
@@ -147,10 +182,41 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ByteSlice { .. }
             | Expr::ByteConcat { .. }
             | Expr::Identity(..)
-            | Expr::Option { .. }
             | Expr::Fail(_)
-            | Expr::OrderedRecord(_)
-            | Expr::Integer { .. } => Err(Error::UnsupportedProgram),
+            | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
+        }
+    }
+
+    /// An `Option` consumer reads its operands by reference and charges one
+    /// step per operand cell scanned. Constructors are refused by `admit`.
+    fn option_operation(
+        &mut self,
+        operation: OptionOperation,
+        args: &'p [Expr],
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Shared<'p>, Error> {
+        let mut values = Vec::with_capacity(args.len());
+        let mut cells = 0_u64;
+        for argument in args {
+            let value = self.expression(argument, locals, depth + 1)?;
+            cells = cells
+                .checked_add(value.full_size()?.cells)
+                .ok_or(Error::StepBudgetExceeded)?;
+            values.push(value);
+        }
+        self.meter.charge_steps(cells)?;
+        match (operation, values.as_slice()) {
+            (OptionOperation::IsSome, [operand]) => match operand {
+                Shared::Present(_) => Ok(Shared::Bool(true)),
+                Shared::Absent => Ok(Shared::Bool(false)),
+                _ => Err(Error::InvalidArtifact),
+            },
+            // A checked artifact proved presence; absence is a forged artifact.
+            (OptionOperation::Unwrap, [Shared::Present(item)])
+            | (OptionOperation::Default, [Shared::Present(item), _]) => Ok(Shared::clone(item)),
+            (OptionOperation::Default, [Shared::Absent, fallback]) => Ok(fallback.clone()),
+            _ => Err(Error::InvalidArtifact),
         }
     }
 

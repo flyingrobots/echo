@@ -4,4 +4,5 @@ reads run 22516 58431 32
 fill run 9883 117599 1758
 nested run 25291 272801 28
 matches run 5800 139186 28
+integers run 5898 7691 181
 rope splitRope 1324669 11615315 7501

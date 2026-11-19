@@ -1,0 +1,28 @@
+package cost.adversarial@1;
+type State = { low: U64, high: U64, total: U64 };
+fn step(s: State) -> State {
+  let sum = checkedAdd(s.total, s.high);
+  return {
+    low: min(s.low, s.high),
+    high: max(s.low, s.high),
+    total: if isSome(sum) then unwrap(sum) else s.total,
+  };
+}
+type In = { a: U64, b: U64, c: U8 };
+type Out = { total: U64, difference: U64, product: U8, quotient: U64, remainder: U64, low: U64, high: U64 };
+intent run(input: In) returns Out profile p.read basis none budget <= p.b {
+  let final = fold({ low: input.a, high: input.b, total: 0u64 }, step, 8u64);
+  let difference = checkedSub(input.a, input.b);
+  let product = checkedMul(input.c, input.c);
+  let quotient = checkedDiv(input.a, input.b);
+  let remainder = checkedRem(input.a, input.b);
+  return {
+    total: final.total,
+    difference: if isSome(difference) then unwrap(difference) else 0u64,
+    product: if isSome(product) then unwrap(product) else 255u8,
+    quotient: if isSome(quotient) then unwrap(quotient) else 0u64,
+    remainder: if isSome(remainder) then unwrap(remainder) else 0u64,
+    low: final.low,
+    high: final.high,
+  };
+}

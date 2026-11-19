@@ -16,13 +16,16 @@
 //! - a fold costs every iteration of its bound, each the body plus one;
 //! - `listAt` costs nothing more, `listLen` one fresh cell, and `listAppend`
 //!   or `listConcat` a shell of the result's capacity;
-//! - unsigned arithmetic keeps its copying charge, one tick per operand cell;
+//! - unsigned and checked arithmetic and min/max keep their copying charge,
+//!   one tick per operand cell;
+//! - an `Option` consumer (`isSome`, `unwrap`, `default`) keeps its copying
+//!   charge: one tick per operand cell plus its operand and result bytes;
 //! - a comparison scans both operands at their full static size;
 //! - a payload binder costs one tick, and dispatch one per arm plus one;
 //! - the intent's input and output cost two ticks per cell and their bytes.
 //!
-//! Byte intrinsics and imported helpers have no shared-read rule in Echo, so
-//! the module is refused. The ordinary audit runs first and alone establishes
+//! Byte intrinsics, `Option` constructors and imported helpers have no
+//! shared-read rule in Echo yet, so the module is refused. The ordinary audit runs first and alone establishes
 //! typing, totality and depth; this check reads the schemas it recorded.
 use super::{get, members, sequence, string, unsigned, Charge, Check, Checker, Schema, Value};
 
@@ -277,7 +280,15 @@ impl<'a> Checker<'a, '_> {
                 };
                 Footprint::shell(u128::from(*bound))?.built()
             }
-            "core.integer.add" | "core.integer.subtract" => {
+            "core.integer.add"
+            | "core.integer.subtract"
+            | "core.integer.checkedAdd"
+            | "core.integer.checkedSub"
+            | "core.integer.checkedMul"
+            | "core.integer.checkedDiv"
+            | "core.integer.checkedRem"
+            | "core.integer.min"
+            | "core.integer.max" => {
                 let mut cells = 0_u128;
                 for argument in arguments {
                     cells = cells
@@ -285,6 +296,19 @@ impl<'a> Checker<'a, '_> {
                         .ok_or(())?;
                 }
                 Ok(ticks(cells))
+            }
+            // An Option consumer keeps its copying charge: one tick per
+            // operand cell plus the bytes of its operands and result.
+            "core.option.isSome" | "core.option.unwrap" | "core.option.default" => {
+                let mut charge = self.footprint(node)?.bytes;
+                for argument in arguments {
+                    let footprint = self.footprint(argument)?;
+                    charge = charge
+                        .checked_add(footprint.cells)
+                        .and_then(|charge| charge.checked_add(footprint.bytes))
+                        .ok_or(())?;
+                }
+                Ok(ticks(charge))
             }
             _ if callee.starts_with("core.") => Err(()),
             _ => self.shared_helper(callee),

@@ -25,7 +25,7 @@
   node-atom-read table says `integrityFault` (`relation.intrinsic-contract`),
   and its failure arm then mapping to a `resourceFault` obstruction
   (`relation.failure-arms`). The components are promoted from byte-equal G4
-  candidates (lowerer `77b830be`, verifier `acdd9bf4`).
+  candidates (lowerer `cf941a0c`, verifier `18f6cf71`).
 
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal

@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 766,948 bytes with SHA-256
-`77b830be5ac068fd81afe298bc68650fdf8782e48617567cb034f2c3503c4b1b`.
+The checked component is 768,551 bytes with SHA-256
+`cf941a0c927e65def45fb461e4f16ea5670f68b03a2307911ed01b3cf451abf0`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 807,749 bytes
+`wit-component` version recorded above. Its checked component is 818,604 bytes
 with SHA-256
-`acdd9bf4552d9c9cbf7ed1828abe5d934eb1c493d0e9d4a7b9c51584653fcae7`.
+`18f6cf7126154f1b9b08348c8463cb00035c95acc8b355f6099ca57a6c5fc3fa`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -59,8 +59,8 @@ clean-tree checks with the component evidence.
 The current component pair, built from echo#1018's source (effect-program refusals name the
 failing check with a stable reason code and artifact path), was
 independently reproduced by the two G4 candidate jobs in
-[CI run 44267787390](https://github.com/flyingrobots/echo/actions/runs/44267787390)
-at source commit `60935ef11ae6055f473ef17497c7bc21a14cc532`. Both copies of
+[CI run 44451607691](https://github.com/flyingrobots/echo/actions/runs/44451607691)
+at source commit `5a7d3d2c429a5afebec2f7b81d4bc6b1736b4ba4`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

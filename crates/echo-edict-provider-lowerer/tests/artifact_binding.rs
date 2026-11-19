@@ -292,24 +292,21 @@ fn flip_digest(artifact: &mut BoundArtifact) {
 }
 
 #[test]
-fn flat_replace_range_core_refusal_names_core_and_the_decode_node_budget() {
-    let refusal = refused(flat_replace_range());
+fn flat_replace_range_artifacts_pass_canonical_binding() {
+    // Oracle: every artifact is canonical and digest-bound by the compiler
+    // (independently re-decoded for #1025), and the request fits the host's
+    // 1 MiB input cap, so no binding check may refuse it.
+    let outcome = lower(flat_replace_range());
 
-    assert_eq!(
-        named(&refusal),
-        (
-            ProviderRefusalKind::InvalidSemanticArtifact,
-            Some("jedit.text.replace_range@2"),
-            vec![
-                INVALID,
-                "echo.provider.invalid-semantic-artifact.artifact-binding.decode"
-            ],
-            Some(
-                "edict.core.module/v1 artifact failed artifact-binding.decode: \
-                 unsupported-value: canonical CBOR decoded node budget exceeded"
-            ),
-        )
-    );
+    let binding_codes: Vec<String> = outcome
+        .as_ref()
+        .err()
+        .into_iter()
+        .flat_map(|refusal| refusal.diagnostics.iter())
+        .filter(|diagnostic| diagnostic.code.contains(".artifact-binding."))
+        .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
+        .collect();
+    assert_eq!(binding_codes, Vec::<String>::new());
 }
 
 #[test]

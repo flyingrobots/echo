@@ -25,7 +25,7 @@
   node-atom-read table says `integrityFault` (`relation.intrinsic-contract`),
   and its failure arm then mapping to a `resourceFault` obstruction
   (`relation.failure-arms`). The components are promoted from byte-equal G4
-  candidates (lowerer `cf941a0c`, verifier `18f6cf71`).
+  candidates (lowerer `687acde4`, verifier `2d97285b`).
 
 - The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
   amblicit#324). warp-core, the provider lowerer and the provider verifier

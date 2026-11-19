@@ -74,7 +74,7 @@ impl EffectGraphSchema {
             .get(&edge_type)
             .is_some_and(|pairs| pairs.contains(&(source_type, target_type)))
     }
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(feature = "trusted_runtime")]
     pub(super) fn has_edge_type(&self, ty: TypeId) -> bool {
         self.edges.contains_key(&ty)
     }

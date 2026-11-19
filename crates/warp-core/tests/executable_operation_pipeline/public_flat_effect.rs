@@ -14,7 +14,7 @@ use echo_edict_canonical::{decode_canonical_cbor_v1, CanonicalValueV1};
 use warp_core::edict_pure::EvaluationLimits;
 use warp_core::{
     EchoOperationAdmissionErrorKind, EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1,
-    EchoOperationBudgetV1, TrustedRuntimeHost,
+    EchoOperationBudgetV1, EffectPackageHost,
 };
 
 const PACKAGE: &str =
@@ -63,7 +63,7 @@ fn basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
 }
 
 fn admission_refusal(
-    host: &TrustedRuntimeHost,
+    host: &EffectPackageHost,
     identity: [u8; 32],
     bytes: Vec<u8>,
 ) -> EchoOperationAdmissionErrorKind {

@@ -27,6 +27,21 @@
   (`relation.failure-arms`). The components are promoted from byte-equal G4
   candidates (lowerer `77b830be`, verifier `acdd9bf4`).
 
+- `EffectPackageHost` (#1017) runs an authored effect package on generic
+  Echo with `trusted_runtime` alone, without the internal
+  `native_rule_bootstrap` feature. It admits the exact package under an exact
+  policy, installs it, resolves the writer's exact parent, admits one
+  invocation, evaluates it in a recording frame and derives the proposal
+  without applying it. `TrustedRuntimeHost` delegates the same steps to the
+  same internal route, so admission, policies, budgets and evaluation
+  authority are unchanged; the public host has no scheduler, WAL, commit or
+  native rule authoring. A downstream witness outside the workspace,
+  `tests/public-effect-host-consumer/`, runs Echo's public `link` package with
+  `trusted_runtime` only, and Echo's `public_*` effect witnesses now run
+  through the new host. An invocation refused because its parent cannot
+  resolve now names the runtime error without the
+  `trusted runtime host runtime error:` prefix.
+
 - `echo.dpo@2.attachmentValueDigest(atomType, atom) -> Bytes<exact=32>`
   (#1011), a fourth `ContentAddressV1` pure intrinsic, lets Edict source
   compute the `expectedAtomDigest` a `ReplaceAtom` must name. The runtime

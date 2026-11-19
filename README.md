@@ -208,10 +208,12 @@ package and structurally separate accepted verification report, but no Jedit
 rope law will be compiled from Jedit-owned Edict source rather than imported as
 a lawpack. It does not yet claim
 cross-category scheduler composition or independently implemented semantic
-conformance. It also temporarily reuses `TrustedRuntimeHost`'s joint
-`native_rule_bootstrap` and `trusted_runtime` feature gate. The program itself
-has no native hooks, but the host surface must be decoupled from the legacy
-bootstrap feature before a product can remove that compatibility feature.
+conformance. A consumer runs an authored effect package on generic Echo,
+under `trusted_runtime` alone, through `EffectPackageHost` (#1017): it admits
+the exact package and one invocation, evaluates them in a recording frame and
+derives the proposal without applying it. Scheduler-owned Action execution,
+the runtime WAL and commit still live on `TrustedRuntimeHost`, which keeps the
+joint `native_rule_bootstrap` and `trusted_runtime` feature gate.
 
 The following sequence is the existing Wesley bootstrap fixture:
 

@@ -24,10 +24,9 @@ use warp_core::edict_read::{GraphReadAperture, ReadLimits, ReadView};
 use warp_core::{
     make_head_id, AttachmentKey, EchoOperationAdmissionErrorKind, EchoOperationAdmissionPolicy,
     EchoOperationApplicationBasisV1, EchoOperationBudgetV1, EchoOperationInvocationAdmissionPolicy,
-    EdgeId, EdgeKey, EdgeRecord, EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey,
-    NodeRecord, PlaybackMode, PortalInit, TickCommitStatus, TrustedRuntimeHost, TypeId, WarpId,
-    WarpOp, WarpTickPatchV1, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey,
+    EdgeId, EdgeKey, EdgeRecord, EffectPackageHost, EngineBuilder, GraphStore, InboxPolicy, NodeId,
+    NodeKey, NodeRecord, PlaybackMode, PortalInit, TickCommitStatus, TypeId, WarpId, WarpOp,
+    WarpTickPatchV1, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
 
 const PACKAGE: &str =
@@ -194,7 +193,7 @@ fn state(shape: &Shape) -> WorldlineState {
     WorldlineState::new(warp, root).expect("portal state")
 }
 
-fn host(state: WorldlineState) -> (TrustedRuntimeHost, WriterHeadKey) {
+fn host(state: WorldlineState) -> (EffectPackageHost, WriterHeadKey) {
     let store = state.store(&ROOT_WARP).expect("root store").clone();
     let head = WriterHeadKey {
         worldline_id: WorldlineId::from_bytes([0x6a; 32]),
@@ -214,10 +213,7 @@ fn host(state: WorldlineState) -> (TrustedRuntimeHost, WriterHeadKey) {
         ))
         .expect("head");
     let engine = EngineBuilder::new(store, ROOT).build();
-    (
-        TrustedRuntimeHost::new(runtime, engine).expect("host"),
-        head,
-    )
+    (EffectPackageHost::new(runtime, engine).expect("host"), head)
 }
 
 fn id(bytes: impl AsRef<[u8]>) -> Value {
@@ -255,7 +251,7 @@ fn application_basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
 /// One evaluation of the installed public package: its result, and on
 /// success the completed origin evidence and the admitted invocation.
 struct Run {
-    host: TrustedRuntimeHost,
+    host: EffectPackageHost,
     output: Result<Vec<u8>, EffectFrameError>,
     completed: Option<(
         warp_core::AdmittedEchoOperationInvocation,

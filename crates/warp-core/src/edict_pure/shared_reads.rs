@@ -21,14 +21,16 @@
 mod expression;
 mod value;
 
+pub(crate) use expression::{Evaluator, Locals};
+pub(crate) use value::{from_canonical, to_canonical, Shared};
+
 use super::{
     evaluate::Meter,
     model::{Expr, OptionOperation, Predicate, Program},
     EvaluationError as Error, EvaluationResult,
 };
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
-use expression::{Evaluator, Locals};
-use value::{from_canonical, to_canonical, Size};
+use value::Size;
 
 /// Evaluates a pure program whose Core requires the shared-read schedule.
 pub(super) fn run(
@@ -94,15 +96,7 @@ impl Evaluator<'_, '_> {
 /// Refuses, before any work, a program that uses an operation without a
 /// shared-read rule. Every helper is checked, used or not.
 fn admit(program: &Program) -> Result<(), Error> {
-    for helper in program.helpers.values() {
-        if !helper.source_owned {
-            return Err(Error::UnsupportedProgram);
-        }
-        for binding in &helper.bindings {
-            admit_expression(&binding.value)?;
-        }
-        admit_expression(&helper.result)?;
-    }
+    admit_helpers(&program.helpers)?;
     for binding in &program.bindings {
         admit_expression(&binding.value)?;
     }
@@ -112,7 +106,24 @@ fn admit(program: &Program) -> Result<(), Error> {
     admit_expression(&program.result)
 }
 
-fn admit_expression(expr: &Expr) -> Result<(), Error> {
+/// Refuses any helper without a shared-read rule, used or not: an imported
+/// helper, or a body using an operation without one.
+pub(crate) fn admit_helpers(
+    helpers: &std::collections::BTreeMap<String, super::model::Helper>,
+) -> Result<(), Error> {
+    for helper in helpers.values() {
+        if !helper.source_owned {
+            return Err(Error::UnsupportedProgram);
+        }
+        for binding in &helper.bindings {
+            admit_expression(&binding.value)?;
+        }
+        admit_expression(&helper.result)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
     match expr {
         Expr::Constant(Value::Bool(_) | Value::Integer(_) | Value::Bytes(_))
         | Expr::Local(_)
@@ -172,7 +183,7 @@ fn admit_expression(expr: &Expr) -> Result<(), Error> {
     }
 }
 
-fn admit_predicate(predicate: &Predicate) -> Result<(), Error> {
+pub(crate) fn admit_predicate(predicate: &Predicate) -> Result<(), Error> {
     match predicate {
         Predicate::Compare { left, right, .. } => {
             admit_expression(left)?;

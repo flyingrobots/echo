@@ -22,11 +22,11 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 /// The values bound in one lexical frame.
-pub(super) type Locals<'p> = BTreeMap<&'p str, Shared<'p>>;
+pub(crate) type Locals<'p> = BTreeMap<&'p str, Shared<'p>>;
 
-pub(super) struct Evaluator<'p, 'm> {
-    pub helpers: &'p BTreeMap<String, Helper>,
-    pub meter: &'m mut Meter,
+pub(crate) struct Evaluator<'p, 'm> {
+    pub(crate) helpers: &'p BTreeMap<String, Helper>,
+    pub(crate) meter: &'m mut Meter,
 }
 
 impl<'p> Evaluator<'p, '_> {
@@ -36,7 +36,7 @@ impl<'p> Evaluator<'p, '_> {
         self.meter.allocate(size.bytes)
     }
 
-    pub(super) fn expression(
+    pub(crate) fn expression(
         &mut self,
         expr: &'p Expr,
         locals: &mut Locals<'p>,
@@ -425,7 +425,7 @@ impl<'p> Evaluator<'p, '_> {
         }
     }
 
-    pub(super) fn predicate(
+    pub(crate) fn predicate(
         &mut self,
         predicate: &'p Predicate,
         locals: &mut Locals<'p>,

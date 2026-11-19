@@ -15,7 +15,7 @@ use std::rc::Rc;
 
 /// One immutable runtime value; `clone` is O(1).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Shared<'p> {
+pub(crate) enum Shared<'p> {
     Bool(bool),
     Integer(i128),
     Bytes(Rc<[u8]>),
@@ -30,7 +30,7 @@ pub(super) enum Shared<'p> {
 
 /// A closed-union value: its type identity, case and optional payload.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Tagged<'p> {
+pub(crate) struct Tagged<'p> {
     pub identity: &'p str,
     pub case: &'p str,
     pub payload: Option<Shared<'p>>,
@@ -38,7 +38,7 @@ pub(super) struct Tagged<'p> {
 
 /// Portable size in 64-byte value cells and bytes, as the schedule counts it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Size {
+pub(crate) struct Size {
     pub cells: u64,
     pub bytes: u64,
 }
@@ -133,9 +133,46 @@ impl Shared<'_> {
     }
 }
 
+impl Shared<'_> {
+    /// The canonical value this one stands for, in the representation the
+    /// copying evaluator would hold: a record keeps its own field order, a
+    /// variant is `{ type, case, payload? }` and an `Option` is `null` or a
+    /// one-item array. Effect steps take canonical values; this conversion is
+    /// the boundary work they already charge as an input.
+    pub(crate) fn to_value(&self) -> Value {
+        match self {
+            Self::Bool(value) => Value::Bool(*value),
+            Self::Integer(value) => Value::Integer(*value),
+            Self::Bytes(bytes) => Value::Bytes(bytes.to_vec()),
+            Self::List(items) => Value::Array(items.iter().map(Self::to_value).collect()),
+            Self::Record(fields) => Value::Map(
+                fields
+                    .iter()
+                    .map(|(key, value)| (Value::Text((*key).into()), value.to_value()))
+                    .collect(),
+            ),
+            Self::Variant(tagged) => {
+                let mut entries = vec![
+                    (
+                        Value::Text("type".into()),
+                        Value::Text(tagged.identity.into()),
+                    ),
+                    (Value::Text("case".into()), Value::Text(tagged.case.into())),
+                ];
+                if let Some(payload) = &tagged.payload {
+                    entries.push((Value::Text("payload".into()), payload.to_value()));
+                }
+                Value::Map(entries)
+            }
+            Self::Absent => Value::Null,
+            Self::Present(item) => Value::Array(vec![item.to_value()]),
+        }
+    }
+}
+
 /// Validates a canonical input against its type while sharing it. Keys and
 /// labels are taken from the type, which outlives the evaluation.
-pub(super) fn from_canonical<'p>(
+pub(crate) fn from_canonical<'p>(
     value: &Value,
     ty: &'p RuntimeType,
     depth: usize,
@@ -207,7 +244,7 @@ pub(super) fn from_canonical<'p>(
 }
 
 /// Validates a result against its type while materializing it canonically.
-pub(super) fn to_canonical(
+pub(crate) fn to_canonical(
     value: &Shared<'_>,
     ty: &RuntimeType,
     depth: usize,

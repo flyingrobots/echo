@@ -381,9 +381,9 @@ fn copying_schedule_is_selected_without_the_capability() {
 }
 
 #[test]
-fn read_and_effect_helper_decoding_refuses_the_shared_schedule() {
-    // `functions::decode` serves the read and effect routes, which have no
-    // shared-read meter; only the pure route admits the capability.
+fn read_route_helper_decoding_refuses_the_shared_schedule() {
+    // `functions::decode` serves the read route, which has no shared-read
+    // meter; the pure and effect routes admit the capability.
     let core = core(READS);
     let mut parser = Parser {
         types: field(&core, "types").unwrap(),

@@ -7,6 +7,21 @@
 
 ### Added
 
+- Effect programs may call helpers from digest-pinned source modules
+  (#1009). The lowerer, the verifier and warp-core previously refused any
+  `echo.dpo@2` effect program built from an `edict.source-closure/v1`
+  source as outside the checked profile. Each now reads the closure,
+  requires every `use module` pin to name a retained module by its exact
+  `edict.source/v1` identity and the entry module's pins to reach every
+  retained module, and judges and runs the linked helpers as entry
+  helpers. Substituted modules, unpinned modules and pins to absent
+  modules refuse in all three; the lowerer and verifier name them
+  `effect-program.relation.source-module-pins`, and a malformed closure
+  `effect-program.relation.source-closure`. The compiler's own request is a lowerer
+  witness, a shared corpus fixes the three verdicts, and warp-core runs
+  the control. A public compiler witness (`edict-effect-source-module`,
+  Amblicit `7dbcbc23`) builds through the promoted provider package
+  (lowerer `f03a9022`, verifier `54a7c9fc`).
 - Effect-program refusals name the failing check (#1018). The lowerer's
   `EffectPublicationError::UnsupportedProgram` and the verifier's
   `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a

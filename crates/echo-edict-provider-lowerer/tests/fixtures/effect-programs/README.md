@@ -34,6 +34,17 @@ Each refused entry is a well-formed package that reaches one specific check. Eac
 | `read-captured-budget`                                        | the captured read's own 1 MiB step budget                                                          | `read-control`                                                 |
 
 
+## Source-module entries (#1009)
+
+`source-module-control` is the compiler's package for `crates/warp-core/tests/fixtures/edict-effect-source-module/source`, unchanged: an `ensureNode` effect, then `leaf.same(input.v)` from the source module `jedit.probe.leaf@1`, which the entry module pins by digest. Its lowering artifacts retain the `edict.source-closure/v1` envelope of both modules. Each refused entry edits only that envelope and re-derives every module digest it carries, so only the `use module` pins refuse it:
+
+| Refused entry | What it edits | Accepted sibling |
+| --- | --- | --- |
+| `source-module-substituted` | the retained leaf's source (`return 0u64;`), which no longer matches the entry's pin | `source-module-control` |
+| `source-module-unpinned` | the entry's source, without its `use module` line, so no pin reaches the retained leaf | `source-module-control` |
+
+Both refuse with `effect-program.relation.source-module-pins` (`reasons.txt`). `a_source_module_helper_runs_in_the_program_that_pins_it` runs the control: `same(7)` returns `7`.
+
 ## Structured entries (`echo.span-ir/v3` under `echo.dpo@2`, #947)
 
 `structured-loop-control` runs one `ensure-node` site inside `for item in arg.0 bounded 3` over `List<MutationInput,max=3>`; `structured-branch-control` wraps that loop in a statement branch and `structured-nested-control` in an outer loop over `List<List<MutationInput,max=3>,max=2>`. Every refused entry below is that loop, fully repinned after the one edit named:

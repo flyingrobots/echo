@@ -30,6 +30,8 @@ typed-failure-repeated-set effect-program.failure-sets
 typed-failure-empty-set effect-program.failure-sets
 typed-failure-without-capability effect-program.failure-sets
 typed-failure-arms-differ effect-program.correspondence.instruction
+source-module-substituted effect-program.relation.source-module-pins
+source-module-unpinned effect-program.relation.source-module-pins
 imported-helper-fails effect-program.failure-sets
 imported-helper-fails-in-arm effect-program.failure-sets
 imported-helper-fails-attempted effect-program.failure-sets

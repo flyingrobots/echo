@@ -61,8 +61,14 @@ pub enum RefusalReason {
     Lawpack,
     /// The lawpack's target adapter entry or the adapter pin.
     Adapter,
+    /// The source artifact: one source string, or a source closure whose
+    /// envelope, root and per-module identities are valid.
+    SourceClosure,
     /// The source's lawpack alias.
     SourceAlias,
+    /// A closure's `use module` pins: each names a retained module by its
+    /// exact identity, and the entry module's pins reach every module.
+    SourceModulePins,
     /// Imported types are not the lawpack's exports.
     ImportedTypes,
     /// The adapter's operation profile for the intent.
@@ -159,7 +165,9 @@ impl RefusalReason {
             Self::IdentityContracts => "effect-program.relation.identity-contracts",
             Self::Lawpack => "effect-program.relation.lawpack",
             Self::Adapter => "effect-program.relation.adapter",
+            Self::SourceClosure => "effect-program.relation.source-closure",
             Self::SourceAlias => "effect-program.relation.source-alias",
+            Self::SourceModulePins => "effect-program.relation.source-module-pins",
             Self::ImportedTypes => "effect-program.relation.imported-types",
             Self::OperationProfile => "effect-program.relation.operation-profile",
             Self::EffectAuthorization => "effect-program.relation.effect-authorization",

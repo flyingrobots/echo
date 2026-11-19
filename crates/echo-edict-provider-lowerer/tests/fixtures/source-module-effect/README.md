@@ -6,7 +6,8 @@
 These are the unmodified canonical artifacts of the lowering request that
 Amblicit `738d3da7` sent to Echo's lowerer when it built the application in
 [`crates/warp-core/tests/fixtures/edict-effect-source-module/source`](../../../../warp-core/tests/fixtures/edict-effect-source-module/source)
-(flyingrobots/echo#1009). The entry module calls `leaf.same(input.v)` after an
+(flyingrobots/echo#1009), repinned to the `echo.dpo@2` profile `7cadb97e`
+after echo#1014. The entry module calls `leaf.same(input.v)` after an
 `ensureNode` effect; `same` lives in the source module `jedit.probe.leaf@1`,
 which the entry module pins by digest. The source input is therefore an
 `edict.source-closure/v1` envelope, and Core carries the helper under its
@@ -26,12 +27,12 @@ accepted.
 
 | Artifact | Bytes | Raw SHA-256 |
 | --- | ---: | --- |
-| `01-lawpack-adapter.hex` | 1160 | `64e5a72d23a04f46cd4cf379dbc5c9ea625e8c1a54cb1d7c004fd5533ba198aa` |
+| `01-lawpack-adapter.hex` | 1160 | `b2056f9bf22d649600ad187a262346d8e6bd93099dfeed29b098b15759f3c8c8` |
 | `02-lawpack-exports.hex` | 1890 | `0c66914501400f138eb2746df7da17c9359d366dc20b73172cea8ff71e172928` |
-| `03-lawpack.hex` | 817 | `4336ecb5be26afeafea90c19be9c3c1a31534cf612d50b6dc04a2e626172865b` |
-| `04-source.hex` | 932 | `c9f39ea1384083eefde5c29ea84afba9352f2ab106c0bfc9ba1cb6c6ddad42e5` |
-| `05-target-configuration.hex` | 6222 | `eb3e4cf0de7f537aa0e45e43e1af75ad17dcfc466499e1d3ca4063669ad2e690` |
-| `06-target-ir.hex` | 1750 | `c302d6cd0e372b26d570198260b0e0c269368384fcf8d5a6656e906eea9f5131` |
+| `03-lawpack.hex` | 817 | `78c7c06c4e97f19411a1a1e5a3b17d7554a9f47438e7fcd50c7d65e0b748b85e` |
+| `04-source.hex` | 932 | `a0dcccfa2693dcdd39207481000eb633d042a9b9b9978e95f1efb95d545ab8ff` |
+| `05-target-configuration.hex` | 6589 | `5b10d3b1e4d0f167f049b8ac597e4780ca3eee82d3d13a23496c2c02cdcbe97e` |
+| `06-target-ir.hex` | 1750 | `ba970a098e97d8aec73f7742f29be5163018b19dcf499b347f8a8f93a035f84a` |
 | `07-result-projection.hex` | 256 | `fa698723ac9408f98ee29430a06320e7d2a9c180c5037f3ee2304dc66990010a` |
-| `core.hex` | 2256 | `c8db543b3569693469f75854917a4ba170f41fc94756c4a2ecdd18528f5986e7` |
-| `profile.hex` | 1787 | `b40970846285d4a94fde86e6dc600deaccbc1cb2dc9aa3ec6437eebc8483d5a4` |
+| `core.hex` | 2256 | `12aeeb467857d5e1cbfd164b0f03a7b1022e359be60f710ff07ffdeb96349d26` |
+| `profile.hex` | 1787 | `8041a58003593571e546302bb1736b24c0ef8257b5fe3651023d618fe666de4d` |

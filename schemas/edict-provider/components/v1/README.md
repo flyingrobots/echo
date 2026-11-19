@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 789,025 bytes with SHA-256
-`687acde469f8cd2185f7e811ca6a9be8bbd6269e65a2ba1d5e1ebe78abe8636e`.
+The checked component is 796,576 bytes with SHA-256
+`f03a902279d60ec37dbedf9209aad58fc2c153da9b8b3f49216ef1951805e2c9`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 840,433 bytes
+`wit-component` version recorded above. Its checked component is 847,957 bytes
 with SHA-256
-`2d97285b64876368871f22ad7ea51040403eba56fbe4e071fa69b5a97ce5038e`.
+`54a7c9fc54fe3b8833ee9cec06e2120c992753b6ebbbf6e4a1dd415ef86cacbd`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,12 +56,13 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#1018's source (effect-program
-refusals name the failing check with a stable reason code and artifact path,
-merged with echo#1002's shared-read cost schedule and echo#1008), was
-independently reproduced by the two G4 candidate jobs in
-[CI run 44475437821](https://github.com/flyingrobots/echo/actions/runs/44475437821)
-at source commit `a19f0192da7bf48a64cc0519e79594d443d1867c`. Both copies of
+The current component pair, built from echo#1009's source (effect programs
+call helpers from digest-pinned source modules, merged with main at
+`dc9dcbbf`: echo#1018's refusal reason codes, echo#1002's shared-read cost
+schedule and echo#1008), was independently reproduced by the two G4 candidate
+jobs in
+[CI run 44478993735](https://github.com/flyingrobots/echo/actions/runs/44478993735)
+at source commit `0319e734caa7c9a391c38deb01062b87d33d0011`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an

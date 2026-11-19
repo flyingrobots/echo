@@ -98,6 +98,9 @@ const RETAINED: &[(&str, &str)] = retained![
     "structured-mutation-count-over",
 ];
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");
+/// The check each refused entry targets, from the corpus README's account of
+/// the one edit that distinguishes it from its accepted sibling.
+const REASONS: &str = include_str!("fixtures/effect-programs/reasons.txt");
 
 fn get<'a>(value: &'a V, key: &str) -> &'a V {
     let V::Map(fields) = value else { panic!("map") };
@@ -123,6 +126,16 @@ fn package(name: &str) -> V {
 fn compiled_program(name: &str) -> Vec<u8> {
     let program = decode(bytes(get(&package(name), "program"))).expect("program");
     bytes(get(&program, "compiled_program")).to_vec()
+}
+/// The reason code each refused entry must name.
+fn reasons() -> Vec<(String, String)> {
+    REASONS
+        .lines()
+        .map(|line| {
+            let (name, code) = line.split_once(' ').expect("entry");
+            (name.to_owned(), code.to_owned())
+        })
+        .collect()
 }
 fn verdicts() -> Vec<(String, bool)> {
     VERDICTS
@@ -151,15 +164,37 @@ fn the_lowerer_reaches_every_retained_corpus_verdict() {
     let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = judge_effect_program(&compiled_program(&name));
-        let expected = if accept {
-            Ok(())
-        } else {
-            Err(EffectPublicationError::UnsupportedProgram)
-        };
-        if judged != expected {
-            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
+        let accepted = judged.is_ok();
+        if accepted != accept {
+            disagreements.push(format!("{name}: expected accept={accept}, got {judged:?}"));
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
+}
+
+/// Every refused entry names the check its one edit targets.
+#[test]
+fn the_lowerer_names_the_check_each_refused_entry_targets() {
+    let reasons = reasons();
+    let refused = verdicts()
+        .into_iter()
+        .filter_map(|(name, accept)| (!accept).then_some(name))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+        refused.iter().collect::<Vec<_>>(),
+        "every refused entry has exactly one reason, in corpus order"
+    );
+    let mut disagreements = Vec::new();
+    for (name, code) in &reasons {
+        match judge_effect_program(&compiled_program(name)) {
+            Err(EffectPublicationError::UnsupportedProgram(refusal))
+                if refusal.reason().code() == code => {}
+            other => disagreements.push(format!("{name}: expected {code}, got {other:?}")),
+        }
+    }
+    // Zero witnesses would pass vacuously.
+    assert!(reasons.len() >= 10, "{} refused entries", reasons.len());
     assert_eq!(disagreements, Vec::<String>::new());
 }
 
@@ -230,7 +265,7 @@ fn publication_refuses_what_the_judgment_refuses() {
             configuration: &configuration,
         });
         match (accept, &published) {
-            (true, Ok(_)) | (false, Err(EffectPublicationError::UnsupportedProgram)) => {}
+            (true, Ok(_)) | (false, Err(EffectPublicationError::UnsupportedProgram(_))) => {}
             (true, Err(error)) => {
                 disagreements.push(format!("{name}: publication refused: {error:?}"));
             }
@@ -241,6 +276,58 @@ fn publication_refuses_what_the_judgment_refuses() {
         }
     }
     assert_eq!(disagreements, Vec::<String>::new());
+}
+
+/// The adapter artifact embedded in `compiled`, with its class replaced.
+fn with_adapter_class(compiled: &[u8], class: &str) -> Vec<u8> {
+    let mut bundle = decode(compiled).expect("bundle");
+    let V::Map(fields) = &mut bundle else {
+        panic!("bundle")
+    };
+    let lowering = &mut fields
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("lowering_artifacts".into()))
+        .expect("lowering artifacts")
+        .1;
+    let V::Map(lowering) = lowering else {
+        panic!("lowering")
+    };
+    let slot = &mut lowering
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("adapter_artifact".into()))
+        .expect("adapter")
+        .1;
+    let V::Bytes(bytes) = slot else {
+        panic!("adapter bytes")
+    };
+    let mut adapter = decode(bytes).expect("adapter");
+    let V::Map(entries) = &mut adapter else {
+        panic!("adapter map")
+    };
+    entries
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("class".into()))
+        .expect("class")
+        .1 = V::Text(class.into());
+    *slot = V::Bytes(echo_edict_canonical::encode_canonical_cbor_v1(&adapter).expect("adapter"));
+    echo_edict_canonical::encode_canonical_cbor_v1(&bundle).expect("bundle")
+}
+
+/// An adapter outside the declarative class is refused as the adapter, at
+/// the adapter artifact, not as the lawpack checked just before it.
+#[test]
+fn an_undeclared_adapter_class_is_named_as_the_adapter() {
+    let compiled = with_adapter_class(&compiled_program("read-control"), "procedural");
+    match judge_effect_program(&compiled) {
+        Err(EffectPublicationError::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.relation.adapter",
+                "/lowering_artifacts/adapter_artifact"
+            )
+        ),
+        other => panic!("expected the adapter check, got {other:?}"),
+    }
 }
 
 fn entry<'a>(value: &'a mut V, key: &str) -> &'a mut V {
@@ -284,8 +371,14 @@ fn effect_programs_refuse_the_shared_read_schedule() {
         judge_effect_program(&with_capability("core.variant/v1")),
         Ok(())
     );
-    assert_eq!(
-        judge_effect_program(&with_capability("core.cost.shared-reads/v1")),
-        Err(EffectPublicationError::UnsupportedProgram)
-    );
+    match judge_effect_program(&with_capability("core.cost.shared-reads/v1")) {
+        Err(EffectPublicationError::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.shared-read-schedule",
+                "/core/requiredCoreCapabilities"
+            )
+        ),
+        other => panic!("expected the shared-read schedule check, got {other:?}"),
+    }
 }

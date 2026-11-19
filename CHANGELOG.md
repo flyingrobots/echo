@@ -7,6 +7,26 @@
 
 ### Added
 
+- Effect-program refusals name the failing check (#1018). The lowerer's
+  `EffectPublicationError::UnsupportedProgram` and the verifier's
+  `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a
+  stable reason code such as `effect-program.relation.source-alias` or
+  `effect-program.budget.steps`, and a bounded path into the Core, Target IR
+  or lowering artifacts, at most 256 bytes. The component refusal keeps its
+  kind and first diagnostic, and adds
+  `echo.provider.unsupported-semantics.<code>` (`refused at <path>`),
+  independent of the host's response limits; the verifier's `rejected`
+  report adds `echo.verifier.effect-program-refused.<code>` the same way, and
+  its report bytes do not change. A shared `reasons.txt` pins the code each of
+  the 52 refused corpus entries reaches, and the lowerer and verifier each
+  name it. The jedit#296 basis-read witness, previously refused with no
+  detail, names three causes in turn: comment lines before `package`
+  (`relation.source-alias`), `tooLarge` declared `resourceFault` where Echo's
+  node-atom-read table says `integrityFault` (`relation.intrinsic-contract`),
+  and its failure arm then mapping to a `resourceFault` obstruction
+  (`relation.failure-arms`). The components are promoted from byte-equal G4
+  candidates (lowerer `687acde4`, verifier `2d97285b`).
+
 - The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
   amblicit#324). warp-core, the provider lowerer and the provider verifier
   admit a pure module that requires `core.cost.shared-reads/v1`. The runtime

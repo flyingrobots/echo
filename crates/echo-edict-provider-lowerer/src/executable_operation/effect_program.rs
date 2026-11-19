@@ -9,6 +9,7 @@
 //! Core and Target IR agree node for node, and that the body is typed, proven
 //! and within its declared budget.
 use super::source_functions::{judge_effect_intent, EffectSite};
+use crate::refusal_reason::{ProgramRefusal, RefusalReason as R, Trail};
 use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1 as digest,
     encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value,
@@ -173,7 +174,23 @@ fn effect_kind(intrinsic: &str) -> Option<&'static str> {
 /// Judges compiler-produced effect-program bytes under the configuration's
 /// graph-read declaration, which is present exactly when a step reads the
 /// graph.
-pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> Check<()> {
+///
+/// # Errors
+/// Names the check that refused and the artifact path it was reading.
+pub(crate) fn judge(
+    compiled_program: &[u8],
+    graph: Option<GraphReads<'_>>,
+) -> Result<(), ProgramRefusal> {
+    let mut trail = Trail::new();
+    judge_on(compiled_program, graph, &mut trail).map_err(|()| trail.refusal())
+}
+
+fn judge_on(
+    compiled_program: &[u8],
+    graph: Option<GraphReads<'_>>,
+    trail: &mut Trail,
+) -> Check<()> {
+    trail.at(R::BundleEnvelope, &[]);
     let bundle = decode(compiled_program).map_err(|_| ())?;
     exact(
         &bundle,
@@ -196,22 +213,31 @@ pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> C
     let module = embedded("core_artifact")?;
     let target = embedded("target_ir_artifact")?;
     let exports = embedded("lawpack_exports_artifact")?;
-    let structured = artifacts(&module, &target, &exports)?;
+    let structured = artifacts(&module, &target, &exports, trail)?;
+    trail.at(R::IntentSelection, &["core", "intents", intent_name]);
     let intent = get(get(&module, "intents")?, intent_name)?;
+    trail.at(R::IntentSelection, &["target", "intents", intent_name]);
     let lowered = get(get(&target, "intents")?, intent_name)?;
-    binding(intent, lowered)?;
-    let pairs = correspondence(intent, lowered, structured)?;
+    trail.at(R::IntentBinding, &["core", "intents", intent_name]);
+    binding(intent, lowered, trail)?;
+    trail.at(
+        R::CorrespondenceEnvelope,
+        &["target", "intents", intent_name],
+    );
+    let pairs = correspondence(intent, lowered, structured, trail)?;
     let (sites, identity) = relation(
         &module,
-        intent,
+        (intent_name, intent),
         &target,
         &pairs,
         &exports,
         get(&bundle, "lowering_artifacts")?,
+        trail,
     )?;
     // A graph read is a declared capability, as on the bounded-read route:
     // the declaration is the one the program uses, and a closure names its
     // selector.
+    trail.at(R::GraphReadDeclaration, &["configuration", "graphReads"]);
     let reads = sites
         .values()
         .filter(|site| site.graph_read().is_some())
@@ -225,13 +251,23 @@ pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> C
     {
         return Err(());
     }
-    judge_effect_intent(&module, &exports, intent, &sites, graph, identity)
+    trail.at(R::TypeTable, &["core", "types"]);
+    judge_effect_intent(
+        &module,
+        &exports,
+        (intent_name, intent),
+        &sites,
+        graph,
+        identity,
+        trail,
+    )
 }
 
 /// The three embedded artifacts and the Core pin the Target IR carries.
 /// Returns whether the Target IR is structured (`echo.span-ir/v3`) rather
 /// than ordered (`echo.span-ir/v2`).
-fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
+fn artifacts(module: &Value, target: &Value, exports: &Value, trail: &mut Trail) -> Check<bool> {
+    trail.at(R::TargetIrEnvelope, &["target"]);
     exact(
         target,
         &[
@@ -251,6 +287,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
         (STRUCTURED_TARGET_IR, "structuredTargetIrArtifact") => true,
         _ => return Err(()),
     };
+    trail.at(R::ExportsEnvelope, &["exports"]);
     exact(
         exports,
         &[
@@ -267,6 +304,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
     for key in ["effects", "constants", "obstructions", "pureFunctions"] {
         list(get(exports, key)?)?;
     }
+    trail.at(R::CoreEnvelope, &["core"]);
     let mut fields = vec![
         "apiVersion",
         "coordinate",
@@ -294,6 +332,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
     for capability in list(get(module, "requiredCoreCapabilities")?)? {
         string(capability)?;
     }
+    trail.at(R::CorePin, &["target", "semanticClosure", "sourceCore"]);
     equal_text(target, "sourceCoreCoordinate", coordinate)?;
     let source = get(get(target, "semanticClosure")?, "sourceCore")?;
     exact(source, &["id", "digest"])?;
@@ -304,7 +343,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
 
 /// The selected intent and its lowered form agree on everything the runtime
 /// executes besides the body's instructions.
-fn binding(intent: &Value, lowered: &Value) -> Check<()> {
+fn binding(intent: &Value, lowered: &Value, trail: &mut Trail) -> Check<()> {
     for key in ["inputConstraints", "coreEvaluationBudget"] {
         if get(lowered, key)? != get(intent, key)? {
             return Err(());
@@ -331,6 +370,7 @@ fn binding(intent: &Value, lowered: &Value) -> Check<()> {
     }
     if map_field(intent, "optic").is_some() {
         // Optic-scoped programs are outside the authored-effect route.
+        trail.mark(R::OpticIntent);
         return Err(());
     }
     exact(intent, &fields)?;
@@ -358,12 +398,14 @@ fn binding(intent: &Value, lowered: &Value) -> Check<()> {
 )]
 fn relation<'a>(
     module: &'a Value,
-    intent: &'a Value,
+    (intent_name, intent): (&str, &'a Value),
     target_artifact: &'a Value,
     pairs: &[(&'a Value, &'a Value)],
     exports: &'a Value,
     lowering: &'a Value,
+    trail: &mut Trail,
 ) -> Check<(BTreeMap<usize, EffectSite>, bool)> {
+    trail.at(R::NoEffectProfile, &["target", "targetProfile"]);
     let structured = string(get(target_artifact, "domain")?)? == STRUCTURED_TARGET_IR;
     let effects = pairs
         .iter()
@@ -382,6 +424,7 @@ fn relation<'a>(
             Err(())
         };
     }
+    trail.at(R::LoweringArtifacts, &["lowering_artifacts"]);
     exact(
         lowering,
         &[
@@ -399,6 +442,10 @@ fn relation<'a>(
     let adapter = embedded("adapter_artifact")?;
     let profile = embedded("target_profile_artifact")?;
     let catalog = embedded("intrinsics_artifact")?;
+    trail.at(
+        R::TargetProfile,
+        &["lowering_artifacts", "target_profile_artifact"],
+    );
     equal_text(&profile, "apiVersion", "edict.target-profile/v1")?;
     let profile_coordinate = format!(
         "{}@{}",
@@ -427,6 +474,10 @@ fn relation<'a>(
     if structured && !namespace.structured {
         return Err(());
     }
+    trail.at(
+        R::IntrinsicCatalog,
+        &["lowering_artifacts", "intrinsics_artifact"],
+    );
     let catalog_reference = get(&profile, "intrinsics")?;
     equal_text(catalog_reference, "id", namespace.catalog)?;
     pinned(catalog_reference, identity(namespace.catalog, &catalog)?)?;
@@ -441,13 +492,18 @@ fn relation<'a>(
         exact(&catalog, &["apiVersion", "intrinsics"])?;
     }
     equal_text(&catalog, "apiVersion", namespace.catalog_api)?;
+    trail.mark(R::IdentityContracts);
     let identity_enabled =
         identity_contracts(namespace.coordinate, &catalog, module, profile_reference)?;
+    trail.mark(R::IntrinsicCatalog);
     let catalog = get(&catalog, "intrinsics")?;
     members(catalog)?;
+    trail.at(R::Lawpack, &["lowering_artifacts", "lawpack_artifact"]);
     equal_text(&lawpack, "apiVersion", "edict.lawpack/v1")?;
+    trail.at(R::Adapter, &["lowering_artifacts", "adapter_artifact"]);
     equal_text(&adapter, "apiVersion", "edict.lawpack-adapter/v1")?;
     equal_text(&adapter, "class", "declarative")?;
+    trail.at(R::Lawpack, &["lowering_artifacts", "lawpack_artifact"]);
     let lawpack_coordinate = format!(
         "{}@{}",
         string(get(&lawpack, "id")?)?,
@@ -467,6 +523,7 @@ fn relation<'a>(
         return Err(());
     }
     owner_pinned(get(&lawpack, "exports")?, exports)?;
+    trail.at(R::Adapter, &["lowering_artifacts", "adapter_artifact"]);
     let mut matching = list(get(&lawpack, "targetAdapters")?)?
         .iter()
         .filter(|entry| map_field(entry, "acceptedTargetProfile") == Some(profile_reference));
@@ -480,6 +537,7 @@ fn relation<'a>(
         string(get(target_artifact, "domain")?)?,
     )?;
     owner_pinned(get(entry, "adapter")?, &adapter)?;
+    trail.at(R::SourceAlias, &["lowering_artifacts", "source_artifact"]);
     let alias = alias(
         source,
         &lawpack_coordinate,
@@ -487,7 +545,16 @@ fn relation<'a>(
         string(get(module, "coordinate")?)?,
         &target_line(profile_reference)?,
     )?;
+    trail.at(R::ImportedTypes, &["core", "types"]);
     imported_types(module, exports, &lawpack_coordinate)?;
+    trail.at(
+        R::OperationProfile,
+        &[
+            "lowering_artifacts",
+            "adapter_artifact",
+            "operationProfiles",
+        ],
+    );
     let operation_profile = string(get(intent, "requiredOperationProfile")?)?;
     let authorized = list(get(
         unique_profile(&adapter, operation_profile)?,
@@ -501,6 +568,16 @@ fn relation<'a>(
         if string(get(node, "kind")?)? != "effect" {
             continue;
         }
+        trail.at(
+            R::EffectAuthorization,
+            &[
+                "target",
+                "intents",
+                intent_name,
+                "steps",
+                string(get(step, "id")?)?,
+            ],
+        );
         let name = resolve(string(get(node, "effect")?)?, &alias, &lawpack_coordinate)?;
         if !authorized.iter().any(|value| value == &text(&name)) {
             return Err(());
@@ -526,9 +603,11 @@ fn relation<'a>(
         if declarations.next().is_some() {
             return Err(());
         }
+        trail.mark(R::IntrinsicContract);
         contract(intrinsic_name, kind, intrinsic, effect, implementation)?;
         let output = string(get(effect, "outputType")?)?;
         equal_text(get(node, "binding")?, "type", output)?;
+        trail.mark(R::FailureArms);
         arms(
             node,
             step,
@@ -547,6 +626,10 @@ fn relation<'a>(
             },
         );
     }
+    trail.at(
+        R::EffectAuthorization,
+        &["target", "intents", intent_name, "steps"],
+    );
     if sites.len() != effects {
         return Err(());
     }
@@ -829,6 +912,7 @@ fn correspondence<'a>(
     intent: &'a Value,
     lowered: &'a Value,
     structured: bool,
+    trail: &mut Trail,
 ) -> Check<Vec<(&'a Value, &'a Value)>> {
     let mut fields = vec![
         "operationProfile",
@@ -861,14 +945,18 @@ fn correspondence<'a>(
             }
         }
     }
+    trail.mark(R::CorrespondenceOrder);
+    trail.enter("executionOrder");
     let mut walk = OrderWalk {
         structured,
         identities: instructions.keys().copied().collect(),
         instructions,
         remaining: MAX_NODES,
         pairs: Vec::new(),
+        trail,
     };
     walk.block(get(intent, "body")?, get(lowered, "executionOrder")?, 0)?;
+    walk.trail.mark(R::CorrespondenceOrder);
     if !walk.instructions.is_empty() {
         return Err(());
     }
@@ -876,7 +964,7 @@ fn correspondence<'a>(
 }
 
 /// One pass over a Core body and its Target order.
-struct OrderWalk<'a> {
+struct OrderWalk<'a, 't> {
     structured: bool,
     /// Every instruction and control id seen so far.
     identities: BTreeSet<&'a str>,
@@ -884,9 +972,11 @@ struct OrderWalk<'a> {
     instructions: BTreeMap<&'a str, (&'static str, &'a Value)>,
     remaining: usize,
     pairs: Vec<(&'a Value, &'a Value)>,
+    trail: &'t mut Trail,
 }
-impl<'a> OrderWalk<'a> {
+impl<'a> OrderWalk<'a, '_> {
     fn block(&mut self, body: &'a Value, order: &'a Value, depth: usize) -> Check<()> {
+        self.trail.mark(R::CorrespondenceOrder);
         if depth > MAX_DEPTH {
             return Err(());
         }
@@ -896,10 +986,13 @@ impl<'a> OrderWalk<'a> {
         if nodes.len() != entries.len() {
             return Err(());
         }
-        for (node, entry) in nodes.iter().zip(entries) {
+        for (position, (node, entry)) in nodes.iter().zip(entries).enumerate() {
+            self.trail.enter(position.to_string());
+            self.trail.mark(R::CorrespondenceOrder);
             spend(&mut self.remaining)?;
             if let Value::Text(id) = entry {
                 let (kind, instruction) = self.instructions.remove(id.as_str()).ok_or(())?;
+                self.trail.mark(R::CorrespondenceInstruction);
                 instruction_correspondence(node, kind, instruction)?;
                 self.pairs.push((node, instruction));
             } else if self.structured {
@@ -907,6 +1000,7 @@ impl<'a> OrderWalk<'a> {
             } else {
                 return Err(());
             }
+            self.trail.leave();
         }
         Ok(())
     }
@@ -914,6 +1008,7 @@ impl<'a> OrderWalk<'a> {
     /// binder, iterable, bound or predicate exactly, and one nested order per
     /// Core block.
     fn control(&mut self, node: &'a Value, entry: &'a Value, depth: usize) -> Check<()> {
+        self.trail.mark(R::CorrespondenceControl);
         let id = nonempty(get(entry, "id")?)?;
         if !self.identities.insert(id) {
             return Err(());
@@ -936,7 +1031,7 @@ impl<'a> OrderWalk<'a> {
                         return Err(());
                     }
                 }
-                self.child(get(node, "body")?, get(entry, "body")?, depth + 1)
+                self.child("body", get(node, "body")?, get(entry, "body")?, depth + 1)
             }
             "branch" => {
                 // A value branch binds a local; only statement branches lower
@@ -946,21 +1041,26 @@ impl<'a> OrderWalk<'a> {
                 if get(node, "predicate")? != get(entry, "predicate")? {
                     return Err(());
                 }
-                self.child(get(node, "then")?, get(entry, "then")?, depth + 1)?;
-                self.child(get(node, "else")?, get(entry, "else")?, depth + 1)
+                self.child("then", get(node, "then")?, get(entry, "then")?, depth + 1)?;
+                self.child("else", get(node, "else")?, get(entry, "else")?, depth + 1)
             }
             _ => Err(()),
         }
     }
     /// A loop body or branch arm is a statement block whose result is `null`.
-    fn child(&mut self, body: &'a Value, order: &'a Value, depth: usize) -> Check<()> {
+    fn child(&mut self, arm: &str, body: &'a Value, order: &'a Value, depth: usize) -> Check<()> {
+        self.trail.enter(arm);
+        self.trail.mark(R::CorrespondenceStatementBlock);
         let result = get(body, "result")?;
         exact(result, &["kind", "value"])?;
         equal_text(result, "kind", "const")?;
         let value = get(result, "value")?;
         exact(value, &["kind"])?;
         equal_text(value, "kind", "null")?;
-        self.block(body, order, depth)
+        self.block(body, order, depth)?;
+        self.trail.leave();
+        self.trail.mark(R::CorrespondenceControl);
+        Ok(())
     }
 }
 

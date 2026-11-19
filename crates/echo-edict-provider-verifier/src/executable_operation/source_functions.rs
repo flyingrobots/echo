@@ -45,6 +45,7 @@ mod unsigned_addition;
 mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use echo_edict_canonical::CanonicalValueV1 as Value;
 pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
@@ -156,7 +157,14 @@ fn each_intent<'a>(
     mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
 ) -> Check<()> {
     let mut types = Types::new(core);
-    let (definitions, summaries) = prepare(core, exports, &mut types, edge_scans, false)?;
+    let (definitions, summaries) = prepare(
+        core,
+        exports,
+        &mut types,
+        edge_scans,
+        false,
+        &mut Trail::new(),
+    )?;
     let mut checker = Checker {
         types: &mut types,
         definitions: &definitions,
@@ -191,14 +199,37 @@ fn prepare<'a>(
     types: &mut Types<'a>,
     edge_scans: u64,
     identity_admitted: bool,
+    trail: &mut Trail,
 ) -> Check<Prepared<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
+    trail.at(R::FailureSets, &["core"]);
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
     failure_sets::judge(core, exports, coordinate)?;
-    let definitions = inventory(core, exports, types)?;
+    trail.at(R::HelperInventory, &["exports", "pureFunctions"]);
+    let definitions = inventory(core, exports, types, trail)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let origins = definitions
+        .iter()
+        .map(|(name, definition)| {
+            (
+                name.as_str(),
+                helper_origin(core, exports, name, definition.source),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mark = |trail: &mut Trail, name: &str| {
+        let origin = origins.get(name).map_or_else(
+            || vec!["functions".to_owned(), name.to_owned()],
+            Clone::clone,
+        );
+        trail.at(
+            R::HelperFunction,
+            &origin.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+    };
     for (name, definition) in &definitions {
+        mark(trail, name);
         let mut edges = BTreeSet::new();
         let mut expressions = Vec::new();
         for binding in sequence(get(definition.body, "bindings")?)? {
@@ -303,11 +334,16 @@ fn prepare<'a>(
     let summaries = summarize(
         &definitions,
         types,
-        pending,
-        &callers,
+        (pending, &callers),
         edge_scans,
         identity_admitted,
+        &mut |name| mark(trail, name),
     )?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
+    if summaries.len() != definitions.len() {
+        return Err(());
+    }
+    trail.at(R::HelperPreconditions, &["core"]);
     preconditions_are_typed(&definitions, &summaries, types, identity_admitted)?;
     // Every call to a precondition-bearing function proves its preconditions
     // from the facts that dominate it, wherever it is in the module.
@@ -364,15 +400,46 @@ fn preconditions_are_typed<'a>(
     }
     Ok(())
 }
+/// Where a helper is declared, for refusal paths: a source function under
+/// `/core/functions/<name>`, an imported one at its index in
+/// `/exports/pureFunctions`. `name` is the qualified lookup name.
+fn helper_origin(core: &Value, exports: &Value, name: &str, source: bool) -> Vec<String> {
+    if source {
+        let local = match super::map_field(core, "coordinate") {
+            Some(Value::Text(coordinate)) => name
+                .strip_prefix(coordinate.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(name),
+            _ => name,
+        };
+        return vec!["core".to_owned(), "functions".to_owned(), local.to_owned()];
+    }
+    let index = match super::map_field(exports, "pureFunctions") {
+        Some(Value::Array(items)) => items.iter().position(|item| {
+            matches!(super::map_field(item, "coordinate"), Some(Value::Text(c)) if c == name)
+        }),
+        _ => None,
+    };
+    index.map_or_else(
+        || vec!["functions".to_owned(), name.to_owned()],
+        |index| {
+            vec![
+                "exports".to_owned(),
+                "pureFunctions".to_owned(),
+                index.to_string(),
+            ]
+        },
+    )
+}
 /// Summarizes every helper after its dependencies, so callers see complete
 /// summaries. No native recursion crosses a function edge.
 fn summarize<'a, 'n>(
     definitions: &BTreeMap<String, Definition<'a>>,
     types: &mut Types<'a>,
-    mut pending: BTreeMap<&'n str, usize>,
-    callers: &BTreeMap<&'n str, Vec<&'n str>>,
+    (mut pending, callers): (BTreeMap<&'n str, usize>, &BTreeMap<&'n str, Vec<&'n str>>),
     edge_scans: u64,
     identity_admitted: bool,
+    mark: &mut dyn FnMut(&str),
 ) -> Check<BTreeMap<String, Summary>> {
     let mut ready: BTreeSet<&'n str> = pending
         .iter()
@@ -382,6 +449,7 @@ fn summarize<'a, 'n>(
     // Dependencies receive their own complete summary before any caller can
     // use it, in either name order.
     while let Some(name) = ready.pop_first() {
+        mark(name);
         types.step(0)?;
         let definition = definitions.get(name).ok_or(())?;
         let summary = Checker {
@@ -411,15 +479,13 @@ fn summarize<'a, 'n>(
             }
         }
     }
-    if summaries.len() != definitions.len() {
-        return Err(());
-    }
     Ok(summaries)
 }
 fn inventory<'a>(
     core: &'a Value,
     exports: &'a Value,
     types: &mut Types<'_>,
+    trail: &mut Trail,
 ) -> Check<BTreeMap<String, Definition<'a>>> {
     let mut definitions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
@@ -469,6 +535,7 @@ fn inventory<'a>(
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
     let source_functions = super::map_field(core, "functions")
         .map(members)
         .transpose()?
@@ -1508,5 +1575,42 @@ mod tests {
             ("pureFunctions", Value::Array(vec![])),
         ]);
         assert!(validate(&core, &exports, false, 0).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod helper_origin_tests {
+    use super::{helper_origin, Value};
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    #[test]
+    fn a_helper_is_located_where_it_is_declared() {
+        let core = Value::Map(vec![(text("coordinate"), text("pkg@1"))]);
+        let exports = Value::Map(vec![(
+            text("pureFunctions"),
+            Value::Array(vec![
+                Value::Map(vec![(text("coordinate"), text("lib@1.a"))]),
+                Value::Map(vec![(text("coordinate"), text("lib@1.b"))]),
+            ]),
+        )]);
+        // Oracle: the artifact shapes. Source helpers live under
+        // `core.functions` by local name; imports in `exports.pureFunctions`.
+        assert_eq!(
+            (
+                helper_origin(&core, &exports, "pkg@1.f", true),
+                helper_origin(&core, &exports, "lib@1.b", false)
+            ),
+            (
+                vec!["core".to_owned(), "functions".to_owned(), "f".to_owned()],
+                vec![
+                    "exports".to_owned(),
+                    "pureFunctions".to_owned(),
+                    "1".to_owned()
+                ]
+            )
+        );
     }
 }

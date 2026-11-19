@@ -53,7 +53,7 @@ const PINNED_CARGO_COMMIT: &str = "840b83a10fb0e039a83f4d70ad032892c287570a";
 
 /// Reviewed identity that the portable promotion command is permitted to install.
 pub(crate) const APPROVED_CHECKED_COMPONENT_SHA256: &str =
-    "17f9b8a8447fe2ce7eb6fc64f0bf6387c0eb9af894bb61fba1827ca3cc81f4df";
+    "687acde469f8cd2185f7e811ca6a9be8bbd6269e65a2ba1d5e1ebe78abe8636e";
 pub(crate) const CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
 
@@ -62,7 +62,7 @@ pub(crate) const VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
 /// Approved SHA-256 identity of the checked verifier component.
 pub(crate) const APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256: &str =
-    "e62528aa61586fee5d70c8acce59fad749290ea698cc2fc77edf8ad30a049464";
+    "2d97285b64876368871f22ad7ea51040403eba56fbe4e071fa69b5a97ce5038e";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ProviderComponentSpec {

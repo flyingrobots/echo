@@ -3,7 +3,7 @@
 //! The verifier's charge check against the shared `edict.core-cost/v2` corpus.
 //!
 //! Oracles: each module's Core budget is the compiler minimum (Amblicit
-//! `da1574f1`, `edict.core-cost/v2`), so the verifier must admit it and refuse
+//! `26a201e7`, `edict.core-cost/v2`), so the verifier must admit it and refuse
 //! one step or one byte less. The copying costs are change-detection goldens
 //! measured with this audit as it is on `origin/main` at `ed37a03d`.
 #![allow(
@@ -22,6 +22,8 @@ const NESTED: &str =
     include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/nested.core.cbor.hex");
 const MATCHES: &str =
     include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/matches.core.cbor.hex");
+const INTEGERS: &str =
+    include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/integers.core.cbor.hex");
 const SHARED: &str = "core.cost.shared-reads/v1";
 
 fn core(hex: &str) -> Value {
@@ -119,6 +121,11 @@ fn nested_list_rebuilding_folds_are_judged_at_the_compiler_minimum() {
 #[test]
 fn variant_state_with_payload_binders_is_judged_at_the_compiler_minimum() {
     assert_minimum_is_exact(MATCHES);
+}
+
+#[test]
+fn checked_integers_and_min_max_are_judged_at_the_compiler_minimum() {
+    assert_minimum_is_exact(INTEGERS);
 }
 
 #[test]

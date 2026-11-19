@@ -142,8 +142,8 @@ struct Judgment<'a> {
     /// Under the shared-read schedule, the type this judgment established for
     /// each expression, keyed by the node's address in the borrowed Core.
     types: BTreeMap<usize, Ty>,
-    /// Shared-read cost of each completed source helper.
-    shared_costs: BTreeMap<String, Cost>,
+    /// Shared-read list-length bounds and the call costs computed under them.
+    shared_costs: shared_reads::Reachable,
     /// Whether the pinned `echo.dpo@2` catalog carries Echo's exact identity
     /// contracts, which alone admits calls to them.
     identity: bool,
@@ -306,7 +306,7 @@ fn judged<'a>(
         edge_scans,
         shared: shared_reads::required(core)?,
         types: BTreeMap::new(),
-        shared_costs: BTreeMap::new(),
+        shared_costs: shared_reads::Reachable::default(),
         identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {

@@ -9,7 +9,7 @@ check. Each judge reads the same Core bytes, so all three are measured
 against one compiler minimum.
 
 The producer `tests/edict-core-cost-v2-corpus` compiles each `.amblicit`
-source with Amblicit `da1574f169cda98206440e4d8f785b1ea9e01fcf` under
+source with Amblicit `26a201e7fe9d07beb60655463fb8e25270e10150` under
 `CoreCostSchedule::SharedReads`. It searches for the smallest step, allocation
 and output budgets the compiler accepts, and requires native Target's step
 and allocation minimums to be equal. It writes:
@@ -42,6 +42,11 @@ they use, so the Echo copies differ as follows:
 | `nested` | `s.n < 1000u64` and `s.rounds < 100u64` become `<= 999u64` and `<= 99u64` | As above |
 | `matches` | None | |
 | `rope` | None | |
+
+`integers` is Echo's own program (echo#1016). It exercises every checked
+integer call, `min` and `max` in a fold, and the `Option` consumers `isSome`
+and `unwrap`. Its output is total because Echo's intent output has no
+`Option` encoding.
 
 The rope's intent maps a typed failure with `attempt` (`let … else { … }`).
 Echo admits `attempt` only on the effect-program route, which has no

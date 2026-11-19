@@ -33,7 +33,7 @@ struct Program {
     budget: &'static str,
 }
 
-const PROGRAMS: [Program; 5] = [
+const PROGRAMS: [Program; 6] = [
     Program {
         name: "reads",
         intent: "run",
@@ -59,6 +59,12 @@ const PROGRAMS: [Program; 5] = [
         budget: "p.b",
     },
     Program {
+        name: "integers",
+        intent: "run",
+        profile: "p.read",
+        budget: "p.b",
+    },
+    Program {
         name: "rope",
         intent: "splitRope",
         profile: "rope.read",
@@ -75,7 +81,16 @@ fn budget(steps: u64, bytes: u64, output: u64) -> CoreBudget {
 }
 
 fn compile(source: &str, program: &Program, budget: CoreBudget) -> Option<CoreModule> {
-    let module = parse_module(source).ok()?;
+    compile_or_explain(source, program, budget).ok()
+}
+
+/// Compiles `source`, keeping the parser's or compiler's refusal.
+fn compile_or_explain(
+    source: &str,
+    program: &Program,
+    budget: CoreBudget,
+) -> Result<CoreModule, String> {
+    let module = parse_module(source).map_err(|e| format!("{}: {e:?}", program.name))?;
     compile_to_core(
         &module,
         &CompilerContext::new()
@@ -83,7 +98,7 @@ fn compile(source: &str, program: &Program, budget: CoreBudget) -> Option<CoreMo
             .with_operation_profile(program.profile, "continuum.profile.read-only/v1")
             .with_budget(program.budget, budget),
     )
-    .ok()
+    .map_err(|e| format!("{}: {e:?}", program.name))
 }
 
 /// Smallest value in `0..=CEILING` that `accepts`, which must be monotone.
@@ -145,6 +160,7 @@ fn hex(bytes: &[u8]) -> String {
 fn produce(directory: &Path, program: &Program) -> Result<([u64; 3], Vec<u8>), String> {
     let path = directory.join(format!("{}.amblicit", program.name));
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    compile_or_explain(&source, program, budget(CEILING, CEILING, CEILING))?;
     let steps = minimum(|v| compile(&source, program, budget(v, CEILING, CEILING)).is_some())?;
     let bytes = minimum(|v| compile(&source, program, budget(CEILING, v, CEILING)).is_some())?;
     let output = minimum(|v| compile(&source, program, budget(CEILING, CEILING, v)).is_some())?;

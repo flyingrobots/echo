@@ -10,7 +10,11 @@
 use super::value::{Shared, Size, Tagged, CELL};
 use crate::edict_pure::{
     evaluate::Meter,
-    model::{Comparison, Expr, Helper, MatchArm, Predicate, RuntimeType},
+    integer_operations,
+    model::{
+        Comparison, Expr, Helper, IntegerOperation, MatchArm, OptionOperation, Predicate,
+        RuntimeType,
+    },
     EvaluationError as Error,
 };
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -18,11 +22,11 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 /// The values bound in one lexical frame.
-pub(super) type Locals<'p> = BTreeMap<&'p str, Shared<'p>>;
+pub(crate) type Locals<'p> = BTreeMap<&'p str, Shared<'p>>;
 
-pub(super) struct Evaluator<'p, 'm> {
-    pub helpers: &'p BTreeMap<String, Helper>,
-    pub meter: &'m mut Meter,
+pub(crate) struct Evaluator<'p, 'm> {
+    pub(crate) helpers: &'p BTreeMap<String, Helper>,
+    pub(crate) meter: &'m mut Meter,
 }
 
 impl<'p> Evaluator<'p, '_> {
@@ -32,7 +36,7 @@ impl<'p> Evaluator<'p, '_> {
         self.meter.allocate(size.bytes)
     }
 
-    pub(super) fn expression(
+    pub(crate) fn expression(
         &mut self,
         expr: &'p Expr,
         locals: &mut Locals<'p>,
@@ -122,8 +126,9 @@ impl<'p> Evaluator<'p, '_> {
                 ) else {
                     return Err(Error::InvalidArtifact);
                 };
-                // One step per operand cell; the scalar result is held inline.
+                // One step per operand cell, and the result is a new value.
                 self.meter.charge_steps(2)?;
+                self.build(CELL)?;
                 let limit = i128::from(*max);
                 if !(0..=limit).contains(&left) || !(0..=limit).contains(&right) {
                     return Err(Error::InvalidArtifact);
@@ -139,6 +144,40 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ListAt { .. }
             | Expr::ListAppend { .. }
             | Expr::ListConcat { .. } => self.list_operation(expr, locals, depth),
+            Expr::Integer {
+                operation,
+                max,
+                left,
+                right,
+            } => {
+                let (Shared::Integer(left), Shared::Integer(right)) = (
+                    self.expression(left, locals, depth + 1)?,
+                    self.expression(right, locals, depth + 1)?,
+                ) else {
+                    return Err(Error::InvalidArtifact);
+                };
+                // One step per operand cell; the result, with a checked
+                // result's presence cell, is a new value charged in full.
+                self.meter.charge_steps(2)?;
+                let word = |value: i128| {
+                    u64::try_from(value)
+                        .ok()
+                        .filter(|value| value <= max)
+                        .ok_or(Error::InvalidArtifact)
+                };
+                let result = integer_operations::apply(*operation, *max, word(left)?, word(right)?)
+                    .map(|value| Shared::Integer(i128::from(value)));
+                let result = if matches!(operation, IntegerOperation::Min | IntegerOperation::Max) {
+                    result.ok_or(Error::InvalidArtifact)?
+                } else {
+                    result.map_or(Shared::Absent, |value| Shared::Present(Rc::new(value)))
+                };
+                self.build(result.full_size()?)?;
+                Ok(result)
+            }
+            Expr::Option {
+                operation, args, ..
+            } => self.option_operation(*operation, args, locals, depth),
             // Byte intrinsics are refused before evaluation; see `admit`.
             Expr::ByteUtf8 { .. }
             | Expr::ByteAt { .. }
@@ -147,10 +186,46 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ByteSlice { .. }
             | Expr::ByteConcat { .. }
             | Expr::Identity(..)
-            | Expr::Option { .. }
             | Expr::Fail(_)
-            | Expr::OrderedRecord(_)
-            | Expr::Integer { .. } => Err(Error::UnsupportedProgram),
+            | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
+        }
+    }
+
+    /// An `Option` consumer reads its operands by reference and charges one
+    /// step per operand cell scanned. Constructors are refused by `admit`.
+    fn option_operation(
+        &mut self,
+        operation: OptionOperation,
+        args: &'p [Expr],
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Shared<'p>, Error> {
+        let mut values = Vec::with_capacity(args.len());
+        let mut cells = 0_u64;
+        for argument in args {
+            let value = self.expression(argument, locals, depth + 1)?;
+            cells = cells
+                .checked_add(value.full_size()?.cells)
+                .ok_or(Error::StepBudgetExceeded)?;
+            values.push(value);
+        }
+        self.meter.charge_steps(cells)?;
+        match (operation, values.as_slice()) {
+            (OptionOperation::IsSome, [operand]) => {
+                let present = match operand {
+                    Shared::Present(_) => true,
+                    Shared::Absent => false,
+                    _ => return Err(Error::InvalidArtifact),
+                };
+                // The flag is a new value; `unwrap` and `default` share theirs.
+                self.build(CELL)?;
+                Ok(Shared::Bool(present))
+            }
+            // A checked artifact proved presence; absence is a forged artifact.
+            (OptionOperation::Unwrap, [Shared::Present(item)])
+            | (OptionOperation::Default, [Shared::Present(item), _]) => Ok(Shared::clone(item)),
+            (OptionOperation::Default, [Shared::Absent, fallback]) => Ok(fallback.clone()),
+            _ => Err(Error::InvalidArtifact),
         }
     }
 
@@ -350,7 +425,7 @@ impl<'p> Evaluator<'p, '_> {
         }
     }
 
-    pub(super) fn predicate(
+    pub(crate) fn predicate(
         &mut self,
         predicate: &'p Predicate,
         locals: &mut Locals<'p>,
@@ -408,7 +483,11 @@ impl<'p> Evaluator<'p, '_> {
 #[allow(clippy::panic, reason = "test fixtures fail loudly")]
 mod tests {
     use super::{Evaluator, Locals, Shared};
-    use crate::edict_pure::{evaluate::Meter, model::Expr, EvaluationLimits};
+    use crate::edict_pure::{
+        evaluate::Meter,
+        model::{Expr, IntegerOperation},
+        EvaluationLimits,
+    };
     use std::collections::BTreeMap;
     use std::rc::Rc;
 
@@ -420,6 +499,59 @@ mod tests {
             max_allocated_bytes: 0,
             max_output_bytes: 0,
         }
+    }
+
+    fn integer(value: i128) -> Expr {
+        Expr::Constant(echo_edict_canonical::CanonicalValueV1::Integer(value))
+    }
+
+    /// Allocation the meter recorded for evaluating `expr` with no locals.
+    fn allocated(expr: &Expr) -> u64 {
+        let helpers = BTreeMap::new();
+        let mut meter = Meter::new(EvaluationLimits {
+            max_allocated_bytes: 1_000,
+            ..limits()
+        });
+        let mut evaluator = Evaluator {
+            helpers: &helpers,
+            meter: &mut meter,
+        };
+        assert!(
+            evaluator.expression(expr, &mut Locals::new(), 0).is_ok(),
+            "evaluates"
+        );
+        meter.usage().1
+    }
+
+    /// Oracle: amblicit#340. A prelude call that builds a new value is
+    /// charged that value in full: one cell for a word, and a presence cell
+    /// plus its item for a present checked result. The two constant operands
+    /// are one cell each.
+    #[test]
+    fn integer_results_are_charged_as_new_values() {
+        let add = Expr::UnsignedAdd {
+            max: 9,
+            left: Box::new(integer(4)),
+            right: Box::new(integer(5)),
+        };
+        let checked = |operation| Expr::Integer {
+            operation,
+            max: u64::MAX,
+            left: Box::new(integer(4)),
+            right: Box::new(integer(5)),
+        };
+        assert_eq!(allocated(&add), 3 * 64, "unsigned add");
+        assert_eq!(allocated(&checked(IntegerOperation::Min)), 3 * 64, "min");
+        assert_eq!(
+            allocated(&checked(IntegerOperation::CheckedAdd)),
+            4 * 64,
+            "present checked result"
+        );
+        assert_eq!(
+            allocated(&checked(IntegerOperation::CheckedSub)),
+            3 * 64,
+            "absent checked result"
+        );
     }
 
     /// Reads hand back the stored value itself, never a copy: the property

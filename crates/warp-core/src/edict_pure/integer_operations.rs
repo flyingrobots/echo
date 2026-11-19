@@ -100,7 +100,12 @@ pub(super) fn infer(
 }
 
 /// The exact result, or `None` for a checked call's absent case.
-const fn apply(operation: IntegerOperation, max: u64, left: u64, right: u64) -> Option<u64> {
+pub(super) const fn apply(
+    operation: IntegerOperation,
+    max: u64,
+    left: u64,
+    right: u64,
+) -> Option<u64> {
     let value = match operation {
         IntegerOperation::CheckedAdd => left.checked_add(right),
         IntegerOperation::CheckedSub => left.checked_sub(right),

@@ -310,6 +310,12 @@ fn invocation(
 /// then evaluates it for `source` over `shape`'s graph.
 fn run(shape: &Shape, source: NodeId) -> Run {
     let (bytes, identity) = retained();
+    run_package(bytes, identity, shape, source)
+}
+
+/// Admits, installs and evaluates `bytes` under the exact policy for
+/// `identity`, as `run` does for the retained package.
+fn run_package(bytes: Vec<u8>, identity: [u8; 32], shape: &Shape, source: NodeId) -> Run {
     let (mut host, head) = host(state(shape));
     let policy = EchoOperationAdmissionPolicy::exact(identity, OPERATION, authority(), budget());
     let admitted = host
@@ -571,4 +577,121 @@ fn another_package_is_refused_under_the_public_graph_read_effect_policy() {
             .kind(),
         EchoOperationAdmissionErrorKind::PackageIdentityMismatch
     );
+}
+
+fn decoded(value: &Value) -> Value {
+    let Value::Bytes(bytes) = value else {
+        panic!("embedded canonical bytes")
+    };
+    echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("canonical")
+}
+
+fn entry_mut<'v>(value: &'v mut Value, key: &str) -> &'v mut Value {
+    let Value::Map(fields) = value else {
+        panic!("map around {key}")
+    };
+    &mut fields
+        .iter_mut()
+        .find(|(name, _)| *name == publication::text(key))
+        .unwrap_or_else(|| panic!("missing {key}"))
+        .1
+}
+
+fn identity_of(domain: &str, value: &Value) -> Value {
+    Value::Bytes(
+        echo_edict_canonical::digest_canonical_value_bytes_v1(domain, value)
+            .expect("digest")
+            .to_vec(),
+    )
+}
+
+/// The retained package with its Core requiring the shared-read schedule
+/// (echo#1016), every pin of the Core and Target IR recomputed, and its own
+/// new package identity. SYNTHETIC: a repinned copy of the public output.
+fn shared_schedule_package() -> (Vec<u8>, [u8; 32]) {
+    let (bytes, _) = retained();
+    let mut package = echo_edict_canonical::decode_canonical_cbor_v1(&bytes).expect("package");
+    let mut program = decoded(publication::get(&package, "program"));
+    let mut bundle = decoded(publication::get(&program, "compiled_program"));
+    let mut core = decoded(publication::get(&bundle, "core_artifact"));
+    let mut target = decoded(publication::get(&bundle, "target_ir_artifact"));
+    let old_core = identity_of("edict.core.module/v1", &core);
+    let Value::Array(capabilities) = entry_mut(&mut core, "requiredCoreCapabilities") else {
+        panic!("capabilities")
+    };
+    capabilities.push(publication::text("core.cost.shared-reads/v1"));
+    let new_core = identity_of("edict.core.module/v1", &core);
+    *entry_mut(
+        entry_mut(entry_mut(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = Value::Array(vec![publication::text("sha256"), new_core.clone()]);
+    let new_target = identity_of("edict.target-ir.artifact/v1", &target);
+    publication::set(
+        &mut bundle,
+        "core_artifact",
+        Value::Bytes(publication::encoded(&core)),
+    );
+    publication::set(
+        &mut bundle,
+        "target_ir_artifact",
+        Value::Bytes(publication::encoded(&target)),
+    );
+    publication::set(
+        &mut program,
+        "compiled_program",
+        Value::Bytes(publication::encoded(&bundle)),
+    );
+    publication::set(&mut program, "target_ir_identity", new_target.clone());
+    publication::set(
+        &mut package,
+        "program",
+        Value::Bytes(publication::encoded(&program)),
+    );
+    let closure = entry_mut(&mut package, "semantic_closure");
+    publication::set(closure, "core_identity", new_core.clone());
+    publication::set(closure, "target_ir_identity", new_target);
+    if *publication::get(closure, "canonical_meaning_identity") == old_core {
+        publication::set(closure, "canonical_meaning_identity", new_core);
+    }
+    let bytes = publication::encoded(&package);
+    let identity = publication::hash(b"echo:operation-package:v1\0", &bytes);
+    (bytes, identity)
+}
+
+/// Requiring the shared-read schedule changes how the program is metered,
+/// never what it reads, writes or returns. Oracle: the retained package run
+/// by the copying executor over the same graphs (a differential).
+#[test]
+fn the_shared_schedule_reads_and_links_exactly_as_the_copying_schedule() {
+    let shapes = [
+        (Shape::root(vec![TARGET]), SOURCE),
+        (Shape::root(vec![]), SOURCE),
+        (
+            Shape {
+                child_warp: true,
+                targets: vec![TARGET, OTHER_TARGET],
+            },
+            SOURCE,
+        ),
+        (Shape::root(vec![TARGET; 5]), SOURCE),
+        (Shape::root(vec![TARGET; 9]), SOURCE),
+        (Shape::root(vec![TARGET]), NodeId([0x70; 32])),
+    ];
+    for (index, (shape, source)) in shapes.iter().enumerate() {
+        let copying = run(shape, *source);
+        let (bytes, identity) = shared_schedule_package();
+        let sharing = run_package(bytes, identity, shape, *source);
+        assert_eq!(sharing.output, copying.output, "case {index}: output");
+        assert_eq!(
+            sharing
+                .completed
+                .as_ref()
+                .map(|(_, completed)| completed.mutations().to_vec()),
+            copying
+                .completed
+                .as_ref()
+                .map(|(_, completed)| completed.mutations().to_vec()),
+            "case {index}: mutations"
+        );
+    }
 }

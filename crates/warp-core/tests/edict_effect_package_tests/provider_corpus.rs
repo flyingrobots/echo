@@ -511,6 +511,21 @@ fn run_metered(
     input: &[u8],
     frame: &Frame,
 ) -> (Result<Vec<u8>, EffectFrameError>, u64, u64) {
+    let (result, _, steps, bytes) = run_traced(package, input, frame);
+    (result, steps, bytes)
+}
+
+/// Runs as `run_metered` does and also returns the mutations it buffered.
+fn run_traced(
+    package: &V,
+    input: &[u8],
+    frame: &Frame,
+) -> (
+    Result<Vec<u8>, EffectFrameError>,
+    Vec<warp_core::edict_effects::EffectMutation>,
+    u64,
+    u64,
+) {
     use warp_core::edict_effects::TypedNodeRead;
     use warp_core::{
         AtomPayload, AttachmentValue, GraphStore, NodeId, NodeKey, NodeRecord, WarpId,
@@ -566,8 +581,14 @@ fn run_metered(
     let result = evaluation
         .evaluate_effect(program, input, reads)
         .map(<[u8]>::to_vec);
+    let mutations = if result.is_ok() {
+        evaluation.buffered_mutations().to_vec()
+    } else {
+        Vec::new()
+    };
     (
         result,
+        mutations,
         evaluation.consumed().steps(),
         evaluation.allocated_bytes(),
     )
@@ -1543,6 +1564,9 @@ fn manifest(entries: &[Entry]) -> String {
     }
     manifest
 }
+
+#[path = "provider_corpus/shared_schedule.rs"]
+mod shared_schedule;
 
 #[test]
 fn the_retained_provider_corpus_matches_the_runtime_verdicts() {

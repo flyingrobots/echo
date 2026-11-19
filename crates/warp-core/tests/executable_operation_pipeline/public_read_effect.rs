@@ -19,8 +19,8 @@ use warp_core::edict_pure::EvaluationLimits;
 use warp_core::{
     make_head_id, AtomPayload, AttachmentValue, EchoOperationAdmissionErrorKind,
     EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationBudgetV1,
-    EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey, NodeRecord, PlaybackMode,
-    TrustedRuntimeHost, TypeId, WarpId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    EffectPackageHost, EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey, NodeRecord,
+    PlaybackMode, TypeId, WarpId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
     WriterHeadKey,
 };
 
@@ -57,7 +57,7 @@ fn policy(identity: [u8; 32]) -> EchoOperationAdmissionPolicy {
 }
 
 /// A worldline whose root node carries the fact the program reads.
-pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
+pub(super) fn host() -> (EffectPackageHost, WriterHeadKey, NodeKey) {
     let node = NodeKey {
         warp_id: WarpId([0x31; 32]),
         local_id: NodeId([0x32; 32]),
@@ -91,7 +91,7 @@ pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
         .expect("head");
     let engine = EngineBuilder::new(store, node.local_id).build();
     (
-        TrustedRuntimeHost::new(runtime, engine).expect("host"),
+        EffectPackageHost::new(runtime, engine).expect("host"),
         head,
         node,
     )

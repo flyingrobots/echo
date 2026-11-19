@@ -683,13 +683,43 @@ are deterministic self-validation.
 For descended targets, the retained footprint and patch inputs include every
 portal attachment in the validated root-to-target reachability chain.
 
-The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
-under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That
-compile-time coupling does not place a callback in the operation program, but
-it prevents the maintenance runner from serving as the final product cutover
-boundary.
-The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
-can delete the legacy feature without also losing executable operations.
+Scheduler-owned Action execution reuses `TrustedRuntimeHost`, whose module is
+exposed only under the joint `native_rule_bootstrap` and `trusted_runtime`
+feature gate. That compile-time coupling does not place a callback in the
+operation program, but the scheduler, WAL and commit shell still cannot serve
+as a product cutover boundary without the internal feature.
+
+#### Running an authored effect package on generic Echo
+
+`EffectPackageHost` (#1017) is the public route for running an authored effect
+package. It needs `trusted_runtime` only. A consumer builds a
+`WorldlineRuntime` and an `Engine`, constructs the host, and then:
+
+1. admits the exact package bytes under an exact
+   `EchoOperationAdmissionPolicy` (`admit_echo_operation_package`);
+2. installs the admitted meaning (`install_admitted_echo_operation_package`);
+3. resolves the writer head's exact parent
+   (`echo_operation_evaluation_basis_v1`);
+4. admits one canonical invocation under an exact
+   `EchoOperationInvocationAdmissionPolicy`
+   (`admit_echo_operation_invocation`);
+5. evaluates it in a recording frame (`effect_evaluation_frame_v1`) and
+   derives the proposed patch without applying it
+   (`derive_echo_operation_effects`).
+
+Both hosts delegate these steps to one internal route, so admission, basis,
+frame and derivation law are identical; only installation differs, because
+`TrustedRuntimeHost` also retains it in its runtime WAL and requeues pending
+Actions. The public host has
+no scheduler, WAL, commit or native rule authoring, and its evaluation
+authority is private to each host value, so derivation refuses work evaluated
+by another host. `tests/public-effect-host-consumer/` is the downstream
+witness: a package outside the workspace that depends on warp-core with
+`trusted_runtime` only and runs Echo's retained public `link` package. It sits
+outside the workspace because warp-core's own test targets inherit
+`native_rule_bootstrap` from the `echo-dry-tests` dev-dependency. Echo's
+`public_*` effect witnesses run through the same host in the
+`public_effect_host_tests` target.
 
 #### Application operation semantics authored in Edict source
 
@@ -849,7 +879,8 @@ The shared interpreter uses atomic failed charges. An admitted concatenation
 buffer that cannot be provisioned is a host fault, never budget exhaustion.
 The existing standalone pure/read APIs retain their prior accounting behavior.
 
-`TrustedRuntimeHost::effect_evaluation_frame_v1` can now construct that frame
+`TrustedRuntimeHost::effect_evaluation_frame_v1` and
+`EffectPackageHost::effect_evaluation_frame_v1` construct that frame
 against an expected full runtime parent. The host resolves the registered writer,
 worldline tick, committing global tick, state root and commit identity through
 the existing scheduler basis resolver, compares all runtime fields, and borrows
@@ -1759,8 +1790,9 @@ therefore retain distinct admission evidence for otherwise identical bytes.
 Installation consumes the token's checked program identity; recovery rebuilds
 and checks this evidence rather than trusting retained hashes alone.
 
-This method is exposed only on the runtime-owner host, under the existing
-`native_rule_bootstrap` and `trusted_runtime` boundary. The restricted
+This method is exposed only on runtime-owner hosts: `TrustedRuntimeHost`
+under the joint `native_rule_bootstrap` and `trusted_runtime` boundary, and
+`EffectPackageHost` under `trusted_runtime`. The restricted
 application handle cannot admit a package. The token has no public constructor
 and is neither an installation nor an invocation grant. Installation uses one evidence type and catalog for every program kind.
 Invocation admission is described above; authored-effect Action execution remains

@@ -491,12 +491,33 @@ fn the_lowerer_names_the_refusing_check_beside_its_refusal() {
     );
 }
 
-/// The frozen WIT contract: a provider's result is independent of the host's
-/// limits, so a refusal that fits both bounds is byte-identical under each.
+/// The frozen WIT contract: a provider's canonical result is independent of
+/// the host's limits; the provider never truncates it to fit a smaller bound.
 #[test]
 fn the_lowerer_refusal_is_independent_of_the_response_limits() {
     let roomy = lower(starved_request(8)).expect_err("a one-step budget is refused");
-    let tight = lower(starved_request(2)).expect_err("a one-step budget is refused");
+    let mut request = starved_request(1);
+    request.limits.max_total_response_bytes = 0;
+    let tight = lower(request).expect_err("a one-step budget is refused");
+    assert_eq!(roomy, tight);
+}
+
+/// The same contract for the verifier's rejected report and its diagnostics.
+#[test]
+fn the_verifier_rejection_is_independent_of_the_response_limits() {
+    let starved = rebound(|core, target| {
+        for artifact in [core, target] {
+            *field_mut(
+                field_mut(intent_mut(artifact), "coreEvaluationBudget"),
+                "maxSteps",
+            ) = Value::Integer(1);
+        }
+    });
+    let roomy = verifier::verify(verification_request(starved.clone())).expect("bound request");
+    let mut request = verification_request(starved);
+    request.limits.max_diagnostic_count = 1;
+    request.limits.max_total_response_bytes = 0;
+    let tight = verifier::verify(request).expect("bound request");
     assert_eq!(roomy, tight);
 }
 

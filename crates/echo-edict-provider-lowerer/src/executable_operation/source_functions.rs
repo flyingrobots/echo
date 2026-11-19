@@ -1568,3 +1568,40 @@ mod tests {
         assert!(validate(&core, &exports, false, 0).is_ok());
     }
 }
+
+#[cfg(test)]
+mod helper_origin_tests {
+    use super::{helper_origin, Value};
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    #[test]
+    fn a_helper_is_located_where_it_is_declared() {
+        let core = Value::Map(vec![(text("coordinate"), text("pkg@1"))]);
+        let exports = Value::Map(vec![(
+            text("pureFunctions"),
+            Value::Array(vec![
+                Value::Map(vec![(text("coordinate"), text("lib@1.a"))]),
+                Value::Map(vec![(text("coordinate"), text("lib@1.b"))]),
+            ]),
+        )]);
+        // Oracle: the artifact shapes. Source helpers live under
+        // `core.functions` by local name; imports in `exports.pureFunctions`.
+        assert_eq!(
+            (
+                helper_origin(&core, &exports, "pkg@1.f", true),
+                helper_origin(&core, &exports, "lib@1.b", false)
+            ),
+            (
+                vec!["core".to_owned(), "functions".to_owned(), "f".to_owned()],
+                vec![
+                    "exports".to_owned(),
+                    "pureFunctions".to_owned(),
+                    "1".to_owned()
+                ]
+            )
+        );
+    }
+}

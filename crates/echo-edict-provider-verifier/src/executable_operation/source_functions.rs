@@ -189,7 +189,7 @@ fn prepare<'a>(
 ) -> Check<Prepared<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
-    failure_sets::judge(core, coordinate)?;
+    failure_sets::judge(core, exports, coordinate)?;
     let definitions = inventory(core, exports, types)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();

@@ -49,6 +49,10 @@ typed-failure-arms-differ refuse
 source-module-control accept
 source-module-substituted refuse
 source-module-unpinned refuse
+imported-helper-total accept
+imported-helper-fails refuse
+imported-helper-fails-in-arm refuse
+imported-helper-fails-attempted refuse
 ordered-record-z-first accept
 ordered-record-a-first accept
 ordered-record-guarded-z-first accept

@@ -150,10 +150,15 @@ fn pure_judgment_keeps_the_zero_effect_echo_dpo_1_control() {
 fn pure_judgment_rejects_zero_effect_echo_dpo_2_without_profile_artifacts() {
     let (bundle, _, _) = material();
     let current_profile_bundle = bundle_for_echo_dpo_2(&bundle);
-    assert_eq!(
-        judge_effect_program(&current_profile_bundle),
-        Err(EffectPublicationError::UnsupportedProgram),
-        "the zero-effect judgment must not accept @2 without authenticated lowering artifacts"
+    let refusal = judge_effect_program(&current_profile_bundle);
+    assert!(
+        matches!(
+            &refusal,
+            Err(EffectPublicationError::UnsupportedProgram(program))
+                if program.reason().code() == "effect-program.relation.no-effect-profile"
+                    && program.path() == "/target/targetProfile"
+        ),
+        "the zero-effect judgment must not accept @2 without authenticated lowering artifacts: {refusal:?}"
     );
 }
 

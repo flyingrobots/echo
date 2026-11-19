@@ -387,7 +387,7 @@ fn preamble<'s>(
 /// The runtime's statement of the identity contracts a catalog must carry
 /// before a program may call them: operand ceilings, base steps and step
 /// coefficients, matching [`crate::edict_pure`]'s own metering.
-const IDENTITY: [(&str, &[&str], i128, &[i128]); 3] = [
+const IDENTITY: [(&str, &[&str], i128, &[i128]); 4] = [
     (
         "echo.dpo@2.contentAddress",
         &[
@@ -412,10 +412,16 @@ const IDENTITY: [(&str, &[&str], i128, &[i128]); 3] = [
         69,
         &[0; 3],
     ),
+    (
+        "echo.dpo@2.attachmentValueDigest",
+        &["Bytes<exact=32>", "Bytes<max=1048576>"],
+        68,
+        &[0, 1],
+    ),
 ];
 
 /// Whether the pinned catalog authorizes identity calls: under `echo.dpo@2`
-/// it carries all three exact contracts and the `OutgoingEdge` record, and
+/// it carries all four exact contracts and the `OutgoingEdge` record, and
 /// Core's single target import is the selected profile. A partial or altered
 /// set of contracts is refused, never ignored.
 fn identity_bound(

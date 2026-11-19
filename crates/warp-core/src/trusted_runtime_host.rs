@@ -21,6 +21,7 @@ pub use observed_context::EchoOperationContextErrorV1;
 
 use crate::causal_anchor::prepare_causal_anchor_admission;
 use crate::coordinator::{SuperTickUndo, TicketedIngressStagingRollback};
+use crate::effect_package_host::{EffectPackageHostError, EffectPackageRoute};
 
 use crate::{
     causal_wal::{
@@ -49,7 +50,7 @@ use crate::{
     echo_operation::{
         action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
         action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
-        action_preparation_identity_matches_v1, admit_action_invocation_v1, admit_invocation_v1,
+        action_preparation_identity_matches_v1, admit_action_invocation_v1,
         admit_operation_package, commit_prepared_to_state,
         commit_scheduler_action_batch_to_state_v1, decode_invocation_route_v1,
         echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
@@ -167,6 +168,19 @@ pub enum TrustedRuntimeHostError {
 impl From<RuntimeError> for TrustedRuntimeHostError {
     fn from(error: RuntimeError) -> Self {
         Self::Runtime(Box::new(error))
+    }
+}
+
+impl From<EffectPackageHostError> for TrustedRuntimeHostError {
+    fn from(error: EffectPackageHostError) -> Self {
+        match error {
+            EffectPackageHostError::Provenance(error) => Self::Provenance(error),
+            EffectPackageHostError::Runtime(error) => Self::Runtime(error),
+            EffectPackageHostError::EffectFrameSetup(error) => Self::EffectFrameSetup(error),
+            EffectPackageHostError::EchoOperationInstallation(error) => {
+                Self::EchoOperationInstallation(error)
+            }
+        }
     }
 }
 
@@ -1047,6 +1061,16 @@ impl TrustedRuntimeHost {
             .forget_receipt_correlation_for_test(submission_id)
     }
 
+    /// Borrows the state the shared effect-package route reads.
+    fn effect_package_route(&self) -> EffectPackageRoute<'_> {
+        EffectPackageRoute {
+            runtime: &self.runtime,
+            provenance: &self.provenance,
+            engine: &self.engine,
+            authority: &self.echo_operation_evaluation_authority,
+        }
+    }
+
     /// Returns the host-owned runtime as read-only evidence.
     #[must_use]
     pub fn runtime(&self) -> &WorldlineRuntime {
@@ -1171,13 +1195,9 @@ impl TrustedRuntimeHost {
         writer_head: crate::WriterHeadKey,
         application_basis: EchoOperationApplicationBasisV1,
     ) -> Result<EchoOperationEvaluationBasisV1, TrustedRuntimeHostError> {
-        crate::coordinator::resolve_echo_operation_evaluation_basis_v1(
-            &self.runtime,
-            &self.provenance,
-            writer_head,
-            application_basis,
-        )
-        .map_err(TrustedRuntimeHostError::from)
+        self.effect_package_route()
+            .evaluation_basis(writer_head, application_basis)
+            .map_err(TrustedRuntimeHostError::from)
     }
 
     /// Starts a private computation/read frame at an exact current parent.
@@ -1202,29 +1222,12 @@ impl TrustedRuntimeHost {
         budget: crate::EchoOperationBudgetV1,
         limits: crate::edict_pure::EvaluationLimits,
     ) -> Result<crate::edict_effects::EffectEvaluationFrame<'_>, TrustedRuntimeHostError> {
-        let current = self.echo_operation_evaluation_basis_v1(
-            expected.writer_head(),
-            expected.application_basis(),
-        )?;
-        if current != expected {
-            return Err(crate::edict_effects::EffectFrameSetupError::BasisMismatch.into());
-        }
-        let frontier = self
-            .runtime
-            .worldlines()
-            .get(&current.writer_head().worldline_id)
-            .ok_or_else(|| RuntimeError::UnknownWorldline(current.writer_head().worldline_id))?;
-        let reads = crate::edict_effects::EffectRangeReadSession::new(
-            frontier,
+        Ok(self.effect_package_route().evaluation_frame(
+            expected,
             allowed_range_types,
             max_range_edges,
             budget,
-        );
-        Ok(crate::edict_effects::EffectEvaluationFrame::at_parent(
-            reads,
             limits,
-            current,
-            self.echo_operation_evaluation_authority.clone(),
         )?)
     }
 
@@ -1237,58 +1240,8 @@ impl TrustedRuntimeHost {
         completed: crate::edict_effects::CompletedEffectEvaluation,
     ) -> Result<crate::edict_effects::DerivedEffectPatch, crate::edict_effects::EffectDerivationError>
     {
-        use crate::edict_effects::{EffectDerivationError as Error, EffectDerivationKind as Kind};
-        let fail = |kind| Error::new(kind, crate::EchoOperationBudgetV1::new(0, 0, 0));
-        if !admitted.is_owned_by(&self.echo_operation_evaluation_authority)
-            || !completed.is_owned_by(&self.echo_operation_evaluation_authority)
-        {
-            return Err(fail(Kind::AuthorityMismatch));
-        }
-        let installed = self
-            .engine
-            .installed_echo_operation_package(admitted.package_id())
-            .ok_or_else(|| fail(Kind::OperationUnavailable))?;
-        if installed.installed_operation_id() != admitted.installed_operation_id() {
-            return Err(fail(Kind::OperationUnavailable));
-        }
-        let program = installed
-            .program()
-            .as_effect_program()
-            .ok_or_else(|| fail(Kind::OperationUnavailable))?;
-        if completed.program_identity() != installed.program_identity()
-            || completed.evaluation_basis() != admitted.evaluation_basis()
-        {
-            return Err(fail(Kind::OriginMismatch));
-        }
-        let basis = self
-            .echo_operation_evaluation_basis_v1(
-                admitted.evaluation_basis().writer_head(),
-                admitted.evaluation_basis().application_basis(),
-            )
-            .map_err(|_| fail(Kind::BasisChanged))?;
-        if basis != admitted.evaluation_basis() {
-            return Err(fail(Kind::BasisChanged));
-        }
-        let state = self
-            .runtime
-            .worldlines()
-            .get(&basis.writer_head().worldline_id)
-            .ok_or_else(|| fail(Kind::BasisChanged))?
-            .state();
-        let invocation = admitted
-            .invocation()
-            .identity()
-            .map_err(|_| fail(Kind::OriginMismatch))?
-            .as_hash();
-        crate::edict_effects::derive::derive(
-            state,
-            program,
-            completed,
-            admitted.invocation().delegated_budget(),
-            self.engine.echo_operation_policy_id(),
-            installed.identity(),
-            invocation,
-        )
+        self.effect_package_route()
+            .derive_effects(admitted, completed)
     }
 
     /// Independently admits a canonical installed-operation invocation.
@@ -1301,31 +1254,8 @@ impl TrustedRuntimeHost {
         policy: &EchoOperationInvocationAdmissionPolicy,
         canonical_invocation_bytes: &[u8],
     ) -> Result<AdmittedEchoOperationInvocation, EchoOperationInvocationAdmissionError> {
-        let (package_id, claimed_basis) = decode_invocation_route_v1(canonical_invocation_bytes)?;
-        let current_basis = self
-            .echo_operation_evaluation_basis_v1(
-                claimed_basis.writer_head(),
-                claimed_basis.application_basis(),
-            )
-            .map_err(|error| crate::echo_operation::invocation_runtime_error(error.to_string()))?;
-        let current_state = self
-            .runtime
-            .worldlines()
-            .get(&claimed_basis.writer_head().worldline_id)
-            .map(crate::WorldlineFrontier::state)
-            .ok_or_else(|| {
-                crate::echo_operation::invocation_runtime_error(
-                    "operation invocation worldline is unavailable",
-                )
-            })?;
-        admit_invocation_v1(
-            self.engine.installed_echo_operation_package(package_id),
-            *policy,
-            canonical_invocation_bytes,
-            current_basis,
-            current_state,
-            self.echo_operation_evaluation_authority.clone(),
-        )
+        self.effect_package_route()
+            .admit_invocation(policy, canonical_invocation_bytes)
     }
 
     /// Transitional host-only seam for evaluating one admitted operation
@@ -7202,11 +7132,9 @@ impl TrustedRuntimeApp<'_> {
 fn provenance_from_runtime(
     runtime: &WorldlineRuntime,
 ) -> Result<ProvenanceService, TrustedRuntimeHostError> {
-    let mut provenance = ProvenanceService::new();
-    for (worldline_id, frontier) in runtime.worldlines().iter() {
-        provenance.register_worldline(*worldline_id, frontier.state())?;
-    }
-    Ok(provenance)
+    Ok(crate::effect_package_host::provenance_from_runtime(
+        runtime,
+    )?)
 }
 
 fn retained_state_delta_for_correlation(

@@ -3,7 +3,7 @@
 
 # Authored effect-program verdict corpus
 
-Each `.hex` file holds the canonical bytes of one whole operation package carrying an authored effect program. `verdicts.txt` lists every entry, in order, with the verdict Echo's provider lowerer and verifier must each reach: `accept` or `refuse`.
+Each `.hex` file holds the canonical bytes of one whole operation package carrying an authored effect program. `verdicts.txt` lists every entry, in order, with the verdict Echo's provider lowerer and verifier must each reach: `accept` or `refuse`. `reasons.txt` lists every refused entry, in the same order, with the reason code both must name for it (`effect-program.*`, see the lowerer README's "Refusal reasons"). Each code is the check the entry's one edit targets, as the tables below describe it; the five `ordered-record-*` refusals are reached by the module-wide failure-set judgment, which judges fallible ordered records.
 
 warp-core generates the corpus from its own effect-package fixture builders and asserts the runtime's verdict on every entry (`crates/warp-core/tests/edict_effect_package_tests/provider_corpus.rs`). The lowerer (`tests/effect_program_judgment.rs`) and the verifier (`crates/echo-edict-provider-verifier/tests/effect_program_judgment.rs`) judge the same bytes independently. Rebuild the files with that module's ignored `regenerate_the_retained_provider_corpus` test after changing an entry.
 
@@ -43,7 +43,7 @@ Each refused entry is a well-formed package that reaches one specific check. Eac
 | `source-module-substituted` | the retained leaf's source (`return 0u64;`), which no longer matches the entry's pin | `source-module-control` |
 | `source-module-unpinned` | the entry's source, without its `use module` line, so no pin reaches the retained leaf | `source-module-control` |
 
-`a_source_module_helper_runs_in_the_program_that_pins_it` runs the control: `same(7)` returns `7`.
+Both refuse with `effect-program.relation.source-module-pins` (`reasons.txt`). `a_source_module_helper_runs_in_the_program_that_pins_it` runs the control: `same(7)` returns `7`.
 
 ## Structured entries (`echo.span-ir/v3` under `echo.dpo@2`, #947)
 

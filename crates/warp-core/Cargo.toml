@@ -264,3 +264,7 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 [[test]]
 name = "current_operation_publication_tests"
 required-features = ["trusted_runtime"]
+
+[[test]]
+name = "public_effect_host_tests"
+required-features = ["trusted_runtime"]

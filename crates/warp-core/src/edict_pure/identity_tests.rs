@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 const CONTENT_ADDRESS: &str = "echo.dpo@2.contentAddress";
 const CONTENT_EDGE_ID: &str = "echo.dpo@2.contentEdgeId";
 const SLOT_EDGE_ID: &str = "echo.dpo@2.slotEdgeId";
+const ATTACHMENT_VALUE_DIGEST: &str = "echo.dpo@2.attachmentValueDigest";
 
 const NODE_ZERO_EDGES: &str =
     include_str!("../../tests/fixtures/content-address-v1/node-zero-edges.hex");
@@ -29,6 +30,8 @@ const NODE_TWO_EDGES: &str =
     include_str!("../../tests/fixtures/content-address-v1/node-two-edges.hex");
 const CONTENT_EDGE: &str = include_str!("../../tests/fixtures/content-address-v1/content-edge.hex");
 const SLOT_EDGE: &str = include_str!("../../tests/fixtures/content-address-v1/slot-edge.hex");
+const ATTACHMENT_NEW: &str =
+    include_str!("../../tests/fixtures/content-address-v1/attachment-new.hex");
 
 // The fixture README's inputs: 32 repetitions of the named byte.
 const WARP: [u8; 32] = [3; 32];
@@ -46,6 +49,7 @@ const NODE_STEPS: u64 = 71;
 const NODE_STEPS_PER_EDGE: u64 = 67;
 const CONTENT_EDGE_STEPS: u64 = 70;
 const SLOT_EDGE_STEPS: u64 = 69;
+const DIGEST_STEPS: u64 = 68;
 const ID_STORAGE: u64 = 96;
 const STORAGE_PER_EDGE: u64 = 64;
 
@@ -127,6 +131,12 @@ fn content_edge_arguments() -> Vec<Value> {
 }
 fn slot_edge_arguments() -> Vec<Value> {
     vec![bytes(&WARP), bytes(&TO_LOW), bytes(&EDGE_A)]
+}
+fn digest_arguments(atom: &[u8]) -> Vec<Value> {
+    vec![bytes(&ATOM_TYPE), bytes(atom)]
+}
+fn digest(atom: &[u8]) -> Value {
+    call(ATTACHMENT_VALUE_DIGEST, &[], digest_arguments(atom))
 }
 fn frozen(hex: &str) -> Value {
     let digits = hex
@@ -400,6 +410,14 @@ fn the_frozen_profile_coordinate_names_no_identity_intrinsic() {
             "slotEdgeId",
             call("echo.dpo@1.slotEdgeId", &[], slot_edge_arguments()),
         ),
+        (
+            "attachmentValueDigest",
+            call(
+                "echo.dpo@1.attachmentValueDigest",
+                &[],
+                digest_arguments(ATOM),
+            ),
+        ),
     ] {
         assert_eq!(evaluated(&wire), Err(Error::UnsupportedProgram), "{name}");
     }
@@ -444,6 +462,13 @@ fn a_call_charges_its_documented_work_for_the_atom_and_each_edge() -> Result<(),
         own_usage(SLOT_EDGE_ID, slot_edge_arguments())?,
         (SLOT_EDGE_STEPS, ID_STORAGE)
     );
+    for atom in [0_usize, 3, 300] {
+        assert_eq!(
+            own_usage(ATTACHMENT_VALUE_DIGEST, digest_arguments(&vec![0x6e; atom]))?,
+            (DIGEST_STEPS + atom as u64, ID_STORAGE),
+            "{atom} digested atom bytes"
+        );
+    }
     Ok(())
 }
 
@@ -453,6 +478,7 @@ fn one_unit_less_than_the_measured_budget_refuses_each_call() -> Result<(), Erro
         node(ATOM, vec![edge(&EDGE_B, &TO_LOW), edge(&EDGE_A, &TO_HIGH)]),
         call(CONTENT_EDGE_ID, &[], content_edge_arguments()),
         call(SLOT_EDGE_ID, &[], slot_edge_arguments()),
+        digest(ATOM),
     ] {
         let (value, (steps, allocated)) = run(&wire, limits(AMPLE.0, AMPLE.1))?;
         assert_eq!(run(&wire, limits(steps, allocated))?.0, value, "exact");
@@ -567,7 +593,12 @@ fn source_helpers_may_call_identity_intrinsics_only_within_their_contract() {
 #[test]
 fn a_module_cannot_define_a_helper_at_an_identity_intrinsic_coordinate() {
     let helper = || function("Bytes<exact=32>", "Bytes<exact=32>", atom_reference());
-    for name in ["contentAddress", "contentEdgeId", "slotEdgeId"] {
+    for name in [
+        "contentAddress",
+        "contentEdgeId",
+        "slotEdgeId",
+        "attachmentValueDigest",
+    ] {
         assert_eq!(
             helpers(vec![(name, helper())], "echo.dpo@2"),
             Err(Error::InvalidArtifact),
@@ -578,4 +609,68 @@ fn a_module_cannot_define_a_helper_at_an_identity_intrinsic_coordinate() {
 }
 fn atom_reference() -> Value {
     reference(&local("arg.0", "Bytes<exact=32>"))
+}
+
+#[test]
+fn attachment_value_digest_reproduces_the_frozen_attachment_vector() -> Result<(), Error> {
+    assert_eq!(evaluated(&digest(ATOM))?, frozen(ATTACHMENT_NEW));
+    Ok(())
+}
+
+#[test]
+fn each_wrong_digest_input_names_a_different_attachment() -> Result<(), Error> {
+    for (name, arguments) in [
+        ("atom type", vec![bytes(&[9; 32]), bytes(ATOM)]),
+        ("atom bytes", digest_arguments(b"old")),
+        ("empty atom", digest_arguments(b"")),
+        ("one more byte", digest_arguments(b"new\0")),
+    ] {
+        let value = evaluated(&call(ATTACHMENT_VALUE_DIGEST, &[], arguments))?;
+        assert!(
+            matches!(&value, Value::Bytes(id) if id.len() == 32),
+            "{name}"
+        );
+        assert_ne!(value, frozen(ATTACHMENT_NEW), "{name}");
+    }
+    Ok(())
+}
+
+#[test]
+fn digest_operands_outside_the_contract_refuse_or_do_not_parse() {
+    let over = vec![0_u8; 1_048_577];
+    for (name, arguments) in [
+        ("short atom type", vec![bytes(&[2; 31]), bytes(ATOM)]),
+        ("integer atom", vec![bytes(&ATOM_TYPE), integer(0)]),
+        ("atom past the ceiling", digest_arguments(&over)),
+    ] {
+        assert_eq!(
+            evaluated(&call(ATTACHMENT_VALUE_DIGEST, &[], arguments)),
+            Err(Error::InvalidArtifact),
+            "{name}"
+        );
+    }
+    for (name, wire) in [
+        (
+            "without atom",
+            call(ATTACHMENT_VALUE_DIGEST, &[], vec![bytes(&ATOM_TYPE)]),
+        ),
+        (
+            "with a warp",
+            call(ATTACHMENT_VALUE_DIGEST, &[], {
+                let mut arguments = digest_arguments(ATOM);
+                arguments.insert(0, bytes(&WARP));
+                arguments
+            }),
+        ),
+        (
+            "with a type argument",
+            call(
+                ATTACHMENT_VALUE_DIGEST,
+                &["Bytes<max=3>"],
+                digest_arguments(ATOM),
+            ),
+        ),
+    ] {
+        assert_eq!(parsed(&wire), Err(Error::UnsupportedProgram), "{name}");
+    }
 }

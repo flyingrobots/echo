@@ -14,6 +14,7 @@ use super::{
 };
 use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The largest atom an authored effect may read or write, in bytes.
@@ -58,15 +59,17 @@ impl EffectSite {
 pub(in crate::executable_operation) fn judge(
     core: &Value,
     exports: &Value,
-    intent: &Value,
+    (intent_name, intent): (&str, &Value),
     sites: &BTreeMap<usize, EffectSite>,
     graph: Option<GraphReads<'_>>,
     identity: bool,
+    trail: &mut Trail,
 ) -> Check<()> {
     // Core names an unsigned width directly; the runtime has no `Int` kind.
     // A nominal entry has exactly its kind, contract and representation.
     if let Some(types) = super::super::map_field(core, "types") {
-        for (_, definition) in members(types)? {
+        for (name, definition) in members(types)? {
+            trail.at(R::TypeTable, &["core", "types", string(name)?]);
             match super::super::map_field(definition, "kind") {
                 Some(Value::Text(kind)) if kind == "Int" => return Err(()),
                 Some(Value::Text(kind)) if kind == "Nominal" => {
@@ -77,7 +80,13 @@ pub(in crate::executable_operation) fn judge(
         }
     }
     let mut types = Types::new(core);
-    let (definitions, summaries) = prepare(core, exports, &mut types, 0, identity)?;
+    // Effect bodies are charged by the copying schedule only; the runtime's
+    // effect route refuses the shared-read schedule, so the verifier does too.
+    trail.at(R::SharedReadSchedule, &["core", "requiredCoreCapabilities"]);
+    if types.shared {
+        return Err(());
+    }
+    let (definitions, summaries) = prepare(core, exports, &mut types, 0, identity, trail)?;
     Checker {
         types: &mut types,
         definitions: &definitions,
@@ -90,7 +99,7 @@ pub(in crate::executable_operation) fn judge(
         edge_scans: 0,
         identity,
     }
-    .effect_intent(intent, sites, graph)
+    .effect_intent(intent_name, intent, sites, graph, trail)
 }
 
 impl<'a> Checker<'a, '_> {
@@ -100,17 +109,21 @@ impl<'a> Checker<'a, '_> {
     )]
     fn effect_intent(
         &mut self,
+        intent_name: &str,
         intent: &'a Value,
         sites: &BTreeMap<usize, EffectSite>,
         graph: Option<GraphReads<'_>>,
+        trail: &mut Trail,
     ) -> Check<()> {
         self.proven.clear();
         self.branch.clear();
         self.path.clear();
         self.bound.clear();
+        trail.at(R::BlockLocals, &["core", "intents", intent_name, "body"]);
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
+        trail.mark(R::InputBinding);
         let input = *frame.declared.get("arg.0").ok_or(())?;
         if get(input, "type")? != get(intent, "input")? {
             return Err(());
@@ -124,6 +137,7 @@ impl<'a> Checker<'a, '_> {
         })?;
         frame.define(input, input_type)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
+            trail.at(R::Basis, &["core", "intents", intent_name, "basis"]);
             let checked = self.expression(basis, &frame, 0)?;
             // The runtime refuses any evaluation basis but exactly 32 bytes.
             if checked.schema.representation() != &(Schema::Blob { low: 32, high: 32 }) {
@@ -134,8 +148,13 @@ impl<'a> Checker<'a, '_> {
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
         // proves another.
+        trail.at(
+            R::InputConstraint,
+            &["core", "intents", intent_name, "inputConstraints"],
+        );
         let constraints = sequence(get(intent, "inputConstraints")?)?;
-        for constraint in constraints {
+        for (place, constraint) in constraints.iter().enumerate() {
+            trail.enter(place.to_string());
             // The runtime names each constraint by its coordinate when it fails.
             // Exactly the compiler's Core shape: an authored `where` conjunct or
             // a compiler-derived constraint.
@@ -145,30 +164,43 @@ impl<'a> Checker<'a, '_> {
             }
             string(get(constraint, "coordinate")?)?;
             charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
+            trail.leave();
         }
         for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
         }
+        trail.at(R::NodeKind, &["core", "intents", intent_name, "body"]);
         let mut audit = Audit {
             sites,
             position: 0,
             seen: BTreeSet::new(),
             binders: BTreeSet::new(),
             graph,
+            trail: &mut *trail,
         };
         let tally = self.audit_block(body, &mut frame, &mut audit)?;
+        let position = audit.position;
         // Every effect site the relation established is an instruction here.
-        if sites.keys().any(|index| *index >= audit.position) {
+        trail.mark(R::EffectSites);
+        if sites.keys().any(|index| *index >= position) {
             return Err(());
         }
+        trail.mark(R::CostOverflow);
         charge.append(tally.charge)?;
         let obstruction_output = tally.obstruction_output;
         let mutations = tally.mutations;
+        trail.enter("result");
+        trail.mark(R::Expression);
         let output = self.expression(get(body, "result")?, &frame, 0)?;
+        trail.at(R::ResultType, &["core", "intents", intent_name, "output"]);
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
         if !expected.encloses(&output.schema) {
             return Err(());
         }
+        trail.at(
+            R::CostOverflow,
+            &["core", "intents", intent_name, "coreEvaluationBudget"],
+        );
         let size = expected.measure()?;
         charge.append(output.charge)?;
         charge.append(size.copy)?;
@@ -182,13 +214,28 @@ impl<'a> Checker<'a, '_> {
             &["maxSteps", "maxAllocatedBytes", "maxOutputBytes"],
         )?;
         let max_output = u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?);
-        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
-            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
-            || size.encoded > max_output
-            || obstruction_output > max_output
-            || mutations > EFFECT_COUNT_CEILING
-        {
-            return Err(());
+        // The mutation ceiling binds whatever the budget, so it is named
+        // first; then the output ceiling, steps and allocation.
+        let checks = [
+            (R::MutationCount, mutations <= EFFECT_COUNT_CEILING),
+            (
+                R::OutputBudget,
+                size.encoded <= max_output && obstruction_output <= max_output,
+            ),
+            (
+                R::StepBudget,
+                charge.ticks <= u128::from(unsigned(get(ceiling, "maxSteps")?)?),
+            ),
+            (
+                R::AllocationBudget,
+                charge.storage <= u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?),
+            ),
+        ];
+        for (reason, within) in checks {
+            if !within {
+                trail.mark(reason);
+                return Err(());
+            }
         }
         Ok(())
     }

@@ -1,0 +1,229 @@
+// Iterative AVL rope split, join and balance over a depth-bounded arena.
+//
+// The tree is a bounded list of node records whose children are list indexes.
+// Descent records an explicit path stack; rebuild pops it with a cursor and
+// appends fresh nodes to the arena. Every loop is a first-order `fold` with a
+// literal bound, so there is no recursive type and no recursive function.
+// Bounds: arena <= 64 nodes, tree height <= 8, fold bounds 2 * 8 + 2.
+package rope.bounded@1;
+
+type Node = { length: U64, height: U64, left: U64, right: U64, leaf: Bool };
+type Arena = List<Node, max=64>;
+type Built = { arena: Arena, root: U64 };
+
+failure DescentIncomplete;
+
+// An index outside the arena is the empty tree.
+fn absent() -> U64 { return 4294967295u64; }
+fn emptyNode() -> Node {
+  return { length: 0u64, height: 0u64, left: 4294967295u64, right: 4294967295u64, leaf: true };
+}
+fn node(arena: Arena, index: U64) -> Node {
+  return if index < listLen(arena) then listAt(arena, index) else emptyNode();
+}
+fn height(arena: Arena, index: U64) -> U64 { return node(arena, index).height; }
+
+// A fresh branch over two roots. Its index is the arena length before the append.
+fn branch(arena: Arena, l: U64, r: U64) -> Built {
+  let ln = node(arena, l);
+  let rn = node(arena, r);
+  return if listLen(arena) < 64u64 && ln.length <= 1099511627776u64 && rn.length <= 1099511627776u64
+      && ln.height <= 64u64 && rn.height <= 64u64
+    then {
+      arena: listAppend(arena, {
+        length: ln.length + rn.length,
+        height: if ln.height < rn.height then rn.height + 1u64 else ln.height + 1u64,
+        left: l, right: r, leaf: false,
+      }),
+      root: listLen(arena),
+    }
+    else { arena, root: absent() };
+}
+
+// ---- AVL balance ----
+
+fn besideRoot(built: Built, other: U64, otherLeft: Bool) -> Built {
+  return if otherLeft then branch(built.arena, other, built.root) else branch(built.arena, built.root, other);
+}
+fn doubleRight(arena: Arena, lb: Node, lrb: Node, r: U64) -> Built {
+  let first = branch(arena, lb.left, lrb.left);
+  let second = branch(first.arena, lrb.right, r);
+  return branch(second.arena, first.root, second.root);
+}
+fn rotateRight(arena: Arena, l: U64, r: U64) -> Built {
+  let lb = node(arena, l);
+  return if height(arena, lb.right) <= height(arena, lb.left)
+    then besideRoot(branch(arena, lb.right, r), lb.left, true)
+    else doubleRight(arena, lb, node(arena, lb.right), r);
+}
+fn doubleLeft(arena: Arena, l: U64, rb: Node, rlb: Node) -> Built {
+  let first = branch(arena, l, rlb.left);
+  let second = branch(first.arena, rlb.right, rb.right);
+  return branch(second.arena, first.root, second.root);
+}
+fn rotateLeft(arena: Arena, l: U64, r: U64) -> Built {
+  let rb = node(arena, r);
+  return if height(arena, rb.left) <= height(arena, rb.right)
+    then besideRoot(branch(arena, l, rb.left), rb.right, false)
+    else doubleLeft(arena, l, rb, node(arena, rb.left));
+}
+// `l` and `r` are AVL trees whose heights differ by at most two.
+fn balance(arena: Arena, l: U64, r: U64) -> Built {
+  let hl = height(arena, l);
+  let hr = height(arena, r);
+  return if hr <= 64u64 && hl <= 64u64 && hr + 1u64 < hl then rotateRight(arena, l, r)
+    else if hr <= 64u64 && hl <= 64u64 && hl + 1u64 < hr then rotateLeft(arena, l, r)
+    else branch(arena, l, r);
+}
+
+// ---- Join: descend the taller tree's inner spine, then rebuild with balance ----
+
+type Join = {
+  arena: Arena, path: List<U64, max=8>, remaining: U64, cur: U64, small: U64,
+  leftTaller: Bool, rebuilding: Bool, done: Bool, carry: U64,
+};
+fn joinDown(s: Join) -> Join {
+  let hc = height(s.arena, s.cur);
+  let hs = height(s.arena, s.small);
+  return if hs <= 64u64 && hc <= hs + 1u64
+    then joinMeet(s, if s.leftTaller then branch(s.arena, s.cur, s.small) else branch(s.arena, s.small, s.cur))
+    else if listLen(s.path) < 8u64
+      then {
+        arena: s.arena, path: listAppend(s.path, s.cur), remaining: s.remaining,
+        cur: if s.leftTaller then node(s.arena, s.cur).right else node(s.arena, s.cur).left,
+        small: s.small, leftTaller: s.leftTaller, rebuilding: false, done: false, carry: s.carry,
+      }
+      else s;
+}
+fn joinMeet(s: Join, built: Built) -> Join {
+  return {
+    arena: built.arena, path: s.path, remaining: listLen(s.path), cur: s.cur, small: s.small,
+    leftTaller: s.leftTaller, rebuilding: true, done: false, carry: built.root,
+  };
+}
+fn joinPop(s: Join, parent: Node, remaining: U64) -> Join {
+  let built = if s.leftTaller then balance(s.arena, parent.left, s.carry) else balance(s.arena, s.carry, parent.right);
+  return {
+    arena: built.arena, path: s.path, remaining, cur: s.cur, small: s.small,
+    leftTaller: s.leftTaller, rebuilding: true, done: false, carry: built.root,
+  };
+}
+fn joinUp(s: Join) -> Join {
+  return if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then joinPop(s, node(s.arena, listAt(s.path, s.remaining - 1u64)), s.remaining - 1u64)
+    else {
+      arena: s.arena, path: s.path, remaining: s.remaining, cur: s.cur, small: s.small,
+      leftTaller: s.leftTaller, rebuilding: true, done: true, carry: s.carry,
+    };
+}
+fn joinStep(s: Join) -> Join {
+  return if s.done then s else if s.rebuilding then joinUp(s) else joinDown(s);
+}
+type Joined = { arena: Arena, root: U64, done: Bool };
+fn joinTrees(arena: Arena, l: U64, r: U64) -> Joined {
+  let hl = height(arena, l);
+  let hr = height(arena, r);
+  let initial: Join = {
+    arena, path: [], remaining: 0u64, cur: if hr < hl then l else r, small: if hr < hl then r else l,
+    leftTaller: hr < hl, rebuilding: false, done: false, carry: absent(),
+  };
+  let final = fold(initial, joinStep, 18u64);
+  return if !(l < listLen(arena)) then { arena, root: r, done: true }
+    else if !(r < listLen(arena)) then { arena, root: l, done: true }
+    else { arena: final.arena, root: final.carry, done: final.done };
+}
+
+// ---- Split at an offset: descend to the leaf, then rebuild both sides with join ----
+
+type Frame = { node: U64, wentLeft: Bool };
+type Split = {
+  arena: Arena, path: List<Frame, max=8>, remaining: U64, cur: U64, offset: U64,
+  rebuilding: Bool, done: Bool, left: U64, right: U64,
+};
+fn descendTo(s: Split, frame: Frame, next: U64, offset: U64) -> Split {
+  return if listLen(s.path) < 8u64
+    then {
+      arena: s.arena, path: listAppend(s.path, frame), remaining: s.remaining, cur: next, offset,
+      rebuilding: false, done: false, left: s.left, right: s.right,
+    }
+    else s;
+}
+fn leavesAt(s: Split, arena: Arena, left: U64, right: U64) -> Split {
+  return {
+    arena, path: s.path, remaining: listLen(s.path), cur: s.cur, offset: s.offset,
+    rebuilding: true, done: false, left, right,
+  };
+}
+fn splitRight(s: Split, leaf: Node, withLeft: Arena) -> Split {
+  return if listLen(withLeft) < 64u64 && s.offset <= leaf.length
+    then leavesAt(s, listAppend(withLeft, { length: leaf.length - s.offset, height: 1u64, left: absent(), right: absent(), leaf: true }),
+      listLen(s.arena), listLen(withLeft))
+    else s;
+}
+fn splitLeaf(s: Split, leaf: Node) -> Split {
+  return if s.offset == 0u64 then leavesAt(s, s.arena, absent(), s.cur)
+    else if s.offset == leaf.length then leavesAt(s, s.arena, s.cur, absent())
+    else if listLen(s.arena) < 64u64 && s.offset <= leaf.length
+      then splitRight(s, leaf, listAppend(s.arena, { length: s.offset, height: 1u64, left: absent(), right: absent(), leaf: true }))
+      else s;
+}
+fn splitDown(s: Split) -> Split {
+  let n = node(s.arena, s.cur);
+  let leftLength = node(s.arena, n.left).length;
+  return if n.leaf then splitLeaf(s, n)
+    else if s.offset < leftLength then descendTo(s, { node: s.cur, wentLeft: true }, n.left, s.offset)
+    else if leftLength <= s.offset then descendTo(s, { node: s.cur, wentLeft: false }, n.right, s.offset - leftLength)
+    else s;
+}
+fn splitPop(s: Split, frame: Frame, remaining: U64) -> Split {
+  let parent = node(s.arena, frame.node);
+  let joined = if frame.wentLeft then joinTrees(s.arena, s.right, parent.right) else joinTrees(s.arena, parent.left, s.left);
+  return {
+    arena: joined.arena, path: s.path, remaining, cur: s.cur, offset: s.offset, rebuilding: true,
+    done: false, left: if frame.wentLeft then s.left else joined.root,
+    right: if frame.wentLeft then joined.root else s.right,
+  };
+}
+fn splitUp(s: Split) -> Split {
+  return if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then splitPop(s, listAt(s.path, s.remaining - 1u64), s.remaining - 1u64)
+    else {
+      arena: s.arena, path: s.path, remaining: s.remaining, cur: s.cur, offset: s.offset,
+      rebuilding: true, done: true, left: s.left, right: s.right,
+    };
+}
+fn splitStep(s: Split) -> Split {
+  return if s.done then s else if s.rebuilding then splitUp(s) else splitDown(s);
+}
+type Pair = { arena: Arena, left: U64, right: U64 };
+// Running out of fold steps before the rebuild finishes is a typed failure,
+// never a truncated result.
+fn split(arena: Arena, root: U64, offset: U64) -> Pair fails DescentIncomplete {
+  let initial: Split = {
+    arena, path: [], remaining: 0u64, cur: root, offset, rebuilding: false, done: false,
+    left: absent(), right: absent(),
+  };
+  let final = fold(initial, splitStep, 18u64);
+  return if final.done then { arena: final.arena, left: final.left, right: final.right }
+    else fail DescentIncomplete;
+}
+
+// ---- Fresh nodes: the arena suffix this edit appended, as a bounded list ----
+
+type Collect = { arena: Arena, next: U64, fresh: List<Node, max=64> };
+fn collectStep(s: Collect) -> Collect {
+  return if s.next < listLen(s.arena) && listLen(s.fresh) < 64u64 && s.next < 64u64
+    then { arena: s.arena, next: s.next + 1u64, fresh: listAppend(s.fresh, listAt(s.arena, s.next)) }
+    else s;
+}
+fn freshNodes(arena: Arena, from: U64) -> List<Node, max=64> {
+  let initial: Collect = { arena, next: from, fresh: [] };
+  return fold(initial, collectStep, 64u64).fresh;
+}
+
+type SplitInput = { arena: Arena, root: U64, offset: U64 };
+type SplitOutput = { left: U64, right: U64, fresh: List<Node, max=64> };
+intent splitRope(input: SplitInput) returns SplitOutput profile rope.read basis none budget <= rope.split {
+  let pair = split(input.arena, input.root, input.offset) else { DescentIncomplete => rope.TooDeep };
+  return { left: pair.left, right: pair.right, fresh: freshNodes(pair.arena, listLen(input.arena)) };
+}

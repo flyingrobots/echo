@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Pure serialization of current effect proposals, without verification or authority.
 
+pub use crate::refusal_reason::{ProgramRefusal, RefusalReason};
+
 /// Exact artifacts and explicit policy metadata for an untrusted publication.
 #[derive(Clone, Copy)]
 pub struct EffectPublicationInput<'a> {
@@ -18,7 +20,7 @@ pub struct EffectPublicationInput<'a> {
 }
 
 /// Refusal to serialize malformed publication material.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectPublicationError {
     /// Artifact shape, canonical bytes, or embedded identity material is invalid.
     InvalidArtifact,
@@ -27,8 +29,9 @@ pub enum EffectPublicationError {
     /// A required coordinate is missing or unbounded.
     InvalidCoordinate,
     /// The compiled effect program is unsafe or does not match its own
-    /// artifacts, intrinsic contracts or declared budget.
-    UnsupportedProgram,
+    /// artifacts, intrinsic contracts or declared budget. The refusal names
+    /// the check that refused and the artifact path it was reading.
+    UnsupportedProgram(ProgramRefusal),
 }
 
 impl std::fmt::Display for EffectPublicationError {
@@ -37,7 +40,7 @@ impl std::fmt::Display for EffectPublicationError {
             Self::InvalidArtifact => "invalid effect publication artifact envelope",
             Self::InvalidConfiguration => "invalid effect publication configuration or limits",
             Self::InvalidCoordinate => "missing or unbounded effect publication coordinate",
-            Self::UnsupportedProgram => {
+            Self::UnsupportedProgram(_) => {
                 "the compiled effect program is outside the checked profile"
             }
         })
@@ -68,7 +71,7 @@ fn judge_with_graph_reads(
         .map(declaration)
         .transpose()
         .map_err(|()| EffectPublicationError::InvalidConfiguration)?;
-    judge(compiled_program, graph).map_err(|()| EffectPublicationError::UnsupportedProgram)
+    judge(compiled_program, graph).map_err(EffectPublicationError::UnsupportedProgram)
 }
 
 /// Serializes the single current operation-package and effect-program formats.
@@ -390,9 +393,11 @@ fn exact(v: &V, keys: &[&str], e: E) -> Result<(), E> {
     Ok(())
 }
 fn equals(v: &V, key: &str, expected: &str, e: E) -> Result<(), E> {
-    (field(v, key, e)? == &text(expected))
-        .then_some(())
-        .ok_or(e)
+    if field(v, key, e.clone())? == &text(expected) {
+        Ok(())
+    } else {
+        Err(e)
+    }
 }
 fn coordinate(v: &V) -> Result<&str, E> {
     match v {

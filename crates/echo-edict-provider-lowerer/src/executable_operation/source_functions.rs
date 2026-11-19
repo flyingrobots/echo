@@ -34,6 +34,9 @@ mod ordered_records;
 mod read_cost;
 #[cfg(test)]
 mod read_cost_soundness_tests;
+mod shared_reads;
+#[cfg(test)]
+mod shared_reads_tests;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
@@ -41,6 +44,7 @@ mod unsigned_addition;
 mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use echo_edict_canonical::CanonicalValueV1 as Value;
 pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
@@ -133,6 +137,13 @@ struct Judgment<'a> {
     proven_sum: Option<(usize, u64)>,
     /// Declared graph scan allowance charged by every graph read.
     edge_scans: u64,
+    /// The module requires the shared-read schedule, `edict.core-cost/v2`.
+    shared: bool,
+    /// Under the shared-read schedule, the type this judgment established for
+    /// each expression, keyed by the node's address in the borrowed Core.
+    types: BTreeMap<usize, Ty>,
+    /// Shared-read cost of each completed source helper.
+    shared_costs: BTreeMap<String, Cost>,
     /// Whether the pinned `echo.dpo@2` catalog carries Echo's exact identity
     /// contracts, which alone admits calls to them.
     identity: bool,
@@ -154,7 +165,17 @@ pub(super) fn validate(
     })
 }
 fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
-    let mut proof = judged(core, exports, edge_scans, false)?;
+    let mut proof = judged(core, exports, edge_scans, false, &mut Trail::new())?;
+    if proof.shared {
+        // Read and graph charges have no shared-read rules.
+        if read || edge_scans != 0 {
+            return Err(());
+        }
+        for (_, intent) in members(get(core, "intents")?)? {
+            proof.shared_intent(intent)?;
+        }
+        return Ok(());
+    }
     // A graph read always needs its whole-intent budget judged.
     if super::map_field(core, "functions").is_none()
         && !unsigned_addition::present(core)?
@@ -170,7 +191,7 @@ fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> 
 /// The worst-case cost of each read intent, for measuring it against the runtime.
 #[cfg(test)]
 fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
-    let mut proof = judged(core, exports, edge_scans, false)?;
+    let mut proof = judged(core, exports, edge_scans, false, &mut Trail::new())?;
     members(get(core, "intents")?)?
         .iter()
         .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
@@ -182,10 +203,13 @@ fn judged<'a>(
     exports: &'a Value,
     edge_scans: u64,
     identity: bool,
+    trail: &mut Trail,
 ) -> Check<Judgment<'a>> {
     // Declared failure sets, `fail` and `attempt` across the whole module.
+    trail.at(R::FailureSets, &["core"]);
     let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
-    failure_sets::judge(core, coordinate)?;
+    failure_sets::judge(core, exports, coordinate)?;
+    trail.at(R::HelperInventory, &["exports", "pureFunctions"]);
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -232,6 +256,7 @@ fn judged<'a>(
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
     let source_functions = super::map_field(core, "functions")
         .map(members)
         .transpose()?
@@ -279,11 +304,20 @@ fn judged<'a>(
         bound: Vec::new(),
         proven_sum: None,
         edge_scans,
+        shared: shared_reads::required(core)?,
+        types: BTreeMap::new(),
+        shared_costs: BTreeMap::new(),
         identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
+        let origin = helper_origin(core, exports, &name, proof.functions[&name].source);
+        trail.at(
+            R::HelperFunction,
+            &origin.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
         proof.function(&name, 1)?;
     }
+    trail.at(R::HelperPreconditions, &["core"]);
     // Every call to a precondition-bearing function proves its preconditions
     // from the facts that dominate it, wherever it is in the module.
     let contracts = proof
@@ -302,6 +336,37 @@ fn judged<'a>(
         .collect();
     function_preconditions::check_calls(core, &contracts).map_err(|_| ())?;
     Ok(proof)
+}
+/// Where a helper is declared, for refusal paths: a source function under
+/// `/core/functions/<name>`, an imported one at its index in
+/// `/exports/pureFunctions`. `name` is the qualified lookup name.
+fn helper_origin(core: &Value, exports: &Value, name: &str, source: bool) -> Vec<String> {
+    if source {
+        let local = match super::map_field(core, "coordinate") {
+            Some(Value::Text(coordinate)) => name
+                .strip_prefix(coordinate.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(name),
+            _ => name,
+        };
+        return vec!["core".to_owned(), "functions".to_owned(), local.to_owned()];
+    }
+    let index = match super::map_field(exports, "pureFunctions") {
+        Some(Value::Array(items)) => items.iter().position(|item| {
+            matches!(super::map_field(item, "coordinate"), Some(Value::Text(c)) if c == name)
+        }),
+        _ => None,
+    };
+    index.map_or_else(
+        || vec!["functions".to_owned(), name.to_owned()],
+        |index| {
+            vec![
+                "exports".to_owned(),
+                "pureFunctions".to_owned(),
+                index.to_string(),
+            ]
+        },
+    )
 }
 impl<'a> Judgment<'a> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -639,6 +704,20 @@ impl<'a> Judgment<'a> {
         })
     }
     fn expression(
+        &mut self,
+        value: &'a Value,
+        scope: &Scope<'a>,
+        source: bool,
+        prefix: usize,
+    ) -> Check<Fact> {
+        let fact = self.judged_expression(value, scope, source, prefix)?;
+        if self.shared {
+            self.types
+                .insert(std::ptr::from_ref(value).addr(), fact.ty.clone());
+        }
+        Ok(fact)
+    }
+    fn judged_expression(
         &mut self,
         value: &'a Value,
         scope: &Scope<'a>,
@@ -1524,5 +1603,42 @@ mod tests {
             ("pureFunctions", Value::Array(vec![])),
         ]);
         assert!(validate(&core, &exports, false, 0).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod helper_origin_tests {
+    use super::{helper_origin, Value};
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    #[test]
+    fn a_helper_is_located_where_it_is_declared() {
+        let core = Value::Map(vec![(text("coordinate"), text("pkg@1"))]);
+        let exports = Value::Map(vec![(
+            text("pureFunctions"),
+            Value::Array(vec![
+                Value::Map(vec![(text("coordinate"), text("lib@1.a"))]),
+                Value::Map(vec![(text("coordinate"), text("lib@1.b"))]),
+            ]),
+        )]);
+        // Oracle: the artifact shapes. Source helpers live under
+        // `core.functions` by local name; imports in `exports.pureFunctions`.
+        assert_eq!(
+            (
+                helper_origin(&core, &exports, "pkg@1.f", true),
+                helper_origin(&core, &exports, "lib@1.b", false)
+            ),
+            (
+                vec!["core".to_owned(), "functions".to_owned(), "f".to_owned()],
+                vec![
+                    "exports".to_owned(),
+                    "pureFunctions".to_owned(),
+                    "1".to_owned()
+                ]
+            )
+        );
     }
 }

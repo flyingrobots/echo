@@ -1,5 +1,5 @@
 package consumer.ordered.program@1;
-use lawpack consumer.ordered@1 digest "sha256:a0cd89effab0fa4fa087b6817f9874ac328dd61960382b1570c760028ba721a0" as fx;
+use lawpack consumer.ordered@1 digest "sha256:d9ce72b59ac6c1e25b85f74ab56124ac4c1e53cd8f6a15f752b4ba7330150064" as fx;
 
 failure First;
 failure Second;

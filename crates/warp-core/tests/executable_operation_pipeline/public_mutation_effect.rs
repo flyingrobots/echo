@@ -21,7 +21,7 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-mutations/write-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "862fcdc872e8dc37e4bbcfd278c8aac10f38025028e0c075564db9611fcb6581";
+const PACKAGE_PIN: &str = "2c7a1cb173b05bed13cc139fe450342100392c45b34e918288d77dc27b93374f";
 const OPERATION: &str = "consumer.writes.program@1.write";
 const AUTHORITY_LABEL: &[u8] = b"consumer.writes.authority/v1";
 const NODE_TYPE: TypeId = TypeId([0x5b; 32]);

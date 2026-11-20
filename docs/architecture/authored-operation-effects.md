@@ -1912,6 +1912,432 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
    never rewrites the first rejection; reconciling them is the application's
    decision.
 
+## Executing bridge Actions on generic Echo
+
+- **Status:** Proposal for
+  [flyingrobots/echo#1026](https://github.com/flyingrobots/echo/issues/1026),
+  awaiting owner approval. Nothing here is implemented. It refines how the
+  accepted architecture above maps onto today's code, and it governs only after
+  the owner approves it. Line references are to Echo `main` at `53c78e8a`.
+
+This section designs the first slice of bridge Action execution: a derived
+effect patch commits in a scheduler Tick, its receipt is published, the Tick is
+recorded in the runtime WAL, and a fresh host recovers it. All of this works
+under the `trusted_runtime` feature alone. It implements the first bridge
+profile of [What merging accepts](#what-merging-accepts): exact-basis
+(`WholeFrontier`) validity only. Dependency-scoped validity stays deferred.
+
+### What exists and what is missing
+
+Each step the runtime takes for a fixed-profile Action already exists. Today an
+authored-effect invocation is refused at each of them:
+
+| Step                    | Fixed-profile Actions today                                                                                                                                                      | Authored-effect invocations today                                                                                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Action admission        | `admit_pending_echo_operation_actions_v1` calls `admit_action_invocation_v1` (`trusted_runtime_host.rs:2003`, `:2090`)                                                           | refused as `ExecutionUnavailable` because the invocation has no anchor (`echo_operation.rs:3954-3958`)                                                                                               |
+| Candidate               | `super_tick_inner` builds one `SchedulerEchoOperationCandidateV1` per admitted Action (`coordinator.rs:5818-5880`)                                                               | the candidate requires an anchor scope and errors without one (`coordinator.rs:5871-5876`; field at `echo_operation.rs:6741`)                                                                        |
+| Preparation             | `prepare_operation_v1` evaluates the fixed program (`echo_operation.rs:5438`)                                                                                                    | falls through to `OperationUnavailable` (`echo_operation.rs:5524`)                                                                                                                                   |
+| Composition and receipt | `commit_scheduler_action_batch_to_state_v1` (`echo_operation.rs:6797`)                                                                                                           | not reached                                                                                                                                                                                          |
+| WAL                     | one `SchedulerTick` transaction per Tick (`build_replayable_tick_batch_transaction`, `causal_wal.rs:9263`)                                                                       | not reached                                                                                                                                                                                          |
+| Recovery                | `validate_recovered_echo_operation_parent_states` (`trusted_runtime_host.rs:4940`)                                                                                               | inspection refuses an anchorless invocation (`echo_operation.rs:4529-4534`); patch-scope recognition returns `None` (`trusted_runtime_host.rs:4621`); basis-scope matching returns `false` (`:4809`) |
+| Export                  | `TrustedRuntimeHost`, `TrustedRuntimeWal` and `TrustedRuntimeWalRecovery` exist only under `native_rule_bootstrap` and `trusted_runtime` together (`lib.rs:207-208`, `:532-539`) | —                                                                                                                                                                                                    |
+
+The derivation the Action needs exists: `edict_effects::derive::derive`
+(`edict_effects/derive.rs:111`) runs the reachability, resolution,
+duplicate-target, schema, identity, law and precondition checks. It derives the
+patch, the actual footprint and the consumed budget. Since #1020,
+`EffectPackageHost` and `TrustedRuntimeHost` share it through
+`EffectPackageRoute` (`effect_package_host.rs`). Nothing composes or publishes
+its result.
+
+### Decision 0: one host owns Ticks, WAL and recovery
+
+**Decision.** `TrustedRuntimeHost`, `TrustedRuntimeWal`,
+`TrustedRuntimeWalConfig`, `TrustedRuntimeWalRecovery` and their error and
+report types move to the `trusted_runtime` gate. Every item that registers or
+runs native Rust rules keeps the joint gate, on the item itself. That covers
+installed contract packages with native mutation handlers, and the
+provider-contract and contract-inverse seams that depend on them. The joint
+gate currently appears in `trusted_runtime_host.rs` (1), `causal_wal.rs` (18),
+`provider_contract.rs` (26), `causal_receipt_history.rs` (12) and
+`contract_inverse.rs` (1). Phase 2 classifies each site as native authoring,
+which stays internal, or host, WAL and receipt machinery, which moves. The
+phase-2 PR states the classification.
+
+**Alternatives rejected.**
+
+- _Extend `EffectPackageHost` with its own scheduler and WAL._ This would give
+  Echo two owners of Tick construction, undo and WAL ordering, so atomicity and
+  recovery would have to be proved twice and could drift apart. #1020 made
+  `EffectPackageHost` the evaluation-only route, and it stays that.
+- _A third host type for durable effects._ This has the same duplication. A
+  head would then have no single owner of its WAL frontier digests
+  (`trusted_runtime_host.rs:3705-3740`).
+- _Leave the host behind the joint gate and have consumers enable
+  `native_rule_bootstrap`._ This is what #1017 rejected. The feature is
+  internal-only (`warp-core/Cargo.toml`, `[features]`).
+
+### Decision 1: admission into a scheduler Tick
+
+**Decision.** A bridge Action takes the existing Action path end to end. There
+is no new seam.
+
+1. **Admission.** `admit_action_invocation_v1` accepts an `EdictEffect`
+   invocation instead of refusing it (`echo_operation.rs:3954`). Every check it
+   already applies stays: package, coordinate, authority profile, grant,
+   delegated budget against policy, and the application-basis schema
+   (`echo_operation.rs:3960-3969`).
+2. **Candidate scope.** Today a candidate's receipt `scope` is the anchor.
+   A bridge Action has no anchor, so its scope is the root `NodeKey` of the
+   writer head's worldline state at the commit parent: the root that
+   `WorldlineState::from_root_store` binds. `rule_id` stays the installed
+   operation id (`coordinator.rs:5877`).
+3. **Preparation.** `prepare_operation_v1` gains an `EdictEffect` branch at the
+   point that now returns `OperationUnavailable` (`echo_operation.rs:5524`).
+   The existing checks before it still run first: the operation is available,
+   the evaluation authority matches, and the basis is current
+   (`echo_operation.rs:5469-5497`). The branch:
+    - requires the exact commit parent. The scoped corroboration argument
+      (`coordinator.rs:5851-5866`) is forced to `false` for `EdictEffect`, so a
+      stale bridge Action obstructs with whole-frontier `BasisChanged` before
+      evaluation, with posture `NoProposal` and no reads;
+    - opens a recording frame at the commit parent, using the same construction
+      as `EffectPackageRoute::evaluation_frame`. Its evaluation limits come from
+      the package and profile, never from the host (see Decision 6);
+    - evaluates and completes the frame, then calls `derive` with the delegated
+      budget and `engine.echo_operation_policy_id()`, as the owner route does;
+    - wraps the result as `PreparedEchoOperationV1`
+      (`echo_operation.rs:5300-5321`). The patch is the derived patch. The
+      declared footprint is the package's footprint law and the actual
+      footprint is the derived footprint. The consumed budget is evaluation plus
+      validation. A derivation refusal becomes an obstruction, with posture
+      `Proposed` and `NotDerived`, and an evaluation obstruction gets posture
+      `NoProposal`. `EchoOperationObstructionKindV1` has no variant for most
+      derivation refusals, such as `DanglingReference`,
+      `DuplicateEffectTarget` and `IdentityLawViolation`
+      (`echo_operation.rs:4575-4605`; compare `EffectDerivationKind` in
+      `edict_effects/derive.rs`). The bridge kind therefore travels as the
+      `BridgeEntryRow` outcome code that [Encoding and memory](#encoding-and-memory)
+      defines, and the obstruction kind gets one bridge variant that points to
+      it. The fixed-profile kinds and their codes do not change.
+4. **Ordering and conflicts.** These are unchanged.
+   `commit_scheduler_action_batch_to_state_v1` sorts candidates by ingress id
+   (`echo_operation.rs:6812`). It reserves footprints in that order, including
+   outgoing-edge range keys (#917), and records later overlapping candidates
+   as `RejectedFootprintConflict` with blockers (`echo_operation.rs:6856-6960`).
+   Bridge and fixed-profile Actions share one batch and one rule. A bridge
+   Action conflicts with any other Action whose footprint overlaps a slot it
+   read or wrote, including an observed-empty range.
+
+**Alternatives rejected.**
+
+- _Commit through a direct host call:
+  `TrustedRuntimeHost::commit_derived_effects(patch)`._ A caller would then
+  choose when a proposal commits and against which parent. That breaks
+  invariant 1 and ADR 0025's rule that the scheduler, not the caller, decides
+  Actions, and it bypasses composition with other Actions. The transitional
+  `ExecutableOperationTick` seam (`trusted_runtime_host.rs:3717`) is not
+  extended for the same reason.
+- _Receipt scope as a zero `NodeKey` sentinel._ `scope_hash` keys the
+  scheduler's sort and the receipt digest. A sentinel makes up a node that
+  doesn't exist and makes every bridge entry's scope hash equal.
+- _Make `TickReceiptEntry::scope` optional._ This changes the entry encoding of
+  every Action Tick, fixed-profile ones included, and breaks the rule that a
+  fixed-only Tick stays byte for byte (see [Evidence](#evidence)).
+- _Scope from the first effect target._ A `NoProposal` outcome has no effects,
+  so its scope would be undefined.
+- _Keep scoped corroboration for bridge Actions._ The first profile defers
+  dependency-scoped validity (see [What merging accepts](#what-merging-accepts)).
+  `scoped_action_basis_holds_v1` (`echo_operation.rs:4190`) checks fixed
+  anchors, not witnessed reads.
+
+### Decision 2: the receipt record and its identity
+
+**Decision.** The receipt evidence follows [Evidence](#evidence) and
+[Encoding and memory](#encoding-and-memory) exactly, restricted to
+`WholeFrontier` rows:
+
+- A Tick containing at least one bridge Action is retained as `EPRV0004` and
+  hashed under receipt digest version 5, so commit hash v3 binds each bridge
+  row. A fixed-only Tick keeps `EPRV0003` and version 4 byte for byte. The
+  retained-magic selection (`provenance_codec.rs:113-118`) gains the
+  `EPRV0004` arm; the decoder dispatch (`provenance_codec.rs:158`) gains its
+  arm.
+- Each bridge entry's `BridgeEntryRow` carries the posture (`NoProposal`, or
+  `Proposed` with `Derived` or `NotDerived`), proposal identity, target-set,
+  write-set and patch digests where they exist, read-set digest, validity
+  `WholeFrontier`, consumed budget and allocated bytes. The `Scoped` fields are
+  zero.
+- The per-Action outcome is the existing `EchoOperationActionOutcomeV1`
+  (`echo_operation.rs:4888`), retained as `EOACT004` for bridge Actions.
+  `EOACT003` (`echo_operation.rs:92`) is unchanged for fixed Actions.
+  A committed bridge Action's `EchoOperationReceiptV1` keeps its existing
+  identity fields: committed patch digest, composition digest, terminal outcome
+  digest and receipt digest (`echo_operation.rs:7057-7066`).
+- Recovery requires the `EOACT004` outcome coordinate to equal the receipt's
+  bridge-row coordinate, as [Evidence](#evidence) states.
+
+The receipt identity of a bridge Action is therefore the Tick receipt digest
+(version 5), which commit hash v3 binds, plus the per-Action
+`EchoOperationReceiptV1::receipt_digest`. Both are already the identities a
+fixed Action exposes.
+
+**Alternatives rejected.**
+
+- _Reuse `EPRV0003`, receipt digest version 4 and `EOACT003`, binding bridge
+  evidence only through `EchoOperationReceiptV1`._ This is cheaper, but
+  `EOACT` sits outside the receipt digest. The proposal posture, read set and
+  budget would then not be bound by the commit hash. The accepted architecture
+  requires receipt-bound evidence.
+- _Retain the full `EffectProposal` in the receipt._ Proposals are not
+  persisted apart from their Tick ([Lifecycle](#lifecycle)). The identity is
+  checked by re-derivation, which also keeps the receipt size independent of
+  the effect count.
+
+### Decision 3: WAL record format and versioning
+
+**Decision.** There is no new WAL transaction kind and no new record kind. A
+Tick with bridge Actions is one `SchedulerTick` transaction built by
+`build_replayable_tick_batch_transaction` (`causal_wal.rs:9263`), exactly as
+for fixed Actions:
+
+- one `TickReceiptRecorded` batch;
+- per Action, a `ReceiptCorrelationRecorded` and an
+  `ExecutableOperationActionOutcomeRecorded` (record kind 28,
+  `causal_wal.rs:617`) whose payload is `EOACT003` or `EOACT004`;
+- one `RuntimeStateDeltaRecorded`, whose provenance entry is `EPRV0003` or
+  `EPRV0004`.
+
+Versioning lives in the payload magic. Each record decodes by its own magic,
+as [Evidence](#evidence) already requires. The transaction's all-or-none
+outcome shape check (`causal_wal.rs:9273-9279`) holds unchanged, because every
+Action in an Action Tick still has an outcome record.
+
+**Alternatives rejected.**
+
+- _A new `WalRecordKind` (29) for bridge outcomes._ A record kind names a
+  transport class, and the WAL decoder would then dispatch on both kind and
+  magic. A mixed Tick would also carry two outcome kinds, which the
+  batch-shape check would have to special-case.
+- _A new `WalTransactionKind` for effect Ticks._ A Tick mixing fixed and
+  bridge Actions would need two transactions, breaking one decided Tick per
+  WAL transaction and so atomicity (Decision 5).
+- _A separate proposal record ahead of the decision._ This is rejected under
+  Decision 5.
+
+### Decision 4: recovery recognises and replays effect outcomes
+
+**Decision.** Recovery replays the committed patch from the state delta, never
+a re-derived proposal. It verifies each bridge Action through the existing
+per-class path in `validate_recovered_echo_operation_parent_states`
+(`trusted_runtime_host.rs:4940`):
+
+- `inspect_action_invocation_v1` (`echo_operation.rs:4516`) returns the
+  invocation evidence for an anchorless invocation instead of refusing it. Its
+  scope is resolved as in Decision 1, from the recovered parent state.
+- `reconstruct_action_preparation_v1` (`echo_operation.rs:4469`) runs the same
+  effect preparation at the recovered commit parent. Evaluation and derivation
+  are deterministic over a fixed basis, so it reproduces the decision. The
+  re-derived effects must hash to the recorded proposal identity and reproduce
+  the recorded digests (invariant 5).
+- The whole-batch reconstruction (`trusted_runtime_host.rs:5487-5520`) then
+  composes the reconstructed candidates and requires every outcome and blocker
+  to equal the recorded ones.
+- `operation_patch_scope_v1` and `operation_application_basis_matches_scope_v1`
+  (`trusted_runtime_host.rs:4621`, `:4809`) gain bridge arms. A bridge Action's
+  committed patch is recognised only as the re-derived candidate patch: its
+  digest equals the row's `patch_digest`. Recovery never matches a patch by
+  its shape.
+- The recovery matrix in [Recovery](#recovery) applies, restricted to its
+  `WholeFrontier` rows. An undecided bridge Action stays pending and is
+  evaluated when the scheduler next selects it.
+
+**Alternatives rejected.**
+
+- _Trust the retained outcome and skip re-derivation._ Recovery would accept a
+  tampered or substituted outcome whose patch still replays. The accepted
+  architecture requires recovery to verify the original decision.
+- _Recover state by re-deriving and applying the proposal._ This makes
+  recovered state depend on the evaluator, not on the committed patch, so an
+  evaluator change would silently rewrite history.
+
+### Decision 5: atomicity
+
+**Decision.** Atomicity uses the existing mechanism unchanged:
+
+- Preparation is read-only. The candidate loop reads `state` immutably
+  (`coordinator.rs:5839-5843`), and the frontier is borrowed mutably only for
+  the batch commit (`coordinator.rs:5882-5900`). A refused or obstructed bridge
+  Action therefore never touches state: no patch, no partial effect.
+- The batch commit writes in place with an undo journal, and leaves `state`
+  unchanged on error (`echo_operation.rs:6786-6796`).
+- If the WAL append or sync fails, the host restores runtime, provenance and
+  ingress staging with `undo_host_tick_v1` (`trusted_runtime_host.rs:2365`;
+  call sites `:2162`, `:2193`, `:2227`, `:2285`). The Tick is not visible
+  (compare `compiler_cas_tick_wal_failure_restores_exact_runtime_and_provenance`
+  and `compiler_cas_tick_whose_commit_sync_failed_is_not_visible` in
+  `tests/edict_projected_cas_tests.rs:291`, `:371`).
+- On a crash before the transaction commits, no record exists, so the Action
+  is still pending at recovery. On a crash after it commits, the whole Tick is
+  recovered. The transaction carries the patch, receipt and outcomes together.
+- A proposal that cannot commit whole obstructs whole. It is never split
+  across Ticks (Decision 6).
+
+**Alternatives rejected.**
+
+- _Persist the proposal first, then the decision._ A crash between the two
+  records would leave a proposal with no decision. That is published but
+  undecided evidence, which invariant 3 forbids.
+- _Apply effects one at a time with compensation on failure._ This creates
+  intermediate states that a crash or a concurrent reader could observe.
+
+### Decision 6: budget, footprint and limits
+
+The numbers interact as follows:
+
+| Limit                      | Value    | Where                                                                         | Counts                                         |
+| -------------------------- | -------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
+| Footprint law `max_writes` | ≤ 256    | `edict_effects/law.rs:74`                                                     | write slots                                    |
+| Action-batch operations    | 128      | `ACTION_BATCH_OPERATION_LIMIT_V1`, `echo_operation.rs:99`; checked at `:6905` | patch operations, summed over accepted Actions |
+| Action-batch candidates    | 64       | `ACTION_BATCH_CANDIDATE_LIMIT_V1`, `echo_operation.rs:95`                     | Actions per head per Tick                      |
+| Effects per proposal       | 1,024    | `EFFECT_COUNT_CEILING_V1`, `edict_effects.rs:67`                              | emitted effects                                |
+| Program allocation         | ≤ 16 MiB | `edict_effects/package.rs:93-97`                                              | allocated bytes                                |
+
+A node write and an attachment write are one slot and one operation each. An
+edge write is two slots (the edge and its outgoing range) and one operation
+(`edict_effects/derive.rs:169-184`). So a law that admits 256 write
+slots can derive up to 256 operations, more than one batch holds.
+
+**Decision.**
+
+- Keep the law ceiling at 256 and the batch limit at 128. A proposal whose
+  derived patch alone exceeds 128 operations obstructs with `BudgetExceeded`,
+  posture `Proposed` with `Derived`, and never commits or splits, as
+  [Basis, budget, retries](#basis-budget-retries) and the open question
+  already state. A proposal that fits alone but not beside earlier accepted
+  Actions takes the existing batch rule (`echo_operation.rs:6900-6915`).
+- Evaluation limits are fixed by the package and profile, never by the host:
+  `max_allocated_bytes` from the program map, and steps and bytes from the
+  delegated budget capped by the profile ceiling. The direct route's
+  caller-supplied `EvaluationLimits` (`edict_pure.rs:57`) is not used by the
+  Action path.
+- **Gap to close in phase 2:** [Basis, budget, retries](#basis-budget-retries)
+  names `EFFECT_BUDGET_CEILING_V1` and `EFFECT_ALLOCATION_CEILING_V1`, but
+  neither constant exists in the code. Only `EFFECT_READ_STORAGE_CEILING_V1`
+  and `EFFECT_COUNT_CEILING_V1` do (`edict_effects.rs:65-67`), and the
+  allocation check uses the read-storage ceiling (`package.rs:97`). Phase 2
+  adds both constants and enforces the budget ceiling at admission, or this
+  document is amended. The owner decides which.
+- The footprint that composes is the actual derived footprint, never the
+  declared law. `derive` refuses a mismatch between the operations and the
+  expected write set (`FootprintMismatch`, `edict_effects/derive.rs:189-191`).
+
+**Alternatives rejected.**
+
+- _Lower the law ceiling to 128 write slots._ Slots are not operations, so
+  this would wrongly refuse a law of 128 edge writes (256 slots, 128
+  operations). It would also change already-admitted packages.
+- _Refuse at installation any law whose `max_writes` exceeds 128._ This is
+  safe but over-strict for the same reason, and it moves a batch-composition
+  limit into package admission.
+- _Raise the batch operation limit._ This changes fixed-profile composition,
+  and the open question in this document already declines it.
+- _Split a large proposal across Ticks._ This breaks invariant 3.
+
+### Decision 7: interaction with #837 and #819
+
+- **#837 (Actions waiting for a later Tick obstruct with `BasisChanged`).**
+  Fixed Actions now survive an unrelated commit through scoped corroboration
+  (`coordinator.rs:5815-5866`, `echo_operation.rs:4190`, `:4224`, `:4329`).
+  Bridge Actions do not, by Decision 1: a bridge Action not decided in the
+  first Tick after its basis obstructs with whole-frontier `BasisChanged`.
+  So at most 64 bridge Actions per head commit from one basis. A host
+  resubmits the rest rebased onto the new head, as
+  [Basis, budget, retries](#basis-budget-retries) allows. Phase 2 documents
+  this limit for hosts with a witness. Adopting scoped validity for bridge
+  Actions is the deferred later profile.
+- **#819 (a filesystem WAL cannot commit a multi-head Tick).** The filesystem
+  store refuses a Tick with more than one WAL group and undoes it
+  (`trusted_runtime_host.rs:2226-2238`). Bridge Actions change neither the
+  grouping nor the refusal. A Tick of bridge Actions on one head is one group
+  and commits. A multi-head Tick refuses on a filesystem store exactly as
+  fixed Actions do. #1026 does not fix #819. Its downstream witness uses one
+  head, and the phase-2 documentation states the limit.
+
+**Alternatives rejected.**
+
+- _Fix #837 for bridge Actions by enabling scoped validity now._ The accepted
+  first profile defers it, and it needs the restored-value witnesses listed in
+  [Open questions](#open-questions).
+- _Fix #819 inside #1026._ It is independent of effect execution, affects
+  every Action kind, and has its own issue and acceptance.
+
+### Phase-2 test plan
+
+Every test is written first and observed red. Expected values come from the
+`link` program's law written by hand and from the existing fixed-profile
+recovery witnesses, never from the implementation.
+
+**Downstream consumer** (`tests/public-effect-host-consumer/`, `trusted_runtime`
+only). This is the RED witness. It fails to compile on main because
+`TrustedRuntimeHost`, `TrustedRuntimeWalConfig` and `TrustedRuntimeWalRecovery`
+are not exported without `native_rule_bootstrap` (`lib.rs:532-539`).
+
+1. `the_link_package_commits_as_a_tick_with_a_bridge_receipt`: install the
+   `link` package on a filesystem-WAL host under an exact policy. Submit one
+   invocation with `submit_intent_with_runtime_wal_ack`
+   (`trusted_runtime_host.rs:6840`) and run `run_until_idle`
+   (`trusted_runtime_host.rs:2317`). Assert:
+    - the Action outcome is `Committed`;
+    - the committed state contains exactly the `link` edge (the program's law);
+    - the receipt entry's scope is the worldline root;
+    - the bridge row's posture is `Proposed` and `Derived`;
+    - its patch digest equals the committed patch's digest.
+2. `a_fresh_host_recovers_the_committed_link_from_the_wal`: reopen the same
+   WAL directory in a new host and recover. Assert the recovered state root,
+   commit id, receipt digest and Action outcome equal those observed in test
+   1, and that recovery made no new decision (the outcome count is unchanged).
+3. `a_refused_link_leaves_no_mutation_and_recovers_its_obstruction`: build
+   the graph without the `fromId` node, so the `link` edge's endpoint does not
+   exist and validation refuses it (`DanglingReference`, invariant 4). Assert:
+    - the outcome is obstructed;
+    - the posture matches the refusal step;
+    - the state root is unchanged;
+    - a fresh host recovers the same obstruction.
+4. `a_stale_link_invocation_obstructs_basis_changed_without_evaluation`:
+   commit an unrelated Tick between invocation and selection. Assert
+   `BasisChanged`, posture `NoProposal`, an empty read set and zero consumed
+   budget.
+
+**warp-core** (`required-features` per the existing pattern).
+
+1. A fixed-only Tick still writes `EPRV0003`, receipt digest version 4 and
+   `EOACT003`, byte-identical to a golden captured on `main`, labelled as
+   change detection.
+2. A Tick mixing one fixed and one bridge Action writes `EPRV0004`, with
+   `NotBridge` and bridge rows, and recovers.
+3. Two bridge Actions where one inserts into a range the other observed empty
+   give `RejectedFootprintConflict` with the earlier Action as blocker, and the
+   blockers recover.
+4. A proposal whose derived patch has 129 operations obstructs with
+   `BudgetExceeded`, posture `Proposed` and `Derived`, and commits nothing.
+   One with exactly 128 commits.
+5. Recovery refuses a tampered `EOACT004` posture, proposal identity or patch
+   digest, and refuses a substituted patch of the same shape.
+6. A WAL failure injected during a bridge Tick (`host_test`) restores the
+   exact runtime and provenance, and the Action stays pending.
+7. Sixty-five bridge Actions from one basis on one head give 64 committed and
+   1 `BasisChanged` (#837, documented limit).
+8. A two-head bridge Tick on a filesystem store refuses with
+   `FilesystemAtomicBatchUnsupported` and leaves no mutation (#819,
+   documented limit).
+
+CI runs the consumer with `--locked` as it does today (`ci.yml`, step
+"downstream consumer of the public effect-package host"). Each new warp-core
+target is scheduled with its features, as `scripts/check-feature-gated-tests.py`
+requires. If component bytes change, the lowerer and verifier are re-promoted
+from G4 candidates.
+
 ## What this design does not do
 
 - It does not create an opaque patch authority. A program cannot submit a

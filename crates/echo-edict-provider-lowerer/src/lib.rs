@@ -11,14 +11,18 @@
 #![deny(clippy::print_stderr, clippy::print_stdout)]
 
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
-    encode_canonical_cbor_v1, CanonicalValueV1,
+    digest_canonical_value_bytes_v1, encode_canonical_cbor_v1, CanonicalValueV1,
 };
 
+mod artifact_binding;
 #[cfg(target_arch = "wasm32")]
 mod component;
+pub mod effect_contract;
 pub mod effect_publication;
 mod executable_operation;
+pub mod refusal_reason;
+
+use artifact_binding::validate_binding;
 
 const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {
     major: 1,
@@ -340,12 +344,15 @@ enum SelectedTargetProfile {
 fn validate_target_profile(
     profile: &BoundArtifact,
 ) -> Result<SelectedTargetProfile, ProviderRefusalV1> {
-    validate_binding(profile).map_err(|()| {
-        refusal(
-            ProviderRefusalKind::InvalidSemanticArtifact,
-            "target-profile.echo-dpo",
-            "echo.provider.invalid-target-profile-artifact",
-            "the target-profile artifact is not canonically digest-bound",
+    validate_binding(profile).map_err(|failure| {
+        failure.refuse(
+            refusal(
+                ProviderRefusalKind::InvalidSemanticArtifact,
+                "target-profile.echo-dpo",
+                "echo.provider.invalid-target-profile-artifact",
+                "the target-profile artifact is not canonically digest-bound",
+            ),
+            profile,
         )
     })?;
     let selected = match (
@@ -418,8 +425,12 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
                 "semantic input role or kind differs from the checked DPO closure order",
             ));
         }
-        validate_binding(&input.artifact)
-            .map_err(|()| invalid_artifact(&input.role, "artifact binding is invalid"))?;
+        validate_binding(&input.artifact).map_err(|failure| {
+            failure.refuse(
+                invalid_artifact(&input.role, "artifact binding is invalid"),
+                &input.artifact,
+            )
+        })?;
         if input.artifact.reference.coordinate != coordinate
             || input.artifact.artifact.domain != domain
             || input.artifact.artifact.bytes != bytes
@@ -441,8 +452,12 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
             "lowerability input role, kind, or domain differs from the checked closure",
         ));
     }
-    let value = validate_binding(&lowerability.artifact)
-        .map_err(|()| invalid_artifact(&lowerability.role, "artifact binding is invalid"))?;
+    let value = validate_binding(&lowerability.artifact).map_err(|failure| {
+        failure.refuse(
+            invalid_artifact(&lowerability.role, "artifact binding is invalid"),
+            &lowerability.artifact,
+        )
+    })?;
     if lowerability.artifact.reference.coordinate != LOWERABILITY_COORDINATE {
         return Err(invalid_artifact(
             &lowerability.role,
@@ -1596,8 +1611,12 @@ fn lower_core(
             "Core domain is invalid",
         ));
     }
-    let value = validate_binding(core)
-        .map_err(|()| invalid_artifact("core.echo-provider", "Core binding is invalid"))?;
+    let value = validate_binding(core).map_err(|failure| {
+        failure.refuse(
+            invalid_artifact("core.echo-provider", "Core binding is invalid"),
+            core,
+        )
+    })?;
     let api_version = text_field(&value, "apiVersion")
         .ok_or_else(|| invalid_artifact("core.echo-provider", "Core apiVersion is absent"))?;
     if api_version != CORE_ABI {
@@ -1884,22 +1903,6 @@ fn lower_effect_node<'a>(
     })
 }
 
-fn validate_binding(bound: &BoundArtifact) -> Result<CanonicalValueV1, ()> {
-    if bound.reference.coordinate.is_empty()
-        || bound.reference.digest.algorithm != DigestAlgorithm::Sha256
-        || bound.reference.digest.bytes.len() != 32
-        || bound.artifact.domain.is_empty()
-    {
-        return Err(());
-    }
-    let value = decode_canonical_cbor_v1(&bound.artifact.bytes).map_err(|_| ())?;
-    let computed = digest_canonical_value_v1(&bound.artifact.domain, &value).map_err(|_| ())?;
-    if computed != digest_review(&bound.reference.digest) {
-        return Err(());
-    }
-    Ok(value)
-}
-
 fn digest_review(digest: &Digest) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut review = String::with_capacity(7 + digest.bytes.len() * 2);
@@ -2153,6 +2156,33 @@ fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
         "echo.provider.local-reference-out-of-scope",
         "Core local reference is not in scope",
     )
+}
+
+/// Refuse an effect program outside the lowerer's judgment, adding a second
+/// diagnostic that names the refusing check and the artifact path it read.
+///
+/// The reason diagnostic's code extends the refusal's own code, so the list
+/// stays strictly ascending. Like every provider result it is independent of
+/// the host's response limits (the frozen WIT contract): it is always two
+/// diagnostics, and the path is bounded by
+/// [`refusal_reason::MAX_PATH_BYTES`], so the refusal never exceeds a few
+/// hundred bytes. Enforcing a smaller host bound is the host's.
+fn unsupported_program(
+    subject: &str,
+    check: &str,
+    program: &refusal_reason::ProgramRefusal,
+) -> ProviderRefusalV1 {
+    let mut refusal = unsupported_semantics(subject, check);
+    refusal.diagnostics.push(Diagnostic {
+        code: format!(
+            "echo.provider.unsupported-semantics.{}",
+            program.reason().code()
+        ),
+        severity: DiagnosticSeverity::Error,
+        message: format!("refused at {}", program.path()),
+        repair: None,
+    });
+    refusal
 }
 
 /// Refuse semantics outside the lowering closure, naming the check that fired.

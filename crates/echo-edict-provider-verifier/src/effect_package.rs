@@ -10,8 +10,10 @@ use echo_edict_canonical::{
     CanonicalValueV1 as Value,
 };
 
+pub use crate::refusal_reason::{ProgramRefusal, RefusalReason};
+
 /// Why an authored effect package was refused.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectPackageRefusal {
     /// The bytes are not a canonical authored effect package.
     InvalidEnvelope,
@@ -19,8 +21,11 @@ pub enum EffectPackageRefusal {
     /// package carries.
     InvalidBinding,
     /// The compiled effect program is unsafe or does not match its own
-    /// artifacts, intrinsic contracts or declared budget.
-    UnsupportedProgram,
+    /// artifacts, intrinsic contracts or declared budget. The refusal names
+    /// the check that refused and the artifact path it was reading.
+    UnsupportedProgram(ProgramRefusal),
+    /// The graph schema or footprint law is one runtime admission refuses.
+    Contract(crate::effect_contract::ContractRefusal),
 }
 
 impl std::fmt::Display for EffectPackageRefusal {
@@ -28,9 +33,10 @@ impl std::fmt::Display for EffectPackageRefusal {
         f.write_str(match self {
             Self::InvalidEnvelope => "not a canonical authored effect package",
             Self::InvalidBinding => "the package does not name the program it carries",
-            Self::UnsupportedProgram => {
+            Self::UnsupportedProgram(_) => {
                 "the compiled effect program is outside the checked profile"
             }
+            Self::Contract(refusal) => refusal.code(),
         })
     }
 }
@@ -84,7 +90,7 @@ pub fn verify_effect_package(package: &[u8]) -> Result<(), EffectPackageRefusal>
         .transpose()
         .map_err(|()| E)?;
     let judged = crate::executable_operation::effect_program::judge(compiled, graph)
-        .map_err(|()| EffectPackageRefusal::UnsupportedProgram)?;
+        .map_err(EffectPackageRefusal::UnsupportedProgram)?;
     let closure = get(&package, "semantic_closure", E)?;
     // The lowerer names the judged Core as the canonical meaning; the runtime
     // carries that claim into the installed operation and its receipts.
@@ -256,11 +262,13 @@ fn envelope(program: &Value) -> Result<(), EffectPackageRefusal> {
             return Err(E);
         }
     }
-    // The runtime parses both; the verifier requires each to be one canonical
-    // value. Their contents are the runtime's to admit.
-    for field in ["graph_schema", "footprint_law"] {
-        canonical(bytes(get(program, field, E)?, E)?)?;
-    }
+    // The runtime refuses a schema or law outside its shape or the effect
+    // profile's ceilings at admission, so the verifier refuses it too, naming
+    // the same check (echo#1023).
+    crate::effect_contract::judge_graph_schema(bytes(get(program, "graph_schema", E)?, E)?)
+        .map_err(EffectPackageRefusal::Contract)?;
+    crate::effect_contract::judge_footprint_law(bytes(get(program, "footprint_law", E)?, E)?)
+        .map_err(EffectPackageRefusal::Contract)?;
     Ok(())
 }
 /// The runtime's identity for a named operation profile.

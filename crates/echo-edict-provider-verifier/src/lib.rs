@@ -15,10 +15,12 @@
 
 #[cfg(target_arch = "wasm32")]
 mod component;
+pub mod effect_contract;
 pub mod effect_package;
 mod executable_operation;
 mod pure_projection;
 mod pure_relation;
+pub mod refusal_reason;
 mod semantic_resources;
 
 use std::fmt::Write as _;

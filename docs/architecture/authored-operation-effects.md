@@ -613,6 +613,21 @@ cost rules `contentAddress {base: 71, perArgumentMax: [0, 0, 0, 1, 67]}`,
 declarations (`pureIntrinsics` and `types`). The frozen `echo.dpo@1` catalog
 stays API v1 and declares none of them.
 
+**Helpers and fold steps.** An identity call is admitted wherever a pure
+expression is: in the intent body, in a source helper and in a fold step,
+which is a helper. All three judges admit it under the same pinned contracts
+and charge it in the caller's or helper's summary. Before
+flyingrobots/echo#1005 the verifier's helper call graph admitted only module
+helpers and core builtins, so it refused a package the lowerer accepted when
+a helper called a constructor. The public witness
+`crates/warp-core/tests/fixtures/edict-helper-identity` computes an id in a
+helper and chains two ids in a fold step, and the shared corpus
+`crates/echo-edict-provider-lowerer/tests/fixtures/helper_identity_corpus.rs`
+holds the lowerer, the verifier and warp-core to one verdict on it, on the
+intent-body fixture, and on three forgeries of the helper package: the frozen
+`echo.dpo@1` catalog in its lowering artifacts, a helper calling
+`echo.dpo@1.contentAddress`, and a one-step declared budget.
+
 **Admission.** The lowerer, the separate verifier and the runtime each state
 the contract themselves and admit identity calls only when the pinned
 `echo.dpo@2` catalog carries exactly those four entries and the edge type,
@@ -800,7 +815,8 @@ ranges; empty makes it eligible for scoped validity), `write_edge_types`, the
 unsigned counts `max_reads` (at most 4,096), `max_writes` (at most 256), and
 `max_range_edges` (per range read, at most 65,536), which admission checks
 against these effect-profile ceilings so no law can overflow the arena's sizing
-arithmetic, and `portal_owner_types` (node types whose alpha portals an effect or
+arithmetic (Echo's provider lowerer and verifier apply the same shape and
+ceilings, so they never publish or accept a law admission refuses), and `portal_owner_types` (node types whose alpha portals an effect or
 read in a descended warp may cross; empty confines the package to its root
 warp). Each portal on a validated chain must be owned by a node of one of these
 types, or validation obstructs with `FootprintLawViolation`. The bridge does not
@@ -860,6 +876,25 @@ into a read of its own, even under dependency-scoped validity, whose value
 comparison runs at the validation position. The rejected Action's
 outcome is final (see Retries); a new submission evaluated later finds the
 node in its basis, so its `Ensure` is a read and does not conflict.
+
+### Admission refusal reasons
+
+Every package-admission refusal names the check that refused it with a
+stable reason code, `EchoOperationAdmissionError::reason_code` (echo#1023).
+A refused authored-effect program carries an `effect-program.*` code, in the
+scheme the provider uses for its own effect-program refusals (echo#1018):
+`program-envelope`, `graph-schema`, `footprint-law`,
+`footprint-law.max-reads`, `footprint-law.max-writes`,
+`footprint-law.max-range-edges`, `resource-limits`, `compiled-program`,
+`graph-read-declaration` and `compiled-binding`. Other artifact refusals carry
+their category's `artifact.*` code, and policy refusals an `admission.*` code.
+The graph-schema and footprint-law codes are the ones the lowerer and the
+verifier report for the same check. The verifier's
+`runtime_admission_agreement` test admits every package of the shared
+effect-program corpus through `EffectPackageHost` and requires the provider
+and the runtime to reach the same verdict in the same reason class; the
+corpus's executed entries, which only running refuses, are the named
+exception.
 
 ## Validation order
 
@@ -2071,7 +2106,7 @@ provisional detail into an obligation when its test lands.
 | Content hash charge             | Adopting an existing content node charges its atom hash at step 2; a budget that cannot cover it obstructs there, before the identity law runs.                                                                                                                                                                                                                                                  |
 | Effect minimum budget           | An effect package ceiling or delegated budget below one step is refused at admission; any budget of at least one step is admitted, and shortfalls are `BudgetExceeded` at evaluation.                                                                                                                                                                                                            |
 | Unreachable read recovery       | A read through an unreachable warp recovers as an evaluation-time `UnreachableWarp`, `NoProposal`, by re-evaluation at the origin with the same read set.                                                                                                                                                                                                                                        |
-| Footprint law ceilings          | A footprint law with `max_reads` above 4,096, `max_writes` above 256, or `max_range_edges` above 65,536 is refused at admission; the arena is sized from the maxima clamped by the delegated budget.                                                                                                                                                                                             |
+| Footprint law ceilings          | A footprint law with `max_reads` above 4,096, `max_writes` above 256, or `max_range_edges` above 65,536 is refused at admission with `effect-program.footprint-law.max-reads`, `.max-writes` or `.max-range-edges`; the provider lowerer and verifier refuse the same law with the same code. The arena is sized from the maxima clamped by the delegated budget.                              |
 | ReplaceAtom over a portal       | A `ReplaceAtom` whose alpha slot holds a portal obstructs with `PreconditionMismatch` before derivation, even when its expected digest names the portal.                                                                                                                                                                                                                                         |
 | Output type coordinate          | An effect program whose `output_type` is empty or longer than 1,024 bytes is refused at admission.                                                                                                                                                                                                                                                                                               |
 | Effect budget ceilings          | A package ceiling or delegated budget above `EFFECT_BUDGET_CEILING_V1` is refused at admission; a program emitting a 1,025th effect, even an identical `Ensure`, obstructs with `BudgetExceeded`, `NoProposal`.                                                                                                                                                                                  |

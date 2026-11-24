@@ -10,6 +10,7 @@ mod effect_resources;
 mod intrinsic_names;
 mod record_type;
 mod source_functions;
+mod source_modules;
 
 use std::collections::BTreeSet;
 
@@ -1023,10 +1024,13 @@ fn validate_bound(
             &format!("bound artifact domain is not {domain}"),
         ));
     }
-    validate_binding(bound).map_err(|()| {
-        invalid_artifact(
-            &bound.reference.coordinate,
-            "canonical artifact binding is invalid",
+    validate_binding(bound).map_err(|failure| {
+        failure.refuse(
+            invalid_artifact(
+                &bound.reference.coordinate,
+                "canonical artifact binding is invalid",
+            ),
+            bound,
         )
     })
 }

@@ -7,6 +7,41 @@
 
 ### Added
 
+- Effect programs may call helpers from digest-pinned source modules
+  (#1009). The lowerer, the verifier and warp-core previously refused any
+  `echo.dpo@2` effect program built from an `edict.source-closure/v1`
+  source as outside the checked profile. Each now reads the closure,
+  requires every `use module` pin to name a retained module by its exact
+  `edict.source/v1` identity and the entry module's pins to reach every
+  retained module, and judges and runs the linked helpers as entry
+  helpers. Substituted modules, unpinned modules and pins to absent
+  modules refuse in all three; the lowerer and verifier name them
+  `effect-program.relation.source-module-pins`, and a malformed closure
+  `effect-program.relation.source-closure`. The compiler's own request is a lowerer
+  witness, a shared corpus fixes the three verdicts, and warp-core runs
+  the control. A public compiler witness (`edict-effect-source-module`,
+  Amblicit `7dbcbc23`) builds through the promoted provider package
+  (lowerer `4bfd2707`, verifier `e0781877`).
+- Effect-program refusals name the failing check (#1018). The lowerer's
+  `EffectPublicationError::UnsupportedProgram` and the verifier's
+  `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a
+  stable reason code such as `effect-program.relation.source-alias` or
+  `effect-program.budget.steps`, and a bounded path into the Core, Target IR
+  or lowering artifacts, at most 256 bytes. The component refusal keeps its
+  kind and first diagnostic, and adds
+  `echo.provider.unsupported-semantics.<code>` (`refused at <path>`),
+  independent of the host's response limits; the verifier's `rejected`
+  report adds `echo.verifier.effect-program-refused.<code>` the same way, and
+  its report bytes do not change. A shared `reasons.txt` pins the code each of
+  the 52 refused corpus entries reaches, and the lowerer and verifier each
+  name it. The jedit#296 basis-read witness, previously refused with no
+  detail, names three causes in turn: comment lines before `package`
+  (`relation.source-alias`), `tooLarge` declared `resourceFault` where Echo's
+  node-atom-read table says `integrityFault` (`relation.intrinsic-contract`),
+  and its failure arm then mapping to a `resourceFault` obstruction
+  (`relation.failure-arms`). The components are promoted from byte-equal G4
+  candidates (lowerer `687acde4`, verifier `2d97285b`).
+
 - The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
   amblicit#324). warp-core, the provider lowerer and the provider verifier
   admit a pure module that requires `core.cost.shared-reads/v1`. The runtime
@@ -216,9 +251,8 @@
   are accepted by all three.
   - The `else` arm, disjunctions, negations and the predicate itself gain
     nothing, and branch facts do not cross into helper frames.
-  - Branch facts use the same comparison forms as other facts: an addition
-    still reads only `term <= c`, `term == c` and `c == term`, so
-    `index < 3` does not bound `index + 1` (#960).
+  - Branch facts use the same comparison forms as other facts; see the
+    strict and reversed forms under Fixed (#1010).
   - Each judgment reads them only when the operation is refused without them,
     so programs accepted before keep their cost and depth.
   - A shared corpus fixes the verdicts all three must reach. The checked
@@ -336,6 +370,17 @@
 
 ### Changed
 
+- The trusted runtime host, WAL, recovery and receipt machinery build under
+  `trusted_runtime` alone (flyingrobots/echo#1026, Decision 0). This moves the
+  feature gate and the export gate only. Items that register or run native
+  Rust rules, such as `register_contract_package`, installed-contract and
+  provider mutation ingress, and the contract-inverse handler resolution, keep
+  the joint `native_rule_bootstrap` and `trusted_runtime` gate. No Tick,
+  receipt, digest or WAL behaviour changes. `scripts/check-trusted-runtime-gate.sh`
+  builds neither feature, `trusted_runtime` alone, and both, and fails if a
+  native-rule registration is reachable under `trusted_runtime` alone. It runs
+  in the `verify-local` full lane.
+
 - Breaking: read images witness the size of every outgoing bucket a read
   consulted (#981). Typed range reads, outgoing-edge reads and closure reads
   record the number of edges of every type in the source's bucket on its node
@@ -385,6 +430,33 @@
   and every empty payload are unchanged. Two compiler packages with a
   one-field payload, as an `attempt` arm's and as a `require`'s, are retained
   beside the exact admission packages with their sources.
+- Echo's provider lowerer and verifier now refuse a footprint law or graph
+  schema that warp-core admission refuses (#1023). Both judges deferred those
+  contents to the runtime, so they accepted jedit#296's basis-read witness
+  (package `8e99859a`), whose law declares `max_writes = 1024`, while
+  admission refused it with a generic `InvalidStructure`. The spec caps
+  `max_writes` at 256, so admission was right. Publication refuses with
+  `EffectPublicationError::Contract` and the verifier with
+  `EffectPackageRefusal::Contract`. Every package-admission refusal now names
+  its check: `EchoOperationAdmissionError::reason_code` returns an
+  `effect-program.*` code in the #1018 scheme (for example
+  `effect-program.footprint-law.max-writes`), an `artifact.*` code or an
+  `admission.*` code. `EffectLawError` has `MaxReads`, `MaxWrites` and
+  `MaxRangeEdges` variants. The shared effect-program corpus gains
+  `footprint-writes-at-ceiling` and `footprint-writes-over-ceiling`, and a new
+  verifier test admits every corpus package through `EffectPackageHost` and
+  requires the same verdict in the same reason class. The components are
+  promoted from byte-equal G4 candidates (lowerer `165b41a8`, verifier
+  `6872448b`).
+- The provider lowerer no longer refuses large compiler output as
+  "canonical artifact binding is invalid" (#1025). The canonical decoder's
+  node budget was 65,536, below what the provider host can send: the flat
+  ReplaceRange Core from jedit#410 is 598,411 bytes and 94,472 nodes. The
+  budget is now the host's 1 MiB request cap, 1,048,576 nodes; every node
+  takes at least one byte, so the budget never refuses an artifact the host
+  admits. Every binding refusal also names its artifact by domain and its
+  failed check in a second diagnostic, `<code>.artifact-binding.<check>`,
+  where the check is `reference`, `decode`, `canonical-form` or `digest`.
 
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package
@@ -394,6 +466,23 @@
   helper, so compiler-produced packages are unaffected. Four shared-corpus
   entries fix the verdicts.
 
+- The provider verifier admits `echo.dpo@2` identity constructors called from
+  source helpers and fold steps (#1005). It refused such packages although the
+  lowerer and warp-core accepted them and the verifier accepted the same call
+  in the intent body. A shared corpus now holds all three judges to one
+  verdict, including forged catalog, intrinsic and budget cases, and a
+  verifier unit test requires each fold iteration to be charged its identity
+  call. The promoted verifier is `614e6101` (848,137 bytes); the
+  `edict-helper-identity` witness (Amblicit `7dbcbc23`) is recompiled
+  through it.
+
+- Provider and runtime bound reasoning now reads strict and reversed
+  comparisons as native Target does (#1010): `x < n` bounds an unsigned term
+  by `n - 1` (0 when `n` is 0, a branch that never runs), and `n > x` and
+  `n >= x` bound it like `x < n` and `x <= n`. warp-core, the lowerer and the
+  verifier change together, so a sum under `major <= 224u64 && v < 24u64`
+  (jedit#296) is accepted like one under `v <= 23u64`. This completes item 2
+  of #960.
 - Both provider components now accept an authored effect program whose intent
   has a `where` clause. Core input constraints carry `coordinate`, `source`
   and `predicate`; the effect-intent judgments required only the first and

@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 774,557-byte checked lowerer component has SHA-256
-`17f9b8a8447fe2ce7eb6fc64f0bf6387c0eb9af894bb61fba1827ca3cc81f4df` and has
+The refreshed 802,832-byte checked lowerer component has SHA-256
+`165b41a85d70cfe9f2578cc920ff40e41e2e48d3e1f31410b6b28bea4603e528` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -219,6 +219,13 @@ It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
 retains the actual lawpack inside the compiled bundle, without a duplicate outer
 lawpack identity.
 
+Publication refuses a configured graph schema or footprint law that runtime
+admission would refuse: either outside its exact canonical shape, or a law
+above the effect profile's 4,096 reads, 256 writes or 65,536 edges per range
+read. It refuses with `EffectPublicationError::Contract`, whose code
+(`effect-program.graph-schema` or `effect-program.footprint-law*`) is the one
+admission reports for the same check (echo#1023).
+
 Before serializing, publication runs the lowerer's own effect-program
 judgment, also available as `effect_publication::judge_effect_program`, and
 refuses an unsafe program with `UnsupportedProgram`. The judgment establishes
@@ -229,6 +236,48 @@ the body's types, proven ranges and declared Core budget, under a static cost
 model over declared types that does not bound the runtime's meter. It does not
 judge graph-law semantics or grant authority. The verifier judges the same programs
 independently in `effect_package::verify_effect_package`.
+
+## Refusal reasons
+
+`UnsupportedProgram` carries a `refusal_reason::ProgramRefusal` that names the
+check that refused and the artifact path it was reading, such as
+`effect-program.relation.source-alias` at `/lowering_artifacts/source_artifact`
+or `effect-program.budget.steps` at
+`/core/intents/<intent>/coreEvaluationBudget`. `RefusalReason::code` returns
+the stable code; a code never changes meaning. Codes are grouped by stage:
+`bundle-envelope`, the `*-envelope` and `core-pin` checks, `intent-*`,
+`correspondence.*` (Core and Target IR node for node), `relation.*` (the pinned
+profile, catalog, lawpack, adapter, source closure, source alias, source-module pins and each effect's
+authorization, intrinsic contract and failure arms),
+`graph-read-declaration`, `type-table`, `failure-sets`, `helpers.*`,
+`input-binding`, `basis`, `input-constraint`, `body.*` (one node, with its
+path under `body/nodes/<n>`) and `budget.*`. Paths are at most 256 bytes; a
+longer path is cut at a character boundary and ends in `...`.
+
+On the component route the refusal keeps its kind (`UnsupportedSemantics`)
+and its first diagnostic, `echo.provider.unsupported-semantics`, and adds a
+second diagnostic whose code is that code followed by `.` and the reason
+code, with the message `refused at <path>`. As the frozen WIT requires, the
+refusal is independent of the request's response limits: it is always these
+two diagnostics, a few hundred bytes at most with the path bounded, and the
+host enforces any smaller bound.
+The shared corpus pins the code each refused entry reaches
+(`tests/fixtures/effect-programs/reasons.txt`), and the verifier names the
+same code for every entry.
+
+A bound artifact that fails its canonical binding is refused as
+`InvalidSemanticArtifact` with a second diagnostic of the same shape. Its code
+is the first diagnostic's code followed by `.artifact-binding.` and the check
+that refused: `reference` (an empty coordinate or domain, or a digest that is
+not 32 SHA-256 bytes), `decode` (the bytes are not one canonical CBOR value
+within the decoder's bounds), `canonical-form` (the bytes decode but are not
+the value's canonical encoding) or `digest` (the domain-framed digest is not
+the bound digest). Its message is
+`<domain> artifact failed artifact-binding.<check>: <detail>`, which names the
+artifact by domain; the refusal's subject names it by coordinate or role. The
+domain is the request's own text and is not shortened.
+`tests/artifact_binding.rs` pins one named reason per check and every bound
+artifact of a request.
 
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host

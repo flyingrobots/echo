@@ -242,6 +242,17 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-structured-run" \
     --check
 
+  # The same witness for a program whose helper comes from a digest-pinned
+  # source module (echo#1009): the compiler sends an edict.source-closure/v1
+  # source and the lowerer checks its `use module` pins.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name source-module \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-source-module" \
+    --work-root "$witness_dir/effect-source-module-run" \
+    --check
+
   # The same witness for a program that reads a node's outgoing edges through
   # echo.dpo@2.outgoing-edge-read and writes an edge to what it read
   # (echo#982), with the same echo.dpo@1 and substituted-profile controls.
@@ -320,5 +331,16 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest/controls/unread-bytes" \
     --work-root "$witness_dir/effect-unread-run" \
+    --check
+
+  # The same identity constructors called from a source helper and from a
+  # fold step (echo#1005), with the same echo.dpo@1 and substituted-profile
+  # controls.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name helper \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-helper-identity" \
+    --work-root "$witness_dir/effect-helper-identity-run" \
     --check
 fi

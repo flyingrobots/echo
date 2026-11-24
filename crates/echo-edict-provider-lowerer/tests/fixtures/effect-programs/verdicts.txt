@@ -46,6 +46,9 @@ typed-failure-repeated-set refuse
 typed-failure-empty-set refuse
 typed-failure-without-capability refuse
 typed-failure-arms-differ refuse
+source-module-control accept
+source-module-substituted refuse
+source-module-unpinned refuse
 imported-helper-total accept
 imported-helper-fails refuse
 imported-helper-fails-in-arm refuse
@@ -76,3 +79,5 @@ structured-loop-allocation-short refuse
 structured-loop-under-budget refuse
 structured-mutation-count-control accept
 structured-mutation-count-over refuse
+footprint-writes-at-ceiling accept
+footprint-writes-over-ceiling refuse

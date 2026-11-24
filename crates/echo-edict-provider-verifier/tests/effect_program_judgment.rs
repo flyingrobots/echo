@@ -8,6 +8,7 @@ use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1,
     encode_canonical_cbor_v1 as encode, CanonicalValueV1 as V,
 };
+use echo_edict_provider_verifier::effect_contract::ContractRefusal;
 use echo_edict_provider_verifier::effect_package::{verify_effect_package, EffectPackageRefusal};
 
 /// The retained corpus, embedded so the judgment reads no files.
@@ -68,6 +69,9 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "source-module-control",
+    "source-module-substituted",
+    "source-module-unpinned",
     "imported-helper-total",
     "imported-helper-fails",
     "imported-helper-fails-in-arm",
@@ -98,9 +102,16 @@ const RETAINED: &[(&str, &str)] = retained![
     "structured-loop-under-budget",
     "structured-mutation-count-control",
     "structured-mutation-count-over",
+    "footprint-writes-at-ceiling",
+    "footprint-writes-over-ceiling",
 ];
+/// The entry refused by its footprint law, not by its program (echo#1023).
+const LAW_REFUSED: &str = "footprint-writes-over-ceiling";
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");
+/// The check each refused entry targets, shared with the lowerer.
+const REASONS: &str =
+    include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/reasons.txt");
 
 /// Public compiler witnesses kept outside the shared corpus, beside the
 /// runtime tests that run them.
@@ -277,15 +288,50 @@ fn the_verifier_reaches_every_retained_corpus_verdict() {
     let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = verify_effect_package(&package_bytes(&name));
-        let expected = if accept {
-            Ok(())
-        } else {
-            Err(EffectPackageRefusal::UnsupportedProgram)
+        let agrees = match &judged {
+            Ok(()) => accept,
+            Err(EffectPackageRefusal::Contract(ContractRefusal::FootprintMaxWrites)) => {
+                name == LAW_REFUSED
+            }
+            Err(EffectPackageRefusal::UnsupportedProgram(_)) => !accept && name != LAW_REFUSED,
+            Err(_) => false,
         };
-        if judged != expected {
-            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
+        if !agrees {
+            disagreements.push(format!("{name}: expected accept={accept}, got {judged:?}"));
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
+}
+
+/// Every refused entry names the check its one edit targets, the same code
+/// the lowerer names.
+#[test]
+fn the_verifier_names_the_check_each_refused_entry_targets() {
+    let reasons = REASONS
+        .lines()
+        .map(|line| line.split_once(' ').expect("entry"))
+        .collect::<Vec<_>>();
+    let refused = verdicts()
+        .into_iter()
+        .filter_map(|(name, accept)| (!accept).then_some(name))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        refused.iter().map(String::as_str).collect::<Vec<_>>(),
+        "every refused entry has exactly one reason, in corpus order"
+    );
+    let mut disagreements = Vec::new();
+    for (name, code) in &reasons {
+        match verify_effect_package(&package_bytes(name)) {
+            Err(EffectPackageRefusal::UnsupportedProgram(refusal))
+                if refusal.reason().code() == *code => {}
+            Err(EffectPackageRefusal::Contract(refusal))
+                if *name == LAW_REFUSED && refusal.code() == *code => {}
+            other => disagreements.push(format!("{name}: expected {code}, got {other:?}")),
+        }
+    }
+    // Zero witnesses would pass vacuously.
+    assert!(reasons.len() >= 10, "{} refused entries", reasons.len());
     assert_eq!(disagreements, Vec::<String>::new());
 }
 
@@ -302,7 +348,11 @@ fn verifier_pure_judgment_keeps_the_zero_effect_echo_dpo_1_control() {
 fn verifier_pure_judgment_rejects_zero_effect_echo_dpo_2_without_profile_artifacts() {
     let refusal = verify_effect_package(&zero_effect_package_with_dpo_2_target_profile());
     assert!(
-        matches!(refusal, Err(EffectPackageRefusal::UnsupportedProgram)),
+        matches!(
+            &refusal,
+            Err(EffectPackageRefusal::UnsupportedProgram(program))
+                if program.reason().code() == "effect-program.relation.no-effect-profile"
+        ),
         "expected pure verifier to refuse unauthenticated @2 zero-effect Target; got {refusal:?}"
     );
 }
@@ -507,14 +557,6 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
             }),
         ),
         (
-            "an undecodable graph schema",
-            program(&|p| *field_mut(p, "graph_schema") = V::Bytes(Vec::new())),
-        ),
-        (
-            "an undecodable footprint law",
-            program(&|p| *field_mut(p, "footprint_law") = V::Bytes(Vec::new())),
-        ),
-        (
             "an unknown budget field",
             package(&|p| insert(field_mut(p, "budget_ceiling"), "unexpected", V::Integer(0))),
         ),
@@ -562,6 +604,52 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
         Vec::<&str>::new(),
         "envelopes the verifier did not refuse"
     );
+    // An undecodable schema or law is refused by the check runtime admission
+    // names for it (echo#1023).
+    for (field, refusal) in [
+        ("graph_schema", ContractRefusal::GraphSchema),
+        ("footprint_law", ContractRefusal::FootprintLaw),
+    ] {
+        let package = program(&|p| *field_mut(p, field) = V::Bytes(Vec::new()));
+        assert_eq!(
+            verify_effect_package(&encode(&package).expect("package")),
+            Err(EffectPackageRefusal::Contract(refusal)),
+            "{field}"
+        );
+    }
+}
+
+/// An adapter outside the declarative class is refused as the adapter, at
+/// the adapter artifact, not as the lawpack checked just before it.
+#[test]
+fn an_undeclared_adapter_class_is_named_as_the_adapter() {
+    let package = decode(&package_bytes("read-control")).expect("package");
+    let edited = with_program(&package, |program| {
+        let V::Bytes(compiled) = field_mut(program, "compiled_program") else {
+            panic!("compiled program")
+        };
+        let mut bundle = decode(compiled).expect("bundle");
+        let V::Bytes(adapter_bytes) = field_mut(
+            field_mut(&mut bundle, "lowering_artifacts"),
+            "adapter_artifact",
+        ) else {
+            panic!("adapter bytes")
+        };
+        let mut adapter = decode(adapter_bytes).expect("adapter");
+        *field_mut(&mut adapter, "class") = V::Text("procedural".into());
+        *adapter_bytes = encode(&adapter).expect("adapter");
+        *compiled = encode(&bundle).expect("bundle");
+    });
+    match verify_effect_package(&encode(&edited).expect("package")) {
+        Err(EffectPackageRefusal::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.relation.adapter",
+                "/lowering_artifacts/adapter_artifact"
+            )
+        ),
+        other => panic!("expected the adapter check, got {other:?}"),
+    }
 }
 
 /// A retained package edited and repinned: its Core requires `capability` as

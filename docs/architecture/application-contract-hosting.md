@@ -1258,6 +1258,20 @@ bounded-read decoder applies the same bounded envelope checks and rechecks the
 closure identity under the selected source domain before any reading. Pure
 execution continues to require its independently supplied exact package pin.
 
+Authored effect programs may call helpers from digest-pinned source modules
+(#1009). Amblicit links those helpers into the one Core module, so the lowerer,
+the verifier and the runtime judge and run them exactly as they do the entry
+module's own helpers. Each of the three judges also reads the retained source:
+one `edict.source/v1` string, or an `edict.source-closure/v1` envelope. In
+every module's declaration preamble, each `use module` line must name a
+retained module by its exact `edict.source/v1` identity, and the pins from the
+entry module must reach every retained module. A `use target` line must name
+the selected pinned profile, and a `use lawpack` line the bound lawpack. A
+substituted module, an unpinned module, or a pin to a module the closure does
+not retain refuses. A single source retains no modules, so a pin in it refuses.
+This is a binding check on the retained provenance; it does not reparse helper
+bodies or replace Amblicit's import-graph authentication.
+
 The current semantic declaration includes the source-module input alternative
 and its schema binding. Generation and raw package admission use the same
 current 32-binding inventory, including `source-closure`.

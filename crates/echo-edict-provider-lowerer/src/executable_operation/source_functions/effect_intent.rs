@@ -14,6 +14,7 @@ use super::{
 };
 use crate::executable_operation::effect_program::GraphReads;
 use crate::executable_operation::intrinsic_names::operation;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The largest atom an authored effect may read or write, in bytes.
@@ -60,15 +61,17 @@ impl EffectSite {
 pub(in crate::executable_operation) fn judge(
     core: &Value,
     exports: &Value,
-    intent: &Value,
+    (intent_name, intent): (&str, &Value),
     sites: &BTreeMap<usize, EffectSite>,
     graph: Option<GraphReads<'_>>,
     identity: bool,
+    trail: &mut Trail,
 ) -> Check<()> {
     // Core names an unsigned width directly; the runtime has no `Int` kind.
     // A nominal entry has exactly its kind, contract and representation.
     if let Some(types) = super::super::map_field(core, "types") {
-        for (_, definition) in members(types)? {
+        for (name, definition) in members(types)? {
+            trail.at(R::TypeTable, &["core", "types", string(name)?]);
             match super::super::map_field(definition, "kind") {
                 Some(Value::Text(kind)) if kind == "Int" => return Err(()),
                 Some(Value::Text(kind)) if kind == "Nominal" => {
@@ -78,20 +81,33 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
-    judged(core, exports, 0, identity)?.effect_intent(intent, sites, graph)
+    judged(core, exports, 0, identity, trail)?.effect_intent(
+        intent_name,
+        intent,
+        sites,
+        graph,
+        trail,
+    )
 }
 
 impl<'a> Judgment<'a> {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Each check names itself on the trail where it runs."
+    )]
     fn effect_intent(
         &mut self,
+        intent_name: &str,
         intent: &'a Value,
         sites: &BTreeMap<usize, EffectSite>,
         graph: Option<GraphReads<'_>>,
+        trail: &mut Trail,
     ) -> Check<()> {
         self.proven.clear();
         self.branch.clear();
         self.path.clear();
         self.bound.clear();
+        trail.at(R::BlockLocals, &["core", "intents", intent_name, "body"]);
         self.effect_start();
         let body = get(intent, "body")?;
         let mut pending = self.block_locals(body)?;
@@ -100,16 +116,21 @@ impl<'a> Judgment<'a> {
             index: 0,
             claimed: BTreeSet::new(),
             graph,
+            trail,
         };
+        walk.trail.mark(R::InputBinding);
         let input = *pending.get("arg.0").ok_or(())?;
         if get(input, "type")? != get(intent, "input")? {
             return Err(());
         }
         claim(input, &mut pending, &mut walk)?;
+        walk.trail.mark(R::InputBinding);
         let mut scope = BTreeMap::new();
         let ty = self.declaration(input, &mut scope)?;
         let mut cost = self.boundary(&ty)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
+            walk.trail
+                .at(R::Basis, &["core", "intents", intent_name, "basis"]);
             let fact = self.expression(basis, &scope, true, 0)?;
             // The runtime refuses any evaluation basis but exactly 32 bytes.
             if fact.ty.representation() != &Ty::Bytes(32, 32) {
@@ -120,8 +141,13 @@ impl<'a> Judgment<'a> {
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
         // proves another.
+        walk.trail.at(
+            R::InputConstraint,
+            &["core", "intents", intent_name, "inputConstraints"],
+        );
         let constraints = list(get(intent, "inputConstraints")?)?;
-        for constraint in constraints {
+        for (position, constraint) in constraints.iter().enumerate() {
+            walk.trail.enter(position.to_string());
             // The runtime names each constraint by its coordinate when it fails.
             // Exactly the compiler's Core shape: an authored `where` conjunct or
             // a compiler-derived constraint.
@@ -133,36 +159,64 @@ impl<'a> Judgment<'a> {
             let predicate = get(constraint, "predicate")?;
             let copying = self.predicate(predicate, &scope, true, 0)?.0;
             cost = cost.plus(self.effect_condition(predicate, copying)?)?;
+            walk.trail.leave();
         }
         for constraint in constraints {
             self.proven.push(get(constraint, "predicate")?);
         }
+        walk.trail
+            .at(R::NodeKind, &["core", "intents", intent_name, "body"]);
         let totals = self.effect_block(body, &mut scope, pending, &mut walk)?;
         // Every effect site the relation established is an instruction of
         // this body.
+        walk.trail.mark(R::EffectSites);
         if sites.keys().any(|index| *index >= walk.index) {
             return Err(());
         }
+        walk.trail.mark(R::CostOverflow);
         cost = cost.plus(totals.cost)?;
+        walk.trail.enter("result");
+        walk.trail.mark(R::Expression);
         let result_value = get(body, "result")?;
         let result = self.expression(result_value, &scope, true, 0)?;
         let result_cost = self.effect_value(result_value, result.cost)?;
+        walk.trail
+            .at(R::ResultType, &["core", "intents", intent_name, "output"]);
         let expected = self.ty(string(get(intent, "output")?)?, 0)?;
         if !includes(&expected, &result.ty) {
             return Err(());
         }
+        walk.trail.at(
+            R::CostOverflow,
+            &["core", "intents", intent_name, "coreEvaluationBudget"],
+        );
         let output = shape(&expected)?.2;
         cost = cost.plus(result_cost)?.plus(self.boundary(&expected)?)?;
         let budget = get(intent, "coreEvaluationBudget")?;
         exact(budget, &["maxSteps", "maxAllocatedBytes", "maxOutputBytes"])?;
         let max_output = number(get(budget, "maxOutputBytes")?)?;
-        if cost.steps > number(get(budget, "maxSteps")?)?
-            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
-            || output > max_output
-            || totals.obstruction_output > max_output
-            || totals.mutations > EFFECT_COUNT_CEILING
-        {
-            return Err(());
+        // The mutation ceiling binds whatever the budget, so it is named
+        // first; then the output ceiling, steps and allocation.
+        let checks = [
+            (R::MutationCount, totals.mutations <= EFFECT_COUNT_CEILING),
+            (
+                R::OutputBudget,
+                output <= max_output && totals.obstruction_output <= max_output,
+            ),
+            (
+                R::StepBudget,
+                cost.steps <= number(get(budget, "maxSteps")?)?,
+            ),
+            (
+                R::AllocationBudget,
+                cost.bytes <= number(get(budget, "maxAllocatedBytes")?)?,
+            ),
+        ];
+        for (reason, within) in checks {
+            if !within {
+                walk.trail.mark(reason);
+                return Err(());
+            }
         }
         Ok(())
     }

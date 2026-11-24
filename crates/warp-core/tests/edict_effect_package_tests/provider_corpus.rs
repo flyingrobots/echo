@@ -19,6 +19,7 @@ use super::proven_ranges::{
     all, at_most, declared, input, is_true, len, local, ok_binding, package, prefix_is_utf8,
     slice_program, Node,
 };
+use super::source_modules::{source_module_program, Forgery as ModuleForgery};
 use super::structured::{branch, counting_parts, forge, loop_parts, nest, Forgery, Parts};
 use super::typed_failures::{
     typed_failure_input, typed_failure_program, Forgery as TypedForgery, REASON,
@@ -740,6 +741,7 @@ fn entries() -> Vec<Entry> {
         runtime,
         package: as_published(package),
     };
+    let law_entries = footprint_law_entries(&read_control);
     vec![
         entry("read-control", true, Runtime::Accepts, read_control),
         entry(
@@ -1159,6 +1161,26 @@ fn entries() -> Vec<Entry> {
             Runtime::Refuses,
             typed_failure_program(TypedForgery::ArmsDiffer),
         ),
+        // A helper from a digest-pinned source module: the control and each
+        // forged closure pin (`source_modules.rs`).
+        entry(
+            "source-module-control",
+            true,
+            Runtime::Accepts,
+            source_module_program(ModuleForgery::None),
+        ),
+        entry(
+            "source-module-substituted",
+            false,
+            Runtime::Refuses,
+            source_module_program(ModuleForgery::Substituted),
+        ),
+        entry(
+            "source-module-unpinned",
+            false,
+            Runtime::Refuses,
+            source_module_program(ModuleForgery::Unpinned),
+        ),
         // Imported helpers with failing bodies (#1006); only the total
         // control is accepted.
         entry(
@@ -1244,7 +1266,41 @@ fn entries() -> Vec<Entry> {
     ]
     .into_iter()
     .chain(structured_entries())
+    .chain(law_entries)
     .collect()
+}
+
+/// `package` with its footprint law's `max_writes` set to `writes`, its
+/// footprint contract identity rebound to the new law.
+fn with_max_writes(package: &V, writes: i128) -> V {
+    let mut program = decode(get(package, "program"));
+    let mut law = decode(get(&program, "footprint_law"));
+    set(&mut law, "max_writes", V::Integer(writes));
+    set(&mut program, "footprint_law", V::Bytes(encoded(&law)));
+    let mut package = package.clone();
+    set(&mut package, "program", V::Bytes(encoded(&program)));
+    set(&mut package, "footprint_contract_identity", footprint(&law));
+    package
+}
+
+/// The read control with a footprint law at and one over the effect
+/// profile's 256-write ceiling (echo#1023): the provider must refuse what
+/// runtime admission refuses, for the same named check.
+fn footprint_law_entries(read_control: &V) -> Vec<Entry> {
+    vec![
+        Entry {
+            name: "footprint-writes-at-ceiling",
+            accept: true,
+            runtime: Runtime::Accepts,
+            package: as_published(with_max_writes(read_control, 256)),
+        },
+        Entry {
+            name: "footprint-writes-over-ceiling",
+            accept: false,
+            runtime: Runtime::Refuses,
+            package: as_published(with_max_writes(read_control, 257)),
+        },
+    ]
 }
 
 /// Steps and bytes far above any structured entry's worst case, so only the
@@ -1491,6 +1547,9 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "source-module-control",
+    "source-module-substituted",
+    "source-module-unpinned",
     "imported-helper-total",
     "imported-helper-fails",
     "imported-helper-fails-in-arm",
@@ -1521,6 +1580,8 @@ const RETAINED: &[(&str, &str)] = retained![
     "structured-loop-under-budget",
     "structured-mutation-count-control",
     "structured-mutation-count-over",
+    "footprint-writes-at-ceiling",
+    "footprint-writes-over-ceiling",
 ];
 const VERDICTS: &str = include_str!(
     "../../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt"
@@ -1800,6 +1861,22 @@ fn a_mapped_typed_failure_obstructs_with_its_declared_reason() {
             payload: encoded(&map([("at", V::Integer(5))])),
         }),
         "remaining(5, 3) fails Underflow, which the intent maps to RangeInverted"
+    );
+}
+
+/// A source-module helper runs as an entry helper does: `leaf.same(v)`
+/// returns its argument (the source in
+/// `fixtures/edict-effect-source-module/source/modules/Leaf.edict`).
+#[test]
+fn a_source_module_helper_runs_in_the_program_that_pins_it() {
+    let input = encoded(&map([
+        ("v", V::Integer(7)),
+        ("w", V::Bytes(vec![0x11; 32])),
+    ]));
+    assert_eq!(
+        run(&retained("source-module-control"), &input),
+        Ok(encoded(&map([("b", V::Integer(7))]))),
+        "same(7) returns 7 after the ensureNode effect"
     );
 }
 

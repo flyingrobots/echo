@@ -3,7 +3,7 @@
 //! Exhaustive closed-union dispatch and lexically scoped payloads.
 use super::{
     evaluate::{expression, Meter},
-    functions::{accepts, infer, join, local, Definition, Proof, Scope},
+    functions::{accepts, infer, infer_arm, join, local, Definition, Proof, Scope},
     model::{Expr, Helper, MatchArm, RuntimeType},
     syntax::Parser,
     values::{array, exact_fields, field, text_field},
@@ -102,7 +102,8 @@ pub(super) fn infer_match<'v>(
                 return Err(Error::InvalidArtifact);
             }
         }
-        let ty = infer(
+        // A `fail` arm takes its type from the other arms.
+        let Some(ty) = infer_arm(
             field(arm, "body")?,
             &inner,
             proof,
@@ -110,7 +111,10 @@ pub(super) fn infer_match<'v>(
             source,
             parser,
             depth + 1,
-        )?;
+        )?
+        else {
+            continue;
+        };
         result = Some(match result {
             None => ty,
             Some(previous) => join(previous, ty)?,

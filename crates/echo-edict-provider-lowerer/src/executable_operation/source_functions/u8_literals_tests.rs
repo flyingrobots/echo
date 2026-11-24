@@ -53,7 +53,7 @@ fn checked_expression(
         ("effects", Value::Array(vec![])),
         ("pureFunctions", Value::Array(vec![])),
     ]);
-    validate(&core, &exports, false)
+    validate(&core, &exports, false, 0)
 }
 
 #[test]

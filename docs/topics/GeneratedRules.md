@@ -38,6 +38,15 @@ below describe the current consolidation. Any remaining parallel historical
 implementations must be replaced while updating the compiler, runtime, tests,
 and consumers together.
 
+One owner-approved exception exists (flyingrobots/echo#985). Two Echo target
+profiles are current at once: `echo.dpo@1`, which existing adapters and
+lawpacks pin, and `echo.dpo@2`, which declares the runtime's effect intrinsics
+for authored effect programs. Both namespaces name the same intrinsics through
+one implementation of each; see
+[The `echo.dpo@2` effect target profile](#the-echodpo2-effect-target-profile).
+The exception covers exactly this second coordinate and authorizes no other
+alias or retained version.
+
 ## Current Implementation
 
 Wesley currently emits raw `RewriteRule` builders plus generated operation,
@@ -142,18 +151,20 @@ The authored-effect configuration carries the selected target's canonical
 catalog bytes in the required `intrinsicCatalog` field, bounded to 16 MiB.
 The native lowerer rejects absent, empty, oversized, malformed, or digest-mismatched
 catalogs before body lowering. Catalogs use `edict.target-profile.intrinsics/v1`
-and the selected profile's `echo.dpo.intrinsics/v1` owner-framed reference.
+and the selected profile's owner-framed catalog reference: `echo.dpo.intrinsics/v1`
+under `echo.dpo@1` and `echo.dpo.intrinsics/v2` under `echo.dpo@2`.
 This transport check does not validate individual native signatures, authorize
-execution, or enable the unfinished authored-effect producer. Existing exact
+execution, or replace the effect-program judgment that follows it. Existing exact
 profile admission and catalog-to-export nominal checks remain required.
 
 The pure `effect_publication::encode_effect_publication` API constructs the
 current operation-package/program wire shapes for untrusted effect proposals.
 It preserves the embedded compiler bundle, derives artifact identities and
 uses the current read/write/step budget fields. Native synthetic controls
-round-trip through the current runtime decoder. The public lowerer does not yet
-call this factory; compiler correspondence, graph-law semantics, independent
-verification, authority admission and execution remain separate obligations.
+round-trip through the current runtime decoder. The public lowerer component
+calls this factory, after its own effect-program judgment, for an
+`edict-effect-program/v1` configuration; graph-law semantics, authority
+admission and execution remain separate obligations.
 
 The provider's `echo-operation-package` owning root also admits this current
 effect envelope. Anchored and effect envelopes share the current package field
@@ -245,9 +256,10 @@ Partial `core.bytes.slice` and `core.integer.subtract` calls accept runtime
 operands under Edict's proven-range rules. A slice needs `start <= end` and
 `end <= len(bytes)` over that same operand: its actual length, not its declared
 maximum. A subtraction needs `right <= left`. Each order holds for equal terms, a
-zero right side, ordered constants, an input constraint, or an earlier conjunct
-of the same `all`. Conditional predicates, negations, later conjuncts and
-helper callers prove nothing. Literal slice offsets within the operand's
+zero right side, ordered constants, an input constraint, an earlier conjunct
+of the same `all`, or the predicate of an enclosing `if` inside its `then` arm.
+The `else` arm, negations, disjunctions, later conjuncts and helper callers
+prove nothing. Literal slice offsets within the operand's
 guaranteed minimum length still need no fact. The lowerer, the verifier and the
 native helper checker each implement this independently, comparing terms by
 canonical encoding within their work ceilings. Every slice is typed
@@ -260,9 +272,179 @@ out-of-range `at` and takes the authored path, while a program without the guard
 is refused before installation.
 
 Runtime helper validation also proves addition within its fresh frame using
-literal and nested-sum bounds. Other terms retain their full unsigned width,
-so zero identity is total and an unbounded parameter plus one refuses. Caller
-constraints do not cross into a helper frame.
+literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
+fact from its own conjunct prefixes or enclosing `then` arms that compares the
+term with a constant (`term <= c`, `term == c` or `c == term`). Other terms
+retain their full unsigned width, so zero identity is total and an unbounded
+parameter plus one refuses. Caller constraints and caller branches do not cross
+into a helper frame; a helper's own preconditions do (see function
+preconditions below).
+
+### Branch facts
+
+As in Edict's totality rule, the predicate of an `if` expression is a fact
+inside its `then` arm, in the lowerer, the verifier and warp-core alike. So
+`if index <= 2 then index + 1 else index`,
+`if start <= end then end - start else 0`, and
+`if start <= end && end <= len(bytes) then slice(bytes, start, end) else b""`
+are each accepted. Nested `then` arms accumulate their predicates, and a branch
+fact joins the input constraints and conjunct prefixes in force at that point.
+The `else` arm gains nothing, and the predicate is not a fact for itself or
+outside its `if`. A branch fact is read with the same operators as every other
+fact, so `if index < 3 then index + 1 else index` is still refused (#960).
+
+Each judgment reads the branch facts only when an addition, subtraction or
+slice is refused without them, so a program that needs no branch fact is
+judged at exactly its earlier cost and depth. The shared corpus
+`crates/echo-edict-provider-lowerer/tests/fixtures/branch_fact_corpus.rs`
+holds the cases all three judgments must decide alike.
+
+### Function preconditions
+
+A source function may carry Core `preconditions`, the `where` predicates of
+Amblicit's function preconditions (Amblicit `1196396b`, sections "Function
+Preconditions" and "Core Source Function Shape" of
+`docs/SPEC_edict-language-v1.md`). warp-core, the lowerer and the verifier
+each judge them without trusting the compiler:
+
+- **Admission.** The list is present only when nonempty. The function's
+  parameters are `arg.N` / `$argN` in order. A precondition uses only `true`,
+  `false`, `not`, `all`, `any` and comparisons, also inside a conditional
+  expression in an operand, and contains no `fold`, no `match` and no call to a
+  function of the same module. A function holds at most 16 conjuncts, counted
+  through nested `all`, and 256 Core nodes. Each precondition is typed by the
+  judgment's ordinary predicate rule over the parameters alone, assuming the
+  preconditions before it, so ordered comparisons stay between unsigned
+  integers, as `echo.span-ir/v3` requires. Echo admits no `true` or `false`
+  predicate anywhere, so it refuses those preconditions too.
+- **Body.** The helper body is judged with its preconditions as facts, so
+  `fn span(start: U64, end: U64) -> U64 where start <= end { return end - start; }`
+  is accepted.
+- **Calls.** Every call to a precondition-bearing function, anywhere in the
+  module, must prove each precondition with `args[N]` read for `params[N]`,
+  substituted simultaneously. The facts at a call are those of Amblicit's
+  Core-position table: none in an intent's `basis` or in an input constraint
+  (beyond its own conjunct prefixes); every input constraint in the intent
+  body; a helper's own preconditions in its body; an `if` predicate in its
+  `then` arm and its negation in its `else` arm; earlier items of an `all`;
+  and the negations of earlier items of an `any`. Statement-level branches add
+  nothing. An order `a <= b` is proven as subtraction proves an order (equal
+  terms, a `0u32`/`0u64` left side, ordered `U32`/`U64` literals, or a fact
+  `a <= b`, `a < b`, `b >= a`, `b > a`, `a == b` or `b == a`, also as a conjunct
+  at any depth); any other precondition needs the same predicate or its
+  mirrored comparison among the facts, and a negated fact proves only the
+  identical negation. No obligation is built, so none is refused for its
+  depth. A precondition-bearing function cannot be a fold step.
+
+These three checks are why a helper may assume its preconditions: every call
+re-proves them, independently in all three judgments. The call-site walk runs
+only when some function declares preconditions, and it is bounded by its own
+work ceiling of 2^22 units. Preconditions are never evaluated and add no cost.
+The shared corpus
+`crates/echo-edict-provider-lowerer/tests/fixtures/function_precondition_corpus.rs`
+translates every Core-level case of Amblicit's `function_preconditions.rs` and
+`function_precondition_forgery.rs`, with Target's verdict, and all three
+judgments must reach each verdict.
+
+Every authored effect program is judged by warp-core when its package is
+prepared. Besides the helper bounds above, the
+judgment may assume these facts:
+
+- **Input constraints**, for every node of the body. Each constraint is itself
+  checked with no facts. So the constraint `at <= len(text)` lets the body use
+  `slice(text, 0, at)` and `len(text) - at`, and `at < len(text)` proves the
+  byte lookup `text[at]`. Byte and list lookups read these facts as they read
+  earlier conjuncts.
+- **Earlier conjuncts of one `all`**, for the slices, subtractions and
+  additions inside its later conjuncts.
+- **The predicate of an enclosing `if`**, for the slices, subtractions and
+  additions inside its `then` arm, as described under branch facts above.
+- **Carried `let` ceilings.** An unsigned `let` proven below its width carries
+  that ceiling, from counts, literals, sums or a constraint such as
+  `at <= 10`. A ceiling narrows later additions only.
+
+A slice or subtraction needs an order fact over the same term, compared by
+canonical encoding. So `let at2 = at` followed by `slice(text, 0, at2)` is
+refused even under `at <= len(text)`; use the constrained term itself. An
+addition's constant bound is read only as `term <= c`, `term == c` or `c == term`; write
+`at < 11` or `11 > at` as `at <= 10`. A guard over a different term proves
+nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.rs`
+in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
+evaluation when it fails, so its predicate does hold at later nodes, but the
+rule does not assume it, and Echo follows the rule. State such a bound as an
+input constraint, inside the same `all`, or as the predicate of an `if` whose
+`then` arm uses it. For constant bounds Edict also reads the strict and reversed
+comparison forms; all three Echo judgments do not yet (#960). A program that needs a fact the
+judgment lacks is refused when its package is prepared.
+
+warp-core judges each node first without these facts or carried ceilings, at
+the cost the judgment had before facts existed. Only when that refuses does
+it carry the ceilings and judge the node again with the input constraints;
+comparing facts encodes their terms, which is charged to the proof budget. A
+constraint no node needs therefore costs only its own size. An addition is
+likewise first judged without the facts of its enclosing conjunct prefixes, so
+an unneeded earlier conjunct changes neither its proof-budget cost nor its
+depth. The predicates of enclosing `then` arms are read last: only after every
+earlier run of the node refuses, including the input-constraint run when there
+is one, does a last run read them, so a node that needs a constraint but no branch fact costs what
+it did before.
+
+On the bounded-read route the provider lowerer
+(`crates/echo-edict-provider-lowerer/src/executable_operation/source_functions.rs`)
+and verifier
+(`crates/echo-edict-provider-verifier/src/executable_operation/source_functions.rs`)
+judge the same bodies independently with input-constraint facts and `let`
+ceilings, and the three judgments must agree. They differ in one way today:
+the providers let a constraint use the constraints before it, where Edict and
+Echo check each alone, so a package whose later constraint needs an earlier
+one passes the providers and is refused here (#960). On the graph-effects route
+the providers judge each constraint alone, as the runtime does.
+
+The provider lowerer and verifier each judge an authored effect program
+themselves, sharing no code with the runtime. Each establishes the program's
+binding to its own Core, Target IR and exports; the pinned lawpack, adapter,
+target profile and intrinsic catalog that authorize each effect; each
+effect's runtime ABI, write class and failure contract through the
+intrinsic-scoped failure table, with an effect's result exactly the ABI's
+type rather than a nominal wrapper; one declared obstruction per failure arm
+with a matching authority class; node-for-node Core and Target IR
+correspondence; a 32-byte evaluation basis; type tables that name unsigned
+widths directly, as Core has no `Int` kind, and nominal entries with exactly
+their kind, contract and representation; and the body's types, proven
+ranges and declared Core budget under its own static cost model. As in the
+runtime, each input constraint is judged with no facts, and only then do all
+of them dominate the body, so one constraint never proves another. The budget
+judgment charges each emitted mutation the row the runtime reserves for it,
+charges each read the records it keeps and its retained payload, bounds every
+failure payload by the output ceiling, and allows at most 1,024 mutations.
+The lowerer runs this judgment before it serializes an effect publication.
+The verifier runs it, checks the package and program envelopes the runtime
+admits, including every fixed profile and schema identity, and binds the
+Core, canonical meaning, Target IR, exports, operation, output type and
+footprint contract the package claims to the program it carries, before
+installation. The verifier requires the source identity and the authority
+profile to be 32-byte hashes but does not bind them, and it requires the graph schema and footprint law only
+to be canonical values; the runtime admits their contents.
+
+The two providers' copies of the program-level checks are near-identical, so
+they are independent of the runtime, not of each other. All three judges reach
+the same verdict on a retained corpus of accepted programs, forgeries and
+accepted siblings that differ from a forgery by the edit it targets, which
+warp-core generates and pins. For each corpus entry the runtime refuses only
+when it runs, the runtime test executes it and observes the exact refusal,
+beside an accepted control for every entry except the captured read's own
+1 MiB step budget, which equals the frame's fixed step ceiling, so the two
+refuse together.
+
+The providers' budget judgment is a static model over declared types, not a
+bound on the runtime's meter. The runtime meters every evaluation and refuses
+whatever exceeds its budget. The model charges a read at its declared
+maximum on a root-warp node. Graph state the providers cannot see can cost
+more: an atom larger than its declared maximum is charged in full before it
+is refused, a read below the root warp or through a portal costs more, and a
+frame's fixed ceilings can bind first. Package-level limits and ceilings,
+including the package size, and the runtime parser's work budget are also
+enforced by the runtime, not judged by the providers.
 
 The retained public compiler fixtures cover a legacy-producer execution control
 and the current pinned publication containing an authored arithmetic helper.
@@ -501,13 +683,43 @@ are deterministic self-validation.
 For descended targets, the retained footprint and patch inputs include every
 portal attachment in the validated root-to-target reachability chain.
 
-The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
-under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That
-compile-time coupling does not place a callback in the operation program, but
-it prevents the maintenance runner from serving as the final product cutover
-boundary.
-The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
-can delete the legacy feature without also losing executable operations.
+Scheduler-owned Action execution reuses `TrustedRuntimeHost`, whose module is
+exposed only under the joint `native_rule_bootstrap` and `trusted_runtime`
+feature gate. That compile-time coupling does not place a callback in the
+operation program, but the scheduler, WAL and commit shell still cannot serve
+as a product cutover boundary without the internal feature.
+
+#### Running an authored effect package on generic Echo
+
+`EffectPackageHost` (#1017) is the public route for running an authored effect
+package. It needs `trusted_runtime` only. A consumer builds a
+`WorldlineRuntime` and an `Engine`, constructs the host, and then:
+
+1. admits the exact package bytes under an exact
+   `EchoOperationAdmissionPolicy` (`admit_echo_operation_package`);
+2. installs the admitted meaning (`install_admitted_echo_operation_package`);
+3. resolves the writer head's exact parent
+   (`echo_operation_evaluation_basis_v1`);
+4. admits one canonical invocation under an exact
+   `EchoOperationInvocationAdmissionPolicy`
+   (`admit_echo_operation_invocation`);
+5. evaluates it in a recording frame (`effect_evaluation_frame_v1`) and
+   derives the proposed patch without applying it
+   (`derive_echo_operation_effects`).
+
+Both hosts delegate these steps to one internal route, so admission, basis,
+frame and derivation law are identical; only installation differs, because
+`TrustedRuntimeHost` also retains it in its runtime WAL and requeues pending
+Actions. The public host has
+no scheduler, WAL, commit or native rule authoring, and its evaluation
+authority is private to each host value, so derivation refuses work evaluated
+by another host. `tests/public-effect-host-consumer/` is the downstream
+witness: a package outside the workspace that depends on warp-core with
+`trusted_runtime` only and runs Echo's retained public `link` package. It sits
+outside the workspace because warp-core's own test targets inherit
+`native_rule_bootstrap` from the `echo-dry-tests` dev-dependency. Echo's
+`public_*` effect witnesses run through the same host in the
+`public_effect_host_tests` target.
 
 #### Application operation semantics authored in Edict source
 
@@ -667,7 +879,8 @@ The shared interpreter uses atomic failed charges. An admitted concatenation
 buffer that cannot be provisioned is a host fault, never budget exhaustion.
 The existing standalone pure/read APIs retain their prior accounting behavior.
 
-`TrustedRuntimeHost::effect_evaluation_frame_v1` can now construct that frame
+`TrustedRuntimeHost::effect_evaluation_frame_v1` and
+`EffectPackageHost::effect_evaluation_frame_v1` construct that frame
 against an expected full runtime parent. The host resolves the registered writer,
 worldline tick, committing global tick, state root and commit identity through
 the existing scheduler basis resolver, compares all runtime fields, and borrows
@@ -778,10 +991,11 @@ separately from the image bytes. Consuming the frame prevents further evaluation
 against an already-exported read set.
 
 The image is the read-set digest preimage after its domain: a little-endian
-`u64` row count, the 192-byte `EffectReadRow`s, a little-endian `u64` pair count,
+`u64` row count, the 200-byte `EffectReadRow`s, a little-endian `u64` pair count,
 and the 64-byte `EffectEdgePairRow`s. There is no new retained-history record
-magic. A read row contains a 104-byte `EffectSlotRow`, outcome and zero padding,
-a 32-byte authorizing type, a 32-byte subject digest and a WSC range descriptor.
+magic. A read row contains a 104-byte `EffectSlotRow`, outcome, a bucket tag and
+zero padding, a 32-byte authorizing type, a 32-byte subject digest, a WSC range
+descriptor and a little-endian `u64` bucket length.
 All rows are `repr(C, align(8))`, `Pod` and `Zeroable`, with explicit padding.
 The slot classes are node `0`, attachment `1`, edge `2`, range `3`. Their wire
 order is explicit and differs from native `SlotId` ordering. Slots sort by
@@ -798,7 +1012,20 @@ IDs. Absent subjects are zero. Range subjects and read types are zero; the range
 slot already names its edge type. Matching edge/target pairs are packed in
 range-row order, sorted and unique by edge local ID within each run. Separate
 source-node rows distinguish an absent source from a present empty bucket.
-The read-set digest hashes `echo.bridge.read-set.v1\0` and the exact image.
+
+A bucket's size decides a scan's bound and charge, so the image witnesses it.
+`GraphStore` keeps one outgoing bucket per source, so the size is recorded once,
+on the source's present node row: bucket tag `1` and the number of edges of
+every type in that bucket. A typed range read, an outgoing-edge read and each
+range a closure reads set it, whether the scan then runs or is refused by the
+scan bound, the range bound or the budget; a refused scan leaves the source row
+with its bucket and no range row. Every other row carries tag `0` and length zero. The read-set
+digest hashes `echo.bridge.read-set.v2\0` and the exact image. Version 2
+replaced the 192-byte row of version 1 in place, with no compatibility reader.
+The image bytes carry no version tag: the version is the digest domain, so no
+version-1 digest can match a version-2 image, and the 192-byte rows of a
+version-1 image do not generally frame as version 2 (a one-row image is refused
+as `InvalidImage`).
 The parent and accounting metadata are not part of this read-set digest; an
 admitted proposal/decision must separately bind them.
 
@@ -806,12 +1033,26 @@ admitted proposal/decision must separately bind them.
 buffer. Its structural validator allocates no collections and checks exact
 framing, checked size arithmetic, tag legality, zero padding/unused fields,
 canonical order, duplicate rules, pair bounds, strict edge order and contiguous
-complete pair-section coverage. A suffix, an orphan pair or overlapping range
+complete pair-section coverage. Each range must follow its source's node row: a
+present source must witness its bucket, which must hold every pair its ranges
+retain together, because edge types partition one bucket; an absent source
+yields no pairs. A suffix, an orphan pair or overlapping range
 is invalid. The fixed ceiling is 4096 read rows and 65536 pairs per range, with
 an image no larger than 16 MiB. The total pair section can exceed 65536 when
 individual ranges and the image limit permit it. This view proves canonical
 structure only; it does not authenticate a law, parent, dependency completeness
 or historical Action decision.
+
+`EffectReadSetView::confirm_bucket_sizes(state)` checks every witnessed bucket
+length against the source's whole bucket in the state the caller supplies for
+the image's basis. A differing length, or a source absent there, refuses with
+`BucketSizeMismatch`, distinct from a malformed image. It checks bucket sizes
+only, not values or the basis identity, and allocates nothing. It confirms the
+sizes an image records; it cannot tell that a refused scan's witness was
+removed, since that refusal leaves no range row. Only re-evaluation at the basis
+detects that. Effect derivation calls it on the parent it has matched to the
+image's basis and refuses a mismatch as `OriginMismatch`
+([#982](https://github.com/flyingrobots/echo/issues/982)).
 
 Export is bounded host retention work, outside the consumed evaluation budget.
 The caller's output limit intersects the fixed 16 MiB ceiling; the temporary
@@ -868,6 +1109,10 @@ trigger hidden retries or widen access.
   identity needed to explain execution.
 
 ### Executable graph-schema preparation
+
+What an authored effect program's body may compute, and which range facts
+prove its slices, subtractions and additions, is described under
+[Bounded compiler-package computation](#bounded-compiler-package-computation).
 
 `EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
 the current authored-effect program contract. The root has exactly `node_types` and
@@ -960,9 +1205,165 @@ An authored effect package carries no `obstruction_coordinate`. Its program can 
 
 This schema crossing validates the configuration's shape and bounds. It does
 not validate the embedded law/schema semantics, produce an effect package, or
-provide runtime authority. The public lowerer/verifier effect branch and target
-resource declarations remain unfinished. Runtime preparation and private
-execution evidence above do not establish that producer path.
+provide runtime authority.
+
+The public lowerer component emits an effect package for that configuration
+and the separate verifier component judges it against the compiler request:
+it rebuilds the package the request determines and accepts only that package,
+and only when its own effect-program judgment accepts it. Both bind the
+request's lawpack, adapter and configuration to the single-intent Core and its
+Target IR. A flat program compiled from public source travels this path and
+runs on the generic runtime (`crates/warp-core/tests/fixtures/edict-effect-program`).
+The checked `echo.dpo@1` target profile is not an effect target resource
+declaration: its catalog declares only `echo.dpo@1.replace` and it names
+`echo.span-ir/v1`, while an effect step requires the catalog to declare the
+intrinsic and the profile's Target IR to equal the adapter's accepted ordered
+IR. Through `echo.dpo@1`, therefore, only programs without effect steps
+are published; effect steps fail closed at the judgment.
+
+### The `echo.dpo@2` effect target profile
+
+`echo.dpo@2` is the second, separately versioned target profile in the checked
+provider package (`target-profile.echo-dpo-2`). It is `echo.dpo@1` with its own
+version, intrinsic namespace, catalog and Target IR declaration: its catalog,
+`echo.dpo.intrinsics/v2`, declares the eight runtime intrinsics as
+`echo.dpo@2.node-atom-read`, `echo.dpo@2.outgoing-edge-read`,
+`echo.dpo@2.closure-read`, `echo.dpo@2.ensure-node`, `echo.dpo@2.create-node`,
+`echo.dpo@2.replace-atom`, `echo.dpo@2.ensure-edge` and
+`echo.dpo@2.replace-edge`, each typed by its ABI coordinates
+(`<name>.input`, `<name>.result`), and it names the structured `echo.span-ir/v3`
+through a generated declaration. Every other reference and doctrine field is
+`echo.dpo@1`'s. The provider's semantic source declares it under
+`effectTargetProfiles`, and the generator emits the profile, catalog and
+declaration beside `echo.dpo@1`, whose bytes and identity are unchanged.
+
+Both components accept exactly these two profiles. `echo.dpo@2` admits only
+the authored-effect route: every other route refuses it as an unsupported
+target profile. Each profile admits only the catalog it pins. The runtime and
+both components key their intrinsic tables (effect kind, read failure names,
+ABI coordinates, mutation kinds) on the operation below either namespace, so
+the two coordinates name one implementation of each intrinsic, and a program
+may call only intrinsics in the namespace of the profile it selects.
+
+This second coordinate is an owner-approved, bounded exception to "One
+Current Version" (flyingrobots/echo#985): `echo.dpo@1` stays because existing
+lawpack adapters, Jedit lawpacks and graph-read fixtures pin it, and a
+consumer opts into effect steps by pinning `echo.dpo@2`. No other coordinate
+or alias is admitted. The public compiler selects structured `echo.span-ir/v3`
+lowering when the adapter pins the current profile's generated Target IR
+declaration. The `echo.dpo@2` adapter, lawpack and public compiler outputs must
+be regenerated together when that declaration changes. The retained public
+compiler witnesses must select the same declaration.
+A program that reads one atom through `echo.dpo@2.node-atom-read` travels the
+public path and runs on the generic runtime
+(`crates/warp-core/tests/fixtures/edict-effect-step`); the same program under
+`echo.dpo@1`, or under a substituted `echo.dpo@2` profile, is refused at the
+lowerer. From Amblicit `0034605` (flyingrobots/amblicit#311) source can bind an
+effect with an empty failure set without a failure map: a program calling all
+five `echo.dpo@2` mutation intrinsics so is lowered, verified, admitted and run,
+emitting its five intents in source order
+(`crates/warp-core/tests/fixtures/edict-effect-mutations`). Because the compiler
+takes a lawpack's empty failure set on trust, the judgments' failure-set
+equality checks are the backstop: an effect that declares and maps no failures
+but is bound to `node-atom-read`, which pins four, is refused by the lowerer,
+the verifier and the runtime.
+
+#### Graph reads in effect programs
+
+An authored effect program may call `echo.dpo@2.outgoing-edge-read` and
+`echo.dpo@2.closure-read` as effect steps and use what they read in the
+effects it commits ([#982](https://github.com/flyingrobots/echo/issues/982)).
+Each is the bounded-read route's primitive with that route's ABI, and each
+catalog failure name maps to the runtime tag that route records:
+`edgeSourceMissing`, `edgeBoundExceeded` and `edgeScanBoundExceeded`;
+`closureStartMissing`, `closureNodeBoundExceeded`,
+`closureDepthBoundExceeded`, `closureScanBoundExceeded` and
+`closureWorkBoundExceeded` are `resourceFault`, `closureSelectorInsufficient`
+is `domainMappable` and `closureStorageMalformed` is `integrityFault`.
+
+As on the bounded-read route, the lowering configuration declares graph reads
+with the optional `graphReads` record (`maxEdgeScans`, `maxClosureNodes`,
+`maxClosureDepth`, and `closureSelector` for a closure), and the package
+carries it. The runtime, the lowerer and the verifier each refuse a graph-read
+step without the declaration, a declaration no step uses (in any block,
+including loop bodies and branch arms), and a closure without a conforming
+selector helper. Both providers charge each graph read the work a recording
+frame pays for its whole scan allowance and its recorded ranges and nodes, and
+do not count it as a mutation. A package without graph reads keeps its exact
+bytes.
+
+At run time the read runs over the recording frame, under one scan allowance
+per evaluation, so the effect's read image records every scanned bucket's size.
+Derivation confirms those sizes at the image's basis, including buckets in a
+child warp, and a stale basis refuses with `BasisMismatch` before any read.
+The public witness `crates/warp-core/tests/fixtures/edict-effect-graph-read`
+reads a node's outgoing edges and links another node to the target of the first
+edge it read; the same program under `echo.dpo@1`, or under a substituted
+`echo.dpo@2` profile, is refused at the lowerer.
+
+#### Structured effect control under `echo.dpo@2`
+
+The owner decision on flyingrobots/echo#947 gives structured control to
+`echo.dpo@2`: a program whose Target IR declares `echo.span-ir/v3`
+(`structuredTargetIrArtifact`) may run bounded `for` loops and statement
+`branch`es around its instructions. `echo.dpo@1` stays frozen, so the
+runtime, the lowerer and the verifier each refuse a structured program
+pinned to it. The provider lowerer and verifier require the selected `echo.dpo@2`
+profile's Target IR declaration to name the selected Target coordinate, including
+when the program has no effect steps. An ordered (`echo.span-ir/v2`) program keeps
+its flat order and may carry no control entry; it does not satisfy the current
+`echo.dpo@2` profile's `echo.span-ir/v3` declaration.
+
+At runtime, a zero-effect bundle carries null lowering artifacts and cannot
+authenticate the profile bytes. Only the frozen ordered `echo.dpo@1` route is
+admitted in that case; a zero-effect `echo.dpo@2` bundle is refused. Programs
+with effects authenticate the selected profile through their lowering artifacts.
+
+The three judgments agree on the structured relation:
+
+- **Order tree.** Each `for` or `branch` entry repeats its Core node's binder,
+  iterable, bound or predicate exactly and nests one order per Core block;
+  every instruction appears exactly once; control ids are nonempty, unique and
+  never an instruction id. Loop bodies and branch arms are statement blocks
+  whose result is `null`, and a branch that binds a value is not a control
+  entry.
+- **Bounds.** Only a literal bound is admitted (Target IR cannot authenticate
+  a coordinate bound), and it must cover the maximum of the iterable's list
+  type. The binder's type must accept the list's items.
+- **Scopes.** A loop body or branch arm claims its locals from its own table.
+  They are visible to later nodes of the same block only and never after it;
+  no local identity is declared twice anywhere in the intent, and an inner
+  local never shadows an outer one. A branch predicate is not a fact for
+  either arm.
+- **Worst case.** A loop costs its iterable once and then, `bound` times, one
+  step, the validation of its binder's type and its body. A branch costs its
+  predicate and the larger of its arms. Mutations multiply and add the same
+  way, so a bound times a body's emissions must stay within the runtime's
+  1,024-mutation ceiling, and the declared step, allocation and output
+  budgets must cover the result before installation.
+
+At run time the evaluator evaluates a loop's list once in the enclosing scope,
+validates and binds each item fresh, runs only the arm a branch's predicate
+selects, and forgets each block's locals when it ends. Every emission joins
+the one atomic buffer: a failed later iteration or arm discards all of them,
+while the meter keeps the steps and write bytes already charged and charges
+nothing for work that did not run, so an unchosen arm performs no read and
+needs no aperture. The shared verdict corpus carries structured controls and
+forgeries for each rule above, judged by all three.
+
+The lawpack pins the effect judgments check are framed the way the compiler frames
+them: the lawpack's `exports` and each target adapter's `adapter` digest use
+the coordinate the reference names as their digest domain. The lowerer, the
+verifier and the runtime previously used the fixed artifact domains
+`edict.lawpack-exports/v1` and `edict.lawpack-adapter/v1` there, so every
+compiler-produced program with an effect step was refused; only flat programs,
+which skip that relation, had passed. The synthetic effect-program corpus is
+regenerated with the compiler's framing. Those flat programs
+pass only because the judgment and the runtime compare the profile's Target IR
+with the adapter's accepted ordered IR for effect steps alone, the tolerance the
+bounded-read route already relies on. The verifier report names the compiler's
+result projection by digest, but the effect route does not judge it: an effect
+package carries no projection, and its result is the Core intent's own.
 
 The `compiled_program` payload uses one current
 `echo.compiler-produced-effect-program/v1` artifact bundle with exactly
@@ -1081,6 +1482,9 @@ apply.
 | `echo.dpo@1.replace-atom`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` | the empty record                                          |
 | `echo.dpo@1.ensure-edge`                           | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `fromId`, `toId`, `edgeType`                  | the empty record                                          |
 | `echo.dpo@1.replace-edge`                          | `<intrinsic>.input` / `<intrinsic>.result`    | exactly `warpId`, `edgeId`, `expectedToId`, `toId`                        | the empty record                                          |
+
+Under `echo.dpo@2` the same rows apply to the `echo.dpo@2.*` names and their
+ABI coordinates; the read's failure table below is keyed the same way.
 
 Every field other than `atomBytes` has a representation of exactly 32 bytes; a
 maximum-bounded or differently sized field does not conform. `atomBytes` and
@@ -1386,8 +1790,9 @@ therefore retain distinct admission evidence for otherwise identical bytes.
 Installation consumes the token's checked program identity; recovery rebuilds
 and checks this evidence rather than trusting retained hashes alone.
 
-This method is exposed only on the runtime-owner host, under the existing
-`native_rule_bootstrap` and `trusted_runtime` boundary. The restricted
+This method is exposed only on runtime-owner hosts: `TrustedRuntimeHost`
+under the joint `native_rule_bootstrap` and `trusted_runtime` boundary, and
+`EffectPackageHost` under `trusted_runtime`. The restricted
 application handle cannot admit a package. The token has no public constructor
 and is neither an installation nor an invocation grant. Installation uses one evidence type and catalog for every program kind.
 Invocation admission is described above; authored-effect Action execution remains

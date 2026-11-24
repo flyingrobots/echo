@@ -16,7 +16,7 @@ derived = tomllib.loads(module.derive_policy(policy_text, manifest_text))
 original = tomllib.loads(policy_text)
 assert derived["sources"].pop("allow-git") == [module.KEEP_SOURCE]
 assert derived == original
-for invalid in [manifest_text.replace(module.KEEP_SOURCE, "https://example.com/unknown"), manifest_text.replace("3165890e9291cfb5fe10e81a9d7cd151f3e59464", "main")]:
+for invalid in [manifest_text.replace(module.KEEP_SOURCE, "https://example.com/unknown"), manifest_text.replace("e316d71abd0813be6c84eb5c96bc2258a5f328f2", "main")]:
     try:
         module.derive_policy(policy_text, invalid)
     except ValueError:

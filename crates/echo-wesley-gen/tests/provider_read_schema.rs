@@ -211,3 +211,91 @@ fn compiler_produced_read_package_is_a_distinct_generic_package_variant() {
         .validate_root_bytes("echo-operation-package", &package_bytes)
         .expect("the generic bounded-read executable package variant is admitted");
 }
+
+fn graph_reads(scans: i128, nodes: i128, depth: i128, selector: Option<&str>) -> CanonicalValueV1 {
+    let mut fields = vec![
+        (
+            CanonicalValueV1::Text("maxEdgeScans".to_owned()),
+            CanonicalValueV1::Integer(scans),
+        ),
+        (
+            CanonicalValueV1::Text("maxClosureNodes".to_owned()),
+            CanonicalValueV1::Integer(nodes),
+        ),
+        (
+            CanonicalValueV1::Text("maxClosureDepth".to_owned()),
+            CanonicalValueV1::Integer(depth),
+        ),
+    ];
+    if let Some(selector) = selector {
+        fields.push((
+            CanonicalValueV1::Text("closureSelector".to_owned()),
+            CanonicalValueV1::Text(selector.to_owned()),
+        ));
+    }
+    CanonicalValueV1::Map(fields)
+}
+
+fn graph_configuration(graph: CanonicalValueV1) -> Vec<u8> {
+    let CanonicalValueV1::Map(mut fields) = configuration(64, 1_048_576) else {
+        panic!("map");
+    };
+    fields.push((CanonicalValueV1::Text("graphReads".to_owned()), graph));
+    encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields)).expect("canonical graph configuration")
+}
+
+#[test]
+fn read_configuration_admits_an_optional_bounded_graph_read_declaration() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    for graph in [
+        graph_reads(1, 0, 0, None),
+        graph_reads(64, 16, 8, Some("select")),
+        graph_reads(65_536, 4096, 256, Some("select")),
+        graph_reads(1, 0, 0, Some(&"s".repeat(1024))),
+    ] {
+        generated
+            .schema()
+            .validate_root_bytes(
+                "echo-operation-lowering-configuration",
+                &graph_configuration(graph),
+            )
+            .expect("declared graph reads within their ceilings");
+    }
+}
+
+#[test]
+fn graph_read_declaration_refuses_values_one_above_each_ceiling_and_unknown_fields() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let mut unknown = graph_reads(1, 1, 1, None);
+    if let CanonicalValueV1::Map(fields) = &mut unknown {
+        fields.push((
+            CanonicalValueV1::Text("structure".to_owned()),
+            CanonicalValueV1::Text("consumer.tree@1".to_owned()),
+        ));
+    }
+    let CanonicalValueV1::Map(complete) = graph_reads(1, 1, 1, None) else {
+        panic!("map");
+    };
+    let incomplete = CanonicalValueV1::Map(complete.into_iter().skip(1).collect());
+    for graph in [
+        graph_reads(0, 0, 0, None),
+        graph_reads(65_537, 0, 0, None),
+        graph_reads(1, 4097, 0, None),
+        graph_reads(1, 0, 257, None),
+        graph_reads(1, -1, 0, None),
+        graph_reads(1, 1, 1, Some("")),
+        graph_reads(1, 1, 1, Some(&"s".repeat(1025))),
+        unknown,
+        incomplete,
+    ] {
+        generated
+            .schema()
+            .validate_root_bytes(
+                "echo-operation-lowering-configuration",
+                &graph_configuration(graph),
+            )
+            .expect_err("graph read declaration outside its closed bounded shape");
+    }
+}

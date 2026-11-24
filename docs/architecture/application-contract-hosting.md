@@ -422,6 +422,43 @@ checked arithmetic; the runtime meters each executed iteration, copies and
 validation. Zero iterations still validate and return the initial state. The
 capability is `core.fold/v1`; unknown and duplicate capabilities refuse.
 
+Typed function failures (`core.failure/v1`, Amblicit's typed failures) run in
+authored effect programs. A source function may declare a nonempty, strictly
+ascending `failures` set, which must equal what its body produces: each `fail`
+and each call to a function that declares failures. A module declares the
+capability exactly when some function has a set. Outside function bodies only
+an intent's `attempt` node may call a failing function. Its arguments cannot
+fail, its `failureMap` holds exactly the callee's set, and each entry is a
+terminal obstruction reason whose payload reads only what precedes the node.
+The lowered Target pure binding carries the same map as `failureArms`. `fail`
+takes its type from a peer `if` or `match` arm, a helper result or an annotated
+binding, and costs one step. Elsewhere it refuses. At run time a failure ends
+the helper and every caller up to the `attempt`, which then ends the run with
+the mapped reason and its payload. Only that arm's payload is evaluated. The
+providers charge the call plus the larger of result validation and the costliest
+arm. warp-core, the lowerer and the verifier each hold an identical copy of this
+judgment (`failure_sets.rs`). Failing `fold` steps and failures inside an
+unordered `record` refuse. The shared effect-program corpus holds a control and
+one forgery for each check.
+
+A record whose fields can fail is an ordered record (`kind: "orderedRecord"`,
+flyingrobots/echo#997): a nonempty `fields` array of `{name, value}` entries in
+authored order. All three judges evaluate, type and charge the fields in that
+order, so the first field to fail decides the failure:
+`{ z: fail First, a: fail Second }` obstructs with `First`'s mapped reason, and
+`{ a: fail Second, z: fail First }` with `Second`'s. When every field returns,
+the value is the canonical record, byte-identical to the unordered `record`
+with the same fields and charged the same. As in Amblicit's Core integrity, an
+ordered record with a duplicate name, no fields, an entry key other than
+`name` and `value`, or no field that can fail refuses. A `fail` field takes its
+type from the declared type of the enclosing helper result or binding,
+including through nested ordered records; elsewhere, such as in a list item or
+a call argument, a bare `fail` field refuses as unsupported. A field that calls
+a failing function is typed by that function's result everywhere.
+The public compiler witnesses `edict-effect-ordered-record-z` and
+`edict-effect-ordered-record-a` are compiled from source by Amblicit and
+obstruct with the first authored field's mapped reason.
+
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume
 those components. Native synthetic tests alone do not establish public compiler
@@ -488,6 +525,34 @@ evaluation checks actual lengths and elements and charges
 result storage before reserving it. The ordered-read type judgments admit the
 same operations after whole-intent validation, including forward, reversed and
 negated strict bounds on equal-width words (`<`, `>`, and false `>=`/`<=`).
+
+They also implement Amblicit's `Option<T>` (flyingrobots/echo#995) under
+`core.option/v1`: the type, written `Option<T>` or as an `Option` type-table
+entry, and the calls `core.option.some`, `none`, `isSome`, `default` and
+`unwrap`, each with the item `T` as its only type argument. Option is not a
+variant. Each judge requires the operand's item to equal the type argument,
+and admits `unwrap` only on a local that a dominating fact proves present: the
+`isSome(x) == true` predicate of an enclosing `then` arm, its negation on an
+`else` arm, an earlier `all` conjunct or a negated earlier `any` disjunct. The
+compiler's source refinement is not trusted. Amblicit names no Option case
+labels, so a `match` on an Option or an Option variant constructor is refused.
+Option values stay inside helpers: an intent's input and output may not contain
+one, because Echo defines no Option wire encoding. At runtime an absent Option
+is `null` and a present one a one-item array; the providers charge it as one
+value cell plus its item.
+
+They also implement Amblicit's checked integer calls and `min`/`max`
+(flyingrobots/echo#998): `core.integer.checkedAdd`, `checkedSub`, `checkedMul`,
+`checkedDiv`, `checkedRem`, `min` and `max`. Each call takes exactly one width
+type argument, `U8`, `U32` or `U64`, and two operands of exactly that width, as
+native Target types it. A checked call returns `Option<W>` and requires
+`core.option/v1`; it is absent on overflow, underflow or a zero divisor.
+Division truncates. `min` and `max` return `W` and need no capability. Each
+judge keeps their upper bounds for later unsigned-addition proofs: `min` is
+bounded by either operand, `max` by the larger. Unknown `core.integer` names,
+other widths and mismatched operands are refused. Every call is charged two
+operand validations and one copied word, plus a presence cell for a present
+checked result.
 
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
@@ -576,6 +641,100 @@ combined depth, malformed authority, and a real stored atom passed to a helper.
 These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
+
+#### Shared-read cost schedule (`edict.core-cost/v2`)
+
+A pure Core module that requires the capability `core.cost.shared-reads/v1`
+is metered and judged under Amblicit's shared-read schedule,
+`edict.core-cost/v2` (amblicit#324, Amblicit `da1574f1`). Every module without
+the capability keeps the copying schedule described above, exactly as before.
+
+The schedule is only sound if reads really are cheap, so the runtime runs such
+a module on a separate evaluator
+([`edict_pure/shared_reads.rs`](../../crates/warp-core/src/edict_pure/shared_reads.rs)).
+Its values are immutable and reference-counted. Reading a local, a field, a
+list element or fold state returns the stored value itself, not a copy.
+Construction allocates a new shell of shared references. The copying
+evaluator is unchanged. Under the schedule:
+
+- every expression node costs one step; reads, `if`, `match`, `fold`, calls
+  and locals cost nothing more, and allocate nothing;
+- a constant costs its value cell; byte constants are copied in full;
+- a record, list literal or variant costs its shell, one cell plus one per
+  field or item (seven cells for a variant), in steps and in 64-byte cells
+  plus key and label bytes; shared children are not charged again;
+- `listAt` costs nothing more and does not rescan the list; `listLen` costs
+  one fresh cell; `listAppend` and `listConcat` cost a new shell with one cell
+  per result item;
+- a call costs one step per parameter plus two, and a fold one step per
+  iteration plus the call; arguments, results and fold state are passed by
+  reference;
+- unsigned arithmetic costs one step per operand cell, and its scalar result
+  is held inline;
+- a match costs one step per arm plus one, and one more for a payload binder;
+- a comparison scans both operands in full;
+- the intent's input and output are validated and converted at full size, two
+  steps per cell plus their bytes.
+
+The lowerer
+([`shared_reads.rs`](../../crates/echo-edict-provider-lowerer/src/executable_operation/source_functions/shared_reads.rs))
+and the verifier
+([`shared_charge.rs`](../../crates/echo-edict-provider-verifier/src/executable_operation/source_functions/shared_charge.rs))
+each apply Amblicit's static rules from
+`target_ir/fold_work/shared_reads.rs`, so their minimum budget equals the
+compiler's. Each static rule charges at least what the runtime charges for the
+same node. Where Amblicit's code and its prose differ, the judges follow the
+code: a record shell is charged two cells per field statically, while the
+runtime charges one. The ordinary judgment and audit still run first and alone
+establish typing, totality and depth; the cost pass reads the types they
+recorded. A module whose copying cost overflows `u64` is therefore still
+refused.
+
+Echo admits the capability on the pure route only. The read, graph-read and
+effect routes have no shared-read rules: the runtime's shared helper decoder
+refuses the capability there, and the lowerer and verifier refuse it on those
+routes too. Under the schedule, byte intrinsics and imported helpers are
+refused by all three, because the schedule leaves the storage of a computed
+byte string uncharged. Identity intrinsics, `Option` operations, ordered
+records, checked integer operations and `fail` have no shared-read rule in
+Echo either, and the runtime refuses them; a pure
+intent cannot call a failing helper, because only an effect program's
+`attempt` maps failures.
+
+The [shared corpus](../../crates/warp-core/tests/fixtures/edict-core-cost-v2/README.md)
+holds Core modules that the pinned compiler produced at their minimum budgets,
+together with their producer. All three judges read the same bytes. For each
+of Amblicit's four adversarial programs that Echo admits, the lowerer and
+verifier admit the compiler minimum and refuse one step, one allocated byte or
+one output byte less. The runtime runs the worst-case input within the minimum
+and refuses one step or byte below its own metered work. Generated inputs stay
+within the minimum and match the copying evaluator's result. Goldens pin the
+copying-schedule cost of the same programs without the capability in all three
+judges. The bounded-descent rope maps a typed failure with `attempt`, which
+Echo admits only on the effect-program route, so no judge reads its corpus
+entry under the shared-read schedule yet.
+
+`maxAllocatedBytes` keeps its cumulative meaning under both schedules: the
+runtime adds every charged allocation and never refunds. The shared-read
+schedule does not depend on peak live memory.
+
+Measured on 2026-11-16 (Apple silicon, release build, Echo `c4b93ab7`), with
+fail-free variants of the bounded-descent rope that a test-only harness called
+directly. The variants were the nested and padded-flat split loops from the
+rope cost investigation, 27 split cases per variant. v1 and v2 results were
+byte-identical in all 162 case pairs. The figures are medians across cases:
+
+| Variant | v1 steps | v2 steps | v1 charged bytes | v2 charged bytes | v1 time | v2 time | v1 peak RSS | v2 peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| nested, height 8, 64 nodes | 566,162 | 28,063 | 26,585,819 | 72,503 | 5.6 ms | 0.06 ms | 6.3 MB | 5.8 MB |
+| nested, height 16, 256 nodes | 5,666,710 | 60,938 | 255,563,140 | 186,399 | 52.7 ms | 0.14 ms | 7.7 MB | 6.1 MB |
+| flat, height 16, 594 rounds | 8,386,622 | 93,744 | 376,456,935 | 241,824 | 75.2 ms | 0.19 ms | 7.8 MB | 6.4 MB |
+
+Padded fold rounds, which leave the state unchanged, take 41–71% of v1 steps
+and 26–67% of v2 steps across the six variants. Fold semantics are unchanged:
+every iteration of the bound still runs. Peak RSS is that of the whole test
+process, measured with `/usr/bin/time -l` on one case (3.2 MB with no
+evaluation). These are local measurements, not a contract.
 
 #### Closed variants in provider judgments and the runtime
 
@@ -1068,7 +1227,7 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
-Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), from Amblicit merge `2269d81f257f7794b44270cf3f7ca330966a0784`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
+Echo's contract-pack admission authenticates one [current upstream publication](../../schemas/edict-provider/contracts/v1/README.md), `typed-failures-v1` from Amblicit merge `0734b499adb7c79ddbf6b8290256c83d5240731e`. The sole entry point fixes the schema and manifest digests, manifest size and inventories. Historical pairs are rejection-test evidence, not production choices.
 
 The current schema includes the authenticated source closure, bounded fold
 expressions and structured Target IR, with phased-domain collision refusals.
@@ -1088,6 +1247,20 @@ not replace Edict's source parsing or import-graph authentication. The generic
 bounded-read decoder applies the same bounded envelope checks and rechecks the
 closure identity under the selected source domain before any reading. Pure
 execution continues to require its independently supplied exact package pin.
+
+Authored effect programs may call helpers from digest-pinned source modules
+(#1009). Amblicit links those helpers into the one Core module, so the lowerer,
+the verifier and the runtime judge and run them exactly as they do the entry
+module's own helpers. Each of the three judges also reads the retained source:
+one `edict.source/v1` string, or an `edict.source-closure/v1` envelope. In
+every module's declaration preamble, each `use module` line must name a
+retained module by its exact `edict.source/v1` identity, and the pins from the
+entry module must reach every retained module. A `use target` line must name
+the selected pinned profile, and a `use lawpack` line the bound lawpack. A
+substituted module, an unpinned module, or a pin to a module the closure does
+not retain refuses. A single source retains no modules, so a pin in it refuses.
+This is a binding check on the retained provenance; it does not reparse helper
+bodies or replace Amblicit's import-graph authentication.
 
 The current semantic declaration includes the source-module input alternative
 and its schema binding. Generation and raw package admission use the same
@@ -1181,6 +1354,164 @@ establish installation, public request authorization, a causal Tick, WAL
 retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
 [#740](https://github.com/flyingrobots/echo/issues/740).
 
+#### Typed outgoing-edge and guided closure reads
+
+The bounded-read route carries two graph-read intrinsics end to end. Authored
+Amblicit source compiles through the unmodified public compiler, the provider
+lowerer, the structurally separate verifier and the promoted checked
+components, and the generic bounded-read runtime evaluates the exact resulting
+packages. The retained public packages, reports and authored source live in
+`crates/warp-core/tests/fixtures/edict-graph-read/`. The
+[isolated host witness](../../scripts/verify-edict-provider-host-v1.sh)
+recompiles that source in CI with the pinned compiler and requires
+byte-identical output. It also requires the predecessor provider package to refuse
+the same source, and, as a control, to still compile an existing node-read
+program. The semantic edge-case witnesses in
+`crates/warp-core/tests/edict_node_read/graph_reads.rs` use explicitly
+synthetic packages; the public packages are evaluated separately.
+Graph reads remain bounded-read observations only. Authored effect programs
+do not yet carry them; that route is owned by
+[#978](https://github.com/flyingrobots/echo/issues/978).
+
+**Provider judgments.** The lowerer and the separate verifier accept either
+intrinsic only when the configuration declares `graphReads`, and refuse a
+declaration that no step uses. Both check the exact structural signatures
+below, that a closure's occurrences carry exactly the guide type it was started
+with, and that the declared selector helper decides over that closure's node
+and guide types. Each runtime failure must map to exactly one authored arm of a
+fixed authority class. Resource limits map to `resourceFault`, an insufficient
+selector maps to `domainMappable`, and malformed storage maps to
+`integrityFault`. A graph-read package binds the typed footprint contract
+below. A package relabelled with the node-aperture contract, a step re-bound to
+another intrinsic, or swapped selector and storage arms is rejected.
+
+Each side also proves, independently, that the declared budgets cover the
+worst case. A typed edge read counts as one read attempt; a closure counts every
+node it may resolve plus one typed range per declared edge type for every
+occurrence it may record. The sum must fit `maxReads`. The whole-intent
+charge includes the declared `maxEdgeScans` (one step and 128 bytes per
+scanned edge). For a closure it also covers:
+
+- each node: its atom, charged once when read and again in its row;
+- each occurrence: one step, its guide and its row;
+- each possible edge row: the row, the candidate's parts, the candidate again
+  as the selector's argument with its validation, the costliest source helper
+  and the returned guide.
+
+Tests in each provider evaluate the public closure package with the runtime
+over a plain view and require the meter's actual spend to stay within that
+charge. The proof covers evaluation over a plain view only. A recording frame
+also charges its observation storage, permission records and per-range
+bookkeeping to the same frame meter, as it already does for node-atom reads,
+so a package near its declared budget can still be refused by a recording
+frame. The static proof does not include that overhead yet. The read-image
+export refuses with `ExportLimitExceeded`, instead of hashing unbounded content,
+when the atoms it retains exceed the read-storage ceiling.
+
+**Recorded evidence.** A recording frame bound to a typed footprint law
+evaluates graph reads and witnesses them in its read image. The law is the
+graph aperture: range edge types, read node types, atom types and portal
+owners are authorized as for node and range reads. A typed range records the
+source node and the range with its matching edge pairs; a bucket over the
+remaining scan allowance records the source observation that decided the
+authored scan bound and inspects no edge. A materialized node records the node
+and its alpha slot; an empty slot is retained as typeless absence. A node named
+by an edge but not stored records its absence under the type of the node whose
+edge named it and keeps the malformed-storage outcome. An untyped recording
+frame grants no graph read. A scan charges every edge in the source's bucket, of any
+type, and the read image witnesses that bucket's size on the source's node row,
+whether the scan ran or was refused at the scan bound. The size that decided
+each scan's bound and charge is therefore evidence, and `confirm_bucket_sizes`
+refuses an image whose recorded size differs from the bucket at its basis with
+`BucketSizeMismatch`; the layout is in
+[Generated Rules](../topics/GeneratedRules.md). Authored effect programs may
+call the same reads as `echo.dpo@2` effect steps; effect derivation confirms
+their bucket sizes at the image's basis
+([#982](https://github.com/flyingrobots/echo/issues/982)). A read image carrying a second, conflicting
+observation of one slot is refused as `InvalidImage`; a stale basis refuses
+with `BasisMismatch` before any read.
+
+A package declares graph reads in its lowering configuration. The optional
+`graphReads` record has exactly `maxEdgeScans` (1 to 65,536), `maxClosureNodes`
+(at most 4,096) and `maxClosureDepth` (at most 256), plus `closureSelector` when
+the program uses a closure read. A package with that declaration carries the
+footprint contract `echo.operation.footprint.typed-graph-read-aperture/v1`; a
+package without it keeps `explicit-node-read-aperture/v1`. A graph-read step in
+a package that does not declare `graphReads`, or either declaration under the
+other footprint contract, refuses with `UnsupportedProgram`. Existing node-read
+packages are unchanged.
+
+The host adds a `GraphReadAperture` to its `ReadView`: the edge types whose
+ranges may be read, the actual node types a discovered node may have, and the
+bucket edges one evaluation may inspect. The explicit node aperture still
+selects every edge-read source and closure start. A view without a graph
+aperture grants no graph read. An ungranted edge type or discovered node type
+refuses with `OutsideGraphAperture` before its value reaches the program.
+
+`echo.dpo@1.outgoing-edge-read` takes exactly `warpId`, `nodeId` and `edgeType`,
+each 32 bytes, and returns a list of `{ edgeId, toId }` in edge-identifier
+order. A present source with no matching edge yields the empty list. Its three
+failures are distinct authored arms:
+
+| Runtime tag                        | Meaning                                              |
+| ---------------------------------- | ---------------------------------------------------- |
+| `echo.edge-source-missing/v1`      | the source node is absent                            |
+| `echo.edge-bound-exceeded/v1`      | more edges match than the declared result list holds |
+| `echo.edge-scan-bound-exceeded/v1` | the source bucket exceeds the remaining scan bound   |
+
+`echo.dpo@1.closure-read` takes exactly `warpId`, `nodeId`, `edgeTypes` (at
+most 16 distinct types, in the order children are offered), `maxNodes`,
+`maxDepth` and an application-typed `guide`. It returns exactly `nodes`,
+`edges` and `occurrences`:
+
+- a node row is `{ nodeId, nodeType, atomType, atomBytes }`, present once per
+  distinct node identity, in first-discovery order. `atomType` is empty when
+  the node has no alpha atom;
+- an edge row is `{ from, slot, edgeId, node }`: the expanded occurrence it
+  leaves, the index of its type in `edgeTypes`, and the node row it reaches;
+- an occurrence row is `{ node, edge, depth, guide }`: one selected position,
+  the edge row it arrived by, and the guide the selector assigned to it. The
+  start is occurrence 0 at depth 0, where `edge` carries no meaning.
+
+Material is deduplicated by node identity; traversal meaning is not. A leaf
+reached through both children of one branch is one node row and two
+occurrences, each with its own edge row and guide.
+
+The selector is the source helper the configuration names. Its one parameter
+is exactly `{ guide, depth, slot, parent, child }` over the closure's own guide
+and node-row types, and it returns exactly `{ expand, guide, wellFormed,
+sufficient }`. The runtime calls it once for every child of every expanded
+occurrence, in declared edge-type order and then edge-identifier order, and
+expands occurrences breadth-first in selection order. Echo interprets none of
+the guide or atom bytes; path and interval meaning live in the guide the
+selector computes. A helper of another shape, an undeclared selector, or a
+selector the module does not define refuses the package.
+
+The closure's seven failures are distinct authored arms:
+
+| Runtime tag                             | Raised when                                                                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `echo.closure-start-missing/v1`         | the start node is absent                                                                                                                                            |
+| `echo.closure-node-bound-exceeded/v1`   | another distinct node would exceed `maxNodes`, the declared node list, or `maxClosureNodes`                                                                         |
+| `echo.closure-depth-bound-exceeded/v1`  | a selected child lies deeper than `maxDepth` or `maxClosureDepth`                                                                                                   |
+| `echo.closure-scan-bound-exceeded/v1`   | a bucket exceeds the remaining `maxEdgeScans` or host scan allowance                                                                                                |
+| `echo.closure-work-bound-exceeded/v1`   | the declared edge or occurrence list is full                                                                                                                        |
+| `echo.closure-selector-insufficient/v1` | the selector returns `sufficient: false`                                                                                                                            |
+| `echo.closure-storage-malformed/v1`     | the selector returns `wellFormed: false`; an edge leads to an absent node; a node's alpha attachment is a portal; or an atom exceeds the declared `atomBytes` bound |
+
+`wellFormed` is tested before `sufficient`. Bounds apply to the traversal that
+actually happens. Each typed range read inspects the source's whole bucket and
+counts every edge in it, matching or not, before any edge is copied. A child
+the selector declines is still materialized, charged and returned. Each node
+materialization and each typed range read is one read attempt against
+`maxReads`; atom bytes count against `maxReadBytes`. Exhausting a host read,
+step or allocation ceiling remains the generic `ReadCountExceeded`,
+`ReadBytesExceeded` or evaluation refusal, not an authored arm.
+`ReadResult::edge_scans` reports the inspected bucket edges.
+
+A stale expected basis refuses at `ReadView::new` before any read. Graph reads
+borrow the frontier immutably and have no mutation path.
+
 Primary artifact generation also compares the supplied pack's exact schema and
 manifest with the source materials bound into its generation input. This
 defensive identity check returns `ContractPackInputMismatch` on disagreement;
@@ -1244,8 +1575,8 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-current Amblicit contract pack from PR #285 (revision
-`2269d81f257f7794b44270cf3f7ca330966a0784`). Echo admits its exact CDDL,
+current Amblicit contract pack `typed-failures-v1` from PR #317 (revision
+`0734b499adb7c79ddbf6b8290256c83d5240731e`). Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact

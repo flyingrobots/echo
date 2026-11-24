@@ -166,7 +166,13 @@ pub(super) fn verify(
     })
 }
 
-fn package(evidence: &Evidence<'_>, name: &str, intent: &Value, coordinate: &str) -> Check<()> {
+fn package(
+    evidence: &Evidence<'_>,
+    name: &str,
+    intent: &Value,
+    coordinate: &str,
+    graph_reads: bool,
+) -> Check<()> {
     let package = &evidence.package;
     exact(
         package,
@@ -196,7 +202,13 @@ fn package(evidence: &Evidence<'_>, name: &str, intent: &Value, coordinate: &str
         ),
         (
             "footprint_contract_identity",
-            "echo.operation.footprint.explicit-node-read-aperture/v1",
+            // Discovered graph material is not nameable by an explicit node
+            // aperture, so a graph-read package carries the typed contract.
+            if graph_reads {
+                "echo.operation.footprint.typed-graph-read-aperture/v1"
+            } else {
+                "echo.operation.footprint.explicit-node-read-aperture/v1"
+            },
         ),
         (
             "interpreter_profile_identity",

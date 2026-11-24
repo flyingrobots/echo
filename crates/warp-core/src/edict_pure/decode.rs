@@ -129,8 +129,8 @@ pub(super) fn package(
         coordinate: text_field(&core, "coordinate")?,
         remaining: MAX_PROGRAM_NODES,
     };
-    let input_type = parser.ty(text_field(core_intent, "input")?, 0)?;
-    let output_type = parser.ty(text_field(core_intent, "output")?, 0)?;
+    let input_type = parser.boundary_ty(text_field(core_intent, "input")?, 0)?;
+    let output_type = parser.boundary_ty(text_field(core_intent, "output")?, 0)?;
     let mut bindings = Vec::new();
     let mut projection_bindings = BTreeMap::new();
     for binding in array(field(target_intent, "pureBindings")?)? {
@@ -169,7 +169,7 @@ pub(super) fn package(
             parser.predicate(field(constraint, "predicate")?, 0)?,
         ));
     }
-    let helpers = super::functions::decode(&core, &exports, &mut parser)?;
+    let (helpers, schedule) = super::functions::decode_pure(&core, &exports, &mut parser)?;
     if !array(field(&exports, "effects")?)?.is_empty() {
         return Err(Error::UnsupportedProgram);
     }
@@ -215,6 +215,7 @@ pub(super) fn package(
         helpers,
         result,
         limits,
+        schedule,
     })
 }
 

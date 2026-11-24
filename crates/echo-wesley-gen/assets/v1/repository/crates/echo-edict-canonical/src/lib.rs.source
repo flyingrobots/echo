@@ -34,7 +34,18 @@ pub const MAX_CANONICAL_NESTING_DEPTH_V1: usize = 128;
 /// count separately. This is an Echo host resource bound rather than part of
 /// the Edict canonical byte identity; it prevents compact collection headers
 /// from amplifying into unbounded host allocations before admission.
-pub const MAX_CANONICAL_DECODE_NODES_V1: usize = 65_536;
+///
+/// The bound is the provider host's input cap, 1 MiB: Amblicit's application
+/// build sends at most 1,048,576 WIT logical bytes to one provider invocation
+/// (`APPLICATION_BUILD_MAX_INPUT_BYTES`). Every decoded node consumes at least
+/// one input byte, so no artifact the host admits can carry more nodes, and
+/// the budget never refuses a canonical artifact the host sent. The former
+/// 65,536-node bound refused real compiler output below that cap: the flat
+/// ReplaceRange Core is 598,411 bytes and 94,472 nodes (echo#1025). Decoding
+/// stays proportional to input: a decode reserves child nodes before it
+/// allocates them, and a collection cannot declare more children than the
+/// remaining budget.
+pub const MAX_CANONICAL_DECODE_NODES_V1: usize = 1024 * 1024;
 
 /// Stable failure categories for Edict canonical values and byte streams.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -824,23 +824,26 @@ fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
     );
 }
 
-/// The public compiler's shared-read minimums for ten more effect
+/// The public compiler's shared-read minimums for twelve more effect
 /// programs, (name, (steps, bytes)), with Echo's `/v3` effect templates, as
 /// `xtask --example effect_v2_admission` reports them for Amblicit
-/// 615d2e59170c4ed82d2c294302dff2a4c24d2440 (main after amblicit#349, which
-/// sizes a record-valued failure payload field from its value's shape). The
-/// first eight are unchanged from Amblicit 80b52f95, whose checked packages
-/// are byte-identical; the first three are unchanged from 65dc5362. Each
+/// e306ecc9ed22c0eb166351bb9d766150dca617f2 (main after amblicit#350). The
+/// first ten are unchanged from Amblicit 615d2e59 (amblicit#349, which sizes
+/// a record-valued failure payload field from its value's shape), the first
+/// eight from 80b52f95 and the first three from 65dc5362; their checked
+/// packages are byte-identical under e306ecc9. Each
 /// package under `edict-effect-v2-admission/` is byte for byte that
 /// compiler's checked output for its source.
 ///
-/// The last two are the record-valued payload cross-check (echo#1016): a
+/// The ninth and tenth are the record-valued payload cross-check (echo#1016): a
 /// one-field payload `{ at: { value: n } }` in place of `{ at: n }` adds
 /// (6, 330) on an `attempt` arm and on a `require` (the record literal's own
 /// work (4, 197) and encoding `{ value: U64 }` instead of `U64`, (2, 133)).
-/// The same `require` in a loop bounded 3 (`payload-loop-*`) does not agree
-/// yet and is not pinned here; see the fixtures' README.
-const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 10] = [
+/// The last two are the same `require` in a loop bounded 3 (`payload-loop-*`),
+/// scalar and record payload. Since amblicit#350 each iteration
+/// is charged its item step, the binder's validations and the body, with no
+/// binder copy or loop-body result, which the shared runtime never charges.
+const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 12] = [
     ("node-atom-read-v2-admission", (100, 1_631)),
     ("outgoing-edge-read-v2-admission", (244, 8_240)),
     ("mutations-v2-admission", (176, 6_796)),
@@ -857,6 +860,8 @@ const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 10] = [
     ("payload-require-empty-v2-admission", (126, 2_031)),
     ("payload-attempt-record-v2-admission", (151, 2_621)),
     ("payload-require-record-v2-admission", (137, 2_557)),
+    ("payload-loop-scalar-v2-admission", (300, 3_200)),
+    ("payload-loop-record-v2-admission", (318, 4_190)),
 ];
 
 /// Exact admission at the compiler's minimum (echo#1016) for the node-atom

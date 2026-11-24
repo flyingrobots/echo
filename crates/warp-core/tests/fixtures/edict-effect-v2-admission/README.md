@@ -77,12 +77,16 @@ inside `for item in input.items bounded 3` with the scalar payload
 615d2e59 the eight packages above are byte-identical and their minimums
 unchanged. The compiler reports attempt-record (151, 2621), require-record
 (137, 2557), loop-scalar (306, 3584) and loop-record (324, 4574). Echo's
-lowerer and verifier agree on the first two. On both loop programs Echo
-measures (300, 3200) and (318, 4190): (6, 384) below the compiler, (2, 128)
-per iteration, the same with and without the record field, so the record
-term agrees and the gap is in how the loop or its `require` is charged. It is
-not pinned and no constant was changed; whether warp-core stays within Echo's
-lower figure has not been run.
+lowerer and verifier agree on the first two and measure (300, 3200) and
+(318, 4190) on the loops.
+
+Amblicit `e306ecc9ed22c0eb166351bb9d766150dca617f2` (main after amblicit#350)
+no longer charges a loop iteration the binder copy bytes or the loop body's
+`Null` result, which the shared runtime never charges. Under it all twelve
+packages are byte-identical, the first ten minimums are unchanged, and the
+loops are (300, 3200) and (318, 4190), equal to Echo.
+`effect_programs_are_admitted_at_exactly_the_compiler_minimum` pins all twelve
+to that compiler.
 
 The packages are private evaluation witnesses. They do not establish
 installation, a causal Tick, WAL retention or a receipt.

@@ -1757,7 +1757,7 @@ run_full_lane_clippy_core() {
       run_warp_core_clippy_test_target "full-clippy-core" "$test_target"
     done
     echo "[verify-local][clippy-core] trusted_runtime feature matrix and native-rule reachability"
-    scripts/check-trusted-runtime-gate.sh
+    RUSTUP_TOOLCHAIN="$PINNED" scripts/check-trusted-runtime-gate.sh
   fi
 }
 

@@ -7,6 +7,12 @@
 
 ### Added
 
+- A first-principles guide to bounded worklists
+  ([`docs/topics/BoundedWorklists.md`](docs/topics/BoundedWorklists.md),
+  #973). It explains list capacity, step bounds and resource budgets, walks
+  through the public worklist specimen and the fold and append paths in the
+  runtime, and says how the shared-read cost schedule and structured effect
+  loops relate to a fold. Documentation only.
 - Effect programs may call helpers from digest-pinned source modules
   (#1009). The lowerer, the verifier and warp-core previously refused any
   `echo.dpo@2` effect program built from an `edict.source-closure/v1`
@@ -387,6 +393,27 @@
 
 ### Changed
 
+- Committing a tick builds its patch differently, with identical results.
+  The patch digest's small fields are staged in batches of up to 16 KiB and
+  large payloads go to the hasher directly, instead of every field going to
+  the hasher on its own; the ops are sorted once instead of being kept in a
+  map; and the tick's slots are read from the scheduler's conflict sets
+  instead of being collected a second time. Patch bytes, digests and
+  ordering are unchanged.
+
+- `warp-core`: with one execution worker, a tick runs its rules on the
+  thread that commits it instead of on a spawned thread (#932). One worker is
+  the engine default, and the per-tick cap also gives one worker to any tick
+  whose work fits one unit.
+  - Native rules must not rely on a fresh thread-local environment or a
+    spawned thread's default stack per tick, and must not reach back into
+    state the caller holds borrowed across `commit` (a thread-local
+    `RefCell` borrow now panics instead of seeing a fresh copy).
+  - The panic hook now names the committing thread instead of an unnamed
+    worker.
+  - Results, their order, and panic payloads are unchanged. Two or more
+    workers still each get a scoped thread.
+
 - The trusted runtime host, WAL, recovery and receipt machinery build under
   `trusted_runtime` alone (flyingrobots/echo#1026, Decision 0). This moves the
   feature gate and the export gate only. Items that register or run native
@@ -447,6 +474,31 @@
   and every empty payload are unchanged. Two compiler packages with a
   one-field payload, as an `attempt` arm's and as a `require`'s, are retained
   beside the exact admission packages with their sources.
+
+- A commit that fails, by returning an error or because a rule panics, now
+  closes its transaction: applying to it or committing it again returns
+  `EngineError::UnknownTx`, and its reservations are released. The failed
+  attempt's footprint evidence stays readable through
+  `Engine::last_aborted_execution_footprints`, as before. Before, the
+  transaction stayed open with the failed attempt's reservations still
+  held, so committing it again failed with
+  `InternalCorruption("scheduler rejected rewrite but no blockers were
+  found")` whenever one of its rewrites conflicted only with them. Reusing
+  a transaction after a failed commit is unsupported, so it is now refused.
+  A failed commit now also emits the scheduler's
+  `TelemetrySink::on_summary` for its transaction, as a committed one does.
+  Ops applied before an error mid-apply still remain in engine state, as
+  before (#957).
+
+- `warp-core` / `warp-wasm`: `WarpKernel::new` runs one worker on
+  `wasm32-unknown-unknown`, where `std::thread` cannot spawn (with or without
+  `atomics`) and panics abort. A commit with at least one work unit used to
+  reach `std::thread::scope` and trap the module. The single worker now runs
+  inline, so no spawn is attempted (#932). An engine passed to
+  `WarpKernel::with_engine` must also use one worker there. This is
+  established by reading the spawn path and std's wasm thread shim; a wasm
+  runtime test is tracked in #959.
+
 - Echo's provider lowerer and verifier now refuse a footprint law or graph
   schema that warp-core admission refuses (#1023). Both judges deferred those
   contents to the runtime, so they accepted jedit#296's basis-read witness

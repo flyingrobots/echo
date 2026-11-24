@@ -34,6 +34,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 ## Living Topics
 
 - [Topic map](topics/README.md)
+- [Bounded worklists, from first principles](topics/BoundedWorklists.md)
 - [Runtime authority](topics/RuntimeAuthority.md)
 - [Generated rules](topics/GeneratedRules.md)
 - [WARP optics](topics/WarpOptics.md)

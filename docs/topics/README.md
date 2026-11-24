@@ -19,6 +19,7 @@ for the page and relationship contracts.
 
 - [Experimental application root](ApplicationRoot.md)
 - [Benchmark scene fixtures](BenchmarkSceneFixtures.md)
+- [Bounded worklists, from first principles](BoundedWorklists.md)
 - [Causal anchors](CausalAnchors.md)
 - [Causal receipt history](CausalReceiptHistory.md)
 - [Contract inverse admission](ContractInverseAdmission.md)

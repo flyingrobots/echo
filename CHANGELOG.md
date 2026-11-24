@@ -363,6 +363,19 @@
 
 ### Changed
 
+- `warp-core`: with one execution worker, a tick runs its rules on the
+  thread that commits it instead of on a spawned thread (#932). One worker is
+  the engine default, and the per-tick cap also gives one worker to any tick
+  whose work fits one unit.
+  - Native rules must not rely on a fresh thread-local environment or a
+    spawned thread's default stack per tick, and must not reach back into
+    state the caller holds borrowed across `commit` (a thread-local
+    `RefCell` borrow now panics instead of seeing a fresh copy).
+  - The panic hook now names the committing thread instead of an unnamed
+    worker.
+  - Results, their order, and panic payloads are unchanged. Two or more
+    workers still each get a scoped thread.
+
 - The trusted runtime host, WAL, recovery and receipt machinery build under
   `trusted_runtime` alone (flyingrobots/echo#1026, Decision 0). This moves the
   feature gate and the export gate only. Items that register or run native
@@ -401,6 +414,15 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- `warp-core` / `warp-wasm`: `WarpKernel::new` runs one worker on
+  `wasm32-unknown-unknown`, where `std::thread` cannot spawn (with or without
+  `atomics`) and panics abort. A commit with at least one work unit used to
+  reach `std::thread::scope` and trap the module. The single worker now runs
+  inline, so no spawn is attempted (#932). An engine passed to
+  `WarpKernel::with_engine` must also use one worker there. This is
+  established by reading the spawn path and std's wasm thread shim; a wasm
+  runtime test is tracked in #959.
 
 - Echo's provider lowerer and verifier now refuse a footprint law or graph
   schema that warp-core admission refuses (#1023). Both judges deferred those

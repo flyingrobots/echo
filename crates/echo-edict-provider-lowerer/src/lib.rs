@@ -17,6 +17,7 @@ use echo_edict_canonical::{
 mod artifact_binding;
 #[cfg(target_arch = "wasm32")]
 mod component;
+pub mod effect_contract;
 pub mod effect_publication;
 mod executable_operation;
 pub mod refusal_reason;

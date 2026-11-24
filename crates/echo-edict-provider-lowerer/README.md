@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 799,306-byte checked lowerer component has SHA-256
-`4bfd2707790695f541de2b74044b11fc5ffcf0dc82b9bd84d0c06f6c9dec3b87` and has
+The refreshed 802,832-byte checked lowerer component has SHA-256
+`165b41a85d70cfe9f2578cc920ff40e41e2e48d3e1f31410b6b28bea4603e528` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -218,6 +218,13 @@ fixed operations use; no caller supplies it.
 It uses the current `steps`, `read_bytes`, and `write_bytes` budget fields and
 retains the actual lawpack inside the compiled bundle, without a duplicate outer
 lawpack identity.
+
+Publication refuses a configured graph schema or footprint law that runtime
+admission would refuse: either outside its exact canonical shape, or a law
+above the effect profile's 4,096 reads, 256 writes or 65,536 edges per range
+read. It refuses with `EffectPublicationError::Contract`, whose code
+(`effect-program.graph-schema` or `effect-program.footprint-law*`) is the one
+admission reports for the same check (echo#1023).
 
 Before serializing, publication runs the lowerer's own effect-program
 judgment, also available as `effect_publication::judge_effect_program`, and

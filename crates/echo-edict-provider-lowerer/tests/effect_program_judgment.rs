@@ -115,12 +115,26 @@ fn bytes(value: &V) -> &[u8] {
 }
 /// Public compiler witnesses kept outside the shared corpus, beside the
 /// runtime tests that run them.
-const WITNESSES: &[(&str, &str)] = &[(
-    "closure-read-witness",
-    include_str!(
-        "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-executable-operation-package.hex"
+const WITNESSES: &[(&str, &str)] = &[
+    (
+        "closure-read-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-executable-operation-package.hex"
+        ),
     ),
-)];
+    (
+        "identity-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-content-address/identity-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "attachment-digest-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-attachment-digest/bump-executable-operation-package.hex"
+        ),
+    ),
+];
 fn package(name: &str) -> V {
     let hex = RETAINED
         .iter()
@@ -401,22 +415,52 @@ fn effect_program_minimums_under_each_schedule() {
     );
 }
 
-/// The witness's own operation configuration, as its lawpack build wrote it.
-const CLOSURE_CONFIGURATION: &str = include_str!(
-    "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-configuration.hex"
-);
+/// Where a public witness's publication context comes from: its own
+/// operation configuration, as its lawpack build wrote it, and its exports.
+struct Context {
+    configuration: &'static str,
+    schema: &'static str,
+    package: &'static [u8],
+}
 
-/// Judges an edited witness through publication, which reads the graph-read
-/// declaration (and so the closure's selector) from its configuration.
-fn judge_witness(program: &[u8]) -> Result<(), EffectPublicationError> {
-    let configuration = hex::decode(CLOSURE_CONFIGURATION.trim()).expect("hex");
-    let source = echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(
-        b"package consumer.closures.program@1;\n".to_vec(),
-    ))
-    .expect("source");
+fn context(name: &str) -> Context {
+    match name {
+        "closure-read-witness" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-configuration.hex"
+            ),
+            schema: "consumer.closures.exports/v1",
+            package: b"package consumer.closures.program@1;\n",
+        },
+        "identity-witness" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-content-address/identity-configuration.hex"
+            ),
+            schema: "consumer.identity.exports/v1",
+            package: b"package consumer.identity.program@1;\n",
+        },
+        "attachment-digest-witness" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-attachment-digest/bump-configuration.hex"
+            ),
+            schema: "consumer.buffers.exports/v1",
+            package: b"package consumer.buffers.program@1;\n",
+        },
+        _ => panic!("no witness {name}"),
+    }
+}
+
+/// Judges an edited witness through publication, which reads the witness's
+/// configuration (its catalog and, for a closure, its selector).
+fn judge_witness(name: &str, program: &[u8]) -> Result<(), EffectPublicationError> {
+    let context = context(name);
+    let configuration = hex::decode(context.configuration.trim()).expect("hex");
+    let source =
+        echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(context.package.to_vec()))
+            .expect("source");
     encode_effect_publication(EffectPublicationInput {
         compiler_program: program,
-        application_schema_coordinate: "consumer.closures.exports/v1",
+        application_schema_coordinate: context.schema,
         source_artifact: &source,
         source_domain: "edict.source/v1",
         configuration: &configuration,
@@ -425,11 +469,10 @@ fn judge_witness(program: &[u8]) -> Result<(), EffectPublicationError> {
 }
 
 /// The smallest (steps, bytes) the witness's publication admits.
-fn witness_minimum(capability: Option<&str>) -> (u64, u64) {
+fn witness_minimum(name: &str, capability: Option<&str>) -> (u64, u64) {
     const AMPLE: u64 = 1 << 40;
-    let name = "closure-read-witness";
     let search = |admits: &dyn Fn(u64) -> bool| {
-        assert!(admits(AMPLE), "refused even with an ample budget");
+        assert!(admits(AMPLE), "{name}: refused even with an ample budget");
         let (mut low, mut high) = (0_u64, AMPLE);
         while low < high {
             let middle = low + (high - low) / 2;
@@ -442,9 +485,11 @@ fn witness_minimum(capability: Option<&str>) -> (u64, u64) {
         high
     };
     (
-        search(&|steps| judge_witness(&edited(name, capability, Some(steps), Some(AMPLE))).is_ok()),
+        search(&|steps| {
+            judge_witness(name, &edited(name, capability, Some(steps), Some(AMPLE))).is_ok()
+        }),
         search(&|bytes_| {
-            judge_witness(&edited(name, capability, Some(AMPLE), Some(bytes_))).is_ok()
+            judge_witness(name, &edited(name, capability, Some(AMPLE), Some(bytes_))).is_ok()
         }),
     )
 }
@@ -458,17 +503,52 @@ fn witness_minimum(capability: Option<&str>) -> (u64, u64) {
 fn closure_read_witness_minimums_under_each_schedule() {
     let name = "closure-read-witness";
     assert_eq!(
-        judge_witness(&compiled_program(name)),
+        judge_witness(name, &compiled_program(name)),
         Ok(()),
         "as compiled"
     );
     assert_eq!(
-        judge_witness(&edited(name, Some(SHARED), None, None)),
+        judge_witness(name, &edited(name, Some(SHARED), None, None)),
         Ok(()),
         "shared"
     );
     assert_eq!(
-        (witness_minimum(None), witness_minimum(Some(SHARED))),
+        (
+            witness_minimum(name, None),
+            witness_minimum(name, Some(SHARED))
+        ),
         ((9139, 537_742), (8666, 504_387))
+    );
+}
+
+/// The compiler-produced identity witnesses (all four `echo.dpo@2` identity
+/// intrinsics) are judged under the shared-read schedule (echo#1016, family
+/// 3). Each call is charged its catalog rule plus a full copy of every
+/// operand in and of its result out, as Amblicit's schedule charges a target
+/// intrinsic. The copying minimums are unchanged from the copying judgment;
+/// the shared minimums are change-detection goldens that the warp-core
+/// identity witness test runs at exactly.
+#[test]
+fn identity_witness_minimums_under_each_schedule() {
+    let mut measured = Vec::new();
+    for name in ["identity-witness", "attachment-digest-witness"] {
+        assert_eq!(
+            judge_witness(name, &edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}: shared"
+        );
+        measured.push((
+            name,
+            witness_minimum(name, None),
+            witness_minimum(name, Some(SHARED)),
+        ));
+    }
+    // (name, copying (steps, bytes), shared (steps, bytes))
+    assert_eq!(
+        measured,
+        [
+            ("identity-witness", (1898, 71_061), (1246, 11_580)),
+            ("attachment-digest-witness", (371, 11_334), (283, 3209)),
+        ]
     );
 }

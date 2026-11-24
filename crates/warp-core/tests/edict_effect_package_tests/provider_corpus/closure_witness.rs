@@ -152,7 +152,7 @@ fn run_closure(package: &V) -> (Result<Vec<u8>, EffectFrameError>, u64, u64) {
 /// Unlike `rebuild`, every other part of the public package (its graph
 /// schema, footprint law, graph-read declaration and lowering artifacts) is
 /// kept, since a closure read depends on them.
-fn repinned(package: &V, capability: &str, budget: Option<(u64, u64)>) -> V {
+pub(super) fn repinned(package: &V, capability: &str, budget: Option<(u64, u64)>) -> V {
     let mut program = decode(get(package, "program"));
     let mut bundle = decode(get(&program, "compiled_program"));
     let mut core = decode(get(&bundle, "core_artifact"));

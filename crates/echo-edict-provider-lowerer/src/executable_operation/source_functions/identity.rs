@@ -46,6 +46,21 @@ pub(super) fn parameters(name: &str) -> Option<Vec<Ty>> {
     })
 }
 
+/// The catalog cost rule of the identity intrinsic `name`: its base steps
+/// and one coefficient per operand, charged on that operand's sequence
+/// maximum. The pinned catalog carries exactly these (see
+/// `effect_program::identity`); the shared-read schedule charges them as
+/// Amblicit's template for a target intrinsic.
+pub(super) fn rule(name: &str) -> Option<(u64, &'static [u64])> {
+    Some(match name {
+        "echo.dpo@2.contentAddress" => (71, &[0, 0, 0, 1, 67]),
+        "echo.dpo@2.contentEdgeId" => (70, &[0, 0, 0, 0]),
+        "echo.dpo@2.slotEdgeId" => (69, &[0, 0, 0]),
+        "echo.dpo@2.attachmentValueDigest" => (68, &[0, 1]),
+        _ => return None,
+    })
+}
+
 /// The result type and charged work of a call to `name` whose operands have
 /// the static types `actual`.
 pub(super) fn judge(name: &str, actual: &[Ty]) -> Check<(Ty, Cost)> {

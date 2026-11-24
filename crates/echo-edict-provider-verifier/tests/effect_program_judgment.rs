@@ -102,9 +102,27 @@ const RETAINED: &[(&str, &str)] = retained![
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");
 
+/// Public compiler witnesses kept outside the shared corpus, beside the
+/// runtime tests that run them.
+const WITNESSES: &[(&str, &str)] = &[
+    (
+        "identity-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-content-address/identity-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "attachment-digest-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-attachment-digest/bump-executable-operation-package.hex"
+        ),
+    ),
+];
+
 fn package_bytes(name: &str) -> Vec<u8> {
     let hex = RETAINED
         .iter()
+        .chain(WITNESSES)
         .find_map(|(entry, hex)| (*entry == name).then_some(*hex))
         .expect(name);
     hex::decode(hex.trim()).expect("hex")
@@ -662,6 +680,31 @@ fn effect_package_minimums_equal_the_lowerer_minimums() {
             ("structured-loop-control", (173, 18_325), (107, 6903)),
             ("structured-branch-control", (179, 18_453), (177, 7031)),
             ("structured-nested-control", (456, 48_136), (254, 13_742)),
+        ]
+    );
+}
+
+/// The identity witnesses (all four `echo.dpo@2` identity intrinsics) are
+/// audited under the shared-read schedule (echo#1016, family 3), and the
+/// verifier's minimums under both schedules equal the lowerer's, which
+/// `identity_witness_minimums_under_each_schedule` in the lowerer pins
+/// independently (oracle: the other judge).
+#[test]
+fn identity_witness_minimums_equal_the_lowerer_minimums() {
+    let mut measured = Vec::new();
+    for name in ["identity-witness", "attachment-digest-witness"] {
+        assert_eq!(
+            verify_effect_package(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}: shared"
+        );
+        measured.push((name, minimum(name, None), minimum(name, Some(SHARED))));
+    }
+    assert_eq!(
+        measured,
+        [
+            ("identity-witness", (1898, 71_061), (1246, 11_580)),
+            ("attachment-digest-witness", (371, 11_334), (283, 3209)),
         ]
     );
 }

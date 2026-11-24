@@ -12,8 +12,8 @@ use crate::edict_pure::{
     evaluate::Meter,
     integer_operations,
     model::{
-        Comparison, Expr, Helper, IntegerOperation, MatchArm, OptionOperation, Predicate,
-        RuntimeType,
+        Comparison, Expr, Helper, IdentityIntrinsic, IntegerOperation, MatchArm, OptionOperation,
+        Predicate, RuntimeType,
     },
     EvaluationError as Error,
 };
@@ -178,6 +178,7 @@ impl<'p> Evaluator<'p, '_> {
             Expr::Option {
                 operation, args, ..
             } => self.option_operation(*operation, args, locals, depth),
+            Expr::Identity(intrinsic, args) => self.identity(*intrinsic, args, locals, depth),
             // Byte intrinsics are refused before evaluation; see `admit`.
             Expr::ByteUtf8 { .. }
             | Expr::ByteAt { .. }
@@ -185,10 +186,46 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ByteCount { .. }
             | Expr::ByteSlice { .. }
             | Expr::ByteConcat { .. }
-            | Expr::Identity(..)
             | Expr::Fail(_)
             | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
         }
+    }
+
+    /// An identity intrinsic runs outside the shared heap: every operand is
+    /// copied in and charged at full size, as a target intrinsic is under
+    /// Amblicit's schedule, then the call does its copying-schedule work and
+    /// returns a new 32-byte value.
+    fn identity(
+        &mut self,
+        intrinsic: IdentityIntrinsic,
+        args: &'p [Expr],
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Shared<'p>, Error> {
+        let types = intrinsic.parameter_types();
+        if args.len() != types.len() {
+            return Err(Error::InvalidArtifact);
+        }
+        let mut operands = Vec::new();
+        operands
+            .try_reserve_exact(args.len())
+            .map_err(|_| Error::HostAllocationFailed)?;
+        for (argument, ty) in args.iter().zip(&types) {
+            let shared = self.expression(argument, locals, depth + 1)?;
+            self.build(shared.full_size()?)?;
+            operands.push(super::to_canonical(&shared, ty, depth + 1)?);
+        }
+        let identity = crate::edict_pure::identity::apply(
+            intrinsic,
+            &operands,
+            self.meter,
+            crate::edict_pure::identity::Scratch::InOperandCopy,
+            depth,
+        )?;
+        let Value::Bytes(bytes) = identity else {
+            return Err(Error::InvalidArtifact);
+        };
+        Ok(Shared::Bytes(Rc::from(bytes)))
     }
 
     /// An `Option` consumer reads its operands by reference and charges one

@@ -135,14 +135,15 @@ pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
         | Expr::ByteCount { .. }
         | Expr::ByteSlice { .. }
         | Expr::ByteConcat { .. }
-        | Expr::Identity(..)
         | Expr::Option {
             operation: OptionOperation::Some | OptionOperation::None,
             ..
         }
         | Expr::Fail(_)
         | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
-        Expr::Option { args, .. } => args.iter().try_for_each(admit_expression),
+        Expr::Option { args, .. } | Expr::Identity(_, args) => {
+            args.iter().try_for_each(admit_expression)
+        }
         Expr::Variant {
             payload: Some(value),
             ..

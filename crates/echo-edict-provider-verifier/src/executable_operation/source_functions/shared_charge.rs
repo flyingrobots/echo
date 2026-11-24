@@ -27,6 +27,10 @@
 //! - a payload binder costs one tick, and dispatch one per arm plus one;
 //! - the intent's input and output cost two ticks per cell and their bytes.
 //!
+//! - an identity intrinsic costs its catalog rule over its operands'
+//!   sequence maxima, plus its operands copied in and its result copied out
+//!   in full, each as a built value;
+//!
 //! Byte intrinsics, `Option` constructors and imported helpers have no
 //! shared-read rule in Echo yet, so the module is refused. The ordinary audit runs first and alone establishes
 //! typing, totality and depth; this check reads the schemas it recorded.
@@ -576,6 +580,27 @@ impl<'a> Checker<'a, '_> {
                 Ok(ticks(charge))
             }
             _ if callee.starts_with("core.") => Err(()),
+            // A target intrinsic runs outside the shared heap: its catalog
+            // rule over its operands' sequence maxima, every operand copied
+            // in and its result copied out in full.
+            _ if self.identity && super::identity::is_identity(callee) => {
+                let (base, per_unit) = super::identity::catalog_rule(callee).ok_or(())?;
+                let mut charge = self.footprint(node)?.built()?;
+                let mut rule = base;
+                for (index, argument) in arguments.iter().enumerate() {
+                    charge.append(self.footprint(argument)?.built()?)?;
+                    let coefficient = *per_unit.get(index).ok_or(())?;
+                    if coefficient > 0 {
+                        rule = self
+                            .longest(argument)?
+                            .checked_mul(coefficient)
+                            .and_then(|work| work.checked_add(rule))
+                            .ok_or(())?;
+                    }
+                }
+                charge.append(ticks(rule))?;
+                Ok(charge)
+            }
             _ => {
                 let mut each = Vec::new();
                 for argument in arguments {
@@ -584,6 +609,32 @@ impl<'a> Checker<'a, '_> {
                 Ok(self.shared_helper(callee, each)?.0)
             }
         }
+    }
+
+    /// The longest byte string or list `node` may evaluate to, as a target
+    /// intrinsic's cost rule measures an operand: a list literal by its
+    /// items, a branch by its longer arm, a failure as empty, and anything
+    /// else by its declared bound.
+    fn longest(&self, node: &Value) -> Check<u128> {
+        Ok(match string(get(node, "kind")?)? {
+            "list" => count(sequence(get(node, "values")?)?.len())?,
+            "fail" => 0,
+            "if" => self
+                .longest(get(node, "then")?)?
+                .max(self.longest(get(node, "else")?)?),
+            "match" => {
+                let mut longest = 0;
+                for arm in sequence(get(node, "arms")?)? {
+                    longest = self.longest(get(arm, "body")?)?.max(longest);
+                }
+                longest
+            }
+            _ => match self.audited(node)?.representation() {
+                Schema::Blob { high, .. } => u128::from(*high),
+                Schema::Sequence { bound, .. } => u128::from(*bound),
+                _ => return Err(()),
+            },
+        })
     }
 
     /// The largest value `node` may evaluate to.

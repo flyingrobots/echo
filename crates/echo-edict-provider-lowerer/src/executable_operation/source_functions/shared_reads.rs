@@ -14,8 +14,11 @@
 //! step per operand cell; an `Option` consumer adds its operand and result
 //! bytes. Each of those prelude calls is also charged the value it builds in
 //! full (amblicit#340). A list shell is sized by the result's proven length
-//! when one exists (amblicit#336; see `reach`). Byte intrinsics, `Option` constructors and imported helpers have no
-//! shared-read rule in Echo yet, so the module is refused.
+//! when one exists (amblicit#336; see `reach`). An identity intrinsic call
+//! is charged its catalog rule on its operands' sequence maxima, plus a full
+//! copy of every operand in and of its result out. Byte intrinsics, `Option`
+//! constructors and imported helpers have no shared-read rule in Echo yet, so
+//! the module is refused.
 //!
 //! The ordinary judgment runs first and alone establishes typing, totality and
 //! depth; this pass reads the types it recorded and only computes cost.
@@ -580,6 +583,31 @@ impl<'a> Judgment<'a> {
                 Ok(steps(cost))
             }
             _ if callee.starts_with("core.") => Err(()),
+            // A target intrinsic runs outside the shared heap: its catalog
+            // rule, plus every operand copied in and its result copied out
+            // in full (Amblicit's `shared_foreign_copies`).
+            _ if self.identity && super::identity::rule(callee).is_some() => {
+                let (base, coefficients) = super::identity::rule(callee).ok_or(())?;
+                let args = list(get(value, "args")?)?;
+                if args.len() != coefficients.len() {
+                    return Err(());
+                }
+                let mut template = base;
+                for (argument, coefficient) in args.iter().zip(coefficients) {
+                    if *coefficient != 0 {
+                        let maximum = self.sequence_max(argument)?;
+                        template = coefficient
+                            .checked_mul(maximum)
+                            .and_then(|work| work.checked_add(template))
+                            .ok_or(())?;
+                    }
+                }
+                let mut cost = steps(template).plus(self.size(value)?.evaluation()?)?;
+                for argument in args {
+                    cost = cost.plus(self.size(argument)?.evaluation()?)?;
+                }
+                Ok(cost)
+            }
             _ => {
                 let mut arguments = Vec::new();
                 for argument in list(get(value, "args")?)? {
@@ -587,6 +615,30 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(self.shared_function(callee, arguments)?.0)
             }
+        }
+    }
+
+    /// The longest sequence `value` can evaluate to, as an intrinsic's cost
+    /// rule reads it: the larger branch, a list literal's length, nothing
+    /// for a failure, and otherwise its type's declared maximum.
+    fn sequence_max(&self, value: &Value) -> Check<u64> {
+        match string(get(value, "kind")?)? {
+            "fail" => Ok(0),
+            "if" => Ok(self
+                .sequence_max(get(value, "then")?)?
+                .max(self.sequence_max(get(value, "else")?)?)),
+            "match" => {
+                let mut maximum = 0_u64;
+                for arm in list(get(value, "arms")?)? {
+                    maximum = maximum.max(self.sequence_max(get(arm, "body")?)?);
+                }
+                Ok(maximum)
+            }
+            "list" => length(list(get(value, "values")?)?.len()),
+            _ => match self.recorded(value)?.representation() {
+                Ty::Bytes(_, max) | Ty::List(_, max) => Ok(*max),
+                _ => Err(()),
+            },
         }
     }
 

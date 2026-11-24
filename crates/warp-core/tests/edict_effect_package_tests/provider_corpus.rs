@@ -1543,6 +1543,8 @@ fn manifest(entries: &[Entry]) -> String {
 
 #[path = "provider_corpus/closure_witness.rs"]
 mod closure_witness;
+#[path = "provider_corpus/family_four.rs"]
+mod family_four;
 #[path = "provider_corpus/identity_witness.rs"]
 mod identity_witness;
 #[path = "provider_corpus/shared_schedule.rs"]

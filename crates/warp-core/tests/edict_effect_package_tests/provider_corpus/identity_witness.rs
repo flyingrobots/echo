@@ -22,14 +22,14 @@ use warp_core::{
 
 /// One witness: its package, the graph it runs on, its input, its typed
 /// reads and the lowerer's shared minimum (steps, bytes).
-struct Witness {
-    package: &'static str,
-    warp: WarpId,
-    store: fn() -> GraphStore,
-    root: NodeId,
-    input: fn() -> Vec<u8>,
-    reads: &'static [(NodeId, TypeId)],
-    minimum: (u64, u64),
+pub(super) struct Witness {
+    pub(super) package: &'static str,
+    pub(super) warp: WarpId,
+    pub(super) store: fn() -> GraphStore,
+    pub(super) root: NodeId,
+    pub(super) input: fn() -> Vec<u8>,
+    pub(super) reads: &'static [(NodeId, TypeId)],
+    pub(super) minimum: (u64, u64),
 }
 
 const IDENTITY_WARP: WarpId = WarpId([0x03; 32]);
@@ -132,7 +132,7 @@ const WITNESSES: [(&str, Witness); 2] = [
 
 /// Runs `package` as `witness`, returning its output and the steps and bytes
 /// the runtime charged.
-fn run(witness: &Witness, package: &V) -> (Result<Vec<u8>, EffectFrameError>, u64, u64) {
+pub(super) fn run(witness: &Witness, package: &V) -> (Result<Vec<u8>, EffectFrameError>, u64, u64) {
     let prepared = prepare(package).expect("package prepares");
     let program = prepared.program().as_effect_program().expect("effect");
     let root = NodeKey {

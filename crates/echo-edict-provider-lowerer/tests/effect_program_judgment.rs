@@ -134,6 +134,12 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-attachment-digest/bump-executable-operation-package.hex"
         ),
     ),
+    (
+        "option-value-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-option-value/option-executable-operation-package.hex"
+        ),
+    ),
 ];
 fn package(name: &str) -> V {
     let hex = RETAINED
@@ -446,6 +452,13 @@ fn context(name: &str) -> Context {
             schema: "consumer.buffers.exports/v1",
             package: b"package consumer.buffers.program@1;\n",
         },
+        "option-value-witness" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-option-value/option-configuration.hex"
+            ),
+            schema: "consumer.effect.exports/v1",
+            package: b"package consumer.effect.program@1;\n",
+        },
         _ => panic!("no witness {name}"),
     }
 }
@@ -552,3 +565,56 @@ fn identity_witness_minimums_under_each_schedule() {
         ]
     );
 }
+
+/// Family 4 under the shared-read schedule (echo#1016): `Option`
+/// constructors (the public option witness builds `some` and `none` in a
+/// helper), and ordered records whose fields `fail`, called under `attempt`
+/// (the retained ordered-record programs). The rules are
+/// Amblicit's at 26a201e7: an ordered record charges its shell as a record,
+/// a `fail` one step, an `Option` constructor its copying charge plus the
+/// value it builds (amblicit#340), and an `attempt` its value plus the
+/// costlier failure arm's payload. The copying minimums are unchanged; the
+/// shared minimums are change-detection goldens the verifier must equal and
+/// the warp-core family-4 test runs at exactly.
+#[test]
+fn family_four_minimums_under_each_schedule() {
+    let mut measured = Vec::new();
+    for name in FAMILY_FOUR {
+        assert_eq!(
+            judge_effect_program(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}: shared"
+        );
+        measured.push((name, minimum(name, None), minimum(name, Some(SHARED))));
+    }
+    let name = "option-value-witness";
+    assert_eq!(
+        judge_witness(name, &edited(name, Some(SHARED), None, None)),
+        Ok(()),
+        "{name}: shared"
+    );
+    measured.push((
+        name,
+        witness_minimum(name, None),
+        witness_minimum(name, Some(SHARED)),
+    ));
+    // (name, copying (steps, bytes), shared (steps, bytes))
+    assert_eq!(measured, FAMILY_FOUR_MINIMUMS);
+}
+
+/// The retained family-4 programs.
+const FAMILY_FOUR: [&str; 4] = [
+    "ordered-record-z-first",
+    "ordered-record-a-first",
+    "ordered-record-guarded-z-first",
+    "ordered-record-guarded-a-first",
+];
+
+#[allow(clippy::type_complexity)]
+const FAMILY_FOUR_MINIMUMS: [(&str, (u64, u64), (u64, u64)); 5] = [
+    ("ordered-record-z-first", (57, 2793), (110, 1489)),
+    ("ordered-record-a-first", (57, 2793), (110, 1489)),
+    ("ordered-record-guarded-z-first", (71, 3177), (250, 1745)),
+    ("ordered-record-guarded-a-first", (71, 3177), (250, 1745)),
+    ("option-value-witness", (88, 2936), (828, 942)),
+];

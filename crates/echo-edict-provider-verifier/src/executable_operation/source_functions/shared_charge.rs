@@ -18,11 +18,14 @@
 //!   or `listConcat` a shell of the result's proven length, else its
 //!   capacity (amblicit#336; see `bounds`);
 //! - a prelude call that builds a value (integer operations, `Option`
-//!   readers) is also charged that value in full (amblicit#340);
+//!   constructors and readers) is also charged that value in full
+//!   (amblicit#340);
+//! - an ordered record costs the shell of the record it builds, and a
+//!   `fail` one tick and no value;
 //! - unsigned and checked arithmetic and min/max keep their copying charge,
 //!   one tick per operand cell;
-//! - an `Option` consumer (`isSome`, `unwrap`, `default`) keeps its copying
-//!   charge: one tick per operand cell plus its operand and result bytes;
+//! - an `Option` constructor (`some`, `none`) or consumer (`isSome`,
+//!   `unwrap`, `default`) keeps its copying charge: one tick per operand cell plus its operand and result bytes;
 //! - a comparison scans both operands at their full static size;
 //! - a payload binder costs one tick, and dispatch one per arm plus one;
 //! - the intent's input and output cost two ticks per cell and their bytes.
@@ -31,8 +34,8 @@
 //!   sequence maxima, plus its operands copied in and its result copied out
 //!   in full, each as a built value;
 //!
-//! Byte intrinsics, `Option` constructors and imported helpers have no
-//! shared-read rule in Echo yet, so the module is refused. The ordinary audit runs first and alone establishes
+//! Byte intrinsics and imported helpers have no shared-read rule in Echo
+//! yet, so the module is refused. The ordinary audit runs first and alone establishes
 //! typing, totality and depth; this check reads the schemas it recorded.
 use super::{get, members, sequence, string, unsigned, Charge, Check, Checker, Schema, Value};
 use std::collections::BTreeMap;
@@ -67,13 +70,30 @@ fn meet(left: &Bounds, right: &Bounds) -> Bounds {
 }
 
 /// Prelude calls that build a new value and are charged it in full
-/// (amblicit#340): integer operations and the `Option` readers.
+/// (amblicit#340): integer operations and the `Option` constructors and
+/// readers.
 fn builds_value(callee: &str) -> bool {
-    callee.starts_with("core.integer.")
-        || matches!(
-            callee,
-            "core.option.isSome" | "core.option.unwrap" | "core.option.default"
-        )
+    callee.starts_with("core.integer.") || is_option_operation(callee)
+}
+
+/// The `Option` constructors and readers, all charged as under copying.
+fn is_option_operation(callee: &str) -> bool {
+    matches!(
+        callee,
+        "core.option.some"
+            | "core.option.none"
+            | "core.option.isSome"
+            | "core.option.unwrap"
+            | "core.option.default"
+    )
+}
+
+/// An ordered record's entries as (name, value) pairs, in authored order.
+fn entries(node: &Value) -> Check<Vec<(&str, &Value)>> {
+    sequence(get(node, "fields")?)?
+        .iter()
+        .map(|entry| Ok((string(get(entry, "name")?)?, get(entry, "value")?)))
+        .collect()
 }
 
 /// Whether the module requires the shared-read schedule.
@@ -313,6 +333,17 @@ impl<'a> Checker<'a, '_> {
                 }
                 Ok(all)
             }
+            "orderedRecord" => {
+                let mut all = Bounds::new();
+                for (key, field) in entries(node)? {
+                    for (path, bound) in self.bounds(field)? {
+                        let mut full = vec![key.to_owned()];
+                        full.extend(path);
+                        all.insert(full, bound);
+                    }
+                }
+                Ok(all)
+            }
             "list" => Ok(Bounds::from([(
                 Vec::new(),
                 u64::try_from(sequence(get(node, "values")?)?.len()).map_err(|_| ())?,
@@ -448,7 +479,8 @@ impl<'a> Checker<'a, '_> {
         self.types.step(0)?;
         let mut charge = self.own(node)?;
         let inner = match string(get(node, "kind")?)? {
-            "local" | "const" => Charge::default(),
+            // A failure builds nothing: its own tick is all it costs.
+            "local" | "const" | "fail" => Charge::default(),
             "field" => self.shared_value(get(node, "base")?)?,
             "variant" => match super::super::map_field(node, "payload") {
                 Some(payload) => self.shared_value(payload)?,
@@ -456,6 +488,10 @@ impl<'a> Checker<'a, '_> {
             },
             "record" => {
                 let fields = members(get(node, "fields")?)?;
+                total(fields.iter().map(|(_, field)| self.shared_value(field)))?
+            }
+            "orderedRecord" => {
+                let fields = entries(node)?;
                 total(fields.iter().map(|(_, field)| self.shared_value(field)))?
             }
             "list" => {
@@ -516,6 +552,14 @@ impl<'a> Checker<'a, '_> {
                 }
                 shell.built()
             }
+            // Built as the canonical record with the same fields.
+            "orderedRecord" => {
+                let mut shell = Footprint::CELL;
+                for (key, _) in entries(node)? {
+                    shell = shell.with(Footprint::CELL.keyed(key)?)?;
+                }
+                shell.built()
+            }
             "list" => Footprint::shell(count(sequence(get(node, "values")?)?.len())?)?.built(),
             "variant" => {
                 let labels = count(string(get(node, "type")?)?.len())?
@@ -566,9 +610,10 @@ impl<'a> Checker<'a, '_> {
                 }
                 Ok(ticks(cells))
             }
-            // An Option consumer keeps its copying charge: one tick per
-            // operand cell plus the bytes of its operands and result.
-            "core.option.isSome" | "core.option.unwrap" | "core.option.default" => {
+            // An Option constructor or consumer keeps its copying charge:
+            // one tick per operand cell plus the bytes of its operands and
+            // result.
+            _ if is_option_operation(callee) => {
                 let mut charge = self.footprint(node)?.bytes;
                 for argument in arguments {
                     let footprint = self.footprint(argument)?;
@@ -647,6 +692,14 @@ impl<'a> Checker<'a, '_> {
                 }
                 Ok(footprint)
             }
+            "orderedRecord" => {
+                let mut footprint = Footprint::CELL;
+                for (key, field) in entries(node)? {
+                    footprint = footprint.with(self.footprint(field)?.keyed(key)?)?;
+                }
+                Ok(footprint)
+            }
+            "fail" => Ok(Footprint { cells: 0, bytes: 0 }),
             "list" => {
                 let mut footprint = Footprint::CELL;
                 for item in sequence(get(node, "values")?)? {

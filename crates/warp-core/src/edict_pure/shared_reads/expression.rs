@@ -76,6 +76,26 @@ impl<'p> Evaluator<'p, '_> {
                 self.build(shell)?;
                 Ok(Shared::Record(Rc::from(values)))
             }
+            Expr::OrderedRecord(fields) => {
+                let mut values = Vec::new();
+                let mut shell = CELL;
+                // Authored order decides which failing field ends the call.
+                for (key, value) in fields {
+                    values.push((key.as_str(), self.expression(value, locals, depth + 1)?));
+                    shell = shell.field(key)?;
+                }
+                self.build(shell)?;
+                // The value is the canonical record, as under copying: keys
+                // shorter first, then bytewise. Names are unique.
+                values.sort_by(|(left, _), (right, _)| {
+                    left.len()
+                        .cmp(&right.len())
+                        .then_with(|| left.as_bytes().cmp(right.as_bytes()))
+                });
+                Ok(Shared::Record(Rc::from(values)))
+            }
+            // A failure returns no value; its step is already charged.
+            Expr::Fail(failure) => Err(Error::UnmappedFailure(failure.clone())),
             Expr::Variant {
                 identity,
                 case,
@@ -185,9 +205,7 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ByteLength { .. }
             | Expr::ByteCount { .. }
             | Expr::ByteSlice { .. }
-            | Expr::ByteConcat { .. }
-            | Expr::Fail(_)
-            | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
+            | Expr::ByteConcat { .. } => Err(Error::UnsupportedProgram),
         }
     }
 
@@ -248,6 +266,17 @@ impl<'p> Evaluator<'p, '_> {
         }
         self.meter.charge_steps(cells)?;
         match (operation, values.as_slice()) {
+            // A constructor builds a new Option, charged in full
+            // (amblicit#340); its payload is shared.
+            (OptionOperation::Some, [item]) => {
+                let result = Shared::Present(Rc::new(item.clone()));
+                self.build(result.full_size()?)?;
+                Ok(result)
+            }
+            (OptionOperation::None, []) => {
+                self.build(Shared::Absent.full_size()?)?;
+                Ok(Shared::Absent)
+            }
             (OptionOperation::IsSome, [operand]) => {
                 let present = match operand {
                     Shared::Present(_) => true,

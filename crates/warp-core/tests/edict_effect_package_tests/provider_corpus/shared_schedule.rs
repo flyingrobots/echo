@@ -21,7 +21,7 @@ fn requiring(package: &V, capability: &str) -> V {
 }
 
 /// The package with its Core requiring the shared-read schedule, repinned.
-fn shared(package: &V) -> V {
+pub(super) fn shared(package: &V) -> V {
     requiring(package, SHARED)
 }
 

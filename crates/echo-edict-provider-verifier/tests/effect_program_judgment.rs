@@ -116,6 +116,11 @@ const WITNESSES: &[(&str, &str)] = &[
         include_str!(
             "../../warp-core/tests/fixtures/edict-attachment-digest/bump-executable-operation-package.hex"
         ),
+    ),    (
+        "option-value-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-option-value/option-executable-operation-package.hex"
+        ),
     ),
 ];
 
@@ -705,6 +710,40 @@ fn identity_witness_minimums_equal_the_lowerer_minimums() {
         [
             ("identity-witness", (1898, 71_061), (1246, 11_580)),
             ("attachment-digest-witness", (371, 11_334), (283, 3209)),
+        ]
+    );
+}
+
+/// Family 4 (`Option` constructors, ordered records whose fields `fail`,
+/// called under `attempt`) is audited under the shared-read schedule
+/// (echo#1016), and the verifier's minimums under both schedules equal the
+/// lowerer's, which `family_four_minimums_under_each_schedule` in the
+/// lowerer pins independently (oracle: the other judge).
+#[test]
+fn family_four_minimums_equal_the_lowerer_minimums() {
+    let mut measured = Vec::new();
+    for name in [
+        "ordered-record-z-first",
+        "ordered-record-a-first",
+        "ordered-record-guarded-z-first",
+        "ordered-record-guarded-a-first",
+        "option-value-witness",
+    ] {
+        assert_eq!(
+            verify_effect_package(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}: shared"
+        );
+        measured.push((name, minimum(name, None), minimum(name, Some(SHARED))));
+    }
+    assert_eq!(
+        measured,
+        [
+            ("ordered-record-z-first", (57, 2793), (110, 1489)),
+            ("ordered-record-a-first", (57, 2793), (110, 1489)),
+            ("ordered-record-guarded-z-first", (71, 3177), (250, 1745)),
+            ("ordered-record-guarded-a-first", (71, 3177), (250, 1745)),
+            ("option-value-witness", (88, 2936), (828, 942)),
         ]
     );
 }

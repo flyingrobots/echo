@@ -16,9 +16,11 @@
 //! full (amblicit#340). A list shell is sized by the result's proven length
 //! when one exists (amblicit#336; see `reach`). An identity intrinsic call
 //! is charged its catalog rule on its operands' sequence maxima, plus a full
-//! copy of every operand in and of its result out. Byte intrinsics, `Option`
-//! constructors and imported helpers have no shared-read rule in Echo yet, so
-//! the module is refused.
+//! copy of every operand in and of its result out. An `Option` constructor
+//! keeps its copying charge and is charged the value it builds, as the
+//! readers are. An ordered record charges its shell as the record it builds,
+//! and a `fail` one step and no value. Byte intrinsics and imported helpers
+//! have no shared-read rule in Echo yet, so the module is refused.
 //!
 //! The ordinary judgment runs first and alone establishes typing, totality and
 //! depth; this pass reads the types it recorded and only computes cost.
@@ -138,10 +140,21 @@ fn builds_value(callee: &str) -> bool {
             | "core.integer.checkedRem"
             | "core.integer.min"
             | "core.integer.max"
+            | "core.option.some"
+            | "core.option.none"
             | "core.option.isSome"
             | "core.option.unwrap"
             | "core.option.default"
     )
+}
+
+/// The `(name, value)` entries of an ordered record, in authored order.
+fn ordered_fields(value: &Value) -> Check<Vec<(&str, &Value)>> {
+    let mut fields = Vec::new();
+    for entry in list(get(value, "fields")?)? {
+        fields.push((string(get(entry, "name")?)?, get(entry, "value")?));
+    }
+    Ok(fields)
 }
 
 /// Whether the module requires the shared-read schedule.
@@ -309,6 +322,16 @@ impl<'a> Judgment<'a> {
                 }
                 reach
             }
+            "orderedRecord" => {
+                let mut reach = Reach::new();
+                for (key, field) in ordered_fields(value)? {
+                    for (mut path, bound) in self.reach(field)? {
+                        path.insert(0, key.to_owned());
+                        reach.insert(path, bound);
+                    }
+                }
+                reach
+            }
             "list" => Reach::from([(Vec::new(), length(list(get(value, "values")?)?.len())?)]),
             "if" => {
                 let yes = self.reach(get(value, "then")?)?;
@@ -436,7 +459,8 @@ impl<'a> Judgment<'a> {
         self.charge(0)?;
         let own = self.shared_own(value)?;
         let children = match string(get(value, "kind")?)? {
-            "local" | "const" => Cost::default(),
+            // A failure returns no value; its own step is its whole cost.
+            "local" | "const" | "fail" => Cost::default(),
             "field" => self.shared_expression(get(value, "base")?)?,
             "variant" => match super::super::map_field(value, "payload") {
                 Some(payload) => self.shared_expression(payload)?,
@@ -445,6 +469,13 @@ impl<'a> Judgment<'a> {
             "record" => {
                 let mut sum = Cost::default();
                 for (_, field) in members(get(value, "fields")?)? {
+                    sum = sum.plus(self.shared_expression(field)?)?;
+                }
+                sum
+            }
+            "orderedRecord" => {
+                let mut sum = Cost::default();
+                for (_, field) in ordered_fields(value)? {
                     sum = sum.plus(self.shared_expression(field)?)?;
                 }
                 sum
@@ -509,6 +540,14 @@ impl<'a> Judgment<'a> {
                 }
                 shell.evaluation()
             }
+            // An ordered record builds the same canonical record.
+            "orderedRecord" => {
+                let mut shell = CELL;
+                for (key, _) in ordered_fields(value)? {
+                    shell = shell.plus(CELL.field(key)?)?;
+                }
+                shell.evaluation()
+            }
             "list" => Size::list_shell(length(list(get(value, "values")?)?.len())?)?.evaluation(),
             "variant" => {
                 let identity = length(string(get(value, "type")?)?.len())?;
@@ -569,9 +608,14 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(steps(cells))
             }
-            // An Option consumer keeps its copying charge: one step per
-            // operand cell plus the bytes of its operands and result.
-            "core.option.isSome" | "core.option.unwrap" | "core.option.default" => {
+            // An Option constructor or consumer keeps its copying charge:
+            // one step per operand cell plus the bytes of its operands and
+            // result.
+            "core.option.some"
+            | "core.option.none"
+            | "core.option.isSome"
+            | "core.option.unwrap"
+            | "core.option.default" => {
                 let mut cost = self.size(value)?.bytes;
                 for argument in list(get(value, "args")?)? {
                     let size = self.size(argument)?;
@@ -652,6 +696,15 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(total)
             }
+            "orderedRecord" => {
+                let mut total = CELL;
+                for (key, field) in ordered_fields(value)? {
+                    total = total.plus(self.size(field)?.field(key)?)?;
+                }
+                Ok(total)
+            }
+            // A failure returns no value.
+            "fail" => Ok(Size { cells: 0, bytes: 0 }),
             "list" => {
                 let mut total = CELL;
                 for item in list(get(value, "values")?)? {

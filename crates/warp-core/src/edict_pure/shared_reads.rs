@@ -26,7 +26,7 @@ pub(crate) use value::{from_canonical, to_canonical, Shared};
 
 use super::{
     evaluate::Meter,
-    model::{Expr, OptionOperation, Predicate, Program},
+    model::{Expr, Predicate, Program},
     EvaluationError as Error, EvaluationResult,
 };
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
@@ -127,20 +127,15 @@ pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
     match expr {
         Expr::Constant(Value::Bool(_) | Value::Integer(_) | Value::Bytes(_))
         | Expr::Local(_)
-        | Expr::Variant { payload: None, .. } => Ok(()),
+        | Expr::Variant { payload: None, .. }
+        | Expr::Fail(_) => Ok(()),
         Expr::Constant(_)
         | Expr::ByteUtf8 { .. }
         | Expr::ByteAt { .. }
         | Expr::ByteLength { .. }
         | Expr::ByteCount { .. }
         | Expr::ByteSlice { .. }
-        | Expr::ByteConcat { .. }
-        | Expr::Option {
-            operation: OptionOperation::Some | OptionOperation::None,
-            ..
-        }
-        | Expr::Fail(_)
-        | Expr::OrderedRecord(_) => Err(Error::UnsupportedProgram),
+        | Expr::ByteConcat { .. } => Err(Error::UnsupportedProgram),
         Expr::Option { args, .. } | Expr::Identity(_, args) => {
             args.iter().try_for_each(admit_expression)
         }
@@ -156,7 +151,7 @@ pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
             arms.iter().try_for_each(|arm| admit_expression(&arm.body))
         }
         Expr::List(items) | Expr::Call(_, items) => items.iter().try_for_each(admit_expression),
-        Expr::Record(fields) => fields
+        Expr::Record(fields) | Expr::OrderedRecord(fields) => fields
             .iter()
             .try_for_each(|(_, value)| admit_expression(value)),
         Expr::ListAt {

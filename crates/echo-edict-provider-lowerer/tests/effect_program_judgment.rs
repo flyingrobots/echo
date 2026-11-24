@@ -175,7 +175,9 @@ fn the_lowerer_reaches_every_retained_corpus_verdict() {
         // The law entry's program is sound; publication refuses its law.
         let expected = accept || name == LAW_REFUSED;
         if judged.is_ok() != expected {
-            disagreements.push(format!("{name}: expected accept={expected}, got {judged:?}"));
+            disagreements.push(format!(
+                "{name}: expected accept={expected}, got {judged:?}"
+            ));
         }
     }
     assert_eq!(disagreements, Vec::<String>::new());

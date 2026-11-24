@@ -21,7 +21,7 @@
   witness, a shared corpus fixes the three verdicts, and warp-core runs
   the control. A public compiler witness (`edict-effect-source-module`,
   Amblicit `7dbcbc23`) builds through the promoted provider package
-  (lowerer `4484b05d`, verifier `01893c1e`).
+  (lowerer `4bfd2707`, verifier `e0781877`).
 - Effect-program refusals name the failing check (#1018). The lowerer's
   `EffectPublicationError::UnsupportedProgram` and the verifier's
   `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a

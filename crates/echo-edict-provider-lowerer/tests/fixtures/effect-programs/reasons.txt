@@ -52,3 +52,4 @@ structured-body-with-result effect-program.correspondence.statement-block
 structured-loop-allocation-short effect-program.budget.allocation
 structured-loop-under-budget effect-program.budget.steps
 structured-mutation-count-over effect-program.budget.mutations
+footprint-writes-over-ceiling effect-program.footprint-law.max-writes

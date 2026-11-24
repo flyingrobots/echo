@@ -1,6 +1,6 @@
 package consumer.buffers.program@1;
 use lawpack consumer.buffers@1 digest "sha256:72b97016cb839d8a32820148e0d64cbba551db308a2b4453737891e1a18041ac" as fx;
-use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+use target echo.dpo@2 digest "sha256:4e60b1297d4d5e38bb9029d225a7074c9e0a7932792cb8644276cdf7ceeb173c" as echo;
 type Input = { anchor: Bytes<exact=32>, buffer: fx.BufferAddress, next: fx.BufferAtom };
 intent bump(input: Input) returns Bytes<exact=32>
   profile fx.graphEffects

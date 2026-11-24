@@ -8,7 +8,10 @@ the `echo.dpo@2` effect target profile and binds `fx.closure` to
 `echo.dpo@2.closure-read`, with its seven failures mapped to authored
 obstructions; and one program, `ClosureLink.edict`, that reads one guided
 closure and returns it (echo#1016). Its `select` helper is the declared
-selector (`graphReads.closureSelector`). It follows slot 0 when the guide's
+selector (`graphReads.closureSelector`); `costly`, a costlier helper of the
+same type, is never selected, so the copying schedule (which charges the
+costliest helper) prices the read above the shared-read schedule (which
+charges the declared selector). It follows slot 0 when the guide's
 `followA` is set and slot 1 when `followB` is set, and uses no byte
 operation, so every expression has a shared-read rule in Echo. The
 coordinates under `consumer.closures` are neutral; Echo interprets none of

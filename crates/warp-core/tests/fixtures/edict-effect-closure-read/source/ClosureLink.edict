@@ -11,6 +11,20 @@ fn select(candidate: Candidate) -> Decision {
   let wellFormed = true;
   return { expand: expand, guide: next, wellFormed: wellFormed, sufficient: sufficient };
 }
+fn costly(candidate: Candidate) -> Decision {
+  let a1 = if candidate.guide.followA == true && candidate.slot == 0u64 then true else false;
+  let a2 = if a1 == true && candidate.depth > candidate.guide.a then true else false;
+  let a3 = if a2 == true && candidate.depth > candidate.guide.b then true else false;
+  let a4 = if a3 == true && candidate.slot > candidate.guide.reach then true else false;
+  let b1 = if candidate.guide.followB == true && candidate.slot == 1u64 then true else false;
+  let b2 = if b1 == true && candidate.depth > candidate.guide.a then true else false;
+  let b3 = if b2 == true && candidate.depth > candidate.guide.b then true else false;
+  let b4 = if b3 == true && candidate.slot > candidate.guide.reach then true else false;
+  let next: fx.Guide = { a: candidate.guide.a, b: candidate.guide.b, followA: a4, followB: b4, reach: candidate.guide.reach };
+  let again: fx.Guide = { a: next.a, b: next.b, followA: next.followA, followB: next.followB, reach: next.reach };
+  let expand = if a4 == true || b4 == true then true else false;
+  return { expand: expand, guide: again, wellFormed: true, sufficient: true };
+}
 type Input = { anchor: Bytes<exact=32>, read: fx.ClosureQuery };
 intent readClosure(input: Input) returns fx.Closure
   profile fx.graphEffects

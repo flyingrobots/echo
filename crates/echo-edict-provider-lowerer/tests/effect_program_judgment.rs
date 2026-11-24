@@ -512,13 +512,13 @@ fn closure_read_witness_minimums_under_each_schedule() {
         Ok(()),
         "shared"
     );
-    assert_eq!(
-        (
-            witness_minimum(name, None),
-            witness_minimum(name, Some(SHARED))
-        ),
-        ((9139, 537_742), (8666, 504_387))
-    );
+    let copying = witness_minimum(name, None);
+    let shared = witness_minimum(name, Some(SHARED));
+    assert_eq!((copying, shared), ((15_367, 932_374), (8666, 504_387)));
+    // The witness also carries `costly`, a costlier helper it never selects:
+    // copying charges it on every closure edge, the shared schedule charges
+    // the declared `select` only, so it is cheaper on both axes.
+    assert!(shared.0 < copying.0 && shared.1 < copying.1);
 }
 
 /// The compiler-produced identity witnesses (all four `echo.dpo@2` identity

@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Pure serialization of current effect proposals, without verification or authority.
 
+pub use crate::refusal_reason::{ProgramRefusal, RefusalReason};
+
 /// Exact artifacts and explicit policy metadata for an untrusted publication.
 #[derive(Clone, Copy)]
 pub struct EffectPublicationInput<'a> {
@@ -18,7 +20,7 @@ pub struct EffectPublicationInput<'a> {
 }
 
 /// Refusal to serialize malformed publication material.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectPublicationError {
     /// Artifact shape, canonical bytes, or embedded identity material is invalid.
     InvalidArtifact,
@@ -26,6 +28,10 @@ pub enum EffectPublicationError {
     InvalidConfiguration,
     /// A required coordinate is missing or unbounded.
     InvalidCoordinate,
+    /// The compiled effect program is unsafe or does not match its own
+    /// artifacts, intrinsic contracts or declared budget. The refusal names
+    /// the check that refused and the artifact path it was reading.
+    UnsupportedProgram(ProgramRefusal),
 }
 
 impl std::fmt::Display for EffectPublicationError {
@@ -34,19 +40,51 @@ impl std::fmt::Display for EffectPublicationError {
             Self::InvalidArtifact => "invalid effect publication artifact envelope",
             Self::InvalidConfiguration => "invalid effect publication configuration or limits",
             Self::InvalidCoordinate => "missing or unbounded effect publication coordinate",
+            Self::UnsupportedProgram(_) => {
+                "the compiled effect program is outside the checked profile"
+            }
         })
     }
 }
 impl std::error::Error for EffectPublicationError {}
 
+/// Judges compiler-produced effect-program bytes without serializing them.
+///
+/// The lowerer establishes artifact binding, adapter authorization, each
+/// effect's intrinsic ABI and failure contract, Core/Target IR
+/// correspondence, typing, proven ranges and the declared budget itself.
+/// # Errors
+/// [`EffectPublicationError::UnsupportedProgram`] for any program outside
+/// that judgment.
+pub fn judge_effect_program(compiled_program: &[u8]) -> Result<(), EffectPublicationError> {
+    judge_with_graph_reads(compiled_program, None)
+}
+
+/// The same judgment for a program whose configuration declares graph reads
+/// with `graph_reads`, the bounded-read `graphReads` record.
+fn judge_with_graph_reads(
+    compiled_program: &[u8],
+    graph_reads: Option<&V>,
+) -> Result<(), EffectPublicationError> {
+    use crate::executable_operation::effect_program::{graph_reads as declaration, judge};
+    let graph = graph_reads
+        .map(declaration)
+        .transpose()
+        .map_err(|()| EffectPublicationError::InvalidConfiguration)?;
+    judge(compiled_program, graph).map_err(EffectPublicationError::UnsupportedProgram)
+}
+
 /// Serializes the single current operation-package and effect-program formats.
 ///
-/// This constructs an untrusted proposal. Callers must independently verify
-/// compiler correspondence, policy and authority before any runtime admission.
+/// This constructs an untrusted proposal. It first runs the lowerer's own
+/// effect-program judgment (`judge_effect_program`), which includes Core and
+/// Target IR correspondence; the verifier and the runtime still judge the
+/// package independently, and policy and authority remain the caller's.
 /// # Errors
-/// Refuses malformed artifact/configuration envelopes, unsupported source
-/// domains, undeclared coordinates and invalid limit fields. Graph-law semantics,
-/// compiler correspondence and authority remain independent checks.
+/// Refuses programs outside the lowerer's judgment, malformed
+/// artifact/configuration envelopes, unsupported source domains, undeclared
+/// coordinates and invalid limit fields. Graph-law semantics and authority
+/// remain independent checks.
 #[allow(
     clippy::too_many_lines,
     reason = "Keep the current wire projection and its identity recipes visible together."
@@ -83,8 +121,14 @@ pub fn encode_effect_publication(
     let target = embedded("target_ir_artifact")?;
     let exports = embedded("lawpack_exports_artifact")?;
     equals(&core, "apiVersion", "edict.core/v1", A)?;
-    equals(&target, "domain", "echo.span-ir/v2", A)?;
-    equals(&target, "kind", "orderedTargetIrArtifact", A)?;
+    // The ordered or the structured contract; the judgment admits the
+    // structured one only under `echo.dpo@2`.
+    match (field(&target, "domain", A)?, field(&target, "kind", A)?) {
+        (V::Text(domain), V::Text(kind))
+            if (domain == "echo.span-ir/v2" && kind == "orderedTargetIrArtifact")
+                || (domain == "echo.span-ir/v3" && kind == "structuredTargetIrArtifact") => {}
+        _ => return Err(A),
+    }
     let module = coordinate(field(&core, "coordinate", A)?)?;
     equals(&target, "sourceCoreCoordinate", module, A)?;
     let intent = field(field(&core, "intents", A)?, intent_name, A)?;
@@ -114,23 +158,26 @@ pub fn encode_effect_publication(
     }
     let source_id = identity(input.source_domain, &source)?;
     let config = decode(input.configuration).map_err(|_| C)?;
-    exact(
-        &config,
-        &[
-            "apiVersion",
-            "programKind",
-            "identityLaw",
-            "intrinsicCatalog",
-            "graphSchema",
-            "footprintLaw",
-            "maxInputBytes",
-            "maxResultBytes",
-            "maxAllocatedBytes",
-            "budgetCeiling",
-            "authorityProfile",
-        ],
-        C,
-    )?;
+    let mut config_fields = vec![
+        "apiVersion",
+        "programKind",
+        "identityLaw",
+        "intrinsicCatalog",
+        "graphSchema",
+        "footprintLaw",
+        "maxInputBytes",
+        "maxResultBytes",
+        "maxAllocatedBytes",
+        "budgetCeiling",
+        "authorityProfile",
+    ];
+    // A program whose steps read the graph declares their ceilings, as the
+    // bounded-read configuration does; the package carries the declaration.
+    let graph_reads = field(&config, "graphReads", C).ok();
+    if graph_reads.is_some() {
+        config_fields.push("graphReads");
+    }
+    exact(&config, &config_fields, C)?;
     equals(
         &config,
         "apiVersion",
@@ -155,13 +202,25 @@ pub fn encode_effect_publication(
     let law = policy_bytes(&config, "footprintLaw")?;
     let catalog = policy_bytes(&config, "intrinsicCatalog")?;
     let catalog_value = decode(catalog).map_err(|_| C)?;
-    exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
-    equals(
-        &catalog_value,
-        "apiVersion",
-        "edict.target-profile.intrinsics/v1",
-        C,
-    )?;
+    // The frozen echo.dpo@1 catalog is API v1 with two fields; echo.dpo@2's
+    // is catalog v2 and may also publish named types. Which one the selected
+    // profile pins is checked by the effect-resource relation.
+    match field(&catalog_value, "apiVersion", C)? {
+        V::Text(api) if api == "edict.target-profile.intrinsics/v1" => {
+            exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
+        }
+        V::Text(api) if api == "edict.target-profile.intrinsics/v2" => {
+            if field(&catalog_value, "types", C).is_ok() {
+                exact(&catalog_value, &["apiVersion", "intrinsics", "types"], C)?;
+                if !matches!(field(&catalog_value, "types", C)?, V::Map(_)) {
+                    return Err(C);
+                }
+            } else {
+                exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
+            }
+        }
+        _ => return Err(C),
+    }
     if !matches!(field(&catalog_value, "intrinsics", C)?, V::Map(_)) {
         return Err(C);
     }
@@ -190,6 +249,8 @@ pub fn encode_effect_publication(
     }
     let reads = number(field(budget, "readBytes", C)?)?;
     let writes = number(field(budget, "writeBytes", C)?)?;
+    // The program is judged only once its envelope and configuration are.
+    judge_with_graph_reads(input.compiler_program, graph_reads)?;
     let mut footprint = blake3::Hasher::new();
     footprint.update(b"echo:operation-footprint-law:v1\0");
     footprint.update(law);
@@ -218,6 +279,13 @@ pub fn encode_effect_publication(
         ("max_allocated_bytes", V::Integer(i128::from(max_allocated))),
         ("output_type", text(output)),
     ]);
+    let program = match (program, graph_reads) {
+        (V::Map(mut fields), Some(declared)) => {
+            fields.push((text("graph_reads"), declared.clone()));
+            V::Map(fields)
+        }
+        (program, _) => program,
+    };
     let program = encode(&program).map_err(|_| A)?;
     let mut package = vec![
         ("schema", text("echo.operation-package/v1")),
@@ -325,9 +393,11 @@ fn exact(v: &V, keys: &[&str], e: E) -> Result<(), E> {
     Ok(())
 }
 fn equals(v: &V, key: &str, expected: &str, e: E) -> Result<(), E> {
-    (field(v, key, e)? == &text(expected))
-        .then_some(())
-        .ok_or(e)
+    if field(v, key, e.clone())? == &text(expected) {
+        Ok(())
+    } else {
+        Err(e)
+    }
 }
 fn coordinate(v: &V) -> Result<&str, E> {
     match v {

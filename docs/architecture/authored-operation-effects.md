@@ -194,9 +194,14 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
   invocation (`crates/warp-core/src/echo_operation.rs`).
 - `edict_pure` and `edict_read` evaluate compiled Edict values, but no admitted
   path turns their results into writes. `edict_read` reads alpha atoms by
-  explicit node key; it cannot follow edges. It counts reads against a limit
-  but does not record which slots it read
-  (`crates/warp-core/src/edict_read/evaluate.rs`).
+  explicit node key. Under a host-selected typed graph aperture it also reads
+  a node's outgoing edges of one type and a guided bounded closure
+  ([Typed outgoing-edge and guided closure reads](application-contract-hosting.md#typed-outgoing-edge-and-guided-closure-reads)).
+  Over a plain view it counts reads against a limit but does not record which
+  slots it read; a recording effect frame records node and atom reads, and a
+  typed recording frame also records graph reads
+  (`crates/warp-core/src/edict_read/evaluate.rs`,
+  `crates/warp-core/src/edict_effects/node_reads.rs`).
 - Create-if-absent obstructs when the node already exists, even with identical
   content.
 - `GraphStore::upsert_edge_record` does not check that an edge's endpoints
@@ -513,7 +518,12 @@ a digest alone could not be executed. One law is defined:
       rather than hashing or dropping it. The law has no edge-count ceiling;
       authoring interfaces may set their own. Independent vectors, frozen hex
       and mutation postcards in `crates/warp-core/tests/content_address_v1_tests.rs`
-      check it without calling the module.
+      check it without calling the module. The six successful frozen identities
+      are shared files in
+      [`tests/fixtures/content-address-v1/`](../../crates/warp-core/tests/fixtures/content-address-v1/README.md),
+      with their exact inputs documented beside them. The runtime's
+      [identity intrinsics](#identity-intrinsics) reproduce the node, edge
+      and attachment vectors, and the published provider offers them.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal
@@ -530,8 +540,107 @@ a digest alone could not be executed. One law is defined:
     whose id is program-chosen.
     All ids are 32 bytes. A content node's id therefore commits to its content
     and its children, as Jim's rope requires, and no later effect can make it
-    stale. A program computes the same BLAKE3 inputs; Edict must expose them
-    before an effect package can be produced.
+    stale. A program computes the same BLAKE3 inputs through the
+    [identity intrinsics](#identity-intrinsics); the published provider must
+    offer them before an effect package can be produced.
+
+### Identity intrinsics
+
+An authored program computes `ContentAddressV1` ids and attachment digests
+by calling four pure
+intrinsics in the current `echo.dpo@2` target namespace. The frozen
+`echo.dpo@1` profile does not name them (#985), and the runtime refuses an
+`echo.dpo@1` identity callee as `UnsupportedProgram`. Each takes no type arguments and returns
+one 32-byte id. Every id operand is exactly 32 bytes.
+
+| Coordinate                  | Operands, in order                                                                                                                             | Result                                |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `echo.dpo@2.contentAddress` | warp id, node type id, atom type id, atom bytes (at most 1,048,576), outgoing edges (a list of at most 16 `{edgeType, to}` records of two ids) | the content node id                   |
+| `echo.dpo@2.contentEdgeId`  | warp id, source node id, edge type id, target node id                                                                                          | the id of an edge from a content node |
+| `echo.dpo@2.slotEdgeId`     | warp id, source node id, edge type id                                                                                                          | the id of an edge from a mutable node |
+| `echo.dpo@2.attachmentValueDigest` | atom type id, atom bytes (at most 1,048,576)                                                                                            | the atom's attachment value digest    |
+
+The intrinsics hash with `warp_core::content_address_v1` and add nothing to
+the law. Outgoing edges may be given in any order; every order names the same
+node. The atom and edge ceilings belong to this authoring interface, not to
+the law. They stay at 16 edges and 1,048,576 bytes for this contract; a wider
+fan-out needs a separately versioned contract with revalidated costs.
+
+A call evaluates its operands once, left to right, and requires each value to
+inhabit its operand type; a value outside it is `InvalidArtifact`. A call with
+the wrong number of operands or with type arguments is `UnsupportedProgram`
+when the program is prepared. The call then charges all of its work before it
+hashes. Beyond evaluating its operands, a call costs:
+
+| Intrinsic        | Steps                                    | Storage bytes        |
+| ---------------- | ---------------------------------------- | -------------------- |
+| `contentAddress` | 71, plus 1 per atom byte and 67 per edge | 96, plus 64 per edge |
+| `contentEdgeId`  | 70                                       | 96                   |
+| `slotEdgeId`     | 69                                       | 96                   |
+| `attachmentValueDigest` | 68, plus 1 per atom byte          | 96                   |
+
+Edge order does not change the cost. A cost rule published for these
+intrinsics must be at least these amounts.
+
+**Duplicate outgoing edges refuse.** A `contentAddress` call that names the
+same (edge type, target) twice fails evaluation with the typed
+`EvaluationError::DuplicateOutgoingEdge`. It returns no id, and the edge set
+is never deduplicated: the law refuses that set, and an id for the
+deduplicated set would name a node the program did not describe. The refusal
+comes after the call's work is charged, so a call that cannot pay for its
+operands reports the exhausted budget instead. The error carries no operand
+bytes. This is a typed runtime refusal, not an authored obstruction. An
+authored failure result would need a different result contract and
+typed-failure runtime support. A future recoverable constructor would be
+published separately and versioned, not changed in place (decision recorded
+on flyingrobots/echo#972).
+
+The runtime evaluator in `crates/warp-core/src/edict_pure/identity.rs`
+implements these calls in intent expressions and source helpers, and a module
+cannot define a helper at one of the four coordinates. Synthetic tests in
+`crates/warp-core/src/edict_pure/identity_tests.rs` compare the results with
+the frozen node, edge and attachment vectors and check the refusals, costs and
+one-unit-short budgets above.
+
+**Publication.** The `echo.dpo@2` catalog (`echo.dpo.intrinsics/v2`) is
+catalog API v2. It publishes the four intrinsics as pure entries with
+contract version `echo.content-address/v1`, the operand ceilings above, the
+cost rules `contentAddress {base: 71, perArgumentMax: [0, 0, 0, 1, 67]}`,
+`contentEdgeId {base: 70, perArgumentMax: [0, 0, 0, 0]}`,
+`slotEdgeId {base: 69, perArgumentMax: [0, 0, 0]}` and
+`attachmentValueDigest {base: 68, perArgumentMax: [0, 1]}`, and the edge type
+`echo.dpo@2.OutgoingEdge`. The authored provider semantic source owns these
+declarations (`pureIntrinsics` and `types`). The frozen `echo.dpo@1` catalog
+stays API v1 and declares none of them.
+
+**Admission.** The lowerer, the separate verifier and the runtime each state
+the contract themselves and admit identity calls only when the pinned
+`echo.dpo@2` catalog carries exactly those four entries and the edge type,
+and Core's single `target` import is the selected profile. A catalog carrying
+some but not all of them, or carrying them under another profile, is refused.
+A call takes no type arguments; its operands must fit the ceilings; and the
+providers charge the call's documented work at the operands' verified maxima,
+which is also the catalog cost rule. The source's one `use target` line must
+name the selected profile under its pinned digest. The provider tests in
+`crates/echo-edict-provider-verifier/tests/public_identity_effect.rs` and the
+runtime witness in
+`crates/warp-core/tests/executable_operation_pipeline/public_content_address_effect.rs`
+use the public compiler output in
+`crates/warp-core/tests/fixtures/edict-content-address/`: the runtime returns
+the six frozen vectors, ensures a node at its computed address, and refuses
+duplicate edges and an insufficient budget.
+
+**Atom replacement.** `attachmentValueDigest` returns the digest a
+`ReplaceAtom` names as `expectedAtomDigest`; admission compares it with
+`content_address_v1::attachment_digest` of the atom at the evaluation basis.
+A program reads the atom and digests the bytes it read, so the expected
+digest is bound to its read set (decision and rejected alternatives recorded
+on flyingrobots/echo#1011's PR: a digest returned by the read, expected bytes
+in `ReplaceAtom`, or a separate contract version). The public witness in
+`crates/warp-core/tests/fixtures/edict-attachment-digest/` bumps a Buffer
+this way: its digest of the atom `new` equals the frozen vector, derivation
+accepts the replacement, a control that digests bytes it never read is
+refused with `PreconditionMismatch`, and an insufficient budget is refused.
 
 ## Witnessed reads over a bounded slice
 
@@ -582,7 +691,9 @@ bucket length, not the match count, with `max_range_edges`. If the length
 exceeds `max_range_edges`, or the charge exceeds the remaining budget,
 evaluation obstructs with `BudgetExceeded`, posture `NoProposal`, before any
 edge is inspected. Otherwise the view writes the matching edges'
-`EdgePairRow`s directly into the arena. Consumed cost and the read set
+`EdgePairRow`s directly into the arena. Either way the source node's `ReadRow`
+records the bucket length (`bucket`, `bucket_len`), so the read set witnesses
+what decided the bound and the charge. Consumed cost and the read set
 therefore depend only on the basis, and a high-degree node cannot force work
 or allocation the budget did not cover.
 
@@ -1499,15 +1610,15 @@ rules:
 
 **Rows.**
 
-| Row              | Bytes | Fields, in order                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SlotRow`        | 104   | `class` u8 (node record `0`, attachment `1`, edge `2`, range key `3`); `owner` u8 (attachment: node `0`, edge `1`); `plane` u8 (attachment: alpha `0`, beta `1`); 5 padding bytes; `warp_id`; `local_id` (the node, edge, attachment owner, or range source); `edge_type` (range key only)                                                                                                                                                                                   |
-| `ReadRow`        | 192   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`, portal `3`); 7 padding bytes; `read_type`, 32 bytes: the type that authorizes the read, the record's node type or atom `type_id` when present and the type the read named when absent, the owner's node type for a portal, and zero for a range; `subject`, 32 bytes: the value digest when present or a portal, zero otherwise; `pairs` (`Range` into the pair section; range only)                   |
-| `EdgePairRow`    | 64    | `edge_local_id`; `target_local_id`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `EffectRow`      | 280   | `kind` u8 (`EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`, `EnsureEdge` `3`, `ReplaceEdge` `4`); 7 padding bytes; `key_warp_id`; `key_local_id`; `type_id` (node type, or `EnsureEdge`'s edge type); `atom_type_id`; `atom` (`Range` into the blob); `expected_digest` (`ReplaceAtom`); `from_local_id` (`EnsureEdge`); `to_local_id` (`EnsureEdge`, and `ReplaceEdge`'s new target); `expected_to_local_id` (`ReplaceEdge`)                                          |
-| `DependencyRow`  | 152   | `slot` (`SlotRow`); `kind` u8; `mode` u8; 6 padding bytes, which together with `slot` form the 112-byte descriptor; `compared` u8 (present `0`, absent `1`, not compared `2`); 7 padding bytes; `compared_digest` (present only)                                                                                                                                                                                                                                             |
-| `OutcomeRow`     | 40    | `outcome` u8 (none `0`, bridge kind `1`, authored `2`); `code` u8 (the bridge kind code); 6 padding bytes; `authored_id` (authored only; see below)                                                                                                                                                                                                                                                                                                                          |
-| `BridgeEntryRow` | 496   | `posture`, `patch`, `validity`, and `evidence` tags, u8 each; `outcome` and `code` as in `OutcomeRow`; 2 padding bytes; `proposal_id`; `target_set`; `write_set`; `patch_digest`; `read_set`; `origin_basis`; `dependency_set`; `compared_values`; `changed_dependency` (a 112-byte descriptor); `authored_id`; `validation_position` u64; `steps`, `read_bytes`, `write_bytes`, and `allocated_bytes`, u64 each; `result_identity`; `result` (`Range` into the result blob) |
+| Row              | Bytes | Fields, in order                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SlotRow`        | 104   | `class` u8 (node record `0`, attachment `1`, edge `2`, range key `3`); `owner` u8 (attachment: node `0`, edge `1`); `plane` u8 (attachment: alpha `0`, beta `1`); 5 padding bytes; `warp_id`; `local_id` (the node, edge, attachment owner, or range source); `edge_type` (range key only)                                                                                                                                                                                                                                                                                                                                                           |
+| `ReadRow`        | 200   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`, portal `3`); `bucket` u8 (`1` when a range or graph read consulted this present node's outgoing bucket, else `0`); 6 padding bytes; `read_type`, 32 bytes: the type that authorizes the read, the record's node type or atom `type_id` when present and the type the read named when absent, the owner's node type for a portal, and zero for a range; `subject`, 32 bytes: the value digest when present or a portal, zero otherwise; `pairs` (`Range` into the pair section; range only); `bucket_len` u64 (edges of every type in that bucket; zero unless `bucket` is `1`) |
+| `EdgePairRow`    | 64    | `edge_local_id`; `target_local_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `EffectRow`      | 280   | `kind` u8 (`EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`, `EnsureEdge` `3`, `ReplaceEdge` `4`); 7 padding bytes; `key_warp_id`; `key_local_id`; `type_id` (node type, or `EnsureEdge`'s edge type); `atom_type_id`; `atom` (`Range` into the blob); `expected_digest` (`ReplaceAtom`); `from_local_id` (`EnsureEdge`); `to_local_id` (`EnsureEdge`, and `ReplaceEdge`'s new target); `expected_to_local_id` (`ReplaceEdge`)                                                                                                                                                                                                                  |
+| `DependencyRow`  | 152   | `slot` (`SlotRow`); `kind` u8; `mode` u8; 6 padding bytes, which together with `slot` form the 112-byte descriptor; `compared` u8 (present `0`, absent `1`, not compared `2`); 7 padding bytes; `compared_digest` (present only)                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `OutcomeRow`     | 40    | `outcome` u8 (none `0`, bridge kind `1`, authored `2`); `code` u8 (the bridge kind code); 6 padding bytes; `authored_id` (authored only; see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `BridgeEntryRow` | 496   | `posture`, `patch`, `validity`, and `evidence` tags, u8 each; `outcome` and `code` as in `OutcomeRow`; 2 padding bytes; `proposal_id`; `target_set`; `write_set`; `patch_digest`; `read_set`; `origin_basis`; `dependency_set`; `compared_values`; `changed_dependency` (a 112-byte descriptor); `authored_id`; `validation_position` u64; `steps`, `read_bytes`, `write_bytes`, and `allocated_bytes`, u64 each; `result_identity`; `result` (`Range` into the result blob)                                                                                                                                                                         |
 
 Tags not defined above use the values given in [Evidence](#evidence):
 posture `NotBridge` `0`, `NoProposal` `1`, `Proposed` `2`; patch `NotDerived`
@@ -1580,7 +1691,7 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
   `EffectRow`s; then the blob, holding the atoms in effect order and then the
   result. The proposal identity is BLAKE3 over
   `echo.bridge.effect-proposal.v1\0` and the image.
-- **Sets.** The read-set digest is BLAKE3 over `echo.bridge.read-set.v1\0`,
+- **Sets.** The read-set digest is BLAKE3 over `echo.bridge.read-set.v2\0`,
   the `ReadRow` count as a little-endian `u64`, the `ReadRow`s, the
   `EdgePairRow` count, and the `EdgePairRow`s. The target-set and write-set
   digests hash their domain tags (`echo.bridge.target-set.v1\0`,
@@ -1975,8 +2086,6 @@ provisional detail into an obligation when its test lands.
 - How `edict_read` exposes outgoing edges by type to Edict source, and how a
   bounded closure read guided by a pure Edict selector is expressed and
   budgeted. The metering of a single range read is defined above.
-- How Edict source exposes the `ContentAddressV1` inputs; the law itself
-  is defined above.
 - Whether proposals larger than the Action-batch operation limit should ever
   be committable. This design says no: such a proposal is still representable
   as evidence (`BudgetExceeded`, posture `Proposed` with a `Derived` patch, as

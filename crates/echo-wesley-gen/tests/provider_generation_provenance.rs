@@ -171,7 +171,7 @@ fn exact_materials_produce_one_verified_canonical_provenance_manifest() {
         .collect::<Vec<_>>();
     expected_emitted.sort_by(|left, right| left.coordinate.cmp(&right.coordinate));
     assert_eq!(manifest.emitted_artifacts, expected_emitted);
-    assert_eq!(manifest.emitted_artifacts.len(), 6);
+    assert_eq!(manifest.emitted_artifacts.len(), 7);
 
     for resource in primary.resources() {
         assert!(
@@ -208,7 +208,7 @@ fn exact_materials_produce_one_verified_canonical_provenance_manifest() {
 
     assert_eq!(first.verification().generation_input_digest, input.digest());
     assert_eq!(first.verification().verified_source_count, 3);
-    assert_eq!(first.verification().verified_output_count, 6);
+    assert_eq!(first.verification().verified_output_count, 7);
     assert_eq!(
         first.canonical_bytes(),
         first

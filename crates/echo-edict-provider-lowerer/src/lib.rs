@@ -6,6 +6,9 @@
 //! performs no discovery or I/O and grants no Echo runtime authority.
 
 #![deny(unsafe_code)]
+// Provider guests run in Wasm: they must not print, and a stray trace once
+// shipped in a promoted component (echo#972).
+#![deny(clippy::print_stderr, clippy::print_stdout)]
 
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
@@ -16,6 +19,7 @@ use echo_edict_canonical::{
 mod component;
 pub mod effect_publication;
 mod executable_operation;
+pub mod refusal_reason;
 
 const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {
     major: 1,
@@ -56,6 +60,10 @@ const TARGET_INTRINSIC: &str = "echo.dpo@1.replace";
 const FAILURE_COORDINATE: &str = "rejected";
 
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
+/// The `echo.dpo@2` effect target profile (flyingrobots/echo#985).
+const EFFECT_TARGET_PROFILE_COORDINATE: &str = "echo.dpo@2";
+const EFFECT_TARGET_PROFILE_BYTES: &[u8] =
+    include_bytes!("../resources/target-profile.echo-dpo-2.cbor");
 const LAWPACK_BYTES: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
 const TARGET_AUTHORITY_BYTES: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
 const LAWPACK_AUTHORITY_BYTES: &[u8] =
@@ -291,9 +299,12 @@ pub fn lower(request: LoweringRequestV1) -> LoweringResultV1 {
         ));
     }
 
-    validate_target_profile(&request.target_profile)?;
+    let profile = validate_target_profile(&request.target_profile)?;
     if executable_operation::is_requested(&request) {
-        return executable_operation::lower(&request);
+        return executable_operation::lower(&request, profile);
+    }
+    if profile != SelectedTargetProfile::Dpo {
+        return Err(effect_profile_only(&request.target_profile));
     }
     validate_semantic_closure(&request.semantic_inputs)?;
     validate_requested_outputs(&request.requested_outputs)?;
@@ -318,7 +329,18 @@ pub fn lower(request: LoweringRequestV1) -> LoweringResultV1 {
     })
 }
 
-fn validate_target_profile(profile: &BoundArtifact) -> Result<(), ProviderRefusalV1> {
+/// One of the two exact checked target profiles the lowerer accepts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SelectedTargetProfile {
+    /// `echo.dpo@1`, which every existing route uses.
+    Dpo,
+    /// `echo.dpo@2`, which admits only authored effect programs.
+    Effects,
+}
+
+fn validate_target_profile(
+    profile: &BoundArtifact,
+) -> Result<SelectedTargetProfile, ProviderRefusalV1> {
     validate_binding(profile).map_err(|()| {
         refusal(
             ProviderRefusalKind::InvalidSemanticArtifact,
@@ -327,18 +349,35 @@ fn validate_target_profile(profile: &BoundArtifact) -> Result<(), ProviderRefusa
             "the target-profile artifact is not canonically digest-bound",
         )
     })?;
-    if profile.reference.coordinate != TARGET_PROFILE_COORDINATE
-        || profile.artifact.domain != TARGET_PROFILE_DOMAIN
-        || profile.artifact.bytes != TARGET_PROFILE_BYTES
-    {
-        return Err(refusal(
+    let selected = match (
+        profile.reference.coordinate.as_str(),
+        profile.artifact.bytes.as_slice(),
+    ) {
+        (TARGET_PROFILE_COORDINATE, TARGET_PROFILE_BYTES) => Some(SelectedTargetProfile::Dpo),
+        (EFFECT_TARGET_PROFILE_COORDINATE, EFFECT_TARGET_PROFILE_BYTES) => {
+            Some(SelectedTargetProfile::Effects)
+        }
+        _ => None,
+    };
+    match selected {
+        Some(selected) if profile.artifact.domain == TARGET_PROFILE_DOMAIN => Ok(selected),
+        _ => Err(refusal(
             ProviderRefusalKind::UnsupportedTargetProfile,
             &profile.reference.coordinate,
             "echo.provider.unsupported-target-profile",
-            "the lowerer accepts only the exact checked Echo DPO target profile",
-        ));
+            "the lowerer accepts only the exact checked Echo target profiles echo.dpo@1 and echo.dpo@2",
+        )),
     }
-    Ok(())
+}
+
+/// The refusal for any route but an authored effect program under `echo.dpo@2`.
+fn effect_profile_only(profile: &BoundArtifact) -> ProviderRefusalV1 {
+    refusal(
+        ProviderRefusalKind::UnsupportedTargetProfile,
+        &profile.reference.coordinate,
+        "echo.provider.unsupported-target-profile",
+        "echo.dpo@2 admits only authored effect programs",
+    )
 }
 
 fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRefusalV1> {
@@ -824,7 +863,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21";
+        "652a7e76479d31b53bedaf0987e6797e94a265fcad707a2d418f1b2769bcd579";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -861,7 +900,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "4a5979a4fdd13b4ddfefd5067f130b37351621017c67e9499b467a513a8e2b21",
+        "652a7e76479d31b53bedaf0987e6797e94a265fcad707a2d418f1b2769bcd579",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {
@@ -2115,6 +2154,33 @@ fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
         "echo.provider.local-reference-out-of-scope",
         "Core local reference is not in scope",
     )
+}
+
+/// Refuse an effect program outside the lowerer's judgment, adding a second
+/// diagnostic that names the refusing check and the artifact path it read.
+///
+/// The reason diagnostic's code extends the refusal's own code, so the list
+/// stays strictly ascending. Like every provider result it is independent of
+/// the host's response limits (the frozen WIT contract): it is always two
+/// diagnostics, and the path is bounded by
+/// [`refusal_reason::MAX_PATH_BYTES`], so the refusal never exceeds a few
+/// hundred bytes. Enforcing a smaller host bound is the host's.
+fn unsupported_program(
+    subject: &str,
+    check: &str,
+    program: &refusal_reason::ProgramRefusal,
+) -> ProviderRefusalV1 {
+    let mut refusal = unsupported_semantics(subject, check);
+    refusal.diagnostics.push(Diagnostic {
+        code: format!(
+            "echo.provider.unsupported-semantics.{}",
+            program.reason().code()
+        ),
+        severity: DiagnosticSeverity::Error,
+        message: format!("refused at {}", program.path()),
+        repair: None,
+    });
+    refusal
 }
 
 /// Refuse semantics outside the lowering closure, naming the check that fired.

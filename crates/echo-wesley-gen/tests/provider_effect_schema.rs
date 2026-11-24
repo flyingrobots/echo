@@ -188,6 +188,60 @@ fn authored_effect_configuration_is_selected_with_explicit_resource_and_law_fiel
     }
 }
 
+/// echo#982: an effect configuration may declare graph reads with the same
+/// record the bounded-read configuration uses; a configuration without it
+/// keeps its exact fields. Oracle: the bounded-read declaration's bounds
+/// (`docs/architecture/application-contract-hosting.md`).
+#[test]
+fn authored_effect_configuration_may_declare_graph_reads() {
+    let generated = generated();
+    let schema = generated.schema();
+    let accepts = |value: &V| {
+        schema.validate_root_bytes(
+            "echo-operation-lowering-configuration",
+            &encode_canonical_cbor_v1(value).expect("canonical"),
+        )
+    };
+    let declaring = |graph: V| {
+        let V::Map(mut fields) = configuration() else {
+            panic!("map")
+        };
+        fields.push((text("graphReads"), graph));
+        V::Map(fields)
+    };
+    let graph = |scans: i128, nodes: i128, depth: i128, selector: Option<&str>| {
+        let mut fields = vec![
+            (text("maxEdgeScans"), V::Integer(scans)),
+            (text("maxClosureNodes"), V::Integer(nodes)),
+            (text("maxClosureDepth"), V::Integer(depth)),
+        ];
+        if let Some(selector) = selector {
+            fields.push((text("closureSelector"), text(selector)));
+        }
+        V::Map(fields)
+    };
+    for admitted in [
+        graph(1, 0, 0, None),
+        graph(8, 0, 0, None),
+        graph(65_536, 4096, 256, Some("select")),
+    ] {
+        accepts(&declaring(admitted)).expect("a bounded graph-read declaration is admitted");
+    }
+    for refused in [
+        graph(0, 0, 0, None),
+        graph(65_537, 0, 0, None),
+        graph(1, 4097, 0, None),
+        graph(1, 0, 257, None),
+        graph(1, 0, 0, Some("")),
+        map([("maxEdgeScans", V::Integer(1))]),
+    ] {
+        assert!(
+            accepts(&declaring(refused)).is_err(),
+            "an out-of-bound or incomplete declaration is refused"
+        );
+    }
+}
+
 fn publication_control() -> Vec<u8> {
     hex::decode(include_str!("fixtures/current-effect-publication/package.hex").trim())
         .expect("synthetic current publication")

@@ -104,7 +104,7 @@ fn verified_provenance_produces_one_canonical_non_authoritative_review() {
         provenance.manifest().emitted_artifacts
     );
     assert_eq!(review.source_artifacts.len(), 3);
-    assert_eq!(review.emitted_artifacts.len(), 6);
+    assert_eq!(review.emitted_artifacts.len(), 7);
     assert!(review.emitted_artifacts.iter().all(|artifact| {
         artifact.coordinate != first.coordinate() && artifact.coordinate != provenance.coordinate()
     }));

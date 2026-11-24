@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 
+use super::functions::CostSchedule;
 use super::model::{Comparison, Expr, Helper, Predicate, Program, RuntimeType, MAX_DEPTH};
 use super::{EvaluationError as Error, EvaluationLimits, EvaluationResult};
 
@@ -121,7 +122,7 @@ impl Meter {
         self.allocate(length)
     }
 
-    fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
+    pub(crate) fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
         self.charge_bytes(bytes.len())?;
         Ok(Value::Bytes(bytes.to_vec()))
     }
@@ -178,7 +179,10 @@ pub(crate) fn run_with_meter(
     input: Value,
     meter: &mut Meter,
 ) -> Result<EvaluationResult, Error> {
-    meter.with_component(program.limits, |meter| run_body(program, input, meter))
+    meter.with_component(program.limits, |meter| match program.schedule {
+        CostSchedule::Copying => run_body(program, input, meter),
+        CostSchedule::SharedReads => super::shared_reads::run(program, &input, meter),
+    })
 }
 
 fn run_body(program: &Program, input: Value, meter: &mut Meter) -> Result<EvaluationResult, Error> {
@@ -231,7 +235,27 @@ pub(crate) fn expression(
         | Expr::ListConcat { .. } => {
             super::list_operations::evaluate(expr, locals, helpers, meter, depth)
         }
+        Expr::Integer {
+            operation,
+            max,
+            left,
+            right,
+        } => super::integer_operations::evaluate(
+            *operation, *max, left, right, locals, helpers, meter, depth,
+        ),
+        Expr::Option {
+            operation,
+            item,
+            args,
+        } => super::option_operations::evaluate(
+            *operation, item, args, locals, helpers, meter, depth,
+        ),
+        Expr::Identity(intrinsic, args) => {
+            super::identity::evaluate(*intrinsic, args, locals, helpers, meter, depth)
+        }
         Expr::Constant(value) => meter.copy(value),
+        // A failure returns no value; its step is already charged.
+        Expr::Fail(failure) => Err(Error::UnmappedFailure(failure.clone())),
         Expr::Variant {
             identity,
             case,
@@ -288,6 +312,28 @@ pub(crate) fn expression(
                     expression(value, locals, helpers, meter, depth + 1)?,
                 ));
             }
+            Ok(Value::Map(values))
+        }
+        Expr::OrderedRecord(fields) => {
+            meter.allocate(VALUE_CELL_BYTES)?;
+            let mut values = Vec::new();
+            // Authored order decides which failing field ends the call.
+            for (key, value) in fields {
+                meter.allocate(VALUE_CELL_BYTES + key.len() as u64)?;
+                values.push((
+                    Value::Text(key.clone()),
+                    expression(value, locals, helpers, meter, depth + 1)?,
+                ));
+            }
+            // The value is the canonical record: text keys in canonical CBOR
+            // order, shorter first, then bytewise. Names are unique.
+            values.sort_by(|(left, _), (right, _)| match (left, right) {
+                (Value::Text(left), Value::Text(right)) => left
+                    .len()
+                    .cmp(&right.len())
+                    .then_with(|| left.as_bytes().cmp(right.as_bytes())),
+                _ => std::cmp::Ordering::Equal,
+            });
             Ok(Value::Map(values))
         }
         Expr::If(condition, yes, no) => {
@@ -587,6 +633,9 @@ pub(crate) fn validate(
     match (value, ty.representation()) {
         (_, RuntimeType::Variant { identity, cases }) => {
             super::variants::validate_value(value, identity, cases, meter, depth)
+        }
+        (_, RuntimeType::Option(item)) => {
+            super::option_operations::validate_value(value, item, meter, depth)
         }
         (Value::Bool(_), RuntimeType::Bool) => Ok(()),
         (Value::Integer(value), RuntimeType::Unsigned(max))

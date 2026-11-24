@@ -266,3 +266,140 @@ fn helper_results_do_not_carry_the_count_bound() {
     );
     assert_eq!(helpers(vec![("breaks", breaks)]), Ok(()));
 }
+
+fn compare(op: &str, left: Value, right: Value) -> Value {
+    map([
+        ("kind", text("compare")),
+        ("op", text(op)),
+        ("left", left),
+        ("right", right),
+    ])
+}
+fn all(values: Vec<Value>) -> Value {
+    map([("kind", text("all")), ("values", Value::Array(values))])
+}
+/// A `U64` helper answering `1` when `predicate` holds, else `0`.
+fn predicate_function(predicate: Value) -> Value {
+    let result = map([
+        ("kind", text("if")),
+        ("predicate", predicate),
+        ("then", integer(1)),
+        ("else", integer(0)),
+    ]);
+    map([
+        (
+            "params",
+            Value::Array(vec![local("arg.0", "Bytes<max=32>")]),
+        ),
+        ("returnType", text("U64")),
+        (
+            "body",
+            map([
+                ("locals", Value::Array(vec![])),
+                ("bindings", Value::Array(vec![])),
+                ("result", result),
+            ]),
+        ),
+    ])
+}
+
+/// Inside a helper, an earlier conjunct of one `all` that compares a term
+/// with a constant bounds an addition in a later conjunct; the same addition
+/// before the guard, or one unit too far, is refused. Caller constraints
+/// never reach the helper, so the guard must be the helper's own.
+#[test]
+fn helper_conjunct_prefix_bounds_a_later_addition() {
+    let text_bytes = reference(&local("arg.0", "Bytes<max=32>"));
+    let guard = compare("<=", count(text_bytes.clone()), integer(10));
+    let sum = |addend: u64| {
+        compare(
+            "==",
+            add(count(text_bytes.clone()), integer(addend)),
+            integer(u64::MAX),
+        )
+    };
+    let fits = helpers(vec![(
+        "fits",
+        predicate_function(all(vec![guard.clone(), sum(u64::MAX - 10)])),
+    )]);
+    assert!(fits.is_ok(), "the guard bounds the sum: {fits:?}");
+    assert!(
+        helpers(vec![(
+            "overflows",
+            predicate_function(all(vec![guard.clone(), sum(u64::MAX - 9)]))
+        )])
+        .is_err(),
+        "one past the guarded ceiling overflows"
+    );
+    assert!(
+        helpers(vec![(
+            "unguarded",
+            predicate_function(all(vec![sum(u64::MAX - 10), guard]))
+        )])
+        .is_err(),
+        "a later conjunct proves nothing for an earlier one"
+    );
+}
+
+/// A helper that tests `breaks + breaks <= 64` under `depth` negations, with
+/// `breaks` bound to a count of at most 32, either after or before a guard
+/// over another term that the sum never needs.
+fn deep_guarded_sum(guard_first: bool, depth: usize) -> Value {
+    let text_bytes = reference(&local("arg.0", "Bytes<max=32>"));
+    let breaks = local("local.0", "U64");
+    let mut sum = compare(
+        "<=",
+        add(reference(&breaks), reference(&breaks)),
+        integer(64),
+    );
+    for _ in 0..depth {
+        sum = map([("kind", text("not")), ("value", sum)]);
+    }
+    let guard = compare("<=", count(text_bytes.clone()), integer(10));
+    let conjuncts = if guard_first {
+        vec![guard, sum]
+    } else {
+        vec![sum, guard]
+    };
+    function(
+        vec![(breaks, count(text_bytes))],
+        map([
+            ("kind", text("if")),
+            ("predicate", all(conjuncts)),
+            ("then", integer(1)),
+            ("else", integer(0)),
+        ]),
+    )
+}
+
+/// The deepest negation in `1..=90` under which the helper is accepted.
+fn deepest_accepted(guard_first: bool) -> usize {
+    let accepts = |depth| helpers(vec![("sum", deep_guarded_sum(guard_first, depth))]).is_ok();
+    let (mut accepted, mut refused) = (1, 91);
+    assert!(accepts(accepted), "a shallow sum is accepted");
+    while refused - accepted > 1 {
+        let middle = accepted + (refused - accepted) / 2;
+        if accepts(middle) {
+            accepted = middle;
+        } else {
+            refused = middle;
+        }
+    }
+    accepted
+}
+
+/// A helper addition that fits without the conjunct-prefix facts is judged
+/// without them, so an unneeded earlier guard does not deepen its judgment.
+#[test]
+fn an_unneeded_conjunct_guard_leaves_a_deep_sum_its_depth() {
+    let guard_after = deepest_accepted(false);
+    assert!(
+        (2..90).contains(&guard_after),
+        "the bisection found a real limit below 90: {guard_after}"
+    );
+    let guard_first = deepest_accepted(true);
+    assert!(
+        guard_first >= guard_after,
+        "an unneeded guard cut the nesting from {guard_after} to {guard_first}"
+    );
+}

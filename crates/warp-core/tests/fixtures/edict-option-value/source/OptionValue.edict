@@ -1,0 +1,18 @@
+package consumer.effect.program@1;
+use lawpack consumer.effect@1 digest "sha256:b74d1dfd492e3d4c02f935e0981553d8e60989249282adc734ee0d8b5229894c" as fx;
+type Input = { anchor: Bytes<exact=32>, start: U64, end: U64 };
+fn above(v: U64, floor: U64) -> Option<U64> {
+  return if v > floor then some(v) else none();
+}
+fn pick(v: U64, floor: U64) -> U64 {
+  let o = above(v, floor);
+  return if isSome(o) then unwrap(o) else default(o, 0u64);
+}
+intent settle(input: Input) returns fx.Count
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let width: fx.Count = pick(input.end, input.start);
+  return width;
+}

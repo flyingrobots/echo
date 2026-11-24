@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+[package]
+name = "echo-edict-core-cost-v2-corpus"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.96.0"
+license = "Apache-2.0"
+publish = false
+description = "Producer of the shared edict.core-cost/v2 corpus from the pinned Amblicit compiler"
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+amblicit-syntax = { git = "https://github.com/flyingrobots/amblicit", rev = "da1574f169cda98206440e4d8f785b1ea9e01fcf" }
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"

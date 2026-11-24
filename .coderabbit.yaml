@@ -55,3 +55,15 @@ chat:
 knowledge_base:
   learnings:
     scope: "auto"
+
+issue_enrichment:
+  # Issues carry issue-dag frontmatter, and maintainers own their labels.
+  # CodeRabbit must not add labels to issues, rewrite issue bodies, or plan them.
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+  labeling:
+    auto_apply_labels: false

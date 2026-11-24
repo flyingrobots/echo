@@ -274,7 +274,9 @@ is refused before installation.
 Runtime helper validation also proves addition within its fresh frame using
 literal, count and nested-sum bounds, carried `let` ceilings, and a dominating
 fact from its own conjunct prefixes or enclosing `then` arms that compares the
-term with a constant (`term <= c`, `term == c` or `c == term`). Other terms
+term with a constant: `term <= c`, `term < c` (as `c - 1`, saturating at 0),
+`term == c`, or the reversed forms `c >= term`, `c > term` and `c == term`, as
+native Target reads them (#1010). Other terms
 retain their full unsigned width, so zero identity is total and an unbounded
 parameter plus one refuses. Caller constraints and caller branches do not cross
 into a helper frame; a helper's own preconditions do (see function
@@ -291,7 +293,8 @@ are each accepted. Nested `then` arms accumulate their predicates, and a branch
 fact joins the input constraints and conjunct prefixes in force at that point.
 The `else` arm gains nothing, and the predicate is not a fact for itself or
 outside its `if`. A branch fact is read with the same operators as every other
-fact, so `if index < 3 then index + 1 else index` is still refused (#960).
+fact, so `if index < 3 then index + 1 else index` is accepted like the `<= 2`
+form (#1010).
 
 Each judgment reads the branch facts only when an addition, subtraction or
 slice is refused without them, so a program that needs no branch fact is
@@ -366,15 +369,16 @@ judgment may assume these facts:
 A slice or subtraction needs an order fact over the same term, compared by
 canonical encoding. So `let at2 = at` followed by `slice(text, 0, at2)` is
 refused even under `at <= len(text)`; use the constrained term itself. An
-addition's constant bound is read only as `term <= c`, `term == c` or `c == term`; write
-`at < 11` or `11 > at` as `at <= 10`. A guard over a different term proves
+addition's constant bound is read from `term <= c`, `term < c` (as `c - 1`),
+`term == c` and the reversed forms `c >= term`, `c > term`, `c == term`, so
+`at < 11`, `11 > at` and `at <= 10` all bound `at` by 10 (#1010). A guard over a different term proves
 nothing. Edict's totality rule (`crates/amblicit-syntax/src/target_ir/totality.rs`
 in `flyingrobots/amblicit`) uses no other facts here: a `require` stops
 evaluation when it fails, so its predicate does hold at later nodes, but the
 rule does not assume it, and Echo follows the rule. State such a bound as an
 input constraint, inside the same `all`, or as the predicate of an `if` whose
-`then` arm uses it. For constant bounds Edict also reads the strict and reversed
-comparison forms; all three Echo judgments do not yet (#960). A program that needs a fact the
+`then` arm uses it. For constant bounds all three Echo judgments read the
+strict and reversed comparison forms as Edict does (#1010). A program that needs a fact the
 judgment lacks is refused when its package is prepared.
 
 warp-core judges each node first without these facts or carried ceilings, at

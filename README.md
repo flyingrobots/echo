@@ -212,8 +212,12 @@ conformance. A consumer runs an authored effect package on generic Echo,
 under `trusted_runtime` alone, through `EffectPackageHost` (#1017): it admits
 the exact package and one invocation, evaluates them in a recording frame and
 derives the proposal without applying it. Scheduler-owned Action execution,
-the runtime WAL and commit still live on `TrustedRuntimeHost`, which keeps the
-joint `native_rule_bootstrap` and `trusted_runtime` feature gate.
+the runtime WAL and commit live on `TrustedRuntimeHost`. The host, its WAL,
+recovery and receipt machinery are available under `trusted_runtime` alone.
+Native-rule authoring and execution, and the installed-contract and provider
+mutation seams that register native handlers, keep the joint
+`native_rule_bootstrap` and `trusted_runtime` gate on the item itself
+(`scripts/check-trusted-runtime-gate.sh`).
 
 The following sequence is the existing Wesley bootstrap fixture:
 

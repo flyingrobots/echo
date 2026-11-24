@@ -1438,7 +1438,7 @@ impl LocalProvenanceStore {
 
     /// Borrows the retained tick receipt of a specific tick, or `None` when
     /// the entry retains no receipt.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn retained_tick_receipt(
         &self,
         w: WorldlineId,
@@ -1942,7 +1942,7 @@ pub struct ProvenanceService {
 impl ProvenanceService {
     /// Borrows the retained tick receipt of a specific tick, or `None` when
     /// the entry retains no receipt.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn retained_tick_receipt(
         &self,
         w: WorldlineId,

@@ -322,4 +322,15 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest/controls/unread-bytes" \
     --work-root "$witness_dir/effect-unread-run" \
     --check
+
+  # The same identity constructors called from a source helper and from a
+  # fold step (echo#1005), with the same echo.dpo@1 and substituted-profile
+  # controls.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name helper \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-helper-identity" \
+    --work-root "$witness_dir/effect-helper-identity-run" \
+    --check
 fi

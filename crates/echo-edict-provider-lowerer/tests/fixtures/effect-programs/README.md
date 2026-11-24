@@ -32,6 +32,7 @@ Each refused entry is a well-formed package that reaches one specific check. Eac
 | `type-table-int`                                              | a type-table entry `{ kind: "Int", width: "U64" }`                                                 | `type-table-width` (`{ kind: "U64" }`)                         |
 | `read-allocation-short`                                       | an allocation budget one byte under a read's runtime cost on a 1,048,521-byte atom                 | `read-and-return-control`                                      |
 | `read-captured-budget`                                        | the captured read's own 1 MiB step budget                                                          | `read-control`                                                 |
+| `footprint-writes-over-ceiling`                               | the footprint law's `max_writes`, 257, one over the effect profile's ceiling (echo#1023)           | `footprint-writes-at-ceiling` (256)                            |
 
 
 ## Source-module entries (#1009)

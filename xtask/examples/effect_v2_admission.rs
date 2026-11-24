@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+// SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::print_stdout)]
 //! Asks the public compiler for its static minimum budget of an `echo.dpo@2`

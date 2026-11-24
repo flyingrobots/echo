@@ -691,8 +691,7 @@ fn the_published_v3_catalog_is_the_v2_catalog_with_every_template() {
     let generated = encode(&v3_catalog()).expect("canonical v3 catalog");
     let published = V3_CATALOG.to_vec();
     assert_eq!(
-        published,
-        generated,
+        published, generated,
         "catalogs/resource.target-intrinsics-3.cbor differs from the generated catalog"
     );
     let catalog = decode(&published).unwrap();

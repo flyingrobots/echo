@@ -14,6 +14,7 @@ by `xtask --example effect_v2_admission` (echo#1016):
 | `read-executable-operation-package.hex` | `edict-effect-step/source` (node-atom read) |
 | `link-executable-operation-package.hex` | `edict-effect-graph-read/source` (outgoing-edge read and `ensure-edge`) |
 | `write-executable-operation-package.hex` | `edict-effect-mutations/source` (five mutation intrinsics) |
+| `typed-executable-operation-package.hex` | `edict-effect-typed-failure/source` (an `attempt` of a failing helper, then `ensure-node`) |
 
 Nothing here was decoded and re-encoded. They are new files: the packages
 retained beside each source were written by earlier compilers and stay
@@ -26,6 +27,13 @@ under Echo's `/v3` effect templates, (100, 1631), (244, 8240) and (176, 6796)
 (steps, bytes), and requires Echo to admit it there, to refuse it one unit
 below on either axis, and to measure the same minimum. They use the
 configuration retained beside each source.
+
+`an_attempt_is_charged_what_the_shared_runtime_charges` in the same file
+measures Echo's shared-read minimum for the typed-failure package, (140, 2095).
+Amblicit `65dc5362` reports (137, 1967) for it: that compiler charges an
+`attempt` arm nothing, while warp-core's shared executor charges an
+empty-payload arm (3, 128). Exact admission of this package waits for the
+compiler change (amblicit#341).
 
 The packages are private evaluation witnesses. They do not establish
 installation, a causal Tick, WAL retention or a receipt.

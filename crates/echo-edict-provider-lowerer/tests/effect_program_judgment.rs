@@ -158,6 +158,12 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/write-executable-operation-package.hex"
         ),
     ),
+    (
+        "typed-failure-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/typed-executable-operation-package.hex"
+        ),
+    ),
 ];
 fn package(name: &str) -> V {
     let hex = RETAINED
@@ -415,7 +421,7 @@ fn byte_operation_minimums_under_each_schedule() {
         measured,
         [
             ("slice-proven", (195, 3383), (873, 971)),
-            ("typed-failure-control", (74, 3312), (376, 1295)),
+            ("typed-failure-control", (74, 3312), (375, 1295)),
         ]
     );
 }
@@ -437,7 +443,7 @@ fn effect_program_minimums_under_each_schedule() {
             (
                 "read-control",
                 (2_097_226, 9_441_348),
-                (2_097_262, 4_195_841)
+                (2_097_261, 4_195_841)
             ),
             ("ensure-node-control", (41, 4258), (34, 2301)),
             ("structured-loop-control", (173, 18_325), (122, 6903)),
@@ -505,6 +511,13 @@ fn context(name: &str) -> Context {
             ),
             schema: "consumer.writes.exports/v1",
             package: b"package consumer.writes.program@1;\n",
+        },
+        "typed-failure-v2-admission" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-effect-typed-failure/typed-configuration.hex"
+            ),
+            schema: "consumer.typedfail.exports/v1",
+            package: b"package consumer.typedfail.program@1;\n",
         },
         _ => panic!("no witness {name}"),
     }
@@ -655,6 +668,27 @@ fn effect_programs_are_admitted_at_exactly_the_compiler_minimum() {
     }
 }
 
+/// Echo's shared-read minimum for the typed-failure program, (steps, bytes):
+/// one `attempt` of a failing helper with an empty-payload arm, then one
+/// `ensureNode`. The `attempt` node is charged its step, the call's shared
+/// work, and the larger of what each path adds: success adds nothing (the
+/// shared runtime does not validate the binding), the arm builds `{}`
+/// (one expression step and its one-cell shell, (2, 64)) and encodes it
+/// (`shape(record {})`, (1, 64)). That is what warp-core's shared executor
+/// charges on the failure path, measured at (3, 128) after the call.
+const TYPED_FAILURE_SHARED_MINIMUM: (u64, u64) = (140, 2_095);
+
+/// The `attempt` arm is charged what the runtime charges for it (echo#1016,
+/// amblicit#341): the typed-failure program's shared-read minimum. Oracle:
+/// warp-core's own meter on each path, in the constant's comment.
+#[test]
+fn an_attempt_is_charged_what_the_shared_runtime_charges() {
+    assert_eq!(
+        witness_minimum("typed-failure-v2-admission", Some(SHARED)),
+        TYPED_FAILURE_SHARED_MINIMUM
+    );
+}
+
 /// The compiler-produced identity witnesses (all four `echo.dpo@2` identity
 /// intrinsics) are judged under the shared-read schedule (echo#1016, family
 /// 3). Each call is charged its catalog rule plus a full copy of every
@@ -733,9 +767,9 @@ const FAMILY_FOUR: [&str; 4] = [
 
 #[allow(clippy::type_complexity)]
 const FAMILY_FOUR_MINIMUMS: [(&str, (u64, u64), (u64, u64)); 5] = [
-    ("ordered-record-z-first", (57, 2793), (113, 1489)),
-    ("ordered-record-a-first", (57, 2793), (113, 1489)),
-    ("ordered-record-guarded-z-first", (71, 3177), (253, 1745)),
-    ("ordered-record-guarded-a-first", (71, 3177), (253, 1745)),
+    ("ordered-record-z-first", (57, 2793), (112, 1489)),
+    ("ordered-record-a-first", (57, 2793), (112, 1489)),
+    ("ordered-record-guarded-z-first", (71, 3177), (252, 1745)),
+    ("ordered-record-guarded-a-first", (71, 3177), (252, 1745)),
     ("option-value-witness", (88, 2936), (831, 942)),
 ];

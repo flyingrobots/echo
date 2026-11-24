@@ -466,7 +466,9 @@ impl<'a> Checker<'a, '_> {
             return Ok(None);
         }
         let mut shell = Footprint::CELL;
-        let mut charge = ticks(1);
+        // The shell's build already holds the record expression's own tick,
+        // as warp-core's shared evaluator charges it.
+        let mut charge = ticks(0);
         for (name, value) in fields {
             shell = shell.with(Footprint::CELL.keyed(string(name)?)?)?;
             charge.append(self.shared_value(value)?)?;

@@ -364,6 +364,19 @@
 
 ### Fixed
 
+- Under the shared-read schedule an `attempt` in an effect body is charged
+  what warp-core's shared executor charges (echo#1016, amblicit#341). An
+  obstruction payload's record expression step was counted twice, once on
+  its own and once in its shell's evaluation; it is now counted once, in the
+  lowerer and the verifier alike, for `attempt` arms and `require` payloads.
+  An `attempt`'s success path no longer adds the binding's validations, which
+  the shared executor never performs. Shared step minimums fall by one for
+  `typed-failure-control` (375), `read-control` (2,097,261) and the four
+  ordered-record programs (112, 252); bytes and every copying minimum are
+  unchanged, and warp-core runs each program at its new minimum. The
+  compiler's typed-failure package is retained beside the other exact
+  admission packages.
+
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package
   whose intent called an exported pure helper whose body fails, outright or in

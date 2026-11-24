@@ -258,7 +258,8 @@ impl<'a> Checker<'a, '_> {
                     return Err(());
                 }
                 // The call runs, then either its result is checked or exactly
-                // one arm's payload is built: charge the larger.
+                // one arm's payload is built: charge the larger. The shared
+                // executor binds the result unchecked: success adds nothing.
                 tally
                     .charge
                     .append(self.effect_value(node_value, value.charge)?)?;
@@ -266,7 +267,11 @@ impl<'a> Checker<'a, '_> {
                 tally.charge.append(Charge::choice(
                     worst,
                     Charge {
-                        ticks: expected.measure()?.checks,
+                        ticks: if self.types.shared {
+                            0
+                        } else {
+                            expected.measure()?.checks
+                        },
                         storage: 0,
                     },
                 ))?;

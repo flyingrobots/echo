@@ -446,7 +446,9 @@ impl<'a> Judgment<'a> {
 
     /// Under the schedule, building an obstruction payload record of these
     /// fields: its shell, as any record, plus each field's shared-read work.
-    /// `None` keeps the copying charge.
+    /// The shell's evaluation already holds the record expression's own
+    /// step, as warp-core's shared evaluator charges it (one step, then the
+    /// shell's cells). `None` keeps the copying charge.
     pub(super) fn effect_payload(
         &mut self,
         fields: &[(&'a Value, &'a Value)],
@@ -455,7 +457,7 @@ impl<'a> Judgment<'a> {
             return Ok(None);
         }
         let mut shell = CELL;
-        let mut work = steps(1);
+        let mut work = Cost::default();
         for (name, value) in fields {
             shell = shell.plus(CELL.field(string(name)?)?)?;
             work = work.plus(self.shared_expression(value)?)?;

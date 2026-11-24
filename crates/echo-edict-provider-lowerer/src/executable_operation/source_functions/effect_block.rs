@@ -255,9 +255,12 @@ impl<'a> Judgment<'a> {
                 self.effect_bound(get(node, "binding")?, value)?;
                 // The call runs, then either its result is validated or
                 // exactly one arm's payload is built: charge the larger.
+                // The shared executor binds the result without validating
+                // it, so under the schedule success adds nothing.
+                let validations = if self.shared { 0 } else { shape(&ty)?.1 };
                 Ok(Totals {
                     cost: work.plus(worst.maximum(Cost {
-                        steps: shape(&ty)?.1,
+                        steps: validations,
                         bytes: 0,
                     }))?,
                     mutations: 0,

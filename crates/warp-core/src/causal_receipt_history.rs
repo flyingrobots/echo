@@ -4,7 +4,7 @@
 
 use thiserror::Error;
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 use crate::{
     contract_inverse::recover_contract_inverse_derivation, ProvenanceService, ProvenanceStore,
     ReceiptCorrelationRecord, WorldlineRuntime,
@@ -300,7 +300,7 @@ pub enum CausalReceiptHistoryObstruction {
     ContractInverse(#[from] ContractInverseHistoryObstruction),
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn causal_receipt_history(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,
@@ -429,7 +429,7 @@ pub(crate) fn causal_receipt_history(
 }
 
 /// What a tick's retained receipt can prove about its submissions.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 #[derive(Clone, Copy)]
 enum TickEvidence {
     /// No attribution section: completeness cannot be established.
@@ -443,7 +443,7 @@ enum TickEvidence {
 }
 
 /// How far one page got through one tick.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 enum TickVisit {
     /// Every submission of the tick after the starting point was inspected.
     Finished { evidence: TickEvidence },
@@ -455,7 +455,7 @@ enum TickVisit {
     },
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 impl TickVisit {
     const fn evidence(&self) -> TickEvidence {
         match self {
@@ -464,7 +464,7 @@ impl TickVisit {
     }
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 impl CausalReceiptHistoryCompleteness {
     /// This page's claim after inspecting a tick with `evidence`. The claim
     /// only ever weakens, and records the first tick that weakened it.
@@ -488,7 +488,7 @@ impl CausalReceiptHistoryCompleteness {
 }
 
 /// One page's traversal state.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 struct PageWalk<'a> {
     runtime: &'a WorldlineRuntime,
     provenance: &'a ProvenanceService,
@@ -497,7 +497,7 @@ struct PageWalk<'a> {
     records_inspected: usize,
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 impl<'a> PageWalk<'a> {
     fn page_full(&self) -> bool {
         self.entries.len() == self.request.page_size
@@ -793,14 +793,14 @@ impl<'a> PageWalk<'a> {
 
 /// Whether the receipt index resolves `receipt_ref` to the correlation for
 /// that exact receipt, not to a different one through a stale entry.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn indexed_exactly(runtime: &WorldlineRuntime, receipt_ref: &CausalTickReceiptRef) -> bool {
     runtime
         .receipt_correlation_for_receipt_ref(receipt_ref)
         .is_some_and(|correlation| correlation.causal_receipt_ref == *receipt_ref)
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 /// Checks that retained history holds the transition `receipt_ref` names,
 /// with the same commit and the same receipt content: a receipt is never
 /// presented for a tick that history lost or recorded differently.
@@ -827,7 +827,7 @@ fn verify_retained_transition(
     Ok(())
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn history_entry(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,
@@ -929,7 +929,7 @@ fn history_entry(
     })
 }
 
-#[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(all(test, feature = "trusted_runtime"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;

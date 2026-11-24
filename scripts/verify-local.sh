@@ -1756,6 +1756,8 @@ run_full_lane_clippy_core() {
     for test_target in "${FULL_SCOPE_WARP_CORE_CLIPPY_TESTS[@]}"; do
       run_warp_core_clippy_test_target "full-clippy-core" "$test_target"
     done
+    echo "[verify-local][clippy-core] trusted_runtime feature matrix and native-rule reachability"
+    scripts/check-trusted-runtime-gate.sh
   fi
 }
 

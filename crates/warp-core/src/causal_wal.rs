@@ -38,10 +38,7 @@ use thiserror::Error;
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
-#[cfg(any(
-    test,
-    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-))]
+#[cfg(any(test, feature = "trusted_runtime"))]
 use crate::causal_anchor::{prepare_causal_anchor_admission, CausalAnchorClaim};
 use crate::causal_anchor::{
     validate_causal_anchor_admission_evidence, CausalAnchorAdmissionReceipt, CausalAnchorError,
@@ -1229,10 +1226,7 @@ impl WalTransactionBuilder {
     }
 
     /// Creates an admission-kernel-authorized causal-anchor transaction builder.
-    #[cfg(any(
-        test,
-        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-    ))]
+    #[cfg(any(test, feature = "trusted_runtime"))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_causal_anchor_admission(
         writer_epoch: WriterEpochId,
@@ -1945,10 +1939,7 @@ pub struct InMemoryWalStore {
 /// lengths are enough to remove what came after. Epoch bookkeeping is small
 /// and is kept whole.
 /// Used only by the trusted host and tests.
-#[cfg(any(
-    test,
-    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-))]
+#[cfg(any(test, feature = "trusted_runtime"))]
 #[derive(Clone, Debug)]
 pub(crate) struct InMemoryWalStoreMark {
     frames: usize,
@@ -1973,10 +1964,7 @@ impl InMemoryWalStore {
 
     /// Marks the current end of the store. Costs nothing in proportion to
     /// what the store holds, unlike a clone.
-    #[cfg(any(
-        test,
-        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-    ))]
+    #[cfg(any(test, feature = "trusted_runtime"))]
     #[must_use]
     pub(crate) fn mark(&self) -> InMemoryWalStoreMark {
         InMemoryWalStoreMark {
@@ -2000,10 +1988,7 @@ impl InMemoryWalStore {
     /// Returns [`WalStoreError::Io`] and changes nothing if the store does
     /// not still begin with the marked prefix: it is shorter than the mark,
     /// or the record at the end of the mark is not the one the mark saw.
-    #[cfg(any(
-        test,
-        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-    ))]
+    #[cfg(any(test, feature = "trusted_runtime"))]
     pub(crate) fn rewind_to(&mut self, mark: InMemoryWalStoreMark) -> Result<(), WalStoreError> {
         let frame_at_mark = mark
             .frames
@@ -2902,7 +2887,7 @@ pub(crate) fn decode_tick_receipt_records(
     }
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn tick_receipt_payload_is_batch(bytes: &[u8]) -> bool {
     bytes.starts_with(WAL_TICK_RECEIPT_BATCH_MAGIC_V3)
 }
@@ -9322,7 +9307,7 @@ pub(crate) fn build_replayable_tick_batch_transaction(
 }
 
 /// Builds one runtime-owner installation transaction for exact executable meaning.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn build_executable_operation_installation_transaction(
     mut builder: WalTransactionBuilder,
     retained_installation_bytes: Vec<u8>,
@@ -9341,7 +9326,7 @@ pub(crate) fn build_executable_operation_installation_transaction(
 /// Its execution-kernel-owned state-delta record remains the replayable
 /// provenance carrier; the operation record carries the additional typed
 /// executable-semantics receipt.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn build_executable_operation_tick_transaction(
     mut builder: WalTransactionBuilder,
     retained_execution_bytes: Vec<u8>,
@@ -9381,10 +9366,7 @@ fn push_tick_receipt_records(
 }
 
 /// Builds one atomic Echo-owned causal-anchor admission transaction.
-#[cfg(any(
-    test,
-    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-))]
+#[cfg(any(test, feature = "trusted_runtime"))]
 pub(crate) fn build_causal_anchor_admission_transaction(
     mut builder: WalTransactionBuilder,
     claim: CausalAnchorClaim,
@@ -9602,7 +9584,7 @@ pub struct RecoveredCausalAnchorAdmission {
 }
 
 impl RecoveredCausalAnchorAdmission {
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) const fn from_committed_wal_evidence(
         fact: CausalAnchorFact,
         receipt: CausalAnchorAdmissionReceipt,
@@ -9621,10 +9603,7 @@ impl RecoveredCausalAnchorAdmission {
         }
     }
 
-    #[cfg(any(
-        test,
-        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-    ))]
+    #[cfg(any(test, feature = "trusted_runtime"))]
     pub(crate) const fn from_observation(observation: ObservedCausalAnchorAdmission) -> Self {
         Self { observation }
     }
@@ -9737,9 +9716,9 @@ pub fn observe_causal_anchor_admissions(
 #[derive(Clone, Debug)]
 pub(crate) struct ValidatedCausalAnchorHistory {
     pub(crate) admissions: Vec<(ObservedCausalAnchorAdmission, usize)>,
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) causal_history_frontiers: Vec<CausalFrontierRef>,
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) causal_anchor_frontier_digest: Hash,
 }
 
@@ -9755,7 +9734,7 @@ pub(crate) fn validate_recovered_causal_anchor_history(
     let mut admissions = Vec::new();
     let mut current_frontier = causal_history_genesis_frontier_digest();
     let mut current_causal_anchor_frontier = causal_anchor_genesis_frontier_digest();
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
 
     for (index, transaction) in report.transactions.iter().enumerate() {
@@ -9765,7 +9744,7 @@ pub(crate) fn validate_recovered_causal_anchor_history(
             transaction.commit.transaction_kind,
             &transaction.frames,
         );
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         let basis_after = CausalFrontierRef::from_digest(next_frontier);
         if transaction.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission {
             let admission = by_transaction
@@ -9806,15 +9785,15 @@ pub(crate) fn validate_recovered_causal_anchor_history(
             admissions.push((admission, index));
         }
         current_frontier = next_frontier;
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         frontiers.push(basis_after);
     }
 
     Ok(ValidatedCausalAnchorHistory {
         admissions,
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         causal_history_frontiers: frontiers,
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         causal_anchor_frontier_digest: current_causal_anchor_frontier,
     })
 }

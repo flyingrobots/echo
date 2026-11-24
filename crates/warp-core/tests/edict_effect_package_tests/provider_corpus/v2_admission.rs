@@ -5,7 +5,8 @@
 //!
 //! Each package is unchanged public compiler output retained under
 //! `fixtures/edict-effect-v2-admission/`. The budget is the minimum that
-//! Amblicit 80b52f95 reports with Echo's `/v3` templates and that
+//! Amblicit e306ecc9 reports with Echo's `/v3` templates (unchanged since
+//! 80b52f95 for the read and the mutations) and that
 //! `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in
 //! `echo-edict-provider-lowerer` pins. Oracles: the copying executor on the
 //! same package, input and graph (a differential), and that static bound,
@@ -99,7 +100,8 @@ fn run_charged(package: &V, input: &[u8], reads: &[TypedNodeRead]) -> Charged {
 }
 
 /// Runs `package` under the copying schedule and again under the shared-read
-/// schedule at exactly `minimum`; both must agree, and the shared run's charge
+/// schedule at exactly `minimum`; the copying run returns or obstructs with an
+/// authored reason, both must agree, and the shared run's charge
 /// must stay within `minimum` on both axes.
 fn assert_runs_within(
     name: &str,
@@ -110,7 +112,10 @@ fn assert_runs_within(
 ) -> Charged {
     let copying = run_charged(package, input, reads);
     assert!(
-        copying.result.is_ok(),
+        matches!(
+            copying.result,
+            Ok(_) | Err(EffectFrameError::AuthoredObstruction { .. })
+        ),
         "{name}: copying run {:?}",
         copying.result
     );
@@ -214,4 +219,99 @@ fn the_mutation_intrinsics_run_within_the_compiler_minimum() {
     ]));
     let run = assert_runs_within("mutations", &package(WRITE), WRITE_MINIMUM, &input, &[]);
     assert_eq!(run.mutations.len(), 5, "five intents");
+}
+
+/// The loop programs' checked packages and the compiler's shared-read
+/// minimums, which Amblicit e306ecc9 reports and
+/// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` pins.
+const LOOPS: [(&str, &str, (u64, u64)); 6] = [
+    (
+        "loop-scalar",
+        include_str!("../../fixtures/edict-effect-v2-admission/payload-loop-scalar-executable-operation-package.hex"),
+        (300, 3_200),
+    ),
+    (
+        "loop-record",
+        include_str!("../../fixtures/edict-effect-v2-admission/payload-loop-record-executable-operation-package.hex"),
+        (318, 4_190),
+    ),
+    (
+        "loop-nested",
+        include_str!("../../fixtures/edict-effect-v2-admission/payload-loop-nested-executable-operation-package.hex"),
+        (783, 5_144),
+    ),
+    (
+        "loop-entry",
+        include_str!("../../fixtures/edict-effect-v2-admission/payload-loop-entry-executable-operation-package.hex"),
+        (336, 3_998),
+    ),
+    (
+        "loop-bytes",
+        include_str!("../../fixtures/edict-effect-v2-admission/payload-loop-bytes-executable-operation-package.hex"),
+        (1_134, 3_608),
+    ),
+    (
+        "loop-mixed",
+        include_str!("../../fixtures/edict-effect-v2-admission/payload-loop-mixed-executable-operation-package.hex"),
+        (339, 4_232),
+    ),
+];
+
+/// The typed-failure input with `end` 10 and three loop items, the one at
+/// `failing` (if any) out of range: an integer or a bytes item longer than
+/// `end`, or an entry whose value exceeds its limit.
+fn loop_input(name: &str, failing: Option<usize>) -> Vec<u8> {
+    let int = |value: u64| V::Integer(i128::from(value));
+    let items = (0..3)
+        .map(|index| {
+            let bad = failing == Some(index);
+            match name {
+                "loop-entry" => map([("value", int(if bad { 11 } else { 4 })), ("limit", int(10))]),
+                "loop-bytes" => V::Bytes(vec![0x62; if bad { 8 } else { 3 }]),
+                _ => int(if bad { 11 } else { 4 }),
+            }
+        })
+        .collect();
+    let end = if name == "loop-bytes" { 5 } else { 10 };
+    encoded(&map([
+        ("anchor", V::Bytes(vec![0x40; 32])),
+        ("start", int(0)),
+        ("end", int(end)),
+        ("items", V::Array(items)),
+        (
+            "node",
+            map([
+                ("warpId", V::Bytes(ROOT.warp_id.0.to_vec())),
+                ("nodeId", V::Bytes(vec![0x41; 32])),
+                ("nodeType", V::Bytes(NODE_TYPE.0.to_vec())),
+                ("atomType", V::Bytes(ATOM_TYPE.0.to_vec())),
+                ("atomBytes", V::Bytes(b"seeded".to_vec())),
+            ]),
+        ),
+    ]))
+}
+
+/// Every loop program runs at exactly the compiler's minimum on every path:
+/// all three items pass, or the first, second or third fails its `require`
+/// and the program obstructs with `RangeInverted` (echo#1016).
+#[test]
+fn the_loop_programs_run_within_the_compiler_minimum_on_every_path() {
+    for (name, hex_text, minimum) in LOOPS {
+        let package = package(hex_text);
+        for failing in [None, Some(0), Some(1), Some(2)] {
+            let label = format!("{name}, failing item {failing:?}");
+            let run =
+                assert_runs_within(&label, &package, minimum, &loop_input(name, failing), &[]);
+            match failing {
+                None => assert!(run.result.is_ok(), "{label}: {:?}", run.result),
+                Some(_) => assert!(
+                    matches!(&run.result,
+                        Err(EffectFrameError::AuthoredObstruction { reason_kind, .. })
+                            if reason_kind == "fx.RangeInverted"),
+                    "{label}: {:?}",
+                    run.result
+                ),
+            }
+        }
+    }
 }

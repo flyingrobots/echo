@@ -191,6 +191,30 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-record-executable-operation-package.hex"
         ),
     ),
+    (
+        "payload-loop-nested-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-nested-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-entry-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-entry-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-bytes-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-bytes-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-mixed-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-mixed-executable-operation-package.hex"
+        ),
+    ),
 ];
 
 fn package_bytes(name: &str) -> Vec<u8> {
@@ -988,5 +1012,35 @@ fn record_valued_failure_payload_minimums_equal_the_compiler_minimum() {
         ]
         .map(|name| minimum(name, Some(SHARED))),
         [(151, 2_621), (137, 2_557)]
+    );
+}
+
+/// Loops of `require` under the shared-read schedule (echo#1016): a scalar
+/// item, a record-valued payload, a nested 3 by 3 loop, a two-field record
+/// item, a bytes item, and a body holding a `let`, a `require` and an
+/// `ensureNode` together. The verifier's minimums equal the public
+/// compiler's, Amblicit e306ecc9, which
+/// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
+/// lowerer pins for the lowerer (oracle: the compiler's own reports).
+#[test]
+fn loop_minimums_equal_the_compiler_minimum() {
+    assert_eq!(
+        [
+            "payload-loop-scalar-v2-admission",
+            "payload-loop-record-v2-admission",
+            "payload-loop-nested-v2-admission",
+            "payload-loop-entry-v2-admission",
+            "payload-loop-bytes-v2-admission",
+            "payload-loop-mixed-v2-admission",
+        ]
+        .map(|name| minimum(name, Some(SHARED))),
+        [
+            (300, 3_200),
+            (318, 4_190),
+            (783, 5_144),
+            (336, 3_998),
+            (1_134, 3_608),
+            (339, 4_232),
+        ]
     );
 }

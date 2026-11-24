@@ -222,6 +222,30 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-record-executable-operation-package.hex"
         ),
     ),
+    (
+        "payload-loop-nested-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-nested-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-entry-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-entry-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-bytes-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-bytes-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-mixed-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-mixed-executable-operation-package.hex"
+        ),
+    ),
 ];
 fn package(name: &str) -> V {
     let hex = RETAINED
@@ -713,7 +737,11 @@ fn context(name: &str) -> Context {
         | "payload-attempt-record-v2-admission"
         | "payload-require-record-v2-admission"
         | "payload-loop-scalar-v2-admission"
-        | "payload-loop-record-v2-admission" => Context {
+        | "payload-loop-record-v2-admission"
+        | "payload-loop-nested-v2-admission"
+        | "payload-loop-entry-v2-admission"
+        | "payload-loop-bytes-v2-admission"
+        | "payload-loop-mixed-v2-admission" => Context {
             configuration: include_str!(
                 "../../warp-core/tests/fixtures/edict-effect-typed-failure/typed-configuration.hex"
             ),
@@ -843,7 +871,7 @@ fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
 /// scalar and record payload. Since amblicit#350 each iteration
 /// is charged its item step, the binder's validations and the body, with no
 /// binder copy or loop-body result, which the shared runtime never charges.
-const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 12] = [
+const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 16] = [
     ("node-atom-read-v2-admission", (100, 1_631)),
     ("outgoing-edge-read-v2-admission", (244, 8_240)),
     ("mutations-v2-admission", (176, 6_796)),
@@ -862,6 +890,10 @@ const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 12] = [
     ("payload-require-record-v2-admission", (137, 2_557)),
     ("payload-loop-scalar-v2-admission", (300, 3_200)),
     ("payload-loop-record-v2-admission", (318, 4_190)),
+    ("payload-loop-nested-v2-admission", (783, 5_144)),
+    ("payload-loop-entry-v2-admission", (336, 3_998)),
+    ("payload-loop-bytes-v2-admission", (1_134, 3_608)),
+    ("payload-loop-mixed-v2-admission", (339, 4_232)),
 ];
 
 /// Exact admission at the compiler's minimum (echo#1016) for the node-atom

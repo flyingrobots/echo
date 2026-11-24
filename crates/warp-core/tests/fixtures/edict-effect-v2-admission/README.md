@@ -88,5 +88,29 @@ loops are (300, 3200) and (318, 4190), equal to Echo.
 `effect_programs_are_admitted_at_exactly_the_compiler_minimum` pins all twelve
 to that compiler.
 
+Four more loop packages were written the same way by Amblicit `e306ecc9` from
+their `-source/` directories, with the typed-failure configuration:
+`payload-loop-nested-*` (a 3 by 3 nested loop of `require item <= input.end`,
+payload `{ at: row }`), `payload-loop-entry-*` (items of a two-field record
+`{ value: U64, limit: U64 }`, `require item.value <= item.limit`),
+`payload-loop-bytes-*` (items `Bytes<max=8>`, `require len(item) <= input.end`)
+and `payload-loop-mixed-*` (a body of a `let`, a `require` and an
+`ensureNode`). The compiler reports (783, 5144), (336, 3998), (1134, 3608)
+and (339, 4232); Echo's lowerer and verifier measure the same, and the
+lowerer admits each at exactly that budget and refuses it one unit below.
+`the_loop_programs_run_within_the_compiler_minimum_on_every_path` in
+warp-core runs all six loop programs at that budget under shared reads, with
+every item passing and with the first, second or third item failing: the
+result and mutations equal the copying run's and the charge stays within the
+bound on both axes.
+
+`payload-loop-attempt-source/` holds an `attempt` of the failing helper
+inside a loop bounded 3. The compiler reports (342, 3392) for it, but Echo's
+checked lowerer refuses the program (`effect-program.failure-sets`):
+Echo's failure-set judge (`failure_sets.rs`, identical in warp-core, the
+lowerer and the verifier) accepts an `attempt` only as a top-level node of an
+intent body, so an `attempt` inside a loop is outside the checked profile.
+No package is retained and nothing is pinned for it.
+
 The packages are private evaluation witnesses. They do not establish
 installation, a causal Tick, WAL retention or a receipt.

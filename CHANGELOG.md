@@ -21,7 +21,7 @@
   witness, a shared corpus fixes the three verdicts, and warp-core runs
   the control. A public compiler witness (`edict-effect-source-module`,
   Amblicit `7dbcbc23`) builds through the promoted provider package
-  (lowerer `f03a9022`, verifier `54a7c9fc`).
+  (lowerer `4bfd2707`, verifier `e0781877`).
 - Effect-program refusals name the failing check (#1018). The lowerer's
   `EffectPublicationError::UnsupportedProgram` and the verifier's
   `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a
@@ -244,9 +244,8 @@
   are accepted by all three.
   - The `else` arm, disjunctions, negations and the predicate itself gain
     nothing, and branch facts do not cross into helper frames.
-  - Branch facts use the same comparison forms as other facts: an addition
-    still reads only `term <= c`, `term == c` and `c == term`, so
-    `index < 3` does not bound `index + 1` (#960).
+  - Branch facts use the same comparison forms as other facts; see the
+    strict and reversed forms under Fixed (#1010).
   - Each judgment reads them only when the operation is refused without them,
     so programs accepted before keep their cost and depth.
   - A shared corpus fixes the verdicts all three must reach. The checked
@@ -403,6 +402,33 @@
 
 ### Fixed
 
+- Echo's provider lowerer and verifier now refuse a footprint law or graph
+  schema that warp-core admission refuses (#1023). Both judges deferred those
+  contents to the runtime, so they accepted jedit#296's basis-read witness
+  (package `8e99859a`), whose law declares `max_writes = 1024`, while
+  admission refused it with a generic `InvalidStructure`. The spec caps
+  `max_writes` at 256, so admission was right. Publication refuses with
+  `EffectPublicationError::Contract` and the verifier with
+  `EffectPackageRefusal::Contract`. Every package-admission refusal now names
+  its check: `EchoOperationAdmissionError::reason_code` returns an
+  `effect-program.*` code in the #1018 scheme (for example
+  `effect-program.footprint-law.max-writes`), an `artifact.*` code or an
+  `admission.*` code. `EffectLawError` has `MaxReads`, `MaxWrites` and
+  `MaxRangeEdges` variants. The shared effect-program corpus gains
+  `footprint-writes-at-ceiling` and `footprint-writes-over-ceiling`, and a new
+  verifier test admits every corpus package through `EffectPackageHost` and
+  requires the same verdict in the same reason class. The components are
+  promoted from byte-equal G4 candidates (lowerer `165b41a8`, verifier
+  `6872448b`).
+- The provider lowerer no longer refuses large compiler output as
+  "canonical artifact binding is invalid" (#1025). The canonical decoder's
+  node budget was 65,536, below what the provider host can send: the flat
+  ReplaceRange Core from jedit#410 is 598,411 bytes and 94,472 nodes. The
+  budget is now the host's 1 MiB request cap, 1,048,576 nodes; every node
+  takes at least one byte, so the budget never refuses an artifact the host
+  admits. Every binding refusal also names its artifact by domain and its
+  failed check in a second diagnostic, `<code>.artifact-binding.<check>`,
+  where the check is `reference`, `decode`, `canonical-form` or `digest`.
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package
   whose intent called an exported pure helper whose body fails, outright or in
@@ -411,6 +437,23 @@
   helper, so compiler-produced packages are unaffected. Four shared-corpus
   entries fix the verdicts.
 
+- The provider verifier admits `echo.dpo@2` identity constructors called from
+  source helpers and fold steps (#1005). It refused such packages although the
+  lowerer and warp-core accepted them and the verifier accepted the same call
+  in the intent body. A shared corpus now holds all three judges to one
+  verdict, including forged catalog, intrinsic and budget cases, and a
+  verifier unit test requires each fold iteration to be charged its identity
+  call. The promoted verifier is `614e6101` (848,137 bytes); the
+  `edict-helper-identity` witness (Amblicit `7dbcbc23`) is recompiled
+  through it.
+
+- Provider and runtime bound reasoning now reads strict and reversed
+  comparisons as native Target does (#1010): `x < n` bounds an unsigned term
+  by `n - 1` (0 when `n` is 0, a branch that never runs), and `n > x` and
+  `n >= x` bound it like `x < n` and `x <= n`. warp-core, the lowerer and the
+  verifier change together, so a sum under `major <= 224u64 && v < 24u64`
+  (jedit#296) is accepted like one under `v <= 23u64`. This completes item 2
+  of #960.
 - Both provider components now accept an authored effect program whose intent
   has a `where` clause. Core input constraints carry `coordinate`, `source`
   and `predicate`; the effect-intent judgments required only the first and

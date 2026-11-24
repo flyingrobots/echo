@@ -289,6 +289,10 @@ fn prepare<'a>(
                             return Err(());
                         }
                         edges.insert(callee);
+                    } else if identity_admitted && identity::is_identity(callee) {
+                        // A pinned identity constructor is an intrinsic here
+                        // exactly as in an intent body; its arguments and
+                        // charge are judged with the helper's summary.
                     } else if ![
                         "core.bytes.count",
                         "core.bytes.at",
@@ -1614,3 +1618,5 @@ mod helper_origin_tests {
         );
     }
 }
+#[cfg(test)]
+mod identity_charge_tests;

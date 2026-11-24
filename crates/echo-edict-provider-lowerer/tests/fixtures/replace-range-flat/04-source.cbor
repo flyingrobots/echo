@@ -1,0 +1,2664 @@
+£drootxjedit.text.replace_range@2gmodules™qjedit.text.flat@1¢fdigestÇfsha256X ±)¸π=G<Î|;¿$è¶˜sÚªtø¬gãqü∆º˘fsourceY!	package jedit.text.flat@1;
+
+use module jedit.text.rope@1 digest "sha256:4838c1ce441c5d6d3116608dfd1aa2061244ce7d0b947c7b853773c34bc810f1" as rope;
+
+// The flat prefix/suffix candidate: the cut and every join it needs run in one
+// fold, one transition per round, instead of a join fold nested in each cut
+// round. tests/flat-cut-model.mts is its executable model and the challenge
+// tests compare it with rope-build.mts.
+//
+// Phases: 0 descend (one level, or the terminal leaf/edge/whole step), 1 pop
+// (one frame: skip it, finish a trivial join, or start a join; with no frame
+// left, done), 2 join descent (one spine level, or the join's base), 3 join
+// rebuild (one spine level; with none left, finish the frame), 4 done.
+// The bound for input height h is F(h) = 2h + 4(h + 1); for h = 14 it is 88.
+// A fold that ends before phase 4 is an unfinished cut, never a result.
+
+type Flat = {
+  arena: rope.Arena, phase: U64, path: List<rope.Frame, max=15>, remaining: U64, cur: U64, offset: U64,
+  keepLeft: Bool, cutBreaks: U64, carry: U64,
+  spine: List<U64, max=15>, jremaining: U64, jcur: U64, jshort: U64, leftTaller: Bool, fault: U64,
+};
+
+fn descendPhase() -> U64 { return 0u64; }
+fn popPhase() -> U64 { return 1u64; }
+fn joinDownPhase() -> U64 { return 2u64; }
+fn joinUpPhase() -> U64 { return 3u64; }
+fn donePhase() -> U64 { return 4u64; }
+
+// The state after a construction, in `phase`; a construction fault ends the cut.
+fn after(s: Flat, b: rope.Built, phase: U64, remaining: U64) -> Flat {
+  return { arena: b.arena, phase: if b.fault == rope.ok() then phase else donePhase(), path: s.path, remaining,
+    cur: s.cur, offset: s.offset, keepLeft: s.keepLeft, cutBreaks: s.cutBreaks, carry: b.root,
+    spine: s.spine, jremaining: s.jremaining, jcur: s.jcur, jshort: s.jshort, leftTaller: s.leftTaller,
+    fault: b.fault };
+}
+fn stop(s: Flat, fault: U64) -> Flat {
+  return { arena: s.arena, phase: donePhase(), path: s.path, remaining: s.remaining, cur: s.cur, offset: s.offset,
+    keepLeft: s.keepLeft, cutBreaks: s.cutBreaks, carry: s.carry, spine: s.spine, jremaining: s.jremaining,
+    jcur: s.jcur, jshort: s.jshort, leftTaller: s.leftTaller, fault };
+}
+fn kept(arena: rope.Arena, root: U64) -> rope.Built { return { arena, root, fault: rope.ok() }; }
+
+// ---- descent ----
+
+fn descendStep(s: Flat) -> Flat {
+  let n = rope.view(s.arena, s.cur);
+  let leftLength = rope.byteLength(s.arena, n.left);
+  let goLeft = if s.keepLeft then s.offset <= leftLength else s.offset < leftLength;
+  let edge = if s.keepLeft then s.offset == 0u64 else s.offset == n.byteLength;
+  let whole = if s.keepLeft then s.offset == n.byteLength else s.offset == 0u64;
+  return if edge then after(s, kept(s.arena, rope.absent()), popPhase(), listLen(s.path))
+    else if whole then after(s, kept(s.arena, s.cur), popPhase(), listLen(s.path))
+    else if n.leaf then after(s, rope.cutLeaf(s.arena, rope.node(s.arena, s.cur), s.offset, s.keepLeft, s.cutBreaks),
+      popPhase(), listLen(s.path))
+    else if !n.open then stop(s, rope.closureFault())
+    else if !(listLen(s.path) < 15u64) then stop(s, rope.capacityFault())
+    else if goLeft then descended(s, listAppend(s.path, { node: s.cur, wentRight: false }), n.left, s.offset)
+    else if leftLength <= s.offset
+      then descended(s, listAppend(s.path, { node: s.cur, wentRight: true }), n.right, s.offset - leftLength)
+    else stop(s, rope.closureFault());
+}
+fn descended(s: Flat, path: List<rope.Frame, max=15>, cur: U64, offset: U64) -> Flat {
+  return { arena: s.arena, phase: descendPhase(), path, remaining: s.remaining, cur, offset, keepLeft: s.keepLeft,
+    cutBreaks: s.cutBreaks, carry: s.carry, spine: s.spine, jremaining: s.jremaining, jcur: s.jcur,
+    jshort: s.jshort, leftTaller: s.leftTaller, fault: s.fault };
+}
+
+// ---- pops: one frame per round ----
+
+fn popStep(s: Flat) -> Flat {
+  let frame = if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then listAt(s.path, s.remaining - 1u64) else { node: rope.absent(), wentRight: false };
+  let n = rope.view(s.arena, frame.node);
+  let joins = if s.keepLeft then frame.wentRight else !frame.wentRight;
+  let below = if 1u64 <= s.remaining then s.remaining - 1u64 else 0u64;
+  return if s.remaining == 0u64 then after(s, kept(s.arena, s.carry), donePhase(), 0u64)
+    else if !joins then after(s, kept(s.arena, s.carry), popPhase(), below)
+    else if s.keepLeft then startJoin(s, n.left, s.carry, below)
+    else startJoin(s, s.carry, n.right, below);
+}
+
+// Finishes a trivial join in this round, or sets up a join descent.
+fn startJoin(s: Flat, l: U64, r: U64, below: U64) -> Flat {
+  let hl = rope.height(s.arena, l);
+  let hr = rope.height(s.arena, r);
+  let leftTaller = hr < hl;
+  return if !rope.present(s.arena, l) then after(s, kept(s.arena, r), popPhase(), below)
+    else if !rope.present(s.arena, r) then after(s, kept(s.arena, l), popPhase(), below)
+    else if rope.notTaller(hl, hr) && rope.notTaller(hr, hl) then after(s, rope.branch(s.arena, l, r), popPhase(), below)
+    else { arena: s.arena, phase: joinDownPhase(), path: s.path, remaining: s.remaining, cur: s.cur,
+      offset: s.offset, keepLeft: s.keepLeft, cutBreaks: s.cutBreaks, carry: s.carry, spine: [], jremaining: 0u64,
+      jcur: if leftTaller then l else r, jshort: if leftTaller then r else l, leftTaller, fault: s.fault };
+}
+
+// ---- join descent and rebuild ----
+
+fn joinDownStep(s: Flat) -> Flat {
+  let n = rope.view(s.arena, s.jcur);
+  let outer = if s.leftTaller then n.left else n.right;
+  let inner = if s.leftTaller then n.right else n.left;
+  let base = if s.leftTaller then rope.rightBase(s.arena, outer, inner, s.jshort)
+    else rope.leftBase(s.arena, inner, outer, s.jshort);
+  return if !n.open then stop(s, rope.closureFault())
+    else if rope.notTaller(rope.height(s.arena, inner), rope.height(s.arena, s.jshort))
+      then rebuilding(after(s, base, joinUpPhase(), s.remaining), listLen(s.spine))
+    else if listLen(s.spine) < 15u64
+      then { arena: s.arena, phase: joinDownPhase(), path: s.path, remaining: s.remaining, cur: s.cur,
+        offset: s.offset, keepLeft: s.keepLeft, cutBreaks: s.cutBreaks, carry: s.carry,
+        spine: listAppend(s.spine, outer), jremaining: 0u64, jcur: inner, jshort: s.jshort,
+        leftTaller: s.leftTaller, fault: s.fault }
+    else stop(s, rope.capacityFault());
+}
+fn rebuilding(s: Flat, jremaining: U64) -> Flat {
+  return { arena: s.arena, phase: s.phase, path: s.path, remaining: s.remaining, cur: s.cur, offset: s.offset,
+    keepLeft: s.keepLeft, cutBreaks: s.cutBreaks, carry: s.carry, spine: s.spine, jremaining, jcur: s.jcur,
+    jshort: s.jshort, leftTaller: s.leftTaller, fault: s.fault };
+}
+
+fn joinUpStep(s: Flat) -> Flat {
+  let sibling = if 1u64 <= s.jremaining && s.jremaining - 1u64 < listLen(s.spine)
+    then listAt(s.spine, s.jremaining - 1u64) else rope.absent();
+  let result = if s.leftTaller then rope.branch(s.arena, sibling, s.carry) else rope.branch(s.arena, s.carry, sibling);
+  let fits = rope.notTaller(rope.height(s.arena, s.carry), rope.height(s.arena, sibling));
+  let rebuilt = if fits || result.fault != rope.ok() then result
+    else if s.leftTaller then rope.rotateLeft(result) else rope.rotateRight(result);
+  let below = if 1u64 <= s.remaining then s.remaining - 1u64 else 0u64;
+  return if 1u64 <= s.jremaining then rebuilding(after(s, rebuilt, joinUpPhase(), s.remaining), s.jremaining - 1u64)
+    else after(s, kept(s.arena, s.carry), popPhase(), below);
+}
+
+fn flatStep(s: Flat) -> Flat {
+  return if s.phase == donePhase() then s
+    else if s.phase == descendPhase() then descendStep(s)
+    else if s.phase == popPhase() then popStep(s)
+    else if s.phase == joinDownPhase() then joinDownStep(s)
+    else joinUpStep(s);
+}
+
+// prefix(root, offset) when keepLeft, otherwise suffix(root, offset), in 88 rounds.
+fn cut(arena: rope.Arena, root: U64, offset: U64, keepLeft: Bool, cutBreaks: U64) -> rope.Built {
+  let start: Flat = { arena, phase: descendPhase(), path: [], remaining: 0u64, cur: root, offset, keepLeft,
+    cutBreaks, carry: rope.absent(), spine: [], jremaining: 0u64, jcur: rope.absent(), jshort: rope.absent(),
+    leftTaller: false, fault: rope.ok() };
+  let final = fold(start, flatStep, 88u64);
+  return if !rope.present(arena, root) then kept(arena, rope.absent())
+    else { arena: final.arena, root: final.carry,
+      fault: if final.phase != donePhase() then rope.incompleteFault() else final.fault };
+}
+qjedit.text.plan@1¢fdigestÇfsha256X x
+™WŸ-ò∏f‘YeÈ≈ÂÒ¿@IQ ÕPh9{fsourceYpackage jedit.text.plan@1;
+
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+use module jedit.text.codec@1 digest "sha256:1510fea37ca4cf23cc8a74f17328f04c6461c2173e0b541ba9734148befc2198" as codec;
+use module jedit.text.identity@1 digest "sha256:5a9c36eddade979810be7c2806bbf5eae43c69b7a8eda598152309e4c6b54011" as ids;
+use module jedit.text.rope@1 digest "sha256:4838c1ce441c5d6d3116608dfd1aa2061244ce7d0b947c7b853773c34bc810f1" as rope;
+use module jedit.text.flat@1 digest "sha256:b129fcb93d473ceb7c3bc0248fa6131512f773f2bb74bfc2678b719f05c6bcf9" as flat;
+use module jedit.text.build@1 digest "sha256:d23be858e5445144c089f3357162e0900eee8043b3fb4f9868937bb7b1538fb9" as build;
+use module jedit.text.closure@1 digest "sha256:643c540febac25226594faaaaf5eca5280ff16e72c30e10b3675c25708985a90" as closure;
+use module jedit.text.proposal@1 digest "sha256:2758d99a7b84fc67ef262649a6cfdda9186f3ef72296908a54d81983918ed347" as proposal;
+
+// The pure ReplaceRange plan over one closure read: Head checks, the
+// validated arena, construction, character boundaries, the no-op check,
+// counters and the normalized proposal. Its `code` names the first failing
+// check in the documented precedence; the intent maps each code to its
+// typed obstruction.
+
+type Id = Bytes<exact=32>;
+// `anchors` counts the basis Head's anchor edges; exactly one is lawful.
+type Request = { warp: Id, basis: Id, anchor: Id, anchors: U64, start: U64, end: U64, replacement: build.Replacement };
+
+// Outcome codes, in check precedence.
+fn committed() -> U64 { return 0u64; }
+fn headMalformed() -> U64 { return 1u64; }
+fn rangeOutOfBounds() -> U64 { return 2u64; }
+fn identityMismatch() -> U64 { return 3u64; }
+fn malformedRope() -> U64 { return 4u64; }
+fn factMalformed() -> U64 { return 5u64; }
+fn resourceLimit() -> U64 { return 6u64; }
+fn closureInsufficient() -> U64 { return 7u64; }
+fn arithmeticOverflow() -> U64 { return 8u64; }
+fn boundaryInvalid() -> U64 { return 9u64; }
+fn noOp() -> U64 { return 10u64; }
+
+type Plan = {
+  code: U64, head: codec.HeadFact, rooted: Bool, rootId: Id, proposal: proposal.Proposal,
+};
+
+// The code of a fold fault.
+// A loop that ends before its algorithm finishes is an envelope refusal, never
+// a completed edit.
+fn faultCode(fault: U64) -> U64 {
+  return if fault == rope.incompleteFault() then resourceLimit()
+    else if fault == rope.closureFault() then closureInsufficient()
+    else if fault == rope.overflowFault() then arithmeticOverflow()
+    else if fault == rope.capacityFault() then resourceLimit()
+    else if fault == rope.malformedFault() then malformedRope()
+    else if fault == rope.factFault() then factMalformed()
+    else if fault == rope.identityFault() then identityMismatch()
+    else committed();
+}
+
+// ---- leaf bytes by closure row ----
+
+fn bytesAt(c: closure.Closure, arena: rope.Arena, i: U64) -> build.LeafBytes {
+  return build.rowBytes(c, rope.node(arena, i).source);
+}
+
+// ---- construction ----
+
+type Built = { tree: rope.Built, pieces: proposal.Pieces };
+
+fn general(arena: rope.Arena, c: closure.Closure, q: Request) -> rope.Built {
+  let first = rope.find(arena, 0u64, q.start, false);
+  let firstBytes = bytesAt(c, arena, first.leaf);
+  let prefixBreaks = if first.local <= len(firstBytes) then count(slice(firstBytes, 0u64, first.local), b"\n") else 0u64;
+  let last = rope.find(arena, 0u64, q.end, false);
+  let lastBytes = bytesAt(c, arena, last.leaf);
+  let suffixBreaks = if last.local <= len(lastBytes) then count(slice(lastBytes, last.local, len(lastBytes)), b"\n") else 0u64;
+  let prefix = flat.cut(arena, 0u64, q.start, true, prefixBreaks);
+  let middle = build.fromBytes(prefix.arena, q.replacement);
+  let left = rope.join(middle.arena, prefix.root, middle.root);
+  let suffix = flat.cut(left.arena, 0u64, q.end, false, suffixBreaks);
+  let whole = rope.join(suffix.arena, left.root, suffix.root);
+  let fault = max(max(max(first.fault, last.fault), max(prefix.fault, middle.fault)), max(max(left.fault, suffix.fault), whole.fault));
+  return { arena: whole.arena, root: whole.root, fault };
+}
+
+fn construct(arena: rope.Arena, c: closure.Closure, q: Request) -> Built {
+  let located = build.locate(arena, 0u64, q.start, q.end);
+  let leaf = bytesAt(c, arena, located.cur);
+  let bytes = build.rewritten(leaf, located.start, located.end, q.replacement);
+  let leafCase = rope.present(arena, 0u64) && !located.spanning && located.fault == rope.ok()
+    && rope.node(arena, located.cur).leaf && 0u64 < len(bytes) && len(bytes) <= 4096u64;
+  let pieces: proposal.Pieces = { replacement: q.replacement, rewritten: bytes };
+  let rewrite = build.rewrite(located, len(bytes), count(bytes, b"\n"));
+  let fresh = if rope.present(arena, 0u64) then general(arena, c, q) else build.fromBytes(arena, q.replacement);
+  return { tree: if leafCase then rewrite else fresh, pieces };
+}
+
+// Whether an offset falls inside a code point of the basis text.
+fn splits(arena: rope.Arena, c: closure.Closure, offset: U64) -> Bool {
+  let found = rope.find(arena, 0u64, offset, true);
+  return rope.present(arena, 0u64) && !build.leafBoundary(bytesAt(c, arena, found.leaf), found.local);
+}
+
+// ---- the plan ----
+
+fn headId(q: Request, atom: codec.Atom, rooted: Bool, root: Id) -> Id {
+  return if rooted then ids.rootedHeadId(q.warp, atom, root, q.anchor) else ids.emptyHeadId(q.warp, atom, q.anchor);
+}
+
+fn plan(c: closure.Closure, q: Request) -> Plan {
+  let headRow = closure.rowOf(c, if 0u64 < listLen(c.occurrences) then listAt(c.occurrences, 0u64).node else 4294967295u64);
+  let head = codec.headFact(headRow.atomBytes);
+  let rootEdge = closure.edgeAt(c, 0u64);
+  let rooted = rootEdge.from == 0u64 && rootEdge.slot == 0u64;
+  let rootRow = closure.rowOf(c, rootEdge.node);
+  let loaded = closure.load(c, q.warp);
+  let root = rope.node(loaded.arena, 0u64);
+  let identity = q.anchors == 1u64 && headId(q, headRow.atomBytes, rooted, rootRow.nodeId) == q.basis;
+  let shape = if rooted then root.byteLength == head.fact.byteLength
+      && isSome(checkedAdd(root.lineBreaks, 1u64)) && default(checkedAdd(root.lineBreaks, 1u64), 0u64) == head.fact.lineCount
+    else head.fact.byteLength == 0u64 && head.fact.lineCount == 1u64;
+  let built = construct(loaded.arena, c, q);
+  let same = build.sameBytes(loaded.arena, c, 0u64, q.start, q.end, q.replacement);
+  let tree = built.tree;
+  let top = rope.node(tree.arena, tree.root);
+  let lineCount = checkedAdd(if rope.present(tree.arena, tree.root) then top.lineBreaks else 0u64, 1u64);
+  let sequence = checkedAdd(head.fact.sequence, 1u64);
+  let p = proposal.propose(c, built.pieces, q.warp, tree.arena, tree.root);
+  let code = if !head.ok || headRow.atomType != ids.headAtomType() || headRow.nodeType != ids.headType() then headMalformed()
+    else if head.fact.byteLength < q.end then rangeOutOfBounds()
+    else if !identity then identityMismatch()
+    else if loaded.fault != rope.ok() then faultCode(loaded.fault)
+    else if !shape then malformedRope()
+    else if rooted && 14u64 < root.height then resourceLimit()
+    else if built.tree.fault != rope.ok() then faultCode(built.tree.fault)
+    else if same.fault != rope.ok() then faultCode(same.fault)
+    else if splits(loaded.arena, c, q.start) || splits(loaded.arena, c, q.end) then boundaryInvalid()
+    else if same.equal then noOp()
+    else if !isSome(lineCount) || !isSome(sequence) then arithmeticOverflow()
+    else if p.fault != rope.ok() then faultCode(p.fault)
+    else if rope.present(tree.arena, tree.root) && 14u64 < top.height then resourceLimit()
+    else if !proposal.fitsEcho(p) then resourceLimit()
+    else committed();
+  let next: codec.HeadFact = {
+    byteLength: if rope.present(tree.arena, tree.root) then top.byteLength else 0u64,
+    lineCount: default(lineCount, 0u64), sequence: default(sequence, 0u64),
+  };
+  return { code, head: next, rooted: rope.present(tree.arena, tree.root), rootId: p.rootId, proposal: p };
+}
+qjedit.text.rope@1¢fdigestÇfsha256X H8¡ŒD]m1`ç˝¢DŒ}î|{Ö7s√K»ÒfsourceYTpackage jedit.text.rope@1;
+
+// The persistent rope's reconstruction law over a bounded arena, following
+// tests/support/replace-range-schema-2/rope-build.mts exactly: prefix and
+// suffix by path copy, and AVL concatenation (join without a middle key).
+//
+// A rope is an arena of node records whose children are arena indexes; an
+// index that names no node is the empty rope. Stored nodes come from
+// the closure read; an unexpanded stored branch has no known children, and
+// asking for them is a closure fault. Fresh nodes are appended, so a fresh
+// node's children always precede it. Every walk is a fold with a literal
+// bound sized for a working height of 15 (text.maxTreeHeight = 14, plus the one
+// level a join may add): a path stack of 15 and 2 * 15 + 2 = 32 steps.
+// A fold cannot fail, so faults travel in the state and the callers map them.
+
+type Node = {
+  stored: Bool, expanded: Bool, leaf: Bool,
+  byteLength: U64, lineBreaks: U64, height: U64,
+  left: U64, right: U64,
+  // A leaf's bytes are source[from, to). The source is a closure row when
+  // `row` holds, and otherwise a fresh piece (the replacement or a rewritten leaf).
+  row: Bool, source: U64, from: U64, to: U64,
+};
+// A fresh branch, the only node a join creates.
+type Branch = { left: U64, right: U64, byteLength: U64, lineBreaks: U64, height: U64 };
+// The read-only stored closure plus two small fresh lists. Index space:
+// stored [0, 256), fresh leaves [256, 272), fresh branches [272, 400).
+// Folds append only to the small fresh lists, never to the stored list.
+type Arena = { stored: List<Stored, max=256>, leaves: List<FreshLeaf, max=16>, branches: List<Branch, max=128> };
+// A stored closure node, decoded once: its children are arena positions and
+// `row` is its closure row.
+type Stored = { leaf: Bool, expanded: Bool, byteLength: U64, lineBreaks: U64, height: U64, left: U64, right: U64, row: U64 };
+// A fresh leaf holds source[from, to) of a closure row (`row`) or a piece.
+type FreshLeaf = { row: Bool, source: U64, from: U64, to: U64, byteLength: U64, lineBreaks: U64 };
+// The lean view the folds read: no atom bytes and no leaf source.
+type View = { leaf: Bool, open: Bool, stored: Bool, byteLength: U64, lineBreaks: U64, height: U64, left: U64, right: U64 };
+
+// Fault codes carried in fold state.
+fn ok() -> U64 { return 0u64; }
+fn closureFault() -> U64 { return 1u64; }
+fn overflowFault() -> U64 { return 2u64; }
+fn capacityFault() -> U64 { return 3u64; }
+fn incompleteFault() -> U64 { return 4u64; }
+fn malformedFault() -> U64 { return 5u64; }
+fn factFault() -> U64 { return 6u64; }
+fn identityFault() -> U64 { return 7u64; }
+
+fn absent() -> U64 { return 4294967295u64; }
+fn leafBase() -> U64 { return 256u64; }
+fn branchBase() -> U64 { return 272u64; }
+fn emptyNode() -> Node {
+  return { stored: false, expanded: false, leaf: true, byteLength: 0u64, lineBreaks: 0u64, height: 0u64,
+    left: 4294967295u64, right: 4294967295u64, row: false, source: 0u64, from: 0u64, to: 0u64 };
+}
+fn emptyView() -> View {
+  return { leaf: true, open: false, stored: false, byteLength: 0u64, lineBreaks: 0u64, height: 0u64,
+    left: 4294967295u64, right: 4294967295u64 };
+}
+fn emptyArena(stored: List<Stored, max=256>) -> Arena { return { stored, leaves: [], branches: [] }; }
+
+fn storedView(n: Stored) -> View {
+  return { leaf: n.leaf, open: !n.leaf && n.expanded, stored: true, byteLength: n.byteLength, lineBreaks: n.lineBreaks,
+    height: n.height, left: n.left, right: n.right };
+}
+fn leafView(n: FreshLeaf) -> View {
+  return { leaf: true, open: false, stored: false, byteLength: n.byteLength, lineBreaks: n.lineBreaks, height: 1u64,
+    left: 4294967295u64, right: 4294967295u64 };
+}
+fn branchView(b: Branch) -> View {
+  return { leaf: false, open: true, stored: false, byteLength: b.byteLength, lineBreaks: b.lineBreaks, height: b.height,
+    left: b.left, right: b.right };
+}
+
+// The lean view of node i; the empty view when i names no node.
+fn view(arena: Arena, i: U64) -> View {
+  return if i < listLen(arena.stored) then storedView(listAt(arena.stored, i))
+    else if 256u64 <= i && i - 256u64 < listLen(arena.leaves) then leafView(listAt(arena.leaves, i - 256u64))
+    else if 272u64 <= i && i - 272u64 < listLen(arena.branches) then branchView(listAt(arena.branches, i - 272u64))
+    else emptyView();
+}
+
+// The full record of node i, with its leaf source, for byte-level callers.
+fn node(arena: Arena, i: U64) -> Node {
+  let v = view(arena, i);
+  let s = if i < listLen(arena.stored) then listAt(arena.stored, i)
+    else { leaf: true, expanded: false, byteLength: 0u64, lineBreaks: 0u64, height: 0u64, left: 0u64, right: 0u64, row: 0u64 };
+  let f = if 256u64 <= i && i - 256u64 < listLen(arena.leaves) then listAt(arena.leaves, i - 256u64)
+    else { row: false, source: 0u64, from: 0u64, to: 0u64, byteLength: 0u64, lineBreaks: 0u64 };
+  let stored = i < listLen(arena.stored);
+  return { stored, expanded: v.open || (stored && s.expanded), leaf: v.leaf, byteLength: v.byteLength,
+    lineBreaks: v.lineBreaks, height: v.height, left: v.left, right: v.right,
+    row: stored || f.row, source: if stored then s.row else f.source,
+    from: if stored then 0u64 else f.from, to: if stored then v.byteLength else f.to };
+}
+fn height(arena: Arena, i: U64) -> U64 { return view(arena, i).height; }
+fn byteLength(arena: Arena, i: U64) -> U64 { return view(arena, i).byteLength; }
+fn present(arena: Arena, i: U64) -> Bool {
+  return i < listLen(arena.stored) || (256u64 <= i && i - 256u64 < listLen(arena.leaves))
+    || (272u64 <= i && i - 272u64 < listLen(arena.branches));
+}
+// Whether i's children are known: a fresh branch, or a stored branch the closure expanded.
+fn open(arena: Arena, i: U64) -> Bool { return view(arena, i).open; }
+
+// Whether a is at most one more than b.
+fn notTaller(a: U64, b: U64) -> Bool { return a <= b || (1u64 <= a && a - 1u64 <= b); }
+
+type Built = { arena: Arena, root: U64, fault: U64 };
+
+fn faulted(arena: Arena, fault: U64) -> Built { return { arena, root: absent(), fault }; }
+
+// A fresh branch over two ropes. Line breaks are summed here and recomputed
+// for every fresh branch once fresh leaves carry theirs.
+fn branch(arena: Arena, l: U64, r: U64) -> Built {
+  let ln = view(arena, l);
+  let rn = view(arena, r);
+  let length = checkedAdd(ln.byteLength, rn.byteLength);
+  let breaks = checkedAdd(ln.lineBreaks, rn.lineBreaks);
+  let taller = max(ln.height, rn.height);
+  let used = listLen(arena.branches);
+  return if !(used < 128u64) then faulted(arena, capacityFault())
+    else if isSome(length) && isSome(breaks) && taller < 255u64 && listLen(arena.branches) < 128u64
+      then {
+        arena: { stored: arena.stored, leaves: arena.leaves, branches: listAppend(arena.branches, {
+          left: l, right: r, byteLength: unwrap(length), lineBreaks: unwrap(breaks), height: taller + 1u64,
+        }) },
+        root: 272u64 + listLen(arena.branches), fault: ok(),
+      }
+      else faulted(arena, overflowFault());
+}
+
+// Continues with b's arena when b did not fault.
+fn branchOn(b: Built, l: U64, r: U64) -> Built { return if b.fault == ok() then branch(b.arena, l, r) else b; }
+
+fn rotateLeft(b: Built) -> Built {
+  let n = view(b.arena, b.root);
+  let rn = view(b.arena, n.right);
+  let inner = if b.fault == ok() && open(b.arena, b.root) && open(b.arena, n.right)
+    then branch(b.arena, n.left, rn.left) else faulted(b.arena, max(b.fault, closureFault()));
+  return branchOn(inner, inner.root, rn.right);
+}
+fn rotateRight(b: Built) -> Built {
+  let n = view(b.arena, b.root);
+  let ln = view(b.arena, n.left);
+  let inner = if b.fault == ok() && open(b.arena, b.root) && open(b.arena, n.left)
+    then branch(b.arena, ln.right, n.right) else faulted(b.arena, max(b.fault, closureFault()));
+  let outer = branchOn(inner, ln.left, inner.root);
+  return outer;
+}
+
+// ---- joinRight: the left rope is more than one level taller ----
+
+type Join = {
+  arena: Arena, path: List<U64, max=15>, remaining: U64, cur: U64, short: U64,
+  rebuilding: Bool, done: Bool, carry: U64, fault: U64,
+};
+
+fn joinState(s: Join, b: Built, remaining: U64, rebuilding: Bool, done: Bool) -> Join {
+  return { arena: b.arena, path: s.path, remaining, cur: s.cur, short: s.short,
+    rebuilding, done: done || b.fault != ok(), carry: b.root, fault: b.fault };
+}
+
+// Branch(left, rotated) over the rotated subtree's arena.
+fn rightThenBranch(rotated: Built, left: U64) -> Built { return branchOn(rotated, left, rotated.root); }
+// Branch(rotated, right) over the rotated subtree's arena.
+fn leftThenBranch(rotated: Built, right: U64) -> Built { return branchOn(rotated, rotated.root, right); }
+
+// The base of joinRight at tall node cur, whose children are left and inner.
+fn rightBase(arena: Arena, left: U64, inner: U64, short: U64) -> Built {
+  let joined = branch(arena, inner, short);
+  return if joined.fault != ok() then joined
+    else if notTaller(height(joined.arena, joined.root), height(joined.arena, left))
+      then branch(joined.arena, left, joined.root)
+      else rotateLeft(rightThenBranch(rotateRight(joined), left));
+}
+
+fn rightDown(s: Join) -> Join {
+  let n = view(s.arena, s.cur);
+  let hs = height(s.arena, s.short);
+  return if !open(s.arena, s.cur) then joinState(s, faulted(s.arena, closureFault()), 0u64, true, true)
+    else if hs < 255u64 && height(s.arena, n.right) <= hs + 1u64
+      then joinState(s, rightBase(s.arena, n.left, n.right, s.short), listLen(s.path), true, false)
+    else if listLen(s.path) < 15u64
+      then { arena: s.arena, path: listAppend(s.path, n.left), remaining: 0u64, cur: n.right, short: s.short,
+        rebuilding: false, done: false, carry: s.carry, fault: s.fault }
+      else joinState(s, faulted(s.arena, capacityFault()), 0u64, true, true);
+}
+
+fn rightUp(s: Join) -> Join {
+  return if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then rightPop(s, listAt(s.path, s.remaining - 1u64), s.remaining - 1u64)
+    else joinState(s, { arena: s.arena, root: s.carry, fault: s.fault }, s.remaining, true, true);
+}
+fn rightPop(s: Join, left: U64, remaining: U64) -> Join {
+  let result = branch(s.arena, left, s.carry);
+  let fits = notTaller(height(s.arena, s.carry), height(s.arena, left));
+  return joinState(s, if fits || result.fault != ok() then result else rotateLeft(result), remaining, true, false);
+}
+
+fn rightStep(s: Join) -> Join { return if s.done then s else if s.rebuilding then rightUp(s) else rightDown(s); }
+
+// ---- joinLeft: the right rope is more than one level taller ----
+
+fn leftBase(arena: Arena, inner: U64, right: U64, short: U64) -> Built {
+  let joined = branch(arena, short, inner);
+  return if joined.fault != ok() then joined
+    else if notTaller(height(joined.arena, joined.root), height(joined.arena, right))
+      then branch(joined.arena, joined.root, right)
+      else rotateRight(leftThenBranch(rotateLeft(joined), right));
+}
+
+fn leftDown(s: Join) -> Join {
+  let n = view(s.arena, s.cur);
+  let hs = height(s.arena, s.short);
+  return if !open(s.arena, s.cur) then joinState(s, faulted(s.arena, closureFault()), 0u64, true, true)
+    else if hs < 255u64 && height(s.arena, n.left) <= hs + 1u64
+      then joinState(s, leftBase(s.arena, n.left, n.right, s.short), listLen(s.path), true, false)
+    else if listLen(s.path) < 15u64
+      then { arena: s.arena, path: listAppend(s.path, n.right), remaining: 0u64, cur: n.left, short: s.short,
+        rebuilding: false, done: false, carry: s.carry, fault: s.fault }
+      else joinState(s, faulted(s.arena, capacityFault()), 0u64, true, true);
+}
+
+fn leftUp(s: Join) -> Join {
+  return if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then leftPop(s, listAt(s.path, s.remaining - 1u64), s.remaining - 1u64)
+    else joinState(s, { arena: s.arena, root: s.carry, fault: s.fault }, s.remaining, true, true);
+}
+fn leftPop(s: Join, right: U64, remaining: U64) -> Join {
+  let result = branch(s.arena, s.carry, right);
+  let fits = notTaller(height(s.arena, s.carry), height(s.arena, right));
+  return joinState(s, if fits || result.fault != ok() then result else rotateRight(result), remaining, true, false);
+}
+
+fn leftStep(s: Join) -> Join { return if s.done then s else if s.rebuilding then leftUp(s) else leftDown(s); }
+
+// ---- join ----
+
+fn finished(s: Join) -> Built {
+  return { arena: s.arena, root: s.carry, fault: if s.done then s.fault else incompleteFault() };
+}
+
+fn join(arena: Arena, l: U64, r: U64) -> Built {
+  let hl = height(arena, l);
+  let hr = height(arena, r);
+  let start: Join = { arena, path: [], remaining: 0u64, cur: if hr < hl then l else r, short: if hr < hl then r else l,
+    rebuilding: false, done: false, carry: absent(), fault: ok() };
+  return if !present(arena, l) then { arena, root: r, fault: ok() }
+    else if !present(arena, r) then { arena, root: l, fault: ok() }
+    else if hr < 255u64 && hr + 1u64 < hl then finished(fold(start, rightStep, 32u64))
+    else if hl < 255u64 && hl + 1u64 < hr then finished(fold(start, leftStep, 32u64))
+    else branch(arena, l, r);
+}
+
+// ---- find: the leaf holding an offset ----
+//
+// Descends left while the offset is at most the left child's length, so an
+// offset on a child boundary resolves to the end of the left subtree's last
+// leaf; with `after`, it resolves to the start of the right subtree's first
+// leaf instead. `local` is the offset within that leaf.
+
+type Find = { arena: Arena, cur: U64, offset: U64, after: Bool, done: Bool, fault: U64 };
+type Found = { leaf: U64, local: U64, fault: U64 };
+
+fn findStep(s: Find) -> Find {
+  let n = view(s.arena, s.cur);
+  let leftLength = byteLength(s.arena, n.left);
+  let goLeft = if s.after then s.offset < leftLength else s.offset <= leftLength;
+  return if s.done then s
+    else if n.leaf then { arena: s.arena, cur: s.cur, offset: s.offset, after: s.after, done: true, fault: s.fault }
+    else if !open(s.arena, s.cur) then { arena: s.arena, cur: s.cur, offset: s.offset, after: s.after, done: true, fault: closureFault() }
+    else if goLeft then { arena: s.arena, cur: n.left, offset: s.offset, after: s.after, done: false, fault: s.fault }
+    else if leftLength <= s.offset
+      then { arena: s.arena, cur: n.right, offset: s.offset - leftLength, after: s.after, done: false, fault: s.fault }
+    else { arena: s.arena, cur: s.cur, offset: s.offset, after: s.after, done: true, fault: closureFault() };
+}
+
+fn find(arena: Arena, root: U64, offset: U64, after: Bool) -> Found {
+  let final = fold({ arena, cur: root, offset, after, done: !present(arena, root), fault: ok() }, findStep, 16u64);
+  return { leaf: final.cur, local: final.offset, fault: if final.done then final.fault else incompleteFault() };
+}
+
+// ---- prefix and suffix by path copy ----
+
+type Frame = { node: U64, wentRight: Bool };
+type Cut = {
+  arena: Arena, path: List<Frame, max=15>, remaining: U64, cur: U64, offset: U64,
+  keepLeft: Bool, cutBreaks: U64, rebuilding: Bool, done: Bool, carry: U64, fault: U64,
+};
+
+fn cutState(s: Cut, b: Built, remaining: U64, done: Bool) -> Cut {
+  return { arena: b.arena, path: s.path, remaining, cur: s.cur, offset: s.offset, keepLeft: s.keepLeft,
+    cutBreaks: s.cutBreaks, rebuilding: true, done: done || b.fault != ok(), carry: b.root, fault: b.fault };
+}
+
+// The fresh leaf left of (keepLeft) or right of the offset inside leaf n,
+// which holds source[from, to). Its line breaks are counted by the caller.
+fn cutLeaf(arena: Arena, n: Node, offset: U64, keepLeft: Bool, breaks: U64) -> Built {
+  let split = checkedAdd(n.from, offset);
+  let rest = checkedSub(n.byteLength, offset);
+  return if isSome(split) && isSome(rest)
+    then appendLeaf(arena, {
+      row: n.row, source: n.source,
+      from: if keepLeft then n.from else unwrap(split), to: if keepLeft then unwrap(split) else n.to,
+      byteLength: if keepLeft then offset else unwrap(rest), lineBreaks: breaks,
+    })
+    else faulted(arena, overflowFault());
+}
+
+fn cutDown(s: Cut) -> Cut {
+  let n = view(s.arena, s.cur);
+  let leftLength = byteLength(s.arena, n.left);
+  let goLeft = if s.keepLeft then s.offset <= leftLength else s.offset < leftLength;
+  let edge = if s.keepLeft then s.offset == 0u64 else s.offset == n.byteLength;
+  let whole = if s.keepLeft then s.offset == n.byteLength else s.offset == 0u64;
+  return if edge then cutState(s, { arena: s.arena, root: absent(), fault: ok() }, listLen(s.path), false)
+    else if whole then cutState(s, { arena: s.arena, root: s.cur, fault: ok() }, listLen(s.path), false)
+    else if n.leaf then cutState(s, cutLeaf(s.arena, node(s.arena, s.cur), s.offset, s.keepLeft, s.cutBreaks), listLen(s.path), false)
+    else if !open(s.arena, s.cur) then cutState(s, faulted(s.arena, closureFault()), 0u64, true)
+    else if !(listLen(s.path) < 15u64) then cutState(s, faulted(s.arena, capacityFault()), 0u64, true)
+    else if goLeft
+      then { arena: s.arena, path: listAppend(s.path, { node: s.cur, wentRight: false }), remaining: 0u64,
+        cur: n.left, offset: s.offset, keepLeft: s.keepLeft, cutBreaks: s.cutBreaks, rebuilding: false,
+        done: false, carry: s.carry, fault: s.fault }
+    else if leftLength <= s.offset
+      then { arena: s.arena, path: listAppend(s.path, { node: s.cur, wentRight: true }), remaining: 0u64,
+        cur: n.right, offset: s.offset - leftLength, keepLeft: s.keepLeft, cutBreaks: s.cutBreaks,
+        rebuilding: false, done: false, carry: s.carry, fault: s.fault }
+    else cutState(s, faulted(s.arena, closureFault()), 0u64, true);
+}
+
+// A prefix joins each left sibling it passed on the way right; a suffix joins
+// each right sibling it passed on the way left.
+fn cutPop(s: Cut, frame: Frame, remaining: U64) -> Cut {
+  let n = view(s.arena, frame.node);
+  let joins = if s.keepLeft then frame.wentRight else !frame.wentRight;
+  let built = if !joins then { arena: s.arena, root: s.carry, fault: ok() }
+    else if s.keepLeft then join(s.arena, n.left, s.carry) else join(s.arena, s.carry, n.right);
+  return cutState(s, built, remaining, false);
+}
+
+fn cutUp(s: Cut) -> Cut {
+  return if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then cutPop(s, listAt(s.path, s.remaining - 1u64), s.remaining - 1u64)
+    else cutState(s, { arena: s.arena, root: s.carry, fault: s.fault }, s.remaining, true);
+}
+
+fn cutStep(s: Cut) -> Cut { return if s.done then s else if s.rebuilding then cutUp(s) else cutDown(s); }
+
+// prefix(root, offset) when keepLeft, otherwise suffix(root, offset).
+// `cutBreaks` is the line-break count of the fresh leaf, if the cut makes one.
+fn cut(arena: Arena, root: U64, offset: U64, keepLeft: Bool, cutBreaks: U64) -> Built {
+  let start: Cut = { arena, path: [], remaining: 0u64, cur: root, offset, keepLeft, cutBreaks,
+    rebuilding: false, done: false, carry: absent(), fault: ok() };
+  let final = fold(start, cutStep, 32u64);
+  return if !present(arena, root) then { arena, root: absent(), fault: ok() }
+    else { arena: final.arena, root: final.carry, fault: if final.done then final.fault else incompleteFault() };
+}
+
+// ---- Fresh leaves ----
+
+// A fresh leaf holding piece[from, to) with the given line breaks.
+fn appendLeaf(arena: Arena, leaf: FreshLeaf) -> Built {
+  let used = listLen(arena.leaves);
+  return if used < 16u64 && listLen(arena.leaves) < 16u64
+    then { arena: { stored: arena.stored, leaves: listAppend(arena.leaves, leaf), branches: arena.branches },
+      root: 256u64 + used, fault: ok() }
+    else faulted(arena, capacityFault());
+}
+
+fn freshLeaf(arena: Arena, piece: U64, from: U64, to: U64, breaks: U64) -> Built {
+  return if from <= to
+    then appendLeaf(arena, { row: false, source: piece, from, to, byteLength: to - from, lineBreaks: breaks })
+    else faulted(arena, overflowFault());
+}
+
+// ---- reachable fresh nodes ----
+//
+// A breadth-first walk from the new root over fresh nodes only; stored nodes
+// are reused by id. The visit order lists every node before its children, so
+// its reverse lists each node after all of its fresh descendants, which is
+// the order ids are computed in. Nodes a rotation built and then replaced
+// are never visited.
+
+type Walk = { arena: Arena, queue: List<U64, max=512>, next: U64, order: List<U64, max=256>, fault: U64 };
+
+fn enqueue(queue: List<U64, max=512>, item: U64) -> List<U64, max=512> {
+  return if listLen(queue) < 512u64 then listAppend(queue, item) else queue;
+}
+
+fn walkStep(s: Walk) -> Walk {
+  let visit = if s.next < listLen(s.queue) then listAt(s.queue, s.next) else absent();
+  let n = view(s.arena, visit);
+  let next = if s.next < 512u64 then s.next + 1u64 else s.next;
+  return if s.fault != ok() || !(s.next < listLen(s.queue)) then s
+    else if n.stored || !present(s.arena, visit) then { arena: s.arena, queue: s.queue, next, order: s.order, fault: s.fault }
+    else if !(listLen(s.order) < 256u64) || !(listLen(s.queue) < 511u64)
+      then { arena: s.arena, queue: s.queue, next, order: s.order, fault: capacityFault() }
+    else if n.leaf then { arena: s.arena, queue: s.queue, next, order: listAppend(s.order, visit), fault: s.fault }
+    else { arena: s.arena, queue: enqueue(enqueue(s.queue, n.left), n.right), next,
+      order: listAppend(s.order, visit), fault: s.fault };
+}
+
+type Fresh = { order: List<U64, max=256>, fault: U64 };
+
+fn freshNodes(arena: Arena, root: U64) -> Fresh {
+  let start: Walk = { arena, queue: [root], next: 0u64, order: [], fault: ok() };
+  let final = fold(start, walkStep, 512u64);
+  return { order: final.order, fault: if final.next == listLen(final.queue) then final.fault else incompleteFault() };
+}
+rjedit.text.build@1¢fdigestÇfsha256X “;ËXÂDQD¿âÛ5qb‡êÓÄC≥˚Oòhì{∑±SèπfsourceY$˙package jedit.text.build@1;
+
+use module jedit.text.codec@1 digest "sha256:1510fea37ca4cf23cc8a74f17328f04c6461c2173e0b541ba9734148befc2198" as codec;
+use module jedit.text.rope@1 digest "sha256:4838c1ce441c5d6d3116608dfd1aa2061244ce7d0b947c7b853773c34bc810f1" as rope;
+use module jedit.text.closure@1 digest "sha256:643c540febac25226594faaaaf5eca5280ff16e72c30e10b3675c25708985a90" as closure;
+
+// Byte-level construction for the persistent ReplaceRange, following
+// tests/support/replace-range-schema-2/rope-build.mts and
+// replace-range-model.mts: fromBytes, the leaf rewrite, character
+// boundaries and the equal-length no-op comparison.
+//
+// Leaf bytes live outside the arena. A stored leaf's bytes are its closure
+// row's decoded atom; a fresh leaf names a piece: 0 is the replacement and 1
+// is a rewritten leaf.
+
+type Replacement = Bytes<max=4201>;
+type LeafBytes = Bytes<max=4352>;
+
+// A stored leaf's bytes, decoded from its closure row when needed rather than
+// copied into a list.
+fn rowBytes(c: closure.Closure, row: U64) -> LeafBytes {
+  return codec.leafFact(closure.rowOf(c, row).atomBytes).fact.bytes;
+}
+
+fn replacementPiece() -> U64 { return 0u64; }
+fn rewrittenPiece() -> U64 { return 1u64; }
+
+// A position is a character boundary unless the byte there continues a UTF-8 sequence.
+fn boundary(bytes: Replacement, i: U64) -> Bool {
+  return i == 0u64 || i == len(bytes) || (i < len(bytes) && (at(bytes, i) < 128u8 || 191u8 < at(bytes, i)));
+}
+fn leafBoundary(bytes: LeafBytes, i: U64) -> Bool {
+  return i == 0u64 || i == len(bytes) || (i < len(bytes) && (at(bytes, i) < 128u8 || 191u8 < at(bytes, i)));
+}
+
+// ---- fromBytes ----
+
+// The last character boundary at or before the midpoint of [from, to).
+// Valid UTF-8 needs at most three steps back.
+fn back(bytes: Replacement, i: U64) -> U64 { return if 1u64 <= i && !boundary(bytes, i) then i - 1u64 else i; }
+fn middle(bytes: Replacement, from: U64, to: U64) -> U64 {
+  let half = if from <= to then default(checkedDiv(to - from, 2u64), 0u64) else 0u64;
+  let mid = default(checkedAdd(from, half), from);
+  return back(bytes, back(bytes, back(bytes, mid)));
+}
+
+fn leafOf(arena: rope.Arena, bytes: Replacement, from: U64, to: U64) -> rope.Built {
+  let breaks = if from <= to && to <= len(bytes) then count(slice(bytes, from, to), b"\n") else 0u64;
+  return if from < to && to - from <= 4096u64 then rope.freshLeaf(arena, replacementPiece(), from, to, breaks)
+    else rope.faulted(arena, rope.capacityFault());
+}
+
+fn small(from: U64, to: U64) -> Bool { return from <= to && to - from <= 4096u64; }
+
+fn fb1(arena: rope.Arena, bytes: Replacement, from: U64, to: U64) -> rope.Built {
+  return leafOf(arena, bytes, from, to);
+}
+fn fb2(arena: rope.Arena, bytes: Replacement, from: U64, to: U64) -> rope.Built {
+  let mid = middle(bytes, from, to);
+  let left = fb1(arena, bytes, from, mid);
+  let right = fb1(left.arena, bytes, mid, to);
+  return if small(from, to) then leafOf(arena, bytes, from, to)
+    else if left.fault == rope.ok() then rope.branchOn(right, left.root, right.root) else left;
+}
+
+// fromBytes(replacement): empty is the empty rope; at most 4,201 bytes need
+// at most two levels.
+fn fromBytes(arena: rope.Arena, bytes: Replacement) -> rope.Built {
+  return if len(bytes) == 0u64 then { arena, root: rope.absent(), fault: rope.ok() }
+    else fb2(arena, bytes, 0u64, len(bytes));
+}
+
+// ---- locate and the leaf rewrite ----
+//
+// Descends while one child holds the whole range [start, end]. When it ends
+// at a leaf, an edit whose result is 1-4,096 bytes rewrites that leaf and
+// path-copies its ancestors.
+
+type Locate = {
+  arena: rope.Arena, path: List<rope.Frame, max=15>, cur: U64, start: U64, end: U64,
+  spanning: Bool, done: Bool, fault: U64,
+};
+
+fn locateState(s: Locate, cur: U64, start: U64, end: U64, path: List<rope.Frame, max=15>) -> Locate {
+  return { arena: s.arena, path, cur, start, end, spanning: false, done: false, fault: s.fault };
+}
+fn locateStop(s: Locate, spanning: Bool, fault: U64) -> Locate {
+  return { arena: s.arena, path: s.path, cur: s.cur, start: s.start, end: s.end, spanning, done: true, fault };
+}
+
+fn locateStep(s: Locate) -> Locate {
+  let n = rope.node(s.arena, s.cur);
+  let leftLength = rope.byteLength(s.arena, n.left);
+  return if s.done then s
+    else if n.leaf then locateStop(s, false, s.fault)
+    else if !rope.open(s.arena, s.cur) then locateStop(s, false, rope.closureFault())
+    else if !(listLen(s.path) < 15u64) then locateStop(s, false, rope.capacityFault())
+    else if s.end <= leftLength
+      then locateState(s, n.left, s.start, s.end, listAppend(s.path, { node: s.cur, wentRight: false }))
+    else if leftLength <= s.start && leftLength <= s.end
+      then locateState(s, n.right, s.start - leftLength, s.end - leftLength,
+        listAppend(s.path, { node: s.cur, wentRight: true }))
+    else locateStop(s, true, s.fault);
+}
+
+fn locate(arena: rope.Arena, root: U64, start: U64, end: U64) -> Locate {
+  let initial: Locate = { arena, path: [], cur: root, start, end, spanning: false,
+    done: !rope.present(arena, root), fault: rope.ok() };
+  let final = fold(initial, locateStep, 16u64);
+  return if final.done then final else locateStop(final, false, rope.incompleteFault());
+}
+
+// The rewritten leaf's bytes: leaf[0, start) + replacement + leaf[end, len).
+fn rewritten(leaf: LeafBytes, start: U64, end: U64, bytes: Replacement) -> Bytes<max=12905> {
+  return if start <= end && start <= len(leaf) && end <= len(leaf) then slice(leaf, 0u64, start) + bytes + slice(leaf, end, len(leaf)) else b"";
+}
+
+type Copy = { arena: rope.Arena, path: List<rope.Frame, max=15>, remaining: U64, carry: U64, fault: U64 };
+
+fn copyStep(s: Copy) -> Copy {
+  let frame = if 1u64 <= s.remaining && s.remaining - 1u64 < listLen(s.path)
+    then listAt(s.path, s.remaining - 1u64) else { node: rope.absent(), wentRight: false };
+  let n = rope.node(s.arena, frame.node);
+  let built = if frame.wentRight then rope.branch(s.arena, n.left, s.carry) else rope.branch(s.arena, s.carry, n.right);
+  return if s.fault == rope.ok() && 1u64 <= s.remaining
+    then { arena: built.arena, path: s.path, remaining: s.remaining - 1u64, carry: built.root, fault: built.fault }
+    else s;
+}
+
+// Path-copies the located leaf's ancestors over a fresh leaf of `length`
+// bytes from the rewritten piece.
+fn rewrite(found: Locate, length: U64, breaks: U64) -> rope.Built {
+  let leaf = rope.freshLeaf(found.arena, rewrittenPiece(), 0u64, length, breaks);
+  let final = fold({ arena: leaf.arena, path: found.path, remaining: listLen(found.path), carry: leaf.root,
+    fault: leaf.fault }, copyStep, 16u64);
+  return { arena: final.arena, root: final.carry, fault: if final.remaining == 0u64 then final.fault else rope.incompleteFault() };
+}
+
+// ---- the equal-length no-op comparison ----
+//
+// Compares the stored bytes of [start, end) with the replacement, one leaf
+// chunk per step. Only stored leaves are read: the comparison runs over the
+// basis tree.
+
+type Compare = {
+  arena: rope.Arena, closure: closure.Closure, bytes: Replacement, root: U64,
+  start: U64, pos: U64, end: U64, equal: Bool, fault: U64,
+};
+
+fn compareChunk(s: Compare, leaf: LeafBytes, local: U64) -> Compare {
+  let available = if local <= len(leaf) then len(leaf) - local else 0u64;
+  let wanted = if s.pos <= s.end then s.end - s.pos else 0u64;
+  let chunk = min(available, wanted);
+  let theirs = checkedAdd(local, chunk);
+  let offset = if s.start <= s.pos then s.pos - s.start else 0u64;
+  let ours = checkedAdd(offset, chunk);
+  let next = checkedAdd(s.pos, chunk);
+  let same = isSome(theirs) && isSome(ours) && local <= unwrap(theirs) && unwrap(theirs) <= len(leaf)
+    && offset <= unwrap(ours) && unwrap(ours) <= len(s.bytes)
+    && slice(leaf, local, unwrap(theirs)) == slice(s.bytes, offset, unwrap(ours));
+  return if 0u64 < chunk && isSome(next)
+    then { arena: s.arena, closure: s.closure, bytes: s.bytes, root: s.root, start: s.start, pos: unwrap(next), end: s.end,
+      equal: s.equal && same, fault: s.fault }
+    else { arena: s.arena, closure: s.closure, bytes: s.bytes, root: s.root, start: s.start, pos: s.end, end: s.end,
+      equal: false, fault: rope.closureFault() };
+}
+
+fn compareStep(s: Compare) -> Compare {
+  let found = rope.find(s.arena, s.root, s.pos, true);
+  let n = rope.node(s.arena, found.leaf);
+  let leaf = rowBytes(s.closure, n.source);
+  return if s.fault != rope.ok() || !(s.pos < s.end) || !s.equal then s
+    else if found.fault != rope.ok() || !n.stored
+      then { arena: s.arena, closure: s.closure, bytes: s.bytes, root: s.root, start: s.start, pos: s.end, end: s.end,
+        equal: false, fault: max(found.fault, rope.closureFault()) }
+    else compareChunk(s, leaf, found.local);
+}
+
+type NoOp = { equal: Bool, fault: U64 };
+
+// Whether the replacement equals the bytes it replaces. A range longer than
+// 64 stored leaves is a closure fault.
+fn sameBytes(arena: rope.Arena, c: closure.Closure, root: U64, start: U64, end: U64, bytes: Replacement) -> NoOp {
+  let initial: Compare = { arena, closure: c, bytes, root, start, pos: start, end, equal: true, fault: rope.ok() };
+  let final = fold(initial, compareStep, 64u64);
+  return if start <= end && end - start == len(bytes)
+    then (if start == end then { equal: true, fault: rope.ok() } else { equal: final.equal && final.pos == end, fault: if final.pos == end then final.fault else rope.closureFault() })
+    else { equal: false, fault: rope.ok() };
+}
+rjedit.text.codec@1¢fdigestÇfsha256X ˛£|§œ#ÃätÒs(Lda¬>T©sAHæ¸!òfsourceY!:package jedit.text.codec@1;
+
+use module jedit.text.octets@1 digest "sha256:b527845d58c702e621778cc7f570d45b8d199046f1e53a9b3e530d83a70d63b2" as octets;
+
+// Canonical CBOR for the schema-2 text facts (`edict.canonical-cbor/v1`).
+//
+// Each atom is a definite-length map keyed by field name, keys in canonical
+// order (shorter first, then bytewise), every integer in its shortest form.
+// Decoding is exact: a well-typed atom in any other spelling, with another
+// field set or with trailing bytes is Malformed.
+
+failure Malformed;
+
+// The largest atom a schema-2 text fact can have: a Leaf with 4,096 bytes.
+type Atom = Bytes<max=4352>;
+// A decoded Leaf keeps the atom's bound; decoding proves it holds at most 4,096 bytes.
+type LeafFact = { bytes: Atom, lineBreaks: U64 };
+type BranchFact = { byteLength: U64, lineBreaks: U64, height: U64 };
+type HeadFact = { byteLength: U64, lineCount: U64, sequence: U64 };
+// A Buffer's key stays in encoded form: the program never reads it, and
+// rewriting the atom keeps it byte for byte.
+type BufferFact = { version: U64, encodedKey: Atom };
+
+// ---- Encoding ----
+
+fn quot(v: U64, d: U64) -> U64 { return default(checkedDiv(v, d), 0u64); }
+fn rem(v: U64, d: U64) -> U64 { return default(checkedRem(v, d), 0u64); }
+fn be2(v: U64) -> Bytes<max=2> { return octets.octet(rem(quot(v, 256u64), 256u64)) + octets.octet(rem(v, 256u64)); }
+fn be4(v: U64) -> Bytes<max=4> { return be2(rem(quot(v, 65536u64), 65536u64)) + be2(rem(v, 65536u64)); }
+fn be8(v: U64) -> Bytes<max=8> { return be4(quot(v, 4294967296u64)) + be4(rem(v, 4294967296u64)); }
+
+// The initial octet major + info. Both are octets with a sum below 256 at
+// every call; a sum that is not an octet would encode as no octet at all.
+fn initial(major: U64, info: U64) -> Bytes<max=1> { return octets.octet(default(checkedAdd(major, info), 256u64)); }
+
+// The shortest header for major type `major` (already shifted: 0 unsigned,
+// 64 byte string, 96 text string, 160 map) and argument v.
+fn header(major: U64, v: U64) -> Bytes<max=9> {
+  return if v < 24u64 then initial(major, v)
+    else if v < 256u64 then initial(major, 24u64) + octets.octet(v)
+    else if v < 65536u64 then initial(major, 25u64) + be2(v)
+    else if v < 4294967296u64 then initial(major, 26u64) + be4(v)
+    else initial(major, 27u64) + be8(v);
+}
+fn uint(v: U64) -> Bytes<max=9> { return header(0u64, v); }
+
+fn leafAtom(bytes: Bytes<max=4096>, lineBreaks: U64) -> Atom {
+  return b"\xa2\x65bytes" + header(64u64, len(bytes)) + bytes + b"\x6alineBreaks" + uint(lineBreaks);
+}
+// A fresh leaf's atom over a piece slice; the slice keeps its piece's bound.
+fn pieceAtom(bytes: Bytes<max=12905>, lineBreaks: U64) -> Bytes<max=12941> {
+  return b"\xa2\x65bytes" + header(64u64, len(bytes)) + bytes + b"\x6alineBreaks" + uint(lineBreaks);
+}
+fn branchAtom(fact: BranchFact) -> Atom {
+  return b"\xa3\x66height" + uint(fact.height) + b"\x6abyteLength" + uint(fact.byteLength)
+    + b"\x6alineBreaks" + uint(fact.lineBreaks);
+}
+fn headAtom(fact: HeadFact) -> Atom {
+  return b"\xa3\x68sequence" + uint(fact.sequence) + b"\x69lineCount" + uint(fact.lineCount)
+    + b"\x6abyteLength" + uint(fact.byteLength);
+}
+fn bufferAtom(fact: BufferFact) -> Bytes<max=4400> {
+  return b"\xa2\x67version" + uint(fact.version) + b"\x69bufferKey" + fact.encodedKey;
+}
+
+// ---- Decoding ----
+//
+// The parsers are total and report `ok`, so a fold step or a closure
+// selector can use them; the `decode*` functions are the failing forms.
+
+type Parse = { value: U64, next: U64, ok: Bool };
+
+fn bad() -> Parse { return { value: 0u64, next: 0u64, ok: false }; }
+
+// The octet at i, widened.
+fn octetAt(a: Atom, i: U64) -> Parse {
+  return if i < len(a) && i < 4352u64 then { value: octets.widen(at(a, i)), next: i + 1u64, ok: true } else bad();
+}
+
+// The position after the literal lit, which must start at i.
+fn literal(a: Atom, i: U64, lit: Bytes<max=16>) -> Parse {
+  let end = checkedAdd(i, len(lit));
+  return if isSome(end) && i <= unwrap(end) && unwrap(end) <= len(a) && slice(a, i, unwrap(end)) == lit
+    then { value: 0u64, next: unwrap(end), ok: true } else bad();
+}
+
+// Appends the octet at p.next to the big-endian value p.value.
+fn more(a: Atom, p: Parse) -> Parse {
+  let b = octetAt(a, p.next);
+  let shifted = checkedMul(p.value, 256u64);
+  let value = if isSome(shifted) then checkedAdd(unwrap(shifted), b.value) else none();
+  return if p.ok && b.ok && isSome(value) then { value: unwrap(value), next: b.next, ok: true } else bad();
+}
+fn more2(a: Atom, p: Parse) -> Parse { return more(a, more(a, p)); }
+fn more4(a: Atom, p: Parse) -> Parse { return more2(a, more2(a, p)); }
+fn more8(a: Atom, p: Parse) -> Parse { return more4(a, more4(a, p)); }
+
+// Requires the shortest encoding: a wider argument holds a value the narrower one could not.
+fn atLeast(p: Parse, floor: U64) -> Parse { return if p.ok && floor <= p.value then p else bad(); }
+
+// The argument of a header whose additional information is info, starting at i.
+fn argument(a: Atom, i: U64, info: U64) -> Parse {
+  let origin: Parse = { value: 0u64, next: i, ok: true };
+  return if info < 24u64 then { value: info, next: i, ok: true }
+    else if info == 24u64 then atLeast(more(a, origin), 24u64)
+    else if info == 25u64 then atLeast(more2(a, origin), 256u64)
+    else if info == 26u64 then atLeast(more4(a, origin), 65536u64)
+    else if info == 27u64 then atLeast(more8(a, origin), 4294967296u64)
+    else bad();
+}
+
+// A data item header of major type major (shifted) at p.next.
+fn item(a: Atom, p: Parse, major: U64) -> Parse {
+  let h = octetAt(a, p.next);
+  let info = checkedSub(h.value, major);
+  return if p.ok && h.ok && isSome(info) && unwrap(info) < 32u64 then argument(a, h.next, unwrap(info)) else bad();
+}
+
+fn field(a: Atom, p: Parse, key: Bytes<max=16>) -> Parse {
+  return if p.ok then item(a, literal(a, p.next, key), 0u64) else bad();
+}
+fn opening(a: Atom, mapKey: Bytes<max=16>) -> Parse { return item(a, literal(a, 0u64, mapKey), 0u64); }
+fn complete(a: Atom, p: Parse) -> Bool { return p.ok && p.next == len(a); }
+
+type HeadParse = { fact: HeadFact, ok: Bool };
+type BranchParse = { fact: BranchFact, ok: Bool };
+type LeafParse = { fact: LeafFact, ok: Bool };
+
+fn headFact(a: Atom) -> HeadParse {
+  let sequence = opening(a, b"\xa3\x68sequence");
+  let lineCount = field(a, sequence, b"\x69lineCount");
+  let byteLength = field(a, lineCount, b"\x6abyteLength");
+  return { fact: { byteLength: byteLength.value, lineCount: lineCount.value, sequence: sequence.value },
+    ok: complete(a, byteLength) };
+}
+
+// A Branch height is a U8 in schema 2.
+fn branchFact(a: Atom) -> BranchParse {
+  let height = opening(a, b"\xa3\x66height");
+  let byteLength = field(a, height, b"\x6abyteLength");
+  let lineBreaks = field(a, byteLength, b"\x6alineBreaks");
+  return { fact: { byteLength: byteLength.value, lineBreaks: lineBreaks.value, height: height.value },
+    ok: complete(a, lineBreaks) && height.value <= 255u64 };
+}
+
+fn leafFact(a: Atom) -> LeafParse {
+  let size = item(a, literal(a, 0u64, b"\xa2\x65bytes"), 64u64);
+  let end = checkedAdd(size.next, size.value);
+  let fits = isSome(end) && size.next <= unwrap(end) && unwrap(end) <= len(a) && size.value <= 4096u64;
+  let bytes = if isSome(end) && size.next <= unwrap(end) && unwrap(end) <= len(a) then slice(a, size.next, unwrap(end)) else b"";
+  let breaks = field(a, { value: 0u64, next: default(end, 0u64), ok: size.ok && fits }, b"\x6alineBreaks");
+  return { fact: { bytes, lineBreaks: breaks.value }, ok: complete(a, breaks) };
+}
+
+fn decodeHead(a: Atom) -> HeadFact fails Malformed {
+  let parsed = headFact(a);
+  return if parsed.ok then parsed.fact else fail Malformed;
+}
+fn decodeBranch(a: Atom) -> BranchFact fails Malformed {
+  let parsed = branchFact(a);
+  return if parsed.ok then parsed.fact else fail Malformed;
+}
+fn decodeLeaf(a: Atom) -> LeafFact fails Malformed {
+  let parsed = leafFact(a);
+  return if parsed.ok then parsed.fact else fail Malformed;
+}
+
+fn decodeBuffer(a: Atom) -> BufferFact fails Malformed {
+  let version = opening(a, b"\xa2\x67version");
+  let keyStart = literal(a, version.next, b"\x69bufferKey");
+  let key = item(a, keyStart, 96u64);
+  let end = checkedAdd(key.next, key.value);
+  return if version.ok && keyStart.ok && key.ok && isSome(end) && unwrap(end) == len(a)
+      && keyStart.next <= len(a) && key.next <= len(a) && isUtf8(slice(a, key.next, len(a)))
+    then { version: version.value, encodedKey: slice(a, keyStart.next, len(a)) }
+    else fail Malformed;
+}
+sjedit.text.octets@1¢fdigestÇfsha256X µ'Ñ]X«Ê!wå«ıp‘[çêFÒÂ:õ>SÉßc≤fsourceY}Õpackage jedit.text.octets@1;
+
+// Generated by tests/octets-source.mjs; do not edit by hand.
+
+// The one-octet byte string whose value is v, or empty when v is not an octet.
+fn octet(v: U64) -> Bytes<max=1> {
+  return if 255u64 < v then b"" else if v < 128u64
+    then if v < 64u64
+      then if v < 32u64
+        then if v < 16u64
+          then if v < 8u64
+            then if v < 4u64
+              then if v < 2u64
+                then if v < 1u64
+                  then b"\x00"
+                  else b"\x01"
+                else if v < 3u64
+                  then b"\x02"
+                  else b"\x03"
+              else if v < 6u64
+                then if v < 5u64
+                  then b"\x04"
+                  else b"\x05"
+                else if v < 7u64
+                  then b"\x06"
+                  else b"\x07"
+            else if v < 12u64
+              then if v < 10u64
+                then if v < 9u64
+                  then b"\x08"
+                  else b"\x09"
+                else if v < 11u64
+                  then b"\x0a"
+                  else b"\x0b"
+              else if v < 14u64
+                then if v < 13u64
+                  then b"\x0c"
+                  else b"\x0d"
+                else if v < 15u64
+                  then b"\x0e"
+                  else b"\x0f"
+          else if v < 24u64
+            then if v < 20u64
+              then if v < 18u64
+                then if v < 17u64
+                  then b"\x10"
+                  else b"\x11"
+                else if v < 19u64
+                  then b"\x12"
+                  else b"\x13"
+              else if v < 22u64
+                then if v < 21u64
+                  then b"\x14"
+                  else b"\x15"
+                else if v < 23u64
+                  then b"\x16"
+                  else b"\x17"
+            else if v < 28u64
+              then if v < 26u64
+                then if v < 25u64
+                  then b"\x18"
+                  else b"\x19"
+                else if v < 27u64
+                  then b"\x1a"
+                  else b"\x1b"
+              else if v < 30u64
+                then if v < 29u64
+                  then b"\x1c"
+                  else b"\x1d"
+                else if v < 31u64
+                  then b"\x1e"
+                  else b"\x1f"
+        else if v < 48u64
+          then if v < 40u64
+            then if v < 36u64
+              then if v < 34u64
+                then if v < 33u64
+                  then b"\x20"
+                  else b"\x21"
+                else if v < 35u64
+                  then b"\x22"
+                  else b"\x23"
+              else if v < 38u64
+                then if v < 37u64
+                  then b"\x24"
+                  else b"\x25"
+                else if v < 39u64
+                  then b"\x26"
+                  else b"\x27"
+            else if v < 44u64
+              then if v < 42u64
+                then if v < 41u64
+                  then b"\x28"
+                  else b"\x29"
+                else if v < 43u64
+                  then b"\x2a"
+                  else b"\x2b"
+              else if v < 46u64
+                then if v < 45u64
+                  then b"\x2c"
+                  else b"\x2d"
+                else if v < 47u64
+                  then b"\x2e"
+                  else b"\x2f"
+          else if v < 56u64
+            then if v < 52u64
+              then if v < 50u64
+                then if v < 49u64
+                  then b"\x30"
+                  else b"\x31"
+                else if v < 51u64
+                  then b"\x32"
+                  else b"\x33"
+              else if v < 54u64
+                then if v < 53u64
+                  then b"\x34"
+                  else b"\x35"
+                else if v < 55u64
+                  then b"\x36"
+                  else b"\x37"
+            else if v < 60u64
+              then if v < 58u64
+                then if v < 57u64
+                  then b"\x38"
+                  else b"\x39"
+                else if v < 59u64
+                  then b"\x3a"
+                  else b"\x3b"
+              else if v < 62u64
+                then if v < 61u64
+                  then b"\x3c"
+                  else b"\x3d"
+                else if v < 63u64
+                  then b"\x3e"
+                  else b"\x3f"
+      else if v < 96u64
+        then if v < 80u64
+          then if v < 72u64
+            then if v < 68u64
+              then if v < 66u64
+                then if v < 65u64
+                  then b"\x40"
+                  else b"\x41"
+                else if v < 67u64
+                  then b"\x42"
+                  else b"\x43"
+              else if v < 70u64
+                then if v < 69u64
+                  then b"\x44"
+                  else b"\x45"
+                else if v < 71u64
+                  then b"\x46"
+                  else b"\x47"
+            else if v < 76u64
+              then if v < 74u64
+                then if v < 73u64
+                  then b"\x48"
+                  else b"\x49"
+                else if v < 75u64
+                  then b"\x4a"
+                  else b"\x4b"
+              else if v < 78u64
+                then if v < 77u64
+                  then b"\x4c"
+                  else b"\x4d"
+                else if v < 79u64
+                  then b"\x4e"
+                  else b"\x4f"
+          else if v < 88u64
+            then if v < 84u64
+              then if v < 82u64
+                then if v < 81u64
+                  then b"\x50"
+                  else b"\x51"
+                else if v < 83u64
+                  then b"\x52"
+                  else b"\x53"
+              else if v < 86u64
+                then if v < 85u64
+                  then b"\x54"
+                  else b"\x55"
+                else if v < 87u64
+                  then b"\x56"
+                  else b"\x57"
+            else if v < 92u64
+              then if v < 90u64
+                then if v < 89u64
+                  then b"\x58"
+                  else b"\x59"
+                else if v < 91u64
+                  then b"\x5a"
+                  else b"\x5b"
+              else if v < 94u64
+                then if v < 93u64
+                  then b"\x5c"
+                  else b"\x5d"
+                else if v < 95u64
+                  then b"\x5e"
+                  else b"\x5f"
+        else if v < 112u64
+          then if v < 104u64
+            then if v < 100u64
+              then if v < 98u64
+                then if v < 97u64
+                  then b"\x60"
+                  else b"\x61"
+                else if v < 99u64
+                  then b"\x62"
+                  else b"\x63"
+              else if v < 102u64
+                then if v < 101u64
+                  then b"\x64"
+                  else b"\x65"
+                else if v < 103u64
+                  then b"\x66"
+                  else b"\x67"
+            else if v < 108u64
+              then if v < 106u64
+                then if v < 105u64
+                  then b"\x68"
+                  else b"\x69"
+                else if v < 107u64
+                  then b"\x6a"
+                  else b"\x6b"
+              else if v < 110u64
+                then if v < 109u64
+                  then b"\x6c"
+                  else b"\x6d"
+                else if v < 111u64
+                  then b"\x6e"
+                  else b"\x6f"
+          else if v < 120u64
+            then if v < 116u64
+              then if v < 114u64
+                then if v < 113u64
+                  then b"\x70"
+                  else b"\x71"
+                else if v < 115u64
+                  then b"\x72"
+                  else b"\x73"
+              else if v < 118u64
+                then if v < 117u64
+                  then b"\x74"
+                  else b"\x75"
+                else if v < 119u64
+                  then b"\x76"
+                  else b"\x77"
+            else if v < 124u64
+              then if v < 122u64
+                then if v < 121u64
+                  then b"\x78"
+                  else b"\x79"
+                else if v < 123u64
+                  then b"\x7a"
+                  else b"\x7b"
+              else if v < 126u64
+                then if v < 125u64
+                  then b"\x7c"
+                  else b"\x7d"
+                else if v < 127u64
+                  then b"\x7e"
+                  else b"\x7f"
+    else if v < 192u64
+      then if v < 160u64
+        then if v < 144u64
+          then if v < 136u64
+            then if v < 132u64
+              then if v < 130u64
+                then if v < 129u64
+                  then b"\x80"
+                  else b"\x81"
+                else if v < 131u64
+                  then b"\x82"
+                  else b"\x83"
+              else if v < 134u64
+                then if v < 133u64
+                  then b"\x84"
+                  else b"\x85"
+                else if v < 135u64
+                  then b"\x86"
+                  else b"\x87"
+            else if v < 140u64
+              then if v < 138u64
+                then if v < 137u64
+                  then b"\x88"
+                  else b"\x89"
+                else if v < 139u64
+                  then b"\x8a"
+                  else b"\x8b"
+              else if v < 142u64
+                then if v < 141u64
+                  then b"\x8c"
+                  else b"\x8d"
+                else if v < 143u64
+                  then b"\x8e"
+                  else b"\x8f"
+          else if v < 152u64
+            then if v < 148u64
+              then if v < 146u64
+                then if v < 145u64
+                  then b"\x90"
+                  else b"\x91"
+                else if v < 147u64
+                  then b"\x92"
+                  else b"\x93"
+              else if v < 150u64
+                then if v < 149u64
+                  then b"\x94"
+                  else b"\x95"
+                else if v < 151u64
+                  then b"\x96"
+                  else b"\x97"
+            else if v < 156u64
+              then if v < 154u64
+                then if v < 153u64
+                  then b"\x98"
+                  else b"\x99"
+                else if v < 155u64
+                  then b"\x9a"
+                  else b"\x9b"
+              else if v < 158u64
+                then if v < 157u64
+                  then b"\x9c"
+                  else b"\x9d"
+                else if v < 159u64
+                  then b"\x9e"
+                  else b"\x9f"
+        else if v < 176u64
+          then if v < 168u64
+            then if v < 164u64
+              then if v < 162u64
+                then if v < 161u64
+                  then b"\xa0"
+                  else b"\xa1"
+                else if v < 163u64
+                  then b"\xa2"
+                  else b"\xa3"
+              else if v < 166u64
+                then if v < 165u64
+                  then b"\xa4"
+                  else b"\xa5"
+                else if v < 167u64
+                  then b"\xa6"
+                  else b"\xa7"
+            else if v < 172u64
+              then if v < 170u64
+                then if v < 169u64
+                  then b"\xa8"
+                  else b"\xa9"
+                else if v < 171u64
+                  then b"\xaa"
+                  else b"\xab"
+              else if v < 174u64
+                then if v < 173u64
+                  then b"\xac"
+                  else b"\xad"
+                else if v < 175u64
+                  then b"\xae"
+                  else b"\xaf"
+          else if v < 184u64
+            then if v < 180u64
+              then if v < 178u64
+                then if v < 177u64
+                  then b"\xb0"
+                  else b"\xb1"
+                else if v < 179u64
+                  then b"\xb2"
+                  else b"\xb3"
+              else if v < 182u64
+                then if v < 181u64
+                  then b"\xb4"
+                  else b"\xb5"
+                else if v < 183u64
+                  then b"\xb6"
+                  else b"\xb7"
+            else if v < 188u64
+              then if v < 186u64
+                then if v < 185u64
+                  then b"\xb8"
+                  else b"\xb9"
+                else if v < 187u64
+                  then b"\xba"
+                  else b"\xbb"
+              else if v < 190u64
+                then if v < 189u64
+                  then b"\xbc"
+                  else b"\xbd"
+                else if v < 191u64
+                  then b"\xbe"
+                  else b"\xbf"
+      else if v < 224u64
+        then if v < 208u64
+          then if v < 200u64
+            then if v < 196u64
+              then if v < 194u64
+                then if v < 193u64
+                  then b"\xc0"
+                  else b"\xc1"
+                else if v < 195u64
+                  then b"\xc2"
+                  else b"\xc3"
+              else if v < 198u64
+                then if v < 197u64
+                  then b"\xc4"
+                  else b"\xc5"
+                else if v < 199u64
+                  then b"\xc6"
+                  else b"\xc7"
+            else if v < 204u64
+              then if v < 202u64
+                then if v < 201u64
+                  then b"\xc8"
+                  else b"\xc9"
+                else if v < 203u64
+                  then b"\xca"
+                  else b"\xcb"
+              else if v < 206u64
+                then if v < 205u64
+                  then b"\xcc"
+                  else b"\xcd"
+                else if v < 207u64
+                  then b"\xce"
+                  else b"\xcf"
+          else if v < 216u64
+            then if v < 212u64
+              then if v < 210u64
+                then if v < 209u64
+                  then b"\xd0"
+                  else b"\xd1"
+                else if v < 211u64
+                  then b"\xd2"
+                  else b"\xd3"
+              else if v < 214u64
+                then if v < 213u64
+                  then b"\xd4"
+                  else b"\xd5"
+                else if v < 215u64
+                  then b"\xd6"
+                  else b"\xd7"
+            else if v < 220u64
+              then if v < 218u64
+                then if v < 217u64
+                  then b"\xd8"
+                  else b"\xd9"
+                else if v < 219u64
+                  then b"\xda"
+                  else b"\xdb"
+              else if v < 222u64
+                then if v < 221u64
+                  then b"\xdc"
+                  else b"\xdd"
+                else if v < 223u64
+                  then b"\xde"
+                  else b"\xdf"
+        else if v < 240u64
+          then if v < 232u64
+            then if v < 228u64
+              then if v < 226u64
+                then if v < 225u64
+                  then b"\xe0"
+                  else b"\xe1"
+                else if v < 227u64
+                  then b"\xe2"
+                  else b"\xe3"
+              else if v < 230u64
+                then if v < 229u64
+                  then b"\xe4"
+                  else b"\xe5"
+                else if v < 231u64
+                  then b"\xe6"
+                  else b"\xe7"
+            else if v < 236u64
+              then if v < 234u64
+                then if v < 233u64
+                  then b"\xe8"
+                  else b"\xe9"
+                else if v < 235u64
+                  then b"\xea"
+                  else b"\xeb"
+              else if v < 238u64
+                then if v < 237u64
+                  then b"\xec"
+                  else b"\xed"
+                else if v < 239u64
+                  then b"\xee"
+                  else b"\xef"
+          else if v < 248u64
+            then if v < 244u64
+              then if v < 242u64
+                then if v < 241u64
+                  then b"\xf0"
+                  else b"\xf1"
+                else if v < 243u64
+                  then b"\xf2"
+                  else b"\xf3"
+              else if v < 246u64
+                then if v < 245u64
+                  then b"\xf4"
+                  else b"\xf5"
+                else if v < 247u64
+                  then b"\xf6"
+                  else b"\xf7"
+            else if v < 252u64
+              then if v < 250u64
+                then if v < 249u64
+                  then b"\xf8"
+                  else b"\xf9"
+                else if v < 251u64
+                  then b"\xfa"
+                  else b"\xfb"
+              else if v < 254u64
+                then if v < 253u64
+                  then b"\xfc"
+                  else b"\xfd"
+                else if v < 255u64
+                  then b"\xfe"
+                  else b"\xff";
+}
+
+// The value of one octet as a U64.
+fn widen(b: U8) -> U64 {
+  return if b < 128u8
+    then if b < 64u8
+      then if b < 32u8
+        then if b < 16u8
+          then if b < 8u8
+            then if b < 4u8
+              then if b < 2u8
+                then if b < 1u8
+                  then 0u64
+                  else 1u64
+                else if b < 3u8
+                  then 2u64
+                  else 3u64
+              else if b < 6u8
+                then if b < 5u8
+                  then 4u64
+                  else 5u64
+                else if b < 7u8
+                  then 6u64
+                  else 7u64
+            else if b < 12u8
+              then if b < 10u8
+                then if b < 9u8
+                  then 8u64
+                  else 9u64
+                else if b < 11u8
+                  then 10u64
+                  else 11u64
+              else if b < 14u8
+                then if b < 13u8
+                  then 12u64
+                  else 13u64
+                else if b < 15u8
+                  then 14u64
+                  else 15u64
+          else if b < 24u8
+            then if b < 20u8
+              then if b < 18u8
+                then if b < 17u8
+                  then 16u64
+                  else 17u64
+                else if b < 19u8
+                  then 18u64
+                  else 19u64
+              else if b < 22u8
+                then if b < 21u8
+                  then 20u64
+                  else 21u64
+                else if b < 23u8
+                  then 22u64
+                  else 23u64
+            else if b < 28u8
+              then if b < 26u8
+                then if b < 25u8
+                  then 24u64
+                  else 25u64
+                else if b < 27u8
+                  then 26u64
+                  else 27u64
+              else if b < 30u8
+                then if b < 29u8
+                  then 28u64
+                  else 29u64
+                else if b < 31u8
+                  then 30u64
+                  else 31u64
+        else if b < 48u8
+          then if b < 40u8
+            then if b < 36u8
+              then if b < 34u8
+                then if b < 33u8
+                  then 32u64
+                  else 33u64
+                else if b < 35u8
+                  then 34u64
+                  else 35u64
+              else if b < 38u8
+                then if b < 37u8
+                  then 36u64
+                  else 37u64
+                else if b < 39u8
+                  then 38u64
+                  else 39u64
+            else if b < 44u8
+              then if b < 42u8
+                then if b < 41u8
+                  then 40u64
+                  else 41u64
+                else if b < 43u8
+                  then 42u64
+                  else 43u64
+              else if b < 46u8
+                then if b < 45u8
+                  then 44u64
+                  else 45u64
+                else if b < 47u8
+                  then 46u64
+                  else 47u64
+          else if b < 56u8
+            then if b < 52u8
+              then if b < 50u8
+                then if b < 49u8
+                  then 48u64
+                  else 49u64
+                else if b < 51u8
+                  then 50u64
+                  else 51u64
+              else if b < 54u8
+                then if b < 53u8
+                  then 52u64
+                  else 53u64
+                else if b < 55u8
+                  then 54u64
+                  else 55u64
+            else if b < 60u8
+              then if b < 58u8
+                then if b < 57u8
+                  then 56u64
+                  else 57u64
+                else if b < 59u8
+                  then 58u64
+                  else 59u64
+              else if b < 62u8
+                then if b < 61u8
+                  then 60u64
+                  else 61u64
+                else if b < 63u8
+                  then 62u64
+                  else 63u64
+      else if b < 96u8
+        then if b < 80u8
+          then if b < 72u8
+            then if b < 68u8
+              then if b < 66u8
+                then if b < 65u8
+                  then 64u64
+                  else 65u64
+                else if b < 67u8
+                  then 66u64
+                  else 67u64
+              else if b < 70u8
+                then if b < 69u8
+                  then 68u64
+                  else 69u64
+                else if b < 71u8
+                  then 70u64
+                  else 71u64
+            else if b < 76u8
+              then if b < 74u8
+                then if b < 73u8
+                  then 72u64
+                  else 73u64
+                else if b < 75u8
+                  then 74u64
+                  else 75u64
+              else if b < 78u8
+                then if b < 77u8
+                  then 76u64
+                  else 77u64
+                else if b < 79u8
+                  then 78u64
+                  else 79u64
+          else if b < 88u8
+            then if b < 84u8
+              then if b < 82u8
+                then if b < 81u8
+                  then 80u64
+                  else 81u64
+                else if b < 83u8
+                  then 82u64
+                  else 83u64
+              else if b < 86u8
+                then if b < 85u8
+                  then 84u64
+                  else 85u64
+                else if b < 87u8
+                  then 86u64
+                  else 87u64
+            else if b < 92u8
+              then if b < 90u8
+                then if b < 89u8
+                  then 88u64
+                  else 89u64
+                else if b < 91u8
+                  then 90u64
+                  else 91u64
+              else if b < 94u8
+                then if b < 93u8
+                  then 92u64
+                  else 93u64
+                else if b < 95u8
+                  then 94u64
+                  else 95u64
+        else if b < 112u8
+          then if b < 104u8
+            then if b < 100u8
+              then if b < 98u8
+                then if b < 97u8
+                  then 96u64
+                  else 97u64
+                else if b < 99u8
+                  then 98u64
+                  else 99u64
+              else if b < 102u8
+                then if b < 101u8
+                  then 100u64
+                  else 101u64
+                else if b < 103u8
+                  then 102u64
+                  else 103u64
+            else if b < 108u8
+              then if b < 106u8
+                then if b < 105u8
+                  then 104u64
+                  else 105u64
+                else if b < 107u8
+                  then 106u64
+                  else 107u64
+              else if b < 110u8
+                then if b < 109u8
+                  then 108u64
+                  else 109u64
+                else if b < 111u8
+                  then 110u64
+                  else 111u64
+          else if b < 120u8
+            then if b < 116u8
+              then if b < 114u8
+                then if b < 113u8
+                  then 112u64
+                  else 113u64
+                else if b < 115u8
+                  then 114u64
+                  else 115u64
+              else if b < 118u8
+                then if b < 117u8
+                  then 116u64
+                  else 117u64
+                else if b < 119u8
+                  then 118u64
+                  else 119u64
+            else if b < 124u8
+              then if b < 122u8
+                then if b < 121u8
+                  then 120u64
+                  else 121u64
+                else if b < 123u8
+                  then 122u64
+                  else 123u64
+              else if b < 126u8
+                then if b < 125u8
+                  then 124u64
+                  else 125u64
+                else if b < 127u8
+                  then 126u64
+                  else 127u64
+    else if b < 192u8
+      then if b < 160u8
+        then if b < 144u8
+          then if b < 136u8
+            then if b < 132u8
+              then if b < 130u8
+                then if b < 129u8
+                  then 128u64
+                  else 129u64
+                else if b < 131u8
+                  then 130u64
+                  else 131u64
+              else if b < 134u8
+                then if b < 133u8
+                  then 132u64
+                  else 133u64
+                else if b < 135u8
+                  then 134u64
+                  else 135u64
+            else if b < 140u8
+              then if b < 138u8
+                then if b < 137u8
+                  then 136u64
+                  else 137u64
+                else if b < 139u8
+                  then 138u64
+                  else 139u64
+              else if b < 142u8
+                then if b < 141u8
+                  then 140u64
+                  else 141u64
+                else if b < 143u8
+                  then 142u64
+                  else 143u64
+          else if b < 152u8
+            then if b < 148u8
+              then if b < 146u8
+                then if b < 145u8
+                  then 144u64
+                  else 145u64
+                else if b < 147u8
+                  then 146u64
+                  else 147u64
+              else if b < 150u8
+                then if b < 149u8
+                  then 148u64
+                  else 149u64
+                else if b < 151u8
+                  then 150u64
+                  else 151u64
+            else if b < 156u8
+              then if b < 154u8
+                then if b < 153u8
+                  then 152u64
+                  else 153u64
+                else if b < 155u8
+                  then 154u64
+                  else 155u64
+              else if b < 158u8
+                then if b < 157u8
+                  then 156u64
+                  else 157u64
+                else if b < 159u8
+                  then 158u64
+                  else 159u64
+        else if b < 176u8
+          then if b < 168u8
+            then if b < 164u8
+              then if b < 162u8
+                then if b < 161u8
+                  then 160u64
+                  else 161u64
+                else if b < 163u8
+                  then 162u64
+                  else 163u64
+              else if b < 166u8
+                then if b < 165u8
+                  then 164u64
+                  else 165u64
+                else if b < 167u8
+                  then 166u64
+                  else 167u64
+            else if b < 172u8
+              then if b < 170u8
+                then if b < 169u8
+                  then 168u64
+                  else 169u64
+                else if b < 171u8
+                  then 170u64
+                  else 171u64
+              else if b < 174u8
+                then if b < 173u8
+                  then 172u64
+                  else 173u64
+                else if b < 175u8
+                  then 174u64
+                  else 175u64
+          else if b < 184u8
+            then if b < 180u8
+              then if b < 178u8
+                then if b < 177u8
+                  then 176u64
+                  else 177u64
+                else if b < 179u8
+                  then 178u64
+                  else 179u64
+              else if b < 182u8
+                then if b < 181u8
+                  then 180u64
+                  else 181u64
+                else if b < 183u8
+                  then 182u64
+                  else 183u64
+            else if b < 188u8
+              then if b < 186u8
+                then if b < 185u8
+                  then 184u64
+                  else 185u64
+                else if b < 187u8
+                  then 186u64
+                  else 187u64
+              else if b < 190u8
+                then if b < 189u8
+                  then 188u64
+                  else 189u64
+                else if b < 191u8
+                  then 190u64
+                  else 191u64
+      else if b < 224u8
+        then if b < 208u8
+          then if b < 200u8
+            then if b < 196u8
+              then if b < 194u8
+                then if b < 193u8
+                  then 192u64
+                  else 193u64
+                else if b < 195u8
+                  then 194u64
+                  else 195u64
+              else if b < 198u8
+                then if b < 197u8
+                  then 196u64
+                  else 197u64
+                else if b < 199u8
+                  then 198u64
+                  else 199u64
+            else if b < 204u8
+              then if b < 202u8
+                then if b < 201u8
+                  then 200u64
+                  else 201u64
+                else if b < 203u8
+                  then 202u64
+                  else 203u64
+              else if b < 206u8
+                then if b < 205u8
+                  then 204u64
+                  else 205u64
+                else if b < 207u8
+                  then 206u64
+                  else 207u64
+          else if b < 216u8
+            then if b < 212u8
+              then if b < 210u8
+                then if b < 209u8
+                  then 208u64
+                  else 209u64
+                else if b < 211u8
+                  then 210u64
+                  else 211u64
+              else if b < 214u8
+                then if b < 213u8
+                  then 212u64
+                  else 213u64
+                else if b < 215u8
+                  then 214u64
+                  else 215u64
+            else if b < 220u8
+              then if b < 218u8
+                then if b < 217u8
+                  then 216u64
+                  else 217u64
+                else if b < 219u8
+                  then 218u64
+                  else 219u64
+              else if b < 222u8
+                then if b < 221u8
+                  then 220u64
+                  else 221u64
+                else if b < 223u8
+                  then 222u64
+                  else 223u64
+        else if b < 240u8
+          then if b < 232u8
+            then if b < 228u8
+              then if b < 226u8
+                then if b < 225u8
+                  then 224u64
+                  else 225u64
+                else if b < 227u8
+                  then 226u64
+                  else 227u64
+              else if b < 230u8
+                then if b < 229u8
+                  then 228u64
+                  else 229u64
+                else if b < 231u8
+                  then 230u64
+                  else 231u64
+            else if b < 236u8
+              then if b < 234u8
+                then if b < 233u8
+                  then 232u64
+                  else 233u64
+                else if b < 235u8
+                  then 234u64
+                  else 235u64
+              else if b < 238u8
+                then if b < 237u8
+                  then 236u64
+                  else 237u64
+                else if b < 239u8
+                  then 238u64
+                  else 239u64
+          else if b < 248u8
+            then if b < 244u8
+              then if b < 242u8
+                then if b < 241u8
+                  then 240u64
+                  else 241u64
+                else if b < 243u8
+                  then 242u64
+                  else 243u64
+              else if b < 246u8
+                then if b < 245u8
+                  then 244u64
+                  else 245u64
+                else if b < 247u8
+                  then 246u64
+                  else 247u64
+            else if b < 252u8
+              then if b < 250u8
+                then if b < 249u8
+                  then 248u64
+                  else 249u64
+                else if b < 251u8
+                  then 250u64
+                  else 251u64
+              else if b < 254u8
+                then if b < 253u8
+                  then 252u64
+                  else 253u64
+                else if b < 255u8
+                  then 254u64
+                  else 255u64;
+}
+tjedit.text.closure@1¢fdigestÇfsha256X d<TÎ¨%"eî˙™Ø^ RÄˇÁ,0·6u¬WòZêfsourceY+Âpackage jedit.text.closure@1;
+
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+use module jedit.text.codec@1 digest "sha256:1510fea37ca4cf23cc8a74f17328f04c6461c2173e0b541ba9734148befc2198" as codec;
+use module jedit.text.identity@1 digest "sha256:5a9c36eddade979810be7c2806bbf5eae43c69b7a8eda598152309e4c6b54011" as ids;
+use module jedit.text.rope@1 digest "sha256:4838c1ce441c5d6d3116608dfd1aa2061244ce7d0b947c7b853773c34bc810f1" as rope;
+
+// The bounded closure read's selector and the arena it yields.
+//
+// The read starts at the basis Head and follows root, left and right edges
+// (slots 0, 1 and 2), so the Head's own row and its root arrive in the same
+// read and an empty Head reads no tree. A guide carries a position's byte
+// interval [lo, hi] in the basis text and its mode. The selector expands:
+// - every branch whose interval holds the start or end offset (the boundary
+//   paths prefix, suffix and locate descend);
+// - both outer spines of each sibling hanging off a boundary path, because a
+//   join descends one of them to a depth the selector cannot know;
+// - every branch inside [start, end] when the no-op comparison needs it.
+// Leaves are never selected, so occurrence 0 is the Head, edge row 0 is its
+// root, and every later occurrence k is an expanded branch whose left and
+// right edge rows are 2k - 1 and 2k.
+//
+// The selector always reports a well-formed child: validation happens after
+// the read, so the documented check precedence (Head decode and range bounds
+// before closure validation) holds.
+//
+// This over-reads by design; the #296 ruling bounds it below by each
+// fixture's read set and above by the envelope.
+
+type NodeRow = { atomBytes: Bytes<max=4352>, atomType: Bytes<max=32>, nodeId: Bytes<exact=32>, nodeType: Bytes<exact=32> };
+type Guide = { lo: U64, hi: U64, mode: U64, start: U64, end: U64, range: Bool };
+type EdgeRow = { edgeId: Bytes<exact=32>, from: U64, node: U64, slot: U64 };
+type Occurrence = { depth: U64, edge: U64, guide: Guide, node: U64 };
+type Closure = { nodes: List<NodeRow, max=256>, edges: List<EdgeRow, max=256>, occurrences: List<Occurrence, max=128> };
+type Outgoing = { edgeType: Bytes<exact=32>, to: Bytes<exact=32> };
+type Candidate = { guide: Guide, depth: U64, slot: U64, parent: NodeRow, child: NodeRow };
+type Decision = { expand: Bool, guide: Guide, wellFormed: Bool, sufficient: Bool };
+
+fn boundaryMode() -> U64 { return 0u64; }
+fn leftSpineMode() -> U64 { return 1u64; }
+fn rightSpineMode() -> U64 { return 2u64; }
+fn siblingMode() -> U64 { return 3u64; }
+fn rangeMode() -> U64 { return 4u64; }
+
+// The byte length a row claims, from its own atom.
+type Claim = { length: U64, branch: Bool, ok: Bool };
+fn claim(row: NodeRow) -> Claim {
+  let branch = codec.branchFact(row.atomBytes);
+  let leaf = codec.leafFact(row.atomBytes);
+  return if row.nodeType == ids.branchType() then { length: branch.fact.byteLength, branch: true, ok: branch.ok }
+    else if row.nodeType == ids.leafType() then { length: len(leaf.fact.bytes), branch: false, ok: leaf.ok }
+    else { length: 0u64, branch: false, ok: false };
+}
+
+fn holds(lo: U64, hi: U64, offset: U64) -> Bool { return lo <= offset && offset <= hi; }
+
+fn leftSlot() -> U64 { return 1u64; }
+fn rightSlot() -> U64 { return 2u64; }
+
+fn childMode(g: Guide, slot: U64, lo: U64, hi: U64) -> U64 {
+  return if g.mode == leftSpineMode() || g.mode == rightSpineMode() || g.mode == rangeMode() then g.mode
+    else if g.mode == siblingMode() then (if slot == leftSlot() then leftSpineMode() else rightSpineMode())
+    else if holds(lo, hi, g.start) || holds(lo, hi, g.end) then boundaryMode()
+    else if g.range && g.start <= lo && hi <= g.end then rangeMode()
+    else siblingMode();
+}
+
+fn wanted(mode: U64, slot: U64) -> Bool {
+  return !(mode == leftSpineMode() && slot == rightSlot()) && !(mode == rightSpineMode() && slot == leftSlot());
+}
+
+fn select(candidate: Candidate) -> Decision {
+  let g = candidate.guide;
+  let child = claim(candidate.child);
+  let span = if g.lo <= g.hi then g.hi - g.lo else 0u64;
+  let fits = child.ok && g.lo <= g.hi && child.length <= span;
+  let lo = if candidate.slot != rightSlot() then g.lo else (if child.length <= g.hi then g.hi - child.length else 0u64);
+  let hi = if candidate.slot != rightSlot() then default(checkedAdd(g.lo, child.length), g.hi) else g.hi;
+  let mode = childMode(g, candidate.slot, lo, hi);
+  let parentMode = if g.mode == leftSpineMode() || g.mode == rightSpineMode() then g.mode else boundaryMode();
+  let next: Guide = { lo, hi, mode, start: g.start, end: g.end, range: g.range };
+  return { expand: fits && child.branch && wanted(parentMode, candidate.slot), guide: next,
+    wellFormed: true, sufficient: true };
+}
+
+// The Head's guide: its root starts at offset 0.
+fn headGuide(start: U64, end: U64, range: Bool) -> Guide {
+  return { lo: 0u64, hi: 18446744073709551615u64, mode: boundaryMode(), start, end, range };
+}
+
+// ---- the arena of a closure ----
+//
+// Arena position p is edge row p, so the root is position 0. Occurrence k's
+// children are positions 2k - 1 and 2k. Each position's row is decoded,
+// typed and, when its outgoing edges are known, identity-checked; a sibling
+// the edit never expands is trusted on its decoded claims.
+
+type Load = { closure: Closure, warp: Bytes<exact=32>, stored: List<rope.Stored, max=256>, k: U64, fault: U64 };
+
+fn rowAt(c: Closure, p: U64) -> U64 { return if p < listLen(c.edges) then listAt(c.edges, p).node else 4294967295u64; }
+fn rowOf(c: Closure, index: U64) -> NodeRow {
+  let empty: NodeRow = { atomBytes: b"", atomType: b"", nodeId: ids.leafType(), nodeType: ids.leafType() };
+  return if index < listLen(c.nodes) then listAt(c.nodes, index) else empty;
+}
+fn edgeAt(c: Closure, e: U64) -> EdgeRow {
+  let missing: EdgeRow = { edgeId: ids.leftEdge(), from: 4294967295u64, node: 4294967295u64, slot: 4294967295u64 };
+  return if e < listLen(c.edges) then listAt(c.edges, e) else missing;
+}
+// Whether arena position p is occurrence k.
+fn isOccurrence(c: Closure, p: U64, k: U64) -> Bool {
+  return k < listLen(c.occurrences) && listAt(c.occurrences, k).edge == p && 1u64 <= k;
+}
+
+fn stored(leaf: Bool, byteLength: U64, lineBreaks: U64, height: U64, children: Bool, k: U64, source: U64) -> rope.Stored {
+  let left = if children && 1u64 <= k && k <= 1000u64 then default(checkedAdd(k, k - 1u64), 4294967295u64) else rope.absent();
+  let right = if children && k <= 1000u64 then k + k else rope.absent();
+  return { leaf, expanded: children, byteLength, lineBreaks, height, left, right, row: source };
+}
+
+fn leafNode(s: Load, r: NodeRow, source: U64) -> Load {
+  let parsed = codec.leafFact(r.atomBytes);
+  let bytes = parsed.fact.bytes;
+  let id = echo.contentAddress(s.warp, ids.leafType(), ids.leafAtomType(), r.atomBytes, []);
+  let fault = if !parsed.ok || r.atomType != ids.leafAtomType() then rope.factFault()
+    else if id != r.nodeId then rope.identityFault()
+    else if len(bytes) == 0u64 || 4096u64 < len(bytes) || !isUtf8(bytes) || count(bytes, b"\n") != parsed.fact.lineBreaks
+      then rope.malformedFault()
+    else rope.ok();
+  return append(s, stored(true, len(bytes), parsed.fact.lineBreaks, 1u64, false, 0u64, source), false, fault);
+}
+
+fn branchNode(s: Load, r: NodeRow, source: U64, expanded: Bool) -> Load {
+  let parsed = codec.branchFact(r.atomBytes);
+  let k = s.k;
+  let first = if 1u64 <= k && k <= 1000u64 then default(checkedAdd(k, k - 1u64), 4294967295u64) else 4294967295u64;
+  let left = edgeAt(s.closure, first);
+  let right = edgeAt(s.closure, if first < 4294967295u64 then first + 1u64 else first);
+  let edges: List<Outgoing, max=2> = [{ edgeType: ids.leftEdge(), to: rowOf(s.closure, left.node).nodeId },
+    { edgeType: ids.rightEdge(), to: rowOf(s.closure, right.node).nodeId }];
+  let id = echo.contentAddress(s.warp, ids.branchType(), ids.branchAtomType(), r.atomBytes, edges);
+  let shaped = left.from == k && left.slot == leftSlot() && right.from == k && right.slot == rightSlot();
+  let fault = if !parsed.ok || r.atomType != ids.branchAtomType() then rope.factFault()
+    else if expanded && (!shaped || id != r.nodeId) then rope.identityFault()
+    else rope.ok();
+  let f = parsed.fact;
+  return append(s, stored(false, f.byteLength, f.lineBreaks, f.height, expanded, k, source), expanded, fault);
+}
+
+fn append(s: Load, n: rope.Stored, advance: Bool, fault: U64) -> Load {
+  return if listLen(s.stored) < 256u64 && s.k < 1000u64
+    then { closure: s.closure, warp: s.warp, stored: listAppend(s.stored, n), k: if advance then s.k + 1u64 else s.k,
+      fault: max(s.fault, fault) }
+    else { closure: s.closure, warp: s.warp, stored: s.stored, k: s.k, fault: rope.capacityFault() };
+}
+
+fn loadStep(s: Load) -> Load {
+  let p = listLen(s.stored);
+  let source = rowAt(s.closure, p);
+  let r = rowOf(s.closure, source);
+  return if s.fault != rope.ok() || !(p < listLen(s.closure.edges)) then s
+    else if !(source < listLen(s.closure.nodes)) then { closure: s.closure, warp: s.warp, stored: s.stored, k: s.k, fault: rope.factFault() }
+    else if r.nodeType == ids.leafType() then leafNode(s, r, source)
+    else if r.nodeType == ids.branchType() then branchNode(s, r, source, isOccurrence(s.closure, p, s.k))
+    else { closure: s.closure, warp: s.warp, stored: s.stored, k: s.k, fault: rope.factFault() };
+}
+
+// ---- rope invariants over the expanded branches ----
+
+type Check = { arena: rope.Arena, next: U64, fault: U64 };
+
+fn consistent(arena: rope.Arena, n: rope.Node) -> Bool {
+  let l = rope.node(arena, n.left);
+  let r = rope.node(arena, n.right);
+  let length = checkedAdd(l.byteLength, r.byteLength);
+  let breaks = checkedAdd(l.lineBreaks, r.lineBreaks);
+  let taller = max(l.height, r.height);
+  let balanced = rope.notTaller(l.height, r.height) && rope.notTaller(r.height, l.height);
+  return isSome(length) && isSome(breaks) && unwrap(length) == n.byteLength && unwrap(breaks) == n.lineBreaks
+    && taller < 255u64 && n.height == taller + 1u64 && balanced;
+}
+
+// Distinguishes an extent sum that overflows from one that disagrees.
+fn overflows(arena: rope.Arena, n: rope.Node) -> Bool {
+  let l = rope.node(arena, n.left);
+  let r = rope.node(arena, n.right);
+  return !isSome(checkedAdd(l.byteLength, r.byteLength)) || !isSome(checkedAdd(l.lineBreaks, r.lineBreaks));
+}
+
+fn checkStep(s: Check) -> Check {
+  let n = rope.node(s.arena, s.next);
+  let fault = if !(n.stored && n.expanded) || consistent(s.arena, n) then rope.ok()
+    else if overflows(s.arena, n) then rope.overflowFault() else rope.malformedFault();
+  return if s.fault == rope.ok() && s.next < listLen(s.arena.stored) && s.next < 256u64
+    then { arena: s.arena, next: s.next + 1u64, fault } else s;
+}
+
+type Loaded = { arena: rope.Arena, fault: U64 };
+
+// The arena of a closure read, with every resolved node validated.
+fn load(c: Closure, warp: Bytes<exact=32>) -> Loaded {
+  let initial: Load = { closure: c, warp, stored: [], k: 1u64, fault: rope.ok() };
+  let loaded = fold(initial, loadStep, 256u64);
+  let arena = rope.emptyArena(loaded.stored);
+  let checked = fold({ arena, next: 0u64, fault: loaded.fault }, checkStep, 256u64);
+  return { arena, fault: checked.fault };
+}
+ujedit.text.identity@1¢fdigestÇfsha256X Zú6Ì⁄ﬁóòæ|(ªıÍ‰<i∑®Ì•ò#	‰∆µ@fsourceYgpackage jedit.text.identity@1;
+
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+
+// Schema-2 type identities and ContentAddressV1 ids for the text facts.
+// Every id is computed by Echo's generic identity law, never an
+// application recipe. The type ids are BLAKE3 over "type:" and the label.
+
+type Id = Bytes<exact=32>;
+
+// jedit.text.v2.Buffer
+fn bufferType() -> Id { return b"\x2a\x3f\x0e\x12\x7b\x74\x60\xa4\x90\x8b\xe5\xaf\x8f\xe1\x4f\x50\xc0\x92\x58\x73\x16\x9e\xfb\x74\x88\x1a\x9f\xf8\x09\x2f\x0a\xe3"; }
+// jedit.text.v2.BufferFact
+fn bufferAtomType() -> Id { return b"\x12\x7b\xc5\x9c\xb6\x2a\xe8\x14\x08\x0c\x3d\x68\x64\xc9\x11\xf7\xb9\x54\x47\x0e\x3f\xc2\xe5\x5a\x51\x92\x5c\x32\x04\x6f\x54\x12"; }
+// jedit.text.v2.Head
+fn headType() -> Id { return b"\x65\x16\x59\xf3\xe2\xb5\x56\xe0\xfb\x11\x89\x2d\xf5\x40\xc6\xa2\x2c\xd0\x42\x7c\x11\x23\x7c\x0b\x74\xb6\xa7\x83\xbf\xcf\x61\x05"; }
+// jedit.text.v2.HeadFact
+fn headAtomType() -> Id { return b"\x40\x61\x3c\x7a\xc9\xf3\x97\xed\x4c\xb8\x89\x4f\xc0\x08\xcd\xc3\xfb\x1f\x8e\x11\x35\x58\x7a\x24\x0b\x13\xa2\x6b\x69\x85\x8d\x9d"; }
+// jedit.text.v2.Branch
+fn branchType() -> Id { return b"\x6b\x8c\xb0\x3c\x2f\x17\xcc\xd3\x8d\x35\xf2\xb6\xd9\xc3\x9a\x7d\xe8\x29\x55\xb1\x25\xb3\x96\xac\x50\x20\xd5\x15\x8f\x79\x81\xca"; }
+// jedit.text.v2.BranchFact
+fn branchAtomType() -> Id { return b"\x2e\x45\x5f\x18\x12\x42\x2c\x4a\x06\x6f\x8f\xfd\xec\x60\x5b\xbd\xe6\xed\x4f\x5c\x4e\xc5\x13\x1d\x04\x4c\x22\x6c\xd1\x7b\xa2\xf3"; }
+// jedit.text.v2.Leaf
+fn leafType() -> Id { return b"\x44\xc3\xa6\x68\x4e\x69\x72\x0b\x3d\x72\xd1\x61\x26\x1a\xd7\xf1\x8f\x9b\x59\x0e\x5c\x02\x88\x72\x71\x16\xe8\x0f\x7e\x47\xce\x4d"; }
+// jedit.text.v2.LeafFact
+fn leafAtomType() -> Id { return b"\x88\xa3\x03\xfe\xca\x83\x0b\x5a\x39\x4a\xa7\x2d\x56\x1c\x76\xa4\x69\xea\xd9\x98\x66\x29\x72\x07\xbb\x19\x6a\xf4\x7a\x70\xd1\x34"; }
+// jedit.text.canonicalHead
+fn canonicalHeadEdge() -> Id { return b"\x88\x8e\x7a\x21\xb6\x19\x91\x78\x6e\x03\xce\x12\x61\x75\xab\x09\x7a\x91\x46\x18\x3a\xfb\xb4\x54\xe2\xde\x12\xc6\xc6\x3a\xb7\x75"; }
+// jedit.text.root
+fn rootEdge() -> Id { return b"\x86\xcf\xca\xf4\x43\x47\xf0\x37\x48\x8b\x93\x6a\x65\x48\x88\x0b\xcf\xe4\xf5\x3f\x86\xe2\xce\x81\xb2\x9e\xe5\xad\xda\x57\x66\x98"; }
+// jedit.text.anchor
+fn anchorEdge() -> Id { return b"\x02\x44\x38\x15\x79\x8a\xb1\xc2\x1d\xf3\xb8\x97\x0d\x6c\x0f\xd1\x3f\x5f\xd8\xb4\x9c\xff\xc7\xac\xcb\x76\x74\xdb\x46\x44\x68\x6e"; }
+// jedit.text.left
+fn leftEdge() -> Id { return b"\xee\xb5\xf5\x51\xa0\x98\x72\xc6\x23\xe5\x17\x6f\x6c\x1f\xf2\x4a\x5c\x72\x25\xd2\x15\x4b\x2a\x7c\xd3\xe6\x8a\xd8\x07\x60\x20\x3e"; }
+// jedit.text.right
+fn rightEdge() -> Id { return b"\x0b\x1a\xcd\x29\xf4\xc5\x2c\x61\x70\x22\x21\x3e\x07\x82\x9a\xc8\x65\x33\xa7\x62\xf4\xde\x8d\x96\x8e\x87\xb5\x8c\xdb\x33\x02\xa4"; }
+
+fn leafId(warp: Id, atom: Bytes<max=4352>) -> Id {
+  return echo.contentAddress(warp, leafType(), leafAtomType(), atom, []);
+}
+fn branchId(warp: Id, atom: Bytes<max=4352>, left: Id, right: Id) -> Id {
+  return echo.contentAddress(warp, branchType(), branchAtomType(), atom,
+    [{ edgeType: leftEdge(), to: left }, { edgeType: rightEdge(), to: right }]);
+}
+// A Head of non-empty text has a root edge; the empty Head has only its anchor.
+fn rootedHeadId(warp: Id, atom: Bytes<max=4352>, root: Id, anchor: Id) -> Id {
+  return echo.contentAddress(warp, headType(), headAtomType(), atom,
+    [{ edgeType: rootEdge(), to: root }, { edgeType: anchorEdge(), to: anchor }]);
+}
+fn emptyHeadId(warp: Id, atom: Bytes<max=4352>, anchor: Id) -> Id {
+  return echo.contentAddress(warp, headType(), headAtomType(), atom, [{ edgeType: anchorEdge(), to: anchor }]);
+}
+fn edgeId(warp: Id, from: Id, edgeType: Id, to: Id) -> Id { return echo.contentEdgeId(warp, from, edgeType, to); }
+fn canonicalHeadSlot(warp: Id, buffer: Id) -> Id { return echo.slotEdgeId(warp, buffer, canonicalHeadEdge()); }
+ujedit.text.proposal@1¢fdigestÇfsha256X 'XŸö{Ñ¸gÔ&&I¶œ›©o>˜"ñêäTÿÉëé”GfsourceY$Àpackage jedit.text.proposal@1;
+
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+use module jedit.text.codec@1 digest "sha256:1510fea37ca4cf23cc8a74f17328f04c6461c2173e0b541ba9734148befc2198" as codec;
+use module jedit.text.identity@1 digest "sha256:5a9c36eddade979810be7c2806bbf5eae43c69b7a8eda598152309e4c6b54011" as ids;
+use module jedit.text.rope@1 digest "sha256:4838c1ce441c5d6d3116608dfd1aa2061244ce7d0b947c7b853773c34bc810f1" as rope;
+use module jedit.text.closure@1 digest "sha256:643c540febac25226594faaaaf5eca5280ff16e72c30e10b3675c25708985a90" as closure;
+
+// ContentAddressV1 ids for the fresh nodes, and the normalized proposal of
+// the reachable fresh nodes and their edges.
+//
+// A stored node keeps its row id; fresh ids are computed over the two small
+// fresh lists. Emission follows the reachable fresh nodes only. Repeated text
+// yields repeated ids, and each id is emitted once.
+
+type Id = Bytes<exact=32>;
+type Pieces = { replacement: Bytes<max=4201>, rewritten: Bytes<max=12905> };
+type Outgoing = { edgeType: Id, to: Id };
+
+// A fresh node's atom.
+fn leafBytes(c: closure.Closure, pieces: Pieces, n: rope.Node) -> Bytes<max=12905> {
+  let row = closure.rowOf(c, n.source);
+  let stored = codec.leafFact(row.atomBytes).fact.bytes;
+  let piece = if n.source == 0u64 then pieces.replacement else pieces.rewritten;
+  return if n.row && n.from <= n.to && n.to <= len(stored) then slice(stored, n.from, n.to)
+    else if !n.row && n.from <= n.to && n.to <= len(piece) then slice(piece, n.from, n.to)
+    else b"";
+}
+// Slicing never narrows a byte bound, so a fresh atom keeps the bound of the
+// largest piece; Echo's ensure-node admits that bound.
+type FreshAtom = Bytes<max=12941>;
+fn atomOf(c: closure.Closure, pieces: Pieces, n: rope.Node) -> FreshAtom {
+  let bytes = leafBytes(c, pieces, n);
+  return if n.leaf then codec.pieceAtom(bytes, n.lineBreaks)
+    else codec.branchAtom({ byteLength: n.byteLength, lineBreaks: n.lineBreaks, height: n.height });
+}
+
+// ---- ids of the fresh nodes ----
+//
+// Stored nodes keep their row ids. Fresh leaves are hashed first; a fresh
+// branch's children are stored nodes, fresh leaves or earlier fresh branches,
+// so one pass over each small fresh list computes every id.
+
+type Ids = { leaves: List<Id, max=16>, branches: List<Id, max=128> };
+type Hashing = { closure: closure.Closure, pieces: Pieces, warp: Id, arena: rope.Arena, ids: Ids };
+
+fn idOf(c: closure.Closure, arena: rope.Arena, known: Ids, i: U64) -> Id {
+  let n = rope.node(arena, i);
+  return if n.stored then closure.rowOf(c, n.source).nodeId
+    else if 256u64 <= i && i - 256u64 < listLen(known.leaves) then listAt(known.leaves, i - 256u64)
+    else if 272u64 <= i && i - 272u64 < listLen(known.branches) then listAt(known.branches, i - 272u64)
+    else ids.leafType();
+}
+
+fn leafIdStep(s: Hashing) -> Hashing {
+  let used = listLen(s.ids.leaves);
+  let n = rope.node(s.arena, if used < 16u64 then 256u64 + used else rope.absent());
+  let id = echo.contentAddress(s.warp, ids.leafType(), ids.leafAtomType(), atomOf(s.closure, s.pieces, n), []);
+  return if used < 16u64 && used < listLen(s.arena.leaves) && listLen(s.ids.leaves) < 16u64
+    then { closure: s.closure, pieces: s.pieces, warp: s.warp, arena: s.arena,
+      ids: { leaves: listAppend(s.ids.leaves, id), branches: s.ids.branches } }
+    else s;
+}
+
+fn branchIdStep(s: Hashing) -> Hashing {
+  let used = listLen(s.ids.branches);
+  let n = rope.node(s.arena, if used < 128u64 then 272u64 + used else rope.absent());
+  let edges: List<Outgoing, max=2> = [{ edgeType: ids.leftEdge(), to: idOf(s.closure, s.arena, s.ids, n.left) },
+    { edgeType: ids.rightEdge(), to: idOf(s.closure, s.arena, s.ids, n.right) }];
+  let id = echo.contentAddress(s.warp, ids.branchType(), ids.branchAtomType(), atomOf(s.closure, s.pieces, n), edges);
+  return if used < 128u64 && used < listLen(s.arena.branches) && listLen(s.ids.branches) < 128u64
+    then { closure: s.closure, pieces: s.pieces, warp: s.warp, arena: s.arena,
+      ids: { leaves: s.ids.leaves, branches: listAppend(s.ids.branches, id) } }
+    else s;
+}
+
+fn freshIds(c: closure.Closure, pieces: Pieces, warp: Id, arena: rope.Arena) -> Ids {
+  let start: Hashing = { closure: c, pieces, warp, arena, ids: { leaves: [], branches: [] } };
+  let leaves = fold(start, leafIdStep, 16u64);
+  return fold(leaves, branchIdStep, 128u64).ids;
+}
+
+// ---- the normalized proposal ----
+//
+// Emission lists the arena indexes to write, in walk order, each id once. The
+// intent builds each write as it emits.
+
+type Context = { closure: closure.Closure, pieces: Pieces, warp: Id, arena: rope.Arena, ids: Ids };
+type NodeWrite = { atomBytes: FreshAtom, atomType: Id, nodeId: Id, nodeType: Id, warpId: Id };
+type EdgeWrite = { edgeId: Id, edgeType: Id, fromId: Id, toId: Id, warpId: Id };
+
+fn nodeWrite(x: Context, i: U64) -> NodeWrite {
+  let n = rope.node(x.arena, i);
+  return { atomBytes: atomOf(x.closure, x.pieces, n), atomType: if n.leaf then ids.leafAtomType() else ids.branchAtomType(),
+    nodeId: idOf(x.closure, x.arena, x.ids, i), nodeType: if n.leaf then ids.leafType() else ids.branchType(),
+    warpId: x.warp };
+}
+fn isBranch(x: Context, i: U64) -> Bool { return !rope.node(x.arena, i).leaf; }
+fn childWrite(x: Context, i: U64, right: Bool) -> EdgeWrite {
+  let n = rope.node(x.arena, i);
+  let from = idOf(x.closure, x.arena, x.ids, i);
+  let edgeType = if right then ids.rightEdge() else ids.leftEdge();
+  let to = idOf(x.closure, x.arena, x.ids, if right then n.right else n.left);
+  return { edgeId: ids.edgeId(x.warp, from, edgeType, to), edgeType, fromId: from, toId: to, warpId: x.warp };
+}
+
+// Whether an id was already emitted. A ContentAddressV1 id commits to the
+// node type, the atom and the complete edge set, so an equal id is equal
+// content; two contents under one id would need a BLAKE3 collision.
+type Seen = { emitted: List<Id, max=144>, id: Id, next: U64, found: Bool };
+fn seenStep(s: Seen) -> Seen {
+  let repeats = s.next < listLen(s.emitted) && listAt(s.emitted, s.next) == s.id;
+  return if s.next < 144u64 then { emitted: s.emitted, id: s.id, next: s.next + 1u64, found: s.found || repeats } else s;
+}
+
+type Emit = {
+  context: Context, order: List<U64, max=256>, next: U64,
+  emitted: List<U64, max=144>, emittedIds: List<Id, max=144>, fault: U64,
+};
+
+fn emitStep(s: Emit) -> Emit {
+  let index = if s.next < listLen(s.order) then listAt(s.order, s.next) else rope.absent();
+  let id = idOf(s.context.closure, s.context.arena, s.context.ids, index);
+  let found = fold({ emitted: s.emittedIds, id, next: 0u64, found: false }, seenStep, 144u64).found;
+  let fresh = !found && listLen(s.emitted) < 144u64 && listLen(s.emittedIds) < 144u64;
+  let emitted = if fresh && listLen(s.emitted) < 144u64 then listAppend(s.emitted, index) else s.emitted;
+  let emittedIds = if fresh && listLen(s.emittedIds) < 144u64 then listAppend(s.emittedIds, id) else s.emittedIds;
+  return if s.fault == rope.ok() && s.next < listLen(s.order) && s.next < 256u64
+    then { context: s.context, order: s.order, next: s.next + 1u64, emitted, emittedIds, fault: s.fault }
+    else s;
+}
+
+type Proposal = { context: Context, emitted: List<U64, max=144>, rootId: Id, fault: U64 };
+
+fn propose(c: closure.Closure, pieces: Pieces, warp: Id, arena: rope.Arena, root: U64) -> Proposal {
+  let context: Context = { closure: c, pieces, warp, arena, ids: freshIds(c, pieces, warp, arena) };
+  let fresh = rope.freshNodes(arena, root);
+  let final = fold({ context, order: fresh.order, next: 0u64, emitted: [], emittedIds: [], fault: fresh.fault }, emitStep, 144u64);
+  return { context, emitted: final.emitted, rootId: idOf(c, arena, context.ids, root), fault: final.fault };
+}
+
+// ---- Echo limits on one published edit ----
+//
+// Patch operations (2L + 4B + 6, warp-core edict_effects/derive/checks.rs:516-542)
+// and resolved writes (2L + 6B + 9, the footprint-law slot model) of the
+// emitted fresh leaves L and branches B, with the new Head, the canonicalHead
+// retarget and the Buffer replace.
+
+type Count = { context: Context, emitted: List<U64, max=144>, next: U64, leaves: U64, branches: U64 };
+fn countStep(s: Count) -> Count {
+  let index = if s.next < listLen(s.emitted) then listAt(s.emitted, s.next) else rope.absent();
+  let leaf = rope.view(s.context.arena, index).leaf;
+  return if s.next < listLen(s.emitted) && s.next < 144u64 && s.leaves < 144u64 && s.branches < 144u64
+    then { context: s.context, emitted: s.emitted, next: s.next + 1u64,
+      leaves: if leaf then s.leaves + 1u64 else s.leaves, branches: if leaf then s.branches else s.branches + 1u64 }
+    else s;
+}
+
+// A sum that saturates at U64::MAX, which no limit admits.
+fn add(a: U64, b: U64) -> U64 { return default(checkedAdd(a, b), 18446744073709551615u64); }
+
+// Whether the edit fits 128 patch operations and 256 writes.
+fn fitsEcho(p: Proposal) -> Bool {
+  let counted = fold({ context: p.context, emitted: p.emitted, next: 0u64, leaves: 0u64, branches: 0u64 }, countStep, 144u64);
+  let leaves = add(counted.leaves, counted.leaves);
+  let twoBranches = add(counted.branches, counted.branches);
+  let fourBranches = add(twoBranches, twoBranches);
+  let operations = add(add(leaves, fourBranches), 6u64);
+  let writes = add(add(add(leaves, fourBranches), twoBranches), 9u64);
+  return operations <= 128u64 && writes <= 256u64;
+}
+xjedit.text.replace_range@2¢fdigestÇfsha256X oU'õ¡g˘ßı}¸t6Ä»=æ éH˛eÅwt?Ë[!ÁfsourceY∂package jedit.text.replace_range@2;
+
+use lawpack jedit.text@2 digest "sha256:a89daf603f66361421366bba75450fd94e41961b97eefac6b7ad542aa2b3ff22" as text;
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+use module jedit.text.codec@1 digest "sha256:1510fea37ca4cf23cc8a74f17328f04c6461c2173e0b541ba9734148befc2198" as codec;
+use module jedit.text.identity@1 digest "sha256:5a9c36eddade979810be7c2806bbf5eae43c69b7a8eda598152309e4c6b54011" as ids;
+use module jedit.text.closure@1 digest "sha256:643c540febac25226594faaaaf5eca5280ff16e72c30e10b3675c25708985a90" as closure;
+use module jedit.text.proposal@1 digest "sha256:2758d99a7b84fc67ef262649a6cfdda9186f3ef72296908a54d81983918ed347" as proposal;
+use module jedit.text.plan@1 digest "sha256:111a12780aaa57d92d0898b87f66d45965e9c5e5f1c0401c495120cd5068397b" as plan;
+
+// The authored persistent-rope ReplaceRange (DL-0159, #296).
+//
+// 1. Read the Buffer and its canonicalHead; require the invocation basis.
+// 2. Check the range order and the replacement; the replacement bound is its type.
+// 3. One bounded closure read from the basis Head over root, left and right.
+// 4. The pure plan: Head checks, validated arena, construction, boundaries,
+//    no-op, counters and the normalized proposal.
+// 5. Ensure every fresh node and edge, the new Head with its root and anchor,
+//    retarget canonicalHead and bump Buffer.version, all in one atomic proposal.
+//
+// The Buffer version bump replaces the atom it read, guarded by Echo's
+// attachment-value digest of those exact bytes.
+
+type Input = {
+  warpId: text.NodeId, bufferId: text.NodeId, basisHeadId: text.NodeId,
+  startByte: U64, endByte: U64, replacement: text.Replacement,
+};
+type Output = { headId: text.NodeId, byteLength: U64, lineCount: U64, sequence: U64 };
+
+// The closure selector the lowering configuration names.
+fn select(candidate: closure.Candidate) -> closure.Decision { return closure.select(candidate); }
+
+intent replaceRange(input: Input) returns Output
+  profile text.replaceRange
+  basis input.basisHeadId
+  budget <= text.replaceRangeBudget
+{
+  let bufferAtom: text.Atom = text.readAtom({ nodeId: input.bufferId, typeId: ids.bufferAtomType(), warpId: input.warpId })
+    else {
+      missing(query) => text.FactMissing,
+      required(query) => text.FactMalformed,
+      wrongType(query) => text.FactMalformed,
+      tooLarge(query) => text.FactMalformed,
+    };
+  let buffer = codec.decodeBuffer(bufferAtom) else text.FactMalformed;
+  let canonical: text.Edges = text.outgoing({ edgeType: ids.canonicalHeadEdge(), nodeId: input.bufferId, warpId: input.warpId })
+    else {
+      sourceMissing(query) => text.FactMissing,
+      edgeBound(query) => text.ResourceLimitExceeded,
+      scanBound(query) => text.ResourceLimitExceeded,
+    };
+  let current = if listLen(canonical) == 1u64 && 0u64 < listLen(canonical) then listAt(canonical, 0u64).toId else ids.leafType();
+  require current == input.basisHeadId else text.BasisNotCanonical;
+  require input.startByte <= input.endByte else text.RangeOrderInvalid;
+  require isUtf8(input.replacement) else text.ReplacementNotUtf8;
+
+  let anchors: text.Edges = text.outgoing({ edgeType: ids.anchorEdge(), nodeId: input.basisHeadId, warpId: input.warpId })
+    else {
+      sourceMissing(query) => text.FactMissing,
+      edgeBound(query) => text.ResourceLimitExceeded,
+      scanBound(query) => text.ResourceLimitExceeded,
+    };
+  let anchor = if 0u64 < listLen(anchors) then listAt(anchors, 0u64).toId else ids.leafType();
+  let range = input.startByte <= input.endByte && input.endByte - input.startByte == len(input.replacement);
+  let edgeTypes: List<text.NodeId, max=3> = [ids.rootEdge(), ids.leftEdge(), ids.rightEdge()];
+  let read: text.Closure = text.closure({
+    edgeTypes, guide: closure.headGuide(input.startByte, input.endByte, range),
+    maxDepth: 15u64, maxNodes: 256u64, nodeId: input.basisHeadId, warpId: input.warpId,
+  })
+    else {
+      startMissing(query) => text.FactMissing,
+      nodeBound(query) => text.ResourceLimitExceeded,
+      depthBound(query) => text.ResourceLimitExceeded,
+      scanBound(query) => text.ResourceLimitExceeded,
+      workBound(query) => text.ResourceLimitExceeded,
+      selectorInsufficient(query) => text.ClosureInsufficient,
+      storageMalformed(query) => text.MalformedRope,
+    };
+
+  let p = plan.plan(read, {
+    warp: input.warpId, basis: input.basisHeadId, anchor, anchors: listLen(anchors),
+    start: input.startByte, end: input.endByte, replacement: input.replacement,
+  });
+  require p.code != plan.headMalformed() else text.FactMalformed;
+  require p.code != plan.rangeOutOfBounds() else text.RangeOutOfBounds;
+  require p.code != plan.identityMismatch() else text.ContentIdentityMismatch;
+  require p.code != plan.factMalformed() else text.FactMalformed;
+  require p.code != plan.malformedRope() else text.MalformedRope;
+  require p.code != plan.resourceLimit() else text.ResourceLimitExceeded;
+  require p.code != plan.closureInsufficient() else text.ClosureInsufficient;
+  require p.code != plan.arithmeticOverflow() else text.ArithmeticOverflow;
+  require p.code != plan.boundaryInvalid() else text.Utf8BoundaryInvalid;
+  require p.code != plan.noOp() else text.NoOp;
+  require p.code == plan.committed() else text.MalformedRope;
+
+  for index in p.proposal.emitted bounded 144 {
+    let node: text.NodeWrite = proposal.nodeWrite(p.proposal.context, index);
+    let ensured: text.Written = text.ensureNode(node);
+    if proposal.isBranch(p.proposal.context, index) {
+      let leftEdge: text.EdgeWrite = proposal.childWrite(p.proposal.context, index, false);
+      let leftEnsured: text.Written = text.ensureEdge(leftEdge);
+      let rightEdge: text.EdgeWrite = proposal.childWrite(p.proposal.context, index, true);
+      let rightEnsured: text.Written = text.ensureEdge(rightEdge);
+    }
+  }
+  let headAtom = codec.headAtom(p.head);
+  let headId = if p.rooted then ids.rootedHeadId(input.warpId, headAtom, p.rootId, anchor)
+    else ids.emptyHeadId(input.warpId, headAtom, anchor);
+  let headNode: text.NodeWrite = { atomBytes: headAtom, atomType: ids.headAtomType(), nodeId: headId,
+    nodeType: ids.headType(), warpId: input.warpId };
+  let headEnsured: text.Written = text.ensureNode(headNode);
+  if p.rooted {
+    let rootEnsured: text.Written = text.ensureEdge({ edgeId: ids.edgeId(input.warpId, headId, ids.rootEdge(), p.rootId),
+      edgeType: ids.rootEdge(), fromId: headId, toId: p.rootId, warpId: input.warpId });
+  }
+  let anchorEnsured: text.Written = text.ensureEdge({ edgeId: ids.edgeId(input.warpId, headId, ids.anchorEdge(), anchor),
+    edgeType: ids.anchorEdge(), fromId: headId, toId: anchor, warpId: input.warpId });
+  let retargeted: text.Written = text.replaceEdge({ edgeId: ids.canonicalHeadSlot(input.warpId, input.bufferId),
+    expectedToId: input.basisHeadId, toId: headId, warpId: input.warpId });
+
+  let version = checkedAdd(buffer.version, 1u64);
+  require isSome(version) else text.ArithmeticOverflow;
+  let bumped = codec.bufferAtom({ version: default(version, 0u64), encodedKey: buffer.encodedKey });
+  let expectedAtomDigest = echo.attachmentValueDigest(ids.bufferAtomType(), bufferAtom);
+  let bump: text.AtomReplace = { atomBytes: bumped, atomType: ids.bufferAtomType(), expectedAtomDigest,
+    nodeId: input.bufferId, warpId: input.warpId };
+  let replaced: text.Written = text.replaceAtom(bump);
+
+  let byteLength = p.head.byteLength;
+  let lineCount = p.head.lineCount;
+  let sequence = p.head.sequence;
+  return { headId, byteLength, lineCount, sequence };
+}
+japiVersionwedict.source-closure/v1

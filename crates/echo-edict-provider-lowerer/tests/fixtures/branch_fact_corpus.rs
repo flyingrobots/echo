@@ -8,10 +8,10 @@
 //! bodies; all but two cases have exactly one helper. Inside the `then` arm of an `if`, the predicate is a fact for
 //! additions, subtractions and slices, as in Amblicit's totality rule. The
 //! `else` arm, disjunctions, negations and the predicate itself gain nothing.
-//! Facts are read with the forms the judgments read before: an addition bound
-//! only from `term <= c`, `term == c` or `c == term`, an order from `<=`, `<`,
-//! `>=`, `>` or `==` between the two terms. Aligning the operator sets is
-//! separate work (echo#960).
+//! An addition bound is read from `term <= c`, `term < c` (as c - 1),
+//! `term == c` and their reversed forms with the constant on the left, as
+//! native Target reads them (echo#960 item 2, echo#1010); an order from `<=`,
+//! `<`, `>=`, `>` or `==` between the two terms.
 //!
 //! The first three cases are the Core shapes of Jedit's public reproducers
 //! `intent-guarded-add.edict` (as a helper), `subtraction-helper.edict` and
@@ -283,15 +283,17 @@ pub(crate) fn cases() -> Vec<Case> {
                 int(0),
             )
         }),
+        // A strict bound is read as n - 1 by all three judgments, as native
+        // Target reads it (echo#960 item 2, widened in echo#1010).
+        scalar("a strict bound is read", true, |x, _| {
+            branch(compare("<", x.clone(), int(3)), add(x.clone(), int(1)), x)
+        }),
         // Refused by all three judgments.
         scalar("the else arm gains nothing", false, |x, _| {
             branch(compare("<=", x.clone(), int(2)), x.clone(), add(x, int(1)))
         }),
         scalar("a guard on another operand", false, |x, y| {
             branch(compare("<=", y, int(2)), add(x.clone(), int(1)), x)
-        }),
-        scalar("a strict bound is not read (echo#960)", false, |x, _| {
-            branch(compare("<", x.clone(), int(3)), add(x.clone(), int(1)), x)
         }),
         scalar("a disjunction proves nothing", false, |x, y| {
             branch(

@@ -79,3 +79,5 @@ structured-loop-allocation-short refuse
 structured-loop-under-budget refuse
 structured-mutation-count-control accept
 structured-mutation-count-over refuse
+footprint-writes-at-ceiling accept
+footprint-writes-over-ceiling refuse

@@ -32,6 +32,9 @@ pub enum EffectPublicationError {
     /// artifacts, intrinsic contracts or declared budget. The refusal names
     /// the check that refused and the artifact path it was reading.
     UnsupportedProgram(ProgramRefusal),
+    /// The configured graph schema or footprint law is one runtime admission
+    /// refuses (echo#1023).
+    Contract(crate::effect_contract::ContractRefusal),
 }
 
 impl std::fmt::Display for EffectPublicationError {
@@ -43,6 +46,7 @@ impl std::fmt::Display for EffectPublicationError {
             Self::UnsupportedProgram(_) => {
                 "the compiled effect program is outside the checked profile"
             }
+            Self::Contract(refusal) => refusal.code(),
         })
     }
 }
@@ -200,6 +204,11 @@ pub fn encode_effect_publication(
     let authority = profile(authority_label);
     let graph = policy_bytes(&config, "graphSchema")?;
     let law = policy_bytes(&config, "footprintLaw")?;
+    // Runtime admission refuses a schema or law outside its shape or the
+    // effect profile's ceilings, so publication refuses it first and names
+    // the same check.
+    crate::effect_contract::judge_graph_schema(graph).map_err(EffectPublicationError::Contract)?;
+    crate::effect_contract::judge_footprint_law(law).map_err(EffectPublicationError::Contract)?;
     let catalog = policy_bytes(&config, "intrinsicCatalog")?;
     let catalog_value = decode(catalog).map_err(|_| C)?;
     // The frozen echo.dpo@1 catalog is API v1 with two fields; echo.dpo@2's

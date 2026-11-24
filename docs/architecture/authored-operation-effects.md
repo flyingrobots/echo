@@ -341,8 +341,12 @@ Rules:
     - `commit_status`: `Committed`;
     - `in_slots`: every node, edge, and attachment slot in the read set, the
       precondition and resolution slots, and the portal chains. A range key
-      has no `SlotId` form, so it is not listed here; the write-set and
-      read-set digests cover it;
+      has a `SlotId` form (`SlotId::OutgoingEdges`), but the patch's slot
+      arrays deliberately omit it, as the current deriver does: ranges stay
+      in the complete actual footprint that composition reserves and in the
+      read-set and write-set digests the receipt binds. Decision 6's
+      range-slot projection states the rule and how composition and recovery
+      keep the range conflict checks;
     - `out_slots`: the write set's node, edge, and attachment slots;
     - `ops`, in canonical effect order: `UpsertNode` then `SetAttachment` for
       a creating `EnsureNode` or `CreateNode`, and nothing for an identical
@@ -486,7 +490,9 @@ a digest alone could not be executed. One law is defined:
       each by an `EnsureEdge` in the same proposal. It is immutable
       afterwards: a `ReplaceAtom` of it, a `ReplaceEdge` of an edge from it,
       a creating `EnsureEdge` from it in a later proposal, or a `CreateNode`
-      of a content type is `IdentityLawViolation`.
+      of a content type is `IdentityLawViolation`. "Afterwards" holds against
+      every bridge writer because of the addressing-agreement invariant of
+      Decision 6, not because of the current package's schema alone.
     - A **mutable** node, such as an application's anchor (the buffer `B`
       in the trace), has a program-chosen id. It is created only by a
       `CreateNode`, which requires the id to be absent, and it may be
@@ -539,8 +545,13 @@ a digest alone could not be executed. One law is defined:
     therefore never adopted. `ReplaceAtom` names an existing mutable node,
     whose id is program-chosen.
     All ids are 32 bytes. A content node's id therefore commits to its content
-    and its children, as Jim's rope requires, and no later effect can make it
-    stale. A program computes the same BLAKE3 inputs through the
+    and its children, as Jim's rope requires, and no later bridge effect can
+    make it stale. That guarantee rests on addressing agreement, which Echo
+    enforces at installation: no two effect packages in one runtime declare
+    one node type id with different addressing (Decision 6). It does not
+    extend to fixed-profile or native-rule writers, which read no
+    `graph_schema`; keeping them off content-typed nodes is the application's
+    and operator's obligation. A program computes the same BLAKE3 inputs through the
     [identity intrinsics](#identity-intrinsics); the published provider must
     offer them before an effect package can be produced.
 
@@ -1444,6 +1455,14 @@ The read-set, target-set, write-set, dependency-set, and compared-values
 digests, and the byte images they hash, are defined in
 [Encoding and memory](#encoding-and-memory).
 
+Which exit of a bridge Action yields which posture, code, and evidence is
+owned by the failure matrix in
+[Decision 5](#decision-5-atomicity-and-the-failure-matrix); the lists above
+are examples of it. It also maps the outcomes not named here: the runtime
+refusal `DuplicateOutgoingEdge`, other deterministic evaluator refusals, and
+the pre-branch `OperationUnavailable` and `EvaluationAuthorityMismatch`, all
+`NoProposal`; and host faults, which record nothing.
+
 The submission identity is present in every variant. An identified submission
 whose evaluation produced no proposal is a different evidence state from an
 evaluated proposal, and the receipt keeps them distinct.
@@ -1494,8 +1513,9 @@ when it lands:
 | ----------------------------------------- | -------------- | --------------- | ----------- |
 | Commit-bound section with bridge evidence | version 5      | `EPRV0004`      | v3          |
 
-Only a Tick that contains a bridge Action uses receipt digest version 5 and
-`EPRV0004`; a Tick of fixed-profile Actions alone keeps version 4 and
+Only a bridge Tick, by the predicate of
+[Decision 3](#decision-3-wal-record-format-and-versioning), uses receipt
+digest version 5 and `EPRV0004`; every other Tick keeps version 4 and
 `EPRV0003`, byte for byte.
 
 The `EPRV0003` decoder and receipt digest version 4 stay unchanged, retained
@@ -1565,8 +1585,8 @@ above likewise applies to every row recorded as `Scoped`.
 | Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, `DuplicateEffectTarget`, `FootprintLawViolation`, `IdentityLawViolation`, `SchemaViolation`, `UnreachableWarp`, `NodeMissing`, `PreconditionMismatch`, validation-read `BudgetExceeded`) | `Proposed`, `NotDerived` | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; obstruction kind; no write-set or patch digest present                                                                                                                               |
 | Obstructed by `FootprintMismatch` (after derivation)                                                                                                                                                                                                               | `Proposed`, `Derived`    | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; re-derived patch reproduces the mismatch                                                                                                                                             |
 | `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                                                                                                                                                                                          | `Proposed`, `Derived`    | accept reconstructed preparation; verify through the batch reconstruction | effects bound; read-set digest                                                                                                                                                                                       |
-| `BudgetExceeded` during evaluation, an evaluation-time `FootprintLawViolation` (an out-of-law read, an undeclared range type, or `max_reads` exceeded), an evaluation-time `UnreachableWarp` (a read through an unreachable warp), or an authored guard            | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
-| `BasisChanged`, whole-frontier (before evaluation, including unknown history)                                                                                                                                                                                      | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set and zero consumed budget                                                                                                                                   |
+| `BudgetExceeded` during evaluation, an evaluation-time `FootprintLawViolation` (an out-of-law read, an undeclared range type, or `max_reads` exceeded), an evaluation-time `UnreachableWarp` (a read through an unreachable warp), `DuplicateOutgoingEdge`, `EvaluationRefused`, or an authored guard          | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
+| `BasisChanged`, whole-frontier (before evaluation, including unknown history); also the pre-branch `OperationUnavailable` and `EvaluationAuthorityMismatch` (failure matrix rows B–D)                                                                                                                                                                                      | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set and zero consumed budget                                                                                                                                   |
 | `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                                                                                                            | `Proposed`, `NotDerived` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound; read-set digest; recompute the written-slot set from replay operations, the complete dependency set (witnessed reads and effect preconditions), and the changed dependency |
 | Any outcome of a `NotBridge` entry                                                                                                                                                                                                                                 | `NotBridge`              | unchanged                                                                 | none; its bridge row is all zero                                                                                                                                                                                     |
 
@@ -1620,8 +1640,13 @@ posture `NotBridge` `0`, `NoProposal` `1`, `Proposed` `2`; patch `NotDerived`
 `BasisChanged` `0`, `BudgetExceeded` `1`, `DuplicateEffectTarget` `2`,
 `IdentityLawViolation` `3`, `UnreachableWarp` `4`, `SchemaViolation` `5`,
 `FootprintLawViolation` `6`, `NodeMissing` `7`, `PreconditionMismatch` `8`,
-`ContentIdentityConflict` `9`, `DanglingReference` `10`, and
-`FootprintMismatch` `11`. A `NotBridge` row is all zero after its posture.
+`ContentIdentityConflict` `9`, `DanglingReference` `10`,
+`FootprintMismatch` `11`, `DuplicateOutgoingEdge` `12`, `EvaluationRefused`
+`13`, `OperationUnavailable` `14`, `EvaluationAuthorityMismatch` `15`, and
+`OriginMismatch` `16`. The [failure matrix](#decision-5-atomicity-and-the-failure-matrix)
+says which exit takes which code. A bridge Action's `BasisChanged` and
+`BudgetExceeded` are always codes `0` and `1` here, never the fixed-profile
+obstruction kinds. A `NotBridge` row is all zero after its posture.
 
 `validation_position` is the Action's zero-based index among the Tick's
 selected candidates in canonical order, counting every candidate whatever its
@@ -1729,9 +1754,12 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
     - for a conflict, the blocker count as a little-endian `u64` and each
       blocker's candidate index as a little-endian `u32`, as `EOACT003` does.
 
-    A bridge Action has no `EchoOperationReceiptV1` and no prepared candidate:
-    its evidence is the `BridgeEntryRow`, which the receipt digest already
-    binds. Committed and conflict variants carry the all-zero `OutcomeRow`.
+    A bridge Action has no `EchoOperationReceiptV1` and no
+    `PreparedEchoOperationV1`. Its in-memory candidate is
+    `PreparedBridgeActionV1`, which is never retained, and its authoritative
+    evidence is the `BridgeEntryRow`, which the receipt digest binds
+    ([Decision 2](#decision-2-the-receipt-record-and-its-identity) maps the
+    four representations). Committed and conflict variants carry the all-zero `OutcomeRow`.
     The `OutcomeRow` is not separately bound by the receipt: it must equal the
     projection of the receipt-bound `BridgeEntryRow` (its `outcome`, `code`, and
     `authored_id`, with zero padding). Recovery derives that projection and
@@ -1740,7 +1768,12 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
     byte, and the decision coordinate to name the sealed Tick that holds that
     receipt entry at that member index. Fixed-profile Actions keep `EOACT003`.
 
-**Memory.** The bridge allocates nothing on its hot path:
+**Memory.** This is the target physical layout. It stays provisional and is
+not part of phase 2, which implements the accepted resource rules by the plan
+in [Decision 6](#decision-6-budget-footprint-and-limits) (capacities fixed
+and reserved fallibly before evaluation; no structure grows afterwards).
+The layout below is not evidence of zero allocation. In the target layout the
+bridge allocates nothing on its hot path:
 
 - **One reused arena per scheduler.** The scheduler owns a bridge arena that
   is reset, never freed, at each Tick boundary, as it already reuses its
@@ -1801,7 +1834,16 @@ replacement "there"}` at basis `c`.
    `t+1` and opens a recording view over `c`.
 3. **Evaluation reads**, recorded by the view: `B` atom; `B` `canonicalHead`
    edge (to `H1`); `H1` atom; `H1` `root` edge (to `T1`); `H1` `anchor` edge
-   (to `I`); `T1` atom. Six slots.
+   (to `I`); `T1` atom. Each edge is read as its outgoing range, and each
+   range read also records its source node's `ReadRow` with the bucket
+   length ([Witnessed reads](#witnessed-reads-over-a-bounded-slice)). The
+   read set is therefore at least eight rows: `B` atom, `B` node record
+   (bucket), range `(B, canonicalHead)`, `H1` atom, `H1` node record (bucket),
+   ranges `(H1, root)` and `(H1, anchor)`, and `T1` atom, plus any further
+   resolution the evaluator performs. This count is derived from the
+   interface; it is not a measured evaluator count, and the rows are
+   enumerated against the evaluator before any read-set digest, `max_reads`
+   example or metering fixture is frozen from this trace.
 4. **Pure computation.** The guard `canonicalHead == H1` holds; range and
    boundaries check; the new bytes are `"hello there"`; the program derives ids
    `T2` and `H2` under its identity law.
@@ -1883,8 +1925,11 @@ submits the same invocation, `basisHeadId H1`, and it is admitted at `c'`.
    then the authored guard `canonicalHead == basisHeadId` fails.
 4. The outcome is the typed obstruction `BasisNotCanonical` with proposal
    posture `NoProposal`. There is no proposal identity and no patch. The
-   receipt records the obstruction and the two-slot read set, so the refusal
-   is evidence of what the program saw.
+   receipt records the obstruction and the read set, at least three rows
+   (`B` atom, `B` node record with its bucket length, range
+   `(B, canonicalHead)`), so the refusal is evidence of what the program saw.
+   As in the committed trace, the count is a derived minimum, enumerated
+   against the evaluator before it is used as a fixture.
 5. The state root at `u+1` is unchanged by this Action. The client must issue
    a new invocation naming `H3`.
 
@@ -2812,8 +2857,8 @@ provisional detail into an obligation when its test lands.
 | Repeated absent reads           | Reading one absent slot under a permitted and a forbidden type yields two rows and `FootprintLawViolation`; reading it twice under one type yields one row.                                                                                                                                                                                                                                      |
 | Installation record             | A retained installation of any program kind uses schema `echo.operation-installation/v1` and recovers through the one package decoder; a record with any other schema is refused.                                                                                                                                                                                                                |
 | Bucket scan charge              | A bucket scan charges one step and 128 `read_bytes` per edge for the whole bucket before inspecting any; a scan the budget cannot cover obstructs uncharged.                                                                                                                                                                                                                                     |
-| Bridge scope                    | A bridge Action's receipt entry has the synthetic scope (root warp, invocation identity) and its `scope_hash`; recovery recomputes both from the retained invocation.                                                                                                                                                                                                                            |
-| Batch digests                   | A Tick's rewrites and composition digests hash each member after its one-byte member kind, so a fixed and a bridge member never alias, and recovery reproduces them.                                                                                                                                                                                                                             |
+| Bridge scope                    | A bridge Action's receipt entry has the synthetic scope of Decision 1 (root warp id, invocation digest) and its `scope_hash`, for every outcome including `NoProposal`; recovery reconstructs both from the retained invocation and the worldline's root warp id, never from parent state. |
+| Batch digests                   | A bridge Tick (Decision 3 predicate) hashes its rewrites and composition digests under the `:v2` recipes, each member after its one-byte member kind; every other Tick keeps the `:v1` recipes byte for byte; recovery reproduces both (W-D1 to W-D4). |
 | Evaluation-only proposal cost   | The same evaluation at the same origin has the same proposal identity whether validation stops at the history check or runs to the end.                                                                                                                                                                                                                                                          |
 | Allocation ceiling profile      | A program declaring more than `EFFECT_ALLOCATION_CEILING_V1` is refused at admission; a host that cannot provide the declared bytes fails the Tick as a host fault, never obstructing the Action.                                                                                                                                                                                                |
 | Range-type refusal recovery     | An evaluation-time `FootprintLawViolation` for an undeclared range type recovers as `NoProposal` by re-evaluation, with the same read set.                                                                                                                                                                                                                                                       |

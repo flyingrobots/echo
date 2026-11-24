@@ -7,6 +7,12 @@
 
 ### Added
 
+- A first-principles guide to bounded worklists
+  ([`docs/topics/BoundedWorklists.md`](docs/topics/BoundedWorklists.md),
+  #973). It explains list capacity, step bounds and resource budgets, walks
+  through the public worklist specimen and the fold and append paths in the
+  runtime, and says how the shared-read cost schedule and structured effect
+  loops relate to a fold. Documentation only.
 - Effect programs may call helpers from digest-pinned source modules
   (#1009). The lowerer, the verifier and warp-core previously refused any
   `echo.dpo@2` effect program built from an `edict.source-closure/v1`

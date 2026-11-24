@@ -333,6 +333,27 @@ requesting space for another element. Then it adds the element and returns the
 array value. Moving existing Rust values is an implementation optimization;
 it does not erase the operation's portable resource charge.
 
+### Two cost schedules, one meaning
+
+The two excerpts above come from the copying evaluator, which every module
+uses unless it asks for something else. Under it, passing fold state into a
+step and reading a list element are charged as copies.
+
+A pure module that requires the capability `core.cost.shared-reads/v1` is
+judged and metered under the shared-read schedule (`edict.core-cost/v2`) and
+runs on a [separate evaluator](../../crates/warp-core/src/edict_pure/shared_reads/expression.rs)
+whose values are immutable and shared. There, reading a local, a field, a list
+element or fold state costs one step and copies nothing; `listAppend` and
+`listConcat` pay for a new shell with one cell per result item; and a fold
+pays one step per iteration plus the call to its step.
+
+The schedule changes what the work costs, not what it means. Every iteration
+of the bound still runs, a full list still refuses an append, and both
+evaluators return the same result. Echo admits the capability on the pure
+route only; the stored-read and effect routes keep the copying schedule. The
+[shared-read cost schedule](../architecture/application-contract-hosting.md#shared-read-cost-schedule-edictcore-costv2)
+section has the exact rules.
+
 ## 6. Reading stored data and changing the world
 
 So far, the examples compute with values already supplied as input. That is
@@ -354,6 +375,18 @@ effects, and accepting those effects into history are distinct boundaries.
 Echo's trusted runtime controls the **tick**, the boundary at which it decides
 the relevant changes and outcomes. The list feature alone does not establish
 rope mutation, tick settlement, or durable recovery.
+
+Authored effect programs have a bounded loop of their own, which is not a
+fold. A structured program under the `echo.dpo@2` profile may run a `for` loop
+over a bounded list with a literal bound that covers the list type's maximum,
+and may branch between statement blocks. The same reasoning applies: the
+worst case multiplies the body by the bound, and the effects it can emit must
+fit the declared budgets before the program is installed. Every emission
+joins one atomic buffer, so a later failure discards them all.
+[Structured effect control](GeneratedRules.md#structured-effect-control-under-echodpo2)
+states those rules, and
+[Authored operation effects](../architecture/authored-operation-effects.md)
+explains how a proposal becomes an accepted change.
 
 Within one fold, each step depends on the preceding state, so the sequence is
 ordered. Deciding which separate operations may overlap belongs to Echo's
@@ -446,7 +479,8 @@ explicit.
 - [Public runtime witness](../../xtask/examples/source_functions_public_runtime/worklists.rs):
   checks of actual results, input types, and resource limits.
 
-The SVGs have transparent canvases and use Reader's `--ink`, `--muted`,
-`--accent`, and `--line` roles when inlined. Image embeds use light/dark
-fallbacks because CSS custom properties do not cross the image boundary.
-Mermaid diagrams use the reader application's renderer and theme.
+The SVGs have transparent canvases. When inlined they take the host page's
+`--ink`, `--muted`, `--accent`, and `--line` custom properties; as image
+embeds they use built-in light and dark fallbacks, because CSS custom
+properties do not cross the image boundary. Mermaid diagrams use the
+renderer and theme of whatever displays the page.

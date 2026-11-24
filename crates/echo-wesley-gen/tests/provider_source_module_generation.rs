@@ -43,7 +43,7 @@ fn source_module_generation_and_package_admission_bind_the_new_source_domain() {
     let admitted =
         admit_provider_package_v1(package.files().to_vec(), package.provider_reference())
             .expect("exact pinned raw package admission");
-    assert_eq!(admitted.manifest().schema_bindings.len(), 32);
+    assert_eq!(admitted.manifest().schema_bindings.len(), 34);
     let binding = admitted
         .manifest()
         .schema_bindings

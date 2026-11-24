@@ -67,18 +67,18 @@ fn unhex(text: &str) -> [u8; 32] {
 // Frozen vectors, derived from the field-by-field preimages above. The
 // zero-edge node and the slot edge equal identities Echo admitted before the law
 // moved into its own module (see the derivation regression test).
-const ATTACHMENT_NEW: &str = "a658effc54ff1c915e9544c327aafaeb65d00a83e99d0c0c9848f3c2aa3bbafc";
-const NODE_ZERO_EDGES: &str = "127c0d47351ee88620bec24603a1b8949610d792f06f913227308ee5c7e47f90";
-const NODE_ONE_EDGE: &str = "322afec5e32a48d3ab373c0b7efbf614bda7cf391d01b726a72c64c753fc5e10";
-const NODE_TWO_EDGES: &str = "b64b6a4157a7a819c217a9e39a927ce71d13aeeb6d161b4ad266e3489036c6af";
-const CONTENT_EDGE: &str = "76c81ad538b8c6e18a6a93039137a13ad7dc6608d6ba3ce895634fc004787117";
-const SLOT_EDGE: &str = "bd913d145bb0da61dc572cf56a5a4abd442bf295b7020c32aa1de85a3dd70aa2";
+const ATTACHMENT_NEW: &str = include_str!("fixtures/content-address-v1/attachment-new.hex");
+const NODE_ZERO_EDGES: &str = include_str!("fixtures/content-address-v1/node-zero-edges.hex");
+const NODE_ONE_EDGE: &str = include_str!("fixtures/content-address-v1/node-one-edge.hex");
+const NODE_TWO_EDGES: &str = include_str!("fixtures/content-address-v1/node-two-edges.hex");
+const CONTENT_EDGE: &str = include_str!("fixtures/content-address-v1/content-edge.hex");
+const SLOT_EDGE: &str = include_str!("fixtures/content-address-v1/slot-edge.hex");
 
 #[test]
 fn attachment_digest_matches_its_independent_preimage_and_frozen_vector() {
     let expected = attachment(ATOM_TYPE, b"new");
     expected.assert_identity(attachment_digest(TypeId(ATOM_TYPE), b"new"), "attachment");
-    assert_eq!(hex(&expected.hash()), ATTACHMENT_NEW);
+    assert_eq!(hex(&expected.hash()), ATTACHMENT_NEW.trim());
     // The empty atom still frames its zero length.
     attachment(ATOM_TYPE, b"")
         .assert_identity(attachment_digest(TypeId(ATOM_TYPE), b""), "empty atom");
@@ -87,16 +87,16 @@ fn attachment_digest_matches_its_independent_preimage_and_frozen_vector() {
 #[test]
 fn node_ids_with_zero_one_and_two_edges_match_independent_preimages() {
     let cases: [NodeCase<'_>; 3] = [
-        (&[], &[], NODE_ZERO_EDGES),
+        (&[], &[], NODE_ZERO_EDGES.trim()),
         (
             &[edge(EDGE_A, TO_HIGH)],
             &[(EDGE_A, TO_HIGH)],
-            NODE_ONE_EDGE,
+            NODE_ONE_EDGE.trim(),
         ),
         (
             &[edge(EDGE_B, TO_LOW), edge(EDGE_A, TO_HIGH)],
             &[(EDGE_A, TO_HIGH), (EDGE_B, TO_LOW)],
-            NODE_TWO_EDGES,
+            NODE_TWO_EDGES.trim(),
         ),
     ];
     for (edges, sorted, frozen) in cases {
@@ -119,13 +119,13 @@ fn edge_ids_match_independent_preimages_and_frozen_vectors() {
         .0,
         "content edge",
     );
-    assert_eq!(hex(&content.hash()), CONTENT_EDGE);
+    assert_eq!(hex(&content.hash()), CONTENT_EDGE.trim());
     let slot = slot_edge(WARP, TO_LOW, EDGE_A);
     slot.assert_identity(
         slot_edge_id(WarpId(WARP), NodeId(TO_LOW), TypeId(EDGE_A)).0,
         "slot edge",
     );
-    assert_eq!(hex(&slot.hash()), SLOT_EDGE);
+    assert_eq!(hex(&slot.hash()), SLOT_EDGE.trim());
 }
 
 #[test]
@@ -275,12 +275,12 @@ fn diagnostics_name_fields_and_hide_atom_bytes_unless_asked() {
 #[test]
 fn frozen_vectors_are_well_formed() {
     for frozen in [
-        ATTACHMENT_NEW,
-        NODE_ZERO_EDGES,
-        NODE_ONE_EDGE,
-        NODE_TWO_EDGES,
-        CONTENT_EDGE,
-        SLOT_EDGE,
+        ATTACHMENT_NEW.trim(),
+        NODE_ZERO_EDGES.trim(),
+        NODE_ONE_EDGE.trim(),
+        NODE_TWO_EDGES.trim(),
+        CONTENT_EDGE.trim(),
+        SLOT_EDGE.trim(),
     ] {
         assert_eq!(hex(&unhex(frozen)), frozen);
     }

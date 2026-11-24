@@ -1,0 +1,54 @@
+package consumer.identity.program@1;
+use lawpack consumer.identity@1 digest "sha256:a309fb8a75ab153ea48c4fed51113be34a1a8a4500e01c2d2070f169aed4d20d" as fx;
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+type Input = {
+  warp: Bytes<exact=32>,
+  nodeType: Bytes<exact=32>,
+  atomType: Bytes<exact=32>,
+  atom: Bytes<max=16>,
+  edgeA: Bytes<exact=32>,
+  edgeB: Bytes<exact=32>,
+  low: Bytes<exact=32>,
+  high: Bytes<exact=32>,
+  storedType: Bytes<exact=32>,
+  storedAtomType: Bytes<exact=32>,
+};
+type Output = {
+  nodeZeroEdges: Bytes<exact=32>,
+  nodeOneEdge: Bytes<exact=32>,
+  nodeTwoEdges: Bytes<exact=32>,
+  nodeTwoEdgesReordered: Bytes<exact=32>,
+  contentEdge: Bytes<exact=32>,
+  slotEdge: Bytes<exact=32>,
+};
+intent ids(input: Input) returns Output
+  profile fx.graphEffects
+  basis input.warp
+  budget <= fx.budget
+{
+  let a = { edgeType: input.edgeA, to: input.high };
+  let b = { edgeType: input.edgeB, to: input.low };
+  let nodeZeroEdges = echo.contentAddress(input.warp, input.nodeType, input.atomType, input.atom, []);
+  let nodeOneEdge = echo.contentAddress(input.warp, input.nodeType, input.atomType, input.atom, [a]);
+  let nodeTwoEdges = echo.contentAddress(input.warp, input.nodeType, input.atomType, input.atom, [b, a]);
+  let nodeTwoEdgesReordered = echo.contentAddress(input.warp, input.nodeType, input.atomType, input.atom, [a, b]);
+  let contentEdge = echo.contentEdgeId(input.warp, input.low, input.edgeA, input.high);
+  let slotEdge = echo.slotEdgeId(input.warp, input.low, input.edgeA);
+  let stored = echo.contentAddress(input.warp, input.storedType, input.storedAtomType, input.atom, []);
+  let node: fx.NodeWrite = {
+    atomBytes: input.atom,
+    atomType: input.storedAtomType,
+    nodeId: stored,
+    nodeType: input.storedType,
+    warpId: input.warp,
+  };
+  let written: fx.Written = fx.ensureNode(node);
+  return {
+    nodeZeroEdges,
+    nodeOneEdge,
+    nodeTwoEdges,
+    nodeTwoEdgesReordered,
+    contentEdge,
+    slotEdge,
+  };
+}

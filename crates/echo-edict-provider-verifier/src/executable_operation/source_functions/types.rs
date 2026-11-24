@@ -26,6 +26,8 @@ pub(super) enum Schema {
         identity: String,
         representation: Box<Schema>,
     },
+    /// `Option<T>`: a runtime `null`, or a one-item array when present.
+    Optional(Box<Schema>),
 }
 #[derive(Clone, Copy, Default)]
 pub(super) struct Charge {
@@ -79,6 +81,7 @@ impl Schema {
                         _ => false,
                     }
             }
+            (Self::Optional(want), Self::Optional(got)) => want.encloses(got),
             (Self::Fields(a), Self::Fields(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -112,6 +115,7 @@ impl Schema {
                     bound: n.max(m),
                 })
             }
+            (Self::Optional(a), Self::Optional(b)) => Ok(Self::Optional(Box::new(a.choice(*b)?))),
             (Self::Fields(a), Self::Fields(b)) => {
                 if !a.keys().eq(b.keys()) {
                     return Err(());
@@ -144,6 +148,14 @@ impl Schema {
                 return super::variants::measure(identity, cases)
             }
             Self::Truth => size.encoded = 1,
+            Self::Optional(item) => {
+                // Absent is one cell; present is one cell holding the item.
+                let child = item.measure()?;
+                size.copy.append(child.copy)?;
+                size.checks = child.checks.checked_add(1).ok_or(())?;
+                size.encoded = child.encoded.checked_add(9).ok_or(())?;
+                size.height = child.height + 1;
+            }
             Self::Word(_) => {}
             Self::Blob { high, .. } => {
                 size.copy.storage += u128::from(*high);
@@ -200,12 +212,23 @@ impl Schema {
 pub(super) struct Types<'a> {
     pub module: &'a Value,
     remaining: usize,
+    /// The module requires the shared-read schedule, `edict.core-cost/v2`.
+    pub shared: bool,
+    /// Under the shared-read schedule, the schema the audit established for
+    /// each expression, keyed by the node's address in the borrowed module.
+    pub audited: BTreeMap<usize, Schema>,
+    /// Shared-read charge of each audited source helper.
+    pub shared_helpers: BTreeMap<String, Charge>,
 }
 impl<'a> Types<'a> {
     pub(super) fn new(module: &'a Value) -> Self {
         Self {
             module,
             remaining: 65_536,
+            // A malformed inventory is refused by the audit itself.
+            shared: super::shared_charge::required(module).unwrap_or(false),
+            audited: BTreeMap::new(),
+            shared_helpers: BTreeMap::new(),
         }
     }
     pub(super) fn proof_work(&mut self, bytes: usize) -> Check<()> {
@@ -284,6 +307,12 @@ impl<'a> Types<'a> {
                 bound,
             });
         }
+        if let Some(item) = name
+            .strip_prefix("Option<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return Ok(Schema::Optional(Box::new(self.resolve(item, depth + 1)?)));
+        }
         if let Some(spec) = name
             .strip_prefix("Record<")
             .and_then(|s| s.strip_suffix('>'))
@@ -301,6 +330,13 @@ impl<'a> Types<'a> {
         match string(get(definition, "kind")?)? {
             "Bool" => Ok(Schema::Truth),
             "Int" => self.resolve(string(get(definition, "width")?)?, depth + 1),
+            // A table entry may also name an unsigned width directly, as Core does.
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                if members(definition)?.len() != 1 {
+                    return Err(());
+                }
+                self.resolve(kind, depth + 1)
+            }
             "Nominal" => {
                 let identity = string(get(definition, "contract")?)?;
                 if identity != resolved {
@@ -325,6 +361,12 @@ impl<'a> Types<'a> {
                 Ok(Schema::Blob { low, high })
             }
             "Variant" => self.alternatives(definition, resolved, &prefix, depth),
+            "Option" => {
+                exact(definition, &["kind", "item"])?;
+                Ok(Schema::Optional(Box::new(
+                    self.resolve(string(get(definition, "item")?)?, depth + 1)?,
+                )))
+            }
             "List" => {
                 exact(definition, &["kind", "item", "max"])?;
                 Ok(Schema::Sequence {

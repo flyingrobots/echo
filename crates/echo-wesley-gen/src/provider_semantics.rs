@@ -48,6 +48,9 @@ pub struct ProviderSemanticSourceV1 {
     pub lawpack_projection: LawpackProjectionDeclaration,
     /// Complete target-profile projection for the selected target.
     pub target_profile_projection: TargetProfileProjectionDeclaration,
+    /// Further target profiles whose catalogs declare Echo's runtime effect
+    /// intrinsics, each sharing every other resource of the selected profile.
+    pub effect_target_profiles: Vec<EffectTargetProfileDeclaration>,
     /// Metadata artifacts generated from this source.
     pub generated_artifacts: Vec<GeneratedArtifactDeclaration>,
     /// Package-root provider manifest assembled after components exist.
@@ -683,6 +686,88 @@ pub struct TargetProfileProjectionDeclaration {
     pub deterministic_execution_resource: String,
     /// Resource role for the target conformance corpus.
     pub conformance_fixture_corpus_resource: String,
+}
+
+/// One target profile whose intrinsic catalog declares Echo's runtime effect
+/// intrinsics under its own namespace (flyingrobots/echo#985).
+///
+/// It differs from the selected target profile only in its version, intrinsic
+/// namespace (`<id>@<version>`), catalog and Target IR declaration; every
+/// other reference and doctrine field is the selected profile's.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectTargetProfileDeclaration {
+    /// Target metadata source owning the projection facts.
+    pub authority: String,
+    /// Generated target-profile artifact role.
+    pub artifact_role: String,
+    /// Target-profile identifier, shared with the selected profile.
+    pub id: String,
+    /// Target-profile version, distinct from the selected profile's.
+    pub version: String,
+    /// Resource role for the generated intrinsic catalog.
+    pub intrinsics_resource: String,
+    /// Resource role for the generated Target IR declaration.
+    pub target_ir_resource: String,
+    /// Target IR domain the profile names.
+    pub target_ir_domain: String,
+    /// The runtime intrinsics the catalog declares.
+    pub intrinsics: Vec<RuntimeIntrinsicDeclaration>,
+    /// Monomorphic pure intrinsics the catalog declares, each with a complete
+    /// catalog v2 contract.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pure_intrinsics: Vec<PureIntrinsicDeclaration>,
+    /// Named types the pure signatures reference, keyed by their name below
+    /// the namespace (`<namespace>.<name>`); each is a structural type.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub types: BTreeMap<String, String>,
+}
+
+/// One pure intrinsic named `<namespace>.<operation>`, with the catalog v2
+/// contract the compiler and both providers judge calls against.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PureIntrinsicDeclaration {
+    /// Operation below the profile namespace, such as `contentAddress`.
+    pub operation: String,
+    /// Ceiling type of each operand, in call order.
+    pub argument_types: Vec<String>,
+    /// Result type.
+    pub return_type: String,
+    /// Exact semantic version of the constructor's contract.
+    pub contract_version: String,
+    /// Steps for one call: `base` plus, per argument, its coefficient times
+    /// the operand's verified size bound.
+    pub cost_base: u64,
+    /// One coefficient per argument.
+    pub cost_per_argument_max: Vec<u64>,
+}
+
+/// One runtime effect intrinsic, named `<namespace>.<operation>`, whose ABI
+/// coordinates are `<name>.input` and `<name>.result`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeIntrinsicDeclaration {
+    /// Operation below the profile namespace, such as `ensure-node`.
+    pub operation: String,
+    /// Effect kind, which is also the write class.
+    pub effect_kind: EffectKindHint,
+    /// Whether the intrinsic supports guards.
+    pub guard_support: bool,
+    /// Whether the intrinsic can participate in an atomic guard.
+    pub can_participate_in_atomic_guard: bool,
+    /// Named failures, each carrying the intrinsic's ABI input.
+    pub failures: Vec<RuntimeIntrinsicFailureDeclaration>,
+}
+
+/// One named failure of a runtime effect intrinsic.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeIntrinsicFailureDeclaration {
+    /// Catalog failure identifier, such as `atomMissing`.
+    pub key: String,
+    /// Authority class governing source mapping.
+    pub authority_class: AuthorityClass,
 }
 
 /// One metadata artifact generated from the semantic source.
@@ -2908,7 +2993,10 @@ fn validate_generated_artifact_contracts(
     }
     for (kind, expected_count) in [
         (GeneratedArtifactKind::Lawpack, 1),
-        (GeneratedArtifactKind::TargetProfile, 1),
+        (
+            GeneratedArtifactKind::TargetProfile,
+            1 + source.effect_target_profiles.len(),
+        ),
         (GeneratedArtifactKind::AuthorityFacts, 2),
         (GeneratedArtifactKind::ReviewArtifact, 1),
         (GeneratedArtifactKind::GeneratedArtifactProfile, 1),
@@ -3335,6 +3423,7 @@ fn validate_artifact_closure(
             reference,
         ));
     }
+    validate_effect_target_profiles(source, &artifacts, &resources, &mut used_resources)?;
     if used_resources.len() != resources.len() {
         let unused = resources
             .keys()
@@ -3346,6 +3435,118 @@ fn validate_artifact_closure(
             "artifactResources",
             unused,
         ));
+    }
+    Ok(())
+}
+
+/// Each effect target profile is a further version of the selected profile
+/// with its own generated catalog and Target IR declaration, and declares a
+/// closed, duplicate-free set of runtime intrinsics.
+fn validate_effect_target_profiles<'a>(
+    source: &'a ProviderSemanticSourceV1,
+    artifacts: &BTreeMap<&str, &'a GeneratedArtifactDeclaration>,
+    resources: &'a BTreeMap<&str, &'a ArtifactResourceDeclaration>,
+    used_resources: &mut BTreeSet<&'a str>,
+) -> Result<(), ProviderSemanticSourceError> {
+    let target = &source.target_profile_projection;
+    let primary_target_ir = resources
+        .get(target.target_ir_resource.as_str())
+        .map(|resource| resource.coordinate.as_str());
+    let mut versions = BTreeSet::from([target.version.as_str()]);
+    for profile in &source.effect_target_profiles {
+        let mismatch = |reference: &str| {
+            ProviderSemanticSourceError::new(
+                ProviderSemanticSourceErrorKind::ArtifactClosureMismatch,
+                &profile.artifact_role,
+                reference,
+            )
+        };
+        if profile.authority != target.authority {
+            return Err(mismatch(&profile.authority));
+        }
+        let artifact = require_artifact_kind(
+            artifacts,
+            &profile.artifact_role,
+            GeneratedArtifactKind::TargetProfile,
+            "effectTargetProfiles.artifactRole",
+        )?;
+        if profile.id != target.id
+            || profile.version.is_empty()
+            || !versions.insert(profile.version.as_str())
+            || artifact.coordinate != format!("{}@{}", profile.id, profile.version)
+        {
+            return Err(mismatch(&artifact.coordinate));
+        }
+        require_resource(
+            resources,
+            &profile.intrinsics_resource,
+            Some("edict.target-profile.intrinsics/v2"),
+            Some(ArtifactResourceProvision::Generated),
+            &profile.artifact_role,
+            used_resources,
+        )?;
+        let target_ir = require_resource(
+            resources,
+            &profile.target_ir_resource,
+            Some("echo.span-ir/v1"),
+            Some(ArtifactResourceProvision::Generated),
+            &profile.artifact_role,
+            used_resources,
+        )?;
+        if target_ir.coordinate != profile.target_ir_domain
+            || Some(profile.target_ir_domain.as_str()) == primary_target_ir
+        {
+            return Err(mismatch(&profile.target_ir_domain));
+        }
+        let mut operations = BTreeSet::new();
+        if profile.intrinsics.is_empty() {
+            return Err(mismatch("intrinsics"));
+        }
+        for intrinsic in &profile.intrinsics {
+            let valid_operation = !intrinsic.operation.is_empty()
+                && intrinsic
+                    .operation
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'-');
+            if !valid_operation || !operations.insert(intrinsic.operation.as_str()) {
+                return Err(mismatch(&intrinsic.operation));
+            }
+            let mut failures = BTreeSet::new();
+            for failure in &intrinsic.failures {
+                if !is_edict_failure_identifier(&failure.key)
+                    || !failures.insert(failure.key.as_str())
+                {
+                    return Err(mismatch(&failure.key));
+                }
+            }
+        }
+        for pure in &profile.pure_intrinsics {
+            let valid_operation = pure
+                .operation
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase())
+                && pure
+                    .operation
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric());
+            if !valid_operation
+                || !operations.insert(pure.operation.as_str())
+                || pure.contract_version.is_empty()
+                || pure.return_type.is_empty()
+                || pure.argument_types.iter().any(String::is_empty)
+                || pure.cost_per_argument_max.len() != pure.argument_types.len()
+            {
+                return Err(mismatch(&pure.operation));
+            }
+        }
+        if let Some((name, _)) = profile.types.iter().find(|(name, definition)| {
+            name.is_empty()
+                || !name.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                || !definition.starts_with("Record<")
+        }) {
+            return Err(mismatch(name));
+        }
     }
     Ok(())
 }
@@ -3679,8 +3880,11 @@ pub(crate) fn generated_resource_root(role: &str) -> Option<&'static str> {
         "resource.target-bundle-profile" => Some("echo-dpo-bundle"),
         "resource.target-cost-algebra" => Some("echo-dpo-cost"),
         "resource.target-footprint-algebra" => Some("echo-dpo-footprint"),
-        "resource.target-intrinsics" => Some("intrinsics-document"),
-        "resource.target-ir" => Some("echo-span-ir"),
+        // The frozen echo.dpo@1 catalog keeps its original owning schema
+        // (#985); the current echo.dpo@2 catalog is upstream catalog v2.
+        "resource.target-intrinsics" => Some("echo-frozen-catalog-v1-intrinsics-document"),
+        "resource.target-intrinsics-2" => Some("intrinsics-document"),
+        "resource.target-ir" | "resource.target-ir-2" => Some("echo-span-ir"),
         "resource.target-lowerer-contract" => Some("echo-dpo-lowerer"),
         "resource.target-obstruction-taxonomy" => Some("echo-dpo-obstructions"),
         "resource.target-operation-profiles" => Some("operation-profiles-document"),

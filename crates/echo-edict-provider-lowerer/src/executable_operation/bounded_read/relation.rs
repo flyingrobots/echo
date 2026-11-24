@@ -2,11 +2,13 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Preserve ordered Core nodes and bind each read to its exported signature.
 
+mod graph;
 mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::semantic_lawpack_member_coordinate;
+use super::graph_configuration::GraphReads;
 use super::{
     array, as_map, field, invalid, map_field, require_exact_fields, require_resource_ref,
     required_u64, text, text_field, ClosureInputs, ProviderRefusalV1, Value, READ_PROFILE, SUBJECT,
@@ -14,12 +16,20 @@ use super::{
 use types::{ReadType, Scope};
 
 const INTRINSIC: &str = "echo.dpo@1.node-atom-read";
-const FAILURES: [&str; 4] = [
-    "echo.atom-missing/v1",
-    "echo.atom-required/v1",
-    "echo.atom-type-mismatch/v1",
-    "echo.atom-byte-bound-exceeded/v1",
+/// Each node-atom failure and the authority class its authored arm must carry.
+const FAILURES: [(&str, &str); 4] = [
+    ("echo.atom-missing/v1", "resourceFault"),
+    ("echo.atom-required/v1", "integrityFault"),
+    ("echo.atom-type-mismatch/v1", "integrityFault"),
+    ("echo.atom-byte-bound-exceeded/v1", "integrityFault"),
 ];
+
+/// What one read step can do: its worst-case read attempts, and whether it
+/// reads graph material.
+struct ReadStep {
+    attempts: u64,
+    graph: bool,
+}
 
 pub(super) struct ReadRelation<'a> {
     pub core: &'a Value,
@@ -29,6 +39,8 @@ pub(super) struct ReadRelation<'a> {
     pub closure: &'a ClosureInputs<'a>,
     pub max_reads: u64,
     pub max_bytes: u64,
+    /// The configuration's graph-read declaration, when it makes one.
+    pub graph: Option<GraphReads<'a>>,
 }
 
 impl ReadRelation<'_> {
@@ -121,7 +133,8 @@ impl ReadRelation<'_> {
             return Err(invalid());
         }
         let mut producers = BTreeMap::new();
-        let mut reads = 0;
+        let mut reads = 0_u64;
+        let mut graph_reads = 0_u64;
         for (node, id) in nodes.iter().zip(order) {
             let Value::Text(id) = id else {
                 return Err(invalid());
@@ -142,11 +155,16 @@ impl ReadRelation<'_> {
                     producers.insert(id.as_str(), ("pureBinding", field(node, "binding")?));
                 }
                 "effect" => {
-                    reads += 1;
-                    if reads > self.max_reads {
-                        return Err(invalid());
+                    let step = self.read(node, lowered, profile, &mut scope)?;
+                    // Every read attempt a step can make must fit the declared count.
+                    reads = step
+                        .attempts
+                        .checked_add(reads)
+                        .filter(|reads| *reads <= self.max_reads)
+                        .ok_or_else(invalid)?;
+                    if step.graph {
+                        graph_reads += 1;
                     }
-                    self.read(node, lowered, profile, &mut scope)?;
                     producers.insert(id.as_str(), ("capabilityResult", field(node, "binding")?));
                 }
                 "require" => {
@@ -171,6 +189,10 @@ impl ReadRelation<'_> {
             }
         }
         if reads == 0 || !ordered.is_empty() || field(body, "result")? != field(target, "result")? {
+            return Err(invalid());
+        }
+        // A declared graph capability must be the one the program uses.
+        if self.graph.is_some() != (graph_reads > 0) {
             return Err(invalid());
         }
         scope.matches_output(field(body, "result")?, text(intent, "output")?)?;
@@ -227,7 +249,7 @@ impl ReadRelation<'_> {
         lowered: &Value,
         profile: &Value,
         scope: &mut Scope<'a>,
-    ) -> Result<(), ProviderRefusalV1> {
+    ) -> Result<ReadStep, ProviderRefusalV1> {
         require_exact_fields(
             node,
             &["kind", "binding", "effect", "input", "obstructionMap"],
@@ -252,6 +274,7 @@ impl ReadRelation<'_> {
         let coordinate = self.member(text(node, "effect")?)?;
         let effect = unique_export(self.exports, "effects", &coordinate)?;
         let implementation = field(field(self.adapter, "effectImplementations")?, &coordinate)?;
+        let intrinsic = text(implementation, "targetIntrinsic")?;
         if text(effect, "executionClass")? != "runtime"
             || text(effect, "effectKindHint")? != "read"
             || field(effect, "guardSupport")? != &Value::Bool(true)
@@ -259,8 +282,7 @@ impl ReadRelation<'_> {
             || !array(effect, "typeParameters")?.is_empty()
             || !array(profile, "semanticEffects")?.contains(&Value::Text(coordinate))
             || text(implementation, "writeClass")? != "read"
-            || text(implementation, "targetIntrinsic")? != INTRINSIC
-            || text(lowered, "targetIntrinsic")? != INTRINSIC
+            || text(lowered, "targetIntrinsic")? != intrinsic
         {
             return Err(invalid());
         }
@@ -273,34 +295,115 @@ impl ReadRelation<'_> {
             SUBJECT,
             "bounded read adapter target configuration reference",
         )?;
-        let address = scope.ty(text(effect, "inputType")?)?;
-        let address_export = unique_export(self.exports, "types", text(effect, "inputType")?)?;
-        if text(address_export, "definition")?
-            != "Record<nodeId:Bytes<exact=32>,typeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"
-        {
-            return Err(invalid());
-        }
-        if !address.is_address() || scope.expression(field(node, "input")?, 0)? != address {
-            return Err(invalid());
-        }
-        let output = scope.ty(text(effect, "outputType")?)?;
-        if !matches!(output, ReadType::Bytes(0, max) if max > 0 && max <= self.max_bytes)
+        let input = scope.ty(text(effect, "inputType")?)?;
+        if scope.expression(field(node, "input")?, 0)? != input
             || text(field(node, "binding")?, "type")? != text(effect, "outputType")?
         {
             return Err(invalid());
         }
-        let ReadType::Bytes(_, max) = output else {
+        let output = scope.ty(text(effect, "outputType")?)?;
+        let (failures, attempts): (&[(&str, &str)], u64) = match intrinsic {
+            INTRINSIC => {
+                self.node_atom(effect, &input, &output)?;
+                (&FAILURES, 1)
+            }
+            graph::EDGE_READ if self.graph.is_some() => {
+                self.exported_signature(effect, scope, &input, &output)?;
+                graph::edge_read(&input, &output)?;
+                (&graph::EDGE_FAILURES, 1)
+            }
+            graph::CLOSURE_READ => {
+                // Without a declared selector there is nothing to guide the read.
+                let declared = self.graph.ok_or_else(invalid)?;
+                self.exported_signature(effect, scope, &input, &output)?;
+                let closure = graph::closure_read(&input, &output, self.max_bytes)?;
+                graph::selector(self.core, scope, declared.selector, &closure)?;
+                (&graph::CLOSURE_FAILURES, closure.attempts)
+            }
+            _ => return Err(invalid()),
+        };
+        self.failure_arms(
+            node,
+            lowered,
+            effect,
+            implementation,
+            failures,
+            &input,
+            scope,
+        )?;
+        scope.introduce(field(node, "binding")?, Some(output))?;
+        Ok(ReadStep {
+            attempts,
+            graph: intrinsic != INTRINSIC,
+        })
+    }
+
+    /// A node-atom read takes the exact typed node address and returns bounded bytes.
+    fn node_atom(
+        &self,
+        effect: &Value,
+        address: &ReadType,
+        output: &ReadType,
+    ) -> Result<(), ProviderRefusalV1> {
+        let address_export = unique_export(self.exports, "types", text(effect, "inputType")?)?;
+        if text(address_export, "definition")?
+            != "Record<nodeId:Bytes<exact=32>,typeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"
+            || !address.is_address()
+        {
+            return Err(invalid());
+        }
+        let ReadType::Bytes(0, max) = *output else {
             return Err(invalid());
         };
+        if max == 0 || max > self.max_bytes {
+            return Err(invalid());
+        }
         let output_export = unique_export(self.exports, "types", text(effect, "outputType")?)?;
         if text(output_export, "definition")? != format!("Bytes<max={max}>") {
             return Err(invalid());
         }
+        Ok(())
+    }
+
+    /// A graph read's exported input and output definitions must denote the
+    /// same structural types Core resolves for those coordinates.
+    fn exported_signature(
+        &self,
+        effect: &Value,
+        scope: &Scope<'_>,
+        input: &ReadType,
+        output: &ReadType,
+    ) -> Result<(), ProviderRefusalV1> {
+        for (key, resolved) in [("inputType", input), ("outputType", output)] {
+            let export = unique_export(self.exports, "types", text(effect, key)?)?;
+            if &scope.ty(text(export, "definition")?)? != resolved {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+
+    /// Every runtime failure of the intrinsic maps to exactly one authored arm
+    /// of the authority class that failure carries.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each argument is an independently authenticated artifact of one read step"
+    )]
+    fn failure_arms<'a>(
+        &self,
+        node: &'a Value,
+        lowered: &Value,
+        effect: &Value,
+        implementation: &Value,
+        declared: &[(&str, &str)],
+        payload: &ReadType,
+        scope: &mut Scope<'a>,
+    ) -> Result<(), ProviderRefusalV1> {
         let mappings = entries(field(implementation, "failureMappings")?)?;
         let arms = field(node, "obstructionMap")?;
         let failures = field(effect, "effectFailures")?;
         let lowered_arms = field(lowered, "obstructionArms")?;
-        if mappings.len() != FAILURES.len()
+        if mappings.len() != declared.len()
             || entries(arms)?.len() != mappings.len()
             || entries(failures)?.len() != mappings.len()
             || entries(lowered_arms)?.len() != mappings.len()
@@ -313,8 +416,11 @@ impl ReadRelation<'_> {
             let (Value::Text(name), Value::Text(target_failure)) = (key, value) else {
                 return Err(invalid());
             };
-            if !FAILURES.contains(&target_failure.as_str())
-                || !seen.insert(target_failure)
+            let authority = declared
+                .iter()
+                .find_map(|(failure, class)| (failure == target_failure).then_some(*class))
+                .ok_or_else(invalid)?;
+            if !seen.insert(target_failure)
                 || !array(lowered, "obstructionFailures")?.contains(value)
             {
                 return Err(invalid());
@@ -326,17 +432,12 @@ impl ReadRelation<'_> {
             if arm != field(lowered_arms, target_failure)? {
                 return Err(invalid());
             }
-            let authority = if target_failure == "echo.atom-missing/v1" {
-                "resourceFault"
-            } else {
-                "integrityFault"
-            };
             if text(failure, "authorityClass")? != authority
                 || text(failure, "payloadType")? != text(effect, "inputType")?
             {
                 return Err(invalid());
             }
-            scope.obstruction_binder(field(arm, "binder")?, &address)?;
+            scope.obstruction_binder(field(arm, "binder")?, payload)?;
             let value = field(arm, "value")?;
             require_exact_fields(value, &["kind", "callee", "args", "typeArgs"], SUBJECT)?;
             if text(value, "kind")? != "call"
@@ -347,7 +448,7 @@ impl ReadRelation<'_> {
             }
             self.obstruction(text(value, "callee")?, authority)?;
         }
-        scope.introduce(field(node, "binding")?, Some(output))
+        Ok(())
     }
 }
 

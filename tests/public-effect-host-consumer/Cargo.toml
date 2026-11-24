@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+# A downstream consumer of generic Echo (echo#1017). It sits outside the
+# workspace on purpose: warp-core's own test targets inherit
+# `native_rule_bootstrap` from the `echo-dry-tests` dev-dependency, so only a
+# separate package proves that `trusted_runtime` alone runs an authored
+# effect package.
+[package]
+name = "echo-public-effect-host-consumer"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.96.0"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dev-dependencies]
+blake3 = "=1.8.2"
+echo-edict-canonical = { path = "../../crates/echo-edict-canonical" }
+hex = "=0.4.3"
+warp-core = { path = "../../crates/warp-core", default-features = false, features = ["trusted_runtime"] }
+
+[[test]]
+name = "link_package"
+path = "link_package.rs"
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

@@ -4,8 +4,9 @@
 //!
 //! A slice needs `start <= end <= len(bytes)` and a subtraction needs
 //! `right <= left`, each from a dominating fact: equal terms, a zero right
-//! side, ordered constants, or an earlier conjunct of the same `all`.
-//! Conditional predicates, negations and later conjuncts prove nothing.
+//! side, ordered constants, an earlier conjunct of the same `all`, or the
+//! predicate of an enclosing `if` inside its `then` arm. The `else` arm,
+//! negations, disjunctions and later conjuncts prove nothing.
 use super::{
     evaluate::{expression, Meter},
     functions::decode,
@@ -221,6 +222,7 @@ fn case(name: &str) -> Result<Value, Error> {
             ])),
             use_prefix(),
         ])),
+        // The predicate of an `if` is a fact in its `then` arm only.
         "guard in a conditional" => choose(prefix(bytes.clone()), flag(use_prefix()), small(0)),
         "guard in a sibling branch" => choose(prefix(bytes.clone()), small(0), flag(use_prefix())),
         "guarded subtraction" => flag(all(vec![
@@ -250,6 +252,7 @@ fn dominating_range_facts_admit_runtime_slices_and_subtractions() -> Result<(), 
         "guarded suffix",
         "guarded subtraction",
         "literal subtraction",
+        "guard in a conditional",
     ] {
         assert!(helpers(case(name)?).is_ok(), "{name} must be admitted");
     }
@@ -265,7 +268,6 @@ fn missing_or_non_dominating_range_facts_refuse() -> Result<(), Error> {
         "guard on another offset",
         "guard by declared capacity",
         "disjunctive guard",
-        "guard in a conditional",
         "guard in a sibling branch",
         "unguarded subtraction",
         "reversed subtraction guard",

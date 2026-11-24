@@ -13,21 +13,24 @@
 //! one exact full parent. Physical arena guarantees, scheduler integration and
 //! Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
+mod control_order;
 mod execution;
 mod failure_names;
 mod imported_types;
 mod instruction_relation;
 mod intrinsic_contract;
+mod intrinsic_names;
 mod lowering_relation;
 mod mutations;
+mod source_modules;
 pub use mutations::EffectMutation;
 mod package;
 mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};
 mod completion;
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) mod derive;
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(feature = "trusted_runtime")]
 pub use derive::{DerivedEffectPatch, EffectDerivationError, EffectDerivationKind};
 mod frame;
 pub use completion::{CompletedEffectEvaluation, EffectCompletionError};
@@ -42,6 +45,7 @@ mod law;
 mod typed_reads;
 pub use law::{EffectFootprintLaw, EffectLawError};
 pub use typed_reads::TypedNodeRead;
+mod graph_reads;
 mod node_reads;
 pub use frame::{EffectEvaluationFrame, EffectFrameError, EffectFrameSetupError};
 pub(crate) use node_reads::{NodeAperture, RecordedNodeAccess};
@@ -112,6 +116,12 @@ pub struct EffectRangeReadSession<'a> {
     law: Option<EffectFootprintLaw>,
     authorized_reads: BTreeSet<(SlotId, TypeId)>,
     validated_warps: BTreeSet<crate::WarpId>,
+    /// Length of every present source bucket whose size decided a recorded
+    /// read's bound or charge, whether the read then scanned it or refused it
+    /// unscanned. The read
+    /// image witnesses each on its source node row; the node's observation
+    /// reservation covers it.
+    observed_buckets: BTreeMap<crate::NodeKey, u64>,
 }
 
 impl<'a> EffectRangeReadSession<'a> {
@@ -179,6 +189,7 @@ impl<'a> EffectRangeReadSession<'a> {
             law: None,
             authorized_reads: BTreeSet::new(),
             validated_warps: BTreeSet::new(),
+            observed_buckets: BTreeMap::new(),
         }
     }
 
@@ -259,6 +270,11 @@ impl<'a> EffectRangeReadSession<'a> {
             .map(|store| store.edges_from(&range.source.local_id));
         let capacity = bucket.as_ref().map_or(0, ExactSizeIterator::len);
         let count = u64::try_from(capacity).map_err(|_| EffectRangeReadError::BudgetExceeded)?;
+        if bucket.is_some() {
+            // The length decides the bound and the charge below, so it is
+            // witnessed whether the scan then proceeds or is refused.
+            self.observed_buckets.insert(range.source, count);
+        }
         let bytes = count
             .checked_mul(64)
             .ok_or(EffectRangeReadError::BudgetExceeded)?;

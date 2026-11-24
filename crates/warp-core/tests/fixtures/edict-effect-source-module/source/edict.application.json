@@ -1,0 +1,21 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "consumer.identity.program@1",
+  "sources": [
+    "src/Program.edict",
+    "src/Leaf.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/identity/manifest.cbor",
+      "exports": "vendor/identity/exports.cbor",
+      "adapter": "vendor/identity/adapter.cbor",
+      "targetConfiguration": "vendor/identity/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@2",
+    "providerPackage": "provider"
+  },
+  "outputDirectory": "application-output"
+}

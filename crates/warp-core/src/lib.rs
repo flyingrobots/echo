@@ -73,6 +73,8 @@ pub mod domain;
 mod echo_operation;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_effects;
+#[cfg(feature = "trusted_runtime")]
+mod effect_package_host;
 // Compile the same data checker without exposing trusted-host helper APIs.
 #[cfg(not(feature = "trusted_runtime"))]
 #[allow(dead_code, unused_imports)]
@@ -525,6 +527,8 @@ pub use tick_patch::{
 ))]
 pub use trusted_runtime_host::EchoOperationParentStateWorkForTest;
 
+#[cfg(feature = "trusted_runtime")]
+pub use effect_package_host::{EffectPackageHost, EffectPackageHostError};
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
     EchoOperationContextErrorV1, EvidenceCatalogPosture, RuntimeWalActivationGap,

@@ -18,7 +18,7 @@ The preferred input is GraphQL SDL lowered directly through the published
 fixtures and compatibility while consumers move off the historical JavaScript
 generator. Direct SDL lowering records the exact pinned `wesley-core` version
 in the provenance bound into each generated Rust artifact hash. The exact
-`0.3.0-alpha.2` dependency disables default features: this synchronous compiler
+`0.3.0-alpha.4` dependency disables default features: this synchronous compiler
 consumer does not need Wesley's optional async resilience stack.
 
 Echo's external Edict provider uses a separate strict source contract:
@@ -43,8 +43,8 @@ Apache-2.0 contract pack checked under
 [`schemas/edict-provider/contracts/v1/`](../../schemas/edict-provider/contracts/v1/README.md)
 is admitted through
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
-requires the current Amblicit contract-pack publication from PR #285
-(revision `2269d81f257f7794b44270cf3f7ca330966a0784`), verifies every
+requires the current Amblicit contract-pack publication `typed-failures-v1`
+from PR #317 (revision `0734b499adb7c79ddbf6b8290256c83d5240731e`), verifies every
 embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.

@@ -51,3 +51,4 @@ time-instant crates/warp-core/benches/support/fixtures/think_append.rs benchmark
 hand-hashed-table crates/warp-core/src/snapshot.rs state-root membership accelerator in private mod membership, whose only operations are begin and insert (no iterator, slice accessor or lookup, enforced by the compiler); exact key equality, no seed; its contents, capacity, probe counts, generation and fallback cannot affect the state root, which is independent of scratch history (tested against the ordered reference).
 
 std-fs crates/warp-core/tests/edict_effect_admission_tests/installation.rs owned filesystem WAL fixture directory creation and cleanup only; paths never enter program, policy, installation or receipt identities.
+std-fs crates/warp-core/tests/edict_effect_package_tests/provider_corpus.rs explicit ignored provider effect-corpus fixture regeneration only.

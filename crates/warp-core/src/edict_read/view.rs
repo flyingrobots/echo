@@ -1,11 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+use super::access::{Material, Outgoing};
 use super::{ReadError, ReadObstruction};
+use crate::edict_pure::evaluate::Meter;
 use crate::{
-    AttachmentValue, Hash, NodeKey, TypeId, WorldlineFrontier, WorldlineId, WorldlineTick,
+    AttachmentValue, Hash, NodeKey, OutgoingEdgeRange, TypeId, WorldlineFrontier, WorldlineId,
+    WorldlineTick,
 };
 
 const MAX_APERTURE_NODES: usize = 65_536;
+const MAX_APERTURE_TYPES: usize = 65_536;
+const SCANNED_EDGE_BYTES: u64 = 128;
+
+/// Host-selected typed authority for graph material a program discovers.
+///
+/// A node aperture names exact keys. Edges and the nodes they lead to are not
+/// known before evaluation, so this aperture names the edge types a program may
+/// scan and the node types it may materialize by following them. It grants no
+/// authority to an application request and carries no mutation authority.
+#[derive(Clone, Copy, Debug)]
+pub struct GraphReadAperture<'a> {
+    /// Sorted, unique edge types whose outgoing ranges may be read.
+    pub edge_types: &'a [TypeId],
+    /// Sorted, unique actual node types a discovered node may have.
+    pub node_types: &'a [TypeId],
+    /// Bucket edges one evaluation may inspect, matching or not.
+    pub max_edge_scans: u64,
+}
 
 /// Exact identity of a trusted host's selected materialized frontier.
 ///
@@ -58,6 +79,7 @@ pub struct ReadView<'a> {
     frontier: &'a WorldlineFrontier,
     basis: ReadBasis,
     aperture: &'a [NodeKey],
+    graph: Option<GraphReadAperture<'a>>,
 }
 
 impl<'a> ReadView<'a> {
@@ -72,6 +94,7 @@ impl<'a> ReadView<'a> {
             frontier,
             basis: ReadBasis::at(frontier),
             aperture,
+            graph: None,
         })
     }
 
@@ -92,6 +115,7 @@ impl<'a> ReadView<'a> {
             frontier,
             basis: expected,
             aperture,
+            graph: None,
         })
     }
 
@@ -138,5 +162,92 @@ impl<'a> ReadView<'a> {
             return Err(ReadObstruction::AtomTooLarge);
         }
         Ok(&atom.bytes)
+    }
+}
+
+impl<'a> ReadView<'a> {
+    /// Adds a typed graph aperture for outgoing-edge and closure reads.
+    ///
+    /// Without one, every graph read refuses. The explicit node aperture still
+    /// selects each edge-read source and each closure start node.
+    ///
+    /// # Errors
+    ///
+    /// Refuses oversized, unsorted or duplicated type sets.
+    pub fn with_graph_aperture(mut self, graph: GraphReadAperture<'a>) -> Result<Self, ReadError> {
+        for types in [graph.edge_types, graph.node_types] {
+            if types.len() > MAX_APERTURE_TYPES || types.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(ReadError::InvalidAperture);
+            }
+        }
+        self.graph = Some(graph);
+        Ok(self)
+    }
+
+    pub(super) fn scan_ceiling(&self) -> u64 {
+        self.graph.map_or(0, |graph| graph.max_edge_scans)
+    }
+
+    pub(super) fn outgoing(
+        &self,
+        range: OutgoingEdgeRange,
+        allowance: u64,
+        meter: &mut Meter,
+    ) -> Result<Outgoing, ReadError> {
+        if self
+            .graph
+            .is_none_or(|graph| graph.edge_types.binary_search(&range.edge_type).is_err())
+        {
+            return Err(ReadError::OutsideGraphAperture(range.edge_type));
+        }
+        let Some(store) = self
+            .frontier
+            .state()
+            .store(&range.source.warp_id)
+            .filter(|store| store.node(&range.source.local_id).is_some())
+        else {
+            return Ok(Outgoing::SourceMissing);
+        };
+        let bucket = store.edges_from(&range.source.local_id);
+        let inspected = u64::try_from(bucket.len()).map_err(|_| ReadError::ReadCountExceeded)?;
+        if inspected > allowance {
+            return Ok(Outgoing::ScanBound);
+        }
+        // The whole bucket is charged before any edge is inspected or copied.
+        meter.charge_steps(inspected)?;
+        meter.allocate(inspected.saturating_mul(SCANNED_EDGE_BYTES))?;
+        let mut edges: Vec<_> = bucket
+            .filter(|edge| edge.ty == range.edge_type)
+            .cloned()
+            .collect();
+        edges.sort_unstable_by_key(|edge| edge.id);
+        Ok(Outgoing::Edges { inspected, edges })
+    }
+
+    pub(super) fn material(&self, node: NodeKey) -> Result<Material<'a>, ReadError> {
+        let Some(store) = self.frontier.state().store(&node.warp_id) else {
+            return Ok(Material::Missing);
+        };
+        let Some(record) = store.node(&node.local_id) else {
+            return Ok(Material::Missing);
+        };
+        if !self.contains(node)
+            && self
+                .graph
+                .is_none_or(|graph| graph.node_types.binary_search(&record.ty).is_err())
+        {
+            return Err(ReadError::OutsideGraphAperture(record.ty));
+        }
+        Ok(match store.node_attachment(&node.local_id) {
+            None => Material::Node {
+                ty: record.ty,
+                atom: None,
+            },
+            Some(AttachmentValue::Descend(_)) => Material::Portal,
+            Some(AttachmentValue::Atom(atom)) => Material::Node {
+                ty: record.ty,
+                atom: Some((atom.type_id, &atom.bytes)),
+            },
+        })
     }
 }

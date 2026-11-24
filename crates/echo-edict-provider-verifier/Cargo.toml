@@ -26,6 +26,9 @@ wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macr
 echo-edict-provider-lowerer = { version = "0.1.0", path = "../echo-edict-provider-lowerer" }
 hex = "0.4"
 sha2 = "0.10"
+# Echo-owned runtime meter oracle for charge soundness tests only; not a
+# component or runtime dependency.
+warp-core = { workspace = true, features = ["trusted_runtime", "native_rule_bootstrap"] }
 
 [lints]
 workspace = true

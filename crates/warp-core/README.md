@@ -117,6 +117,22 @@ runtime authority. The mutation proposal constructor still rejects query
 operations. Authored reads remain on the separate bounded observer/optic path;
 they are never represented as synthetic mutations.
 
+## Typed function failures
+
+Authored effect programs may call helpers that declare typed failures
+(`core.failure/v1`). A failure ends the helper and its callers up to the
+intent's `attempt`, which ends the run with the mapped terminal obstruction
+and payload; only that arm's payload is evaluated. The public witness is
+`tests/fixtures/edict-effect-typed-failure`. Pure helpers imported from a
+lawpack's exports must be total: a package whose exported helper body can
+fail is refused, because no call site maps an imported helper's failures.
+
+A record whose fields can fail is an ordered record (`orderedRecord`): its
+fields run in authored order, so the first to fail decides the obstruction,
+and when all return the value is the canonical record. The public witnesses
+are `tests/fixtures/edict-effect-ordered-record-z` and
+`tests/fixtures/edict-effect-ordered-record-a`.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

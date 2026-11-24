@@ -2,19 +2,41 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned forward type, totality, depth and deterministic cost judgment.
 //! Applies to the complete source-function module, including unused definitions.
+#[cfg(test)]
+mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+#[cfg(test)]
+mod checked_integer_tests;
+mod effect_block;
+mod effect_intent;
+mod failure_sets;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+#[cfg(test)]
+mod function_precondition_tests;
+mod function_preconditions;
+mod identity;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
+mod ordered_records;
+mod read_cost;
+#[cfg(test)]
+mod read_cost_soundness_tests;
+mod shared_reads;
+#[cfg(test)]
+mod shared_reads_tests;
 #[cfg(test)]
 mod u8_literals_tests;
 mod unsigned_addition;
@@ -22,7 +44,9 @@ mod unsigned_addition;
 mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 
 type Check<T> = Result<T, ()>;
@@ -40,6 +64,8 @@ enum Ty {
         identity: String,
         cases: BTreeMap<String, Option<Ty>>,
     },
+    /// `Option<T>`: a runtime `null`, or a one-item array when present.
+    Option(Box<Ty>),
 }
 impl Ty {
     fn representation(&self) -> &Self {
@@ -68,6 +94,13 @@ impl Cost {
         }
     }
 }
+/// An `if` or `match` arm, or a helper binding or result. A `fail` has no
+/// type of its own: it returns no value, and its context types it.
+struct Arm {
+    ty: Option<Ty>,
+    cost: Cost,
+    depth: usize,
+}
 #[derive(Clone)]
 struct Fact {
     ty: Ty,
@@ -77,6 +110,9 @@ struct Fact {
 #[derive(Clone, Copy)]
 struct Function<'a> {
     params: &'a [Value],
+    /// Static preconditions over `params`; empty for imported helpers and
+    /// for source functions without them.
+    preconditions: &'a [Value],
     body: &'a Value,
     result: &'a str,
     source: bool,
@@ -89,23 +125,91 @@ struct Judgment<'a> {
     active: BTreeSet<String>,
     work: usize,
     proven: Vec<&'a Value>,
+    /// Predicates of the enclosing `if`s whose `then` arm is being judged,
+    /// outermost first. A range proof reads them only when it is refused
+    /// without them.
+    branch: Vec<&'a Value>,
     path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
     /// The refined cap of the addition `expression` last proved, keyed by the
     /// node's address, so the binding that holds it reuses the proof.
     proven_sum: Option<(usize, u64)>,
+    /// Declared graph scan allowance charged by every graph read.
+    edge_scans: u64,
+    /// The module requires the shared-read schedule, `edict.core-cost/v2`.
+    shared: bool,
+    /// Under the shared-read schedule, the type this judgment established for
+    /// each expression, keyed by the node's address in the borrowed Core.
+    types: BTreeMap<usize, Ty>,
+    /// Shared-read cost of each completed source helper.
+    shared_costs: BTreeMap<String, Cost>,
+    /// Whether the pinned `echo.dpo@2` catalog carries Echo's exact identity
+    /// contracts, which alone admits calls to them.
+    identity: bool,
 }
 
-pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    run(core, exports, read).map_err(|()| {
+/// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
+/// the module declares no graph reads.
+pub(super) fn validate(
+    core: &Value,
+    exports: &Value,
+    read: bool,
+    edge_scans: u64,
+) -> Result<(), ProviderRefusalV1> {
+    run(core, exports, read, edge_scans).map_err(|()| {
         super::super::unsupported_semantics(
             "core.source-functions",
             "Core source functions are outside the checked pure-function profile",
         )
     })
 }
-fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
+fn run(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
+    let mut proof = judged(core, exports, edge_scans, false, &mut Trail::new())?;
+    if proof.shared {
+        // Read and graph charges have no shared-read rules.
+        if read || edge_scans != 0 {
+            return Err(());
+        }
+        for (_, intent) in members(get(core, "intents")?)? {
+            proof.shared_intent(intent)?;
+        }
+        return Ok(());
+    }
+    // A graph read always needs its whole-intent budget judged.
+    if super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        proof.intent(intent, read)?;
+    }
+    Ok(())
+}
+/// The worst-case cost of each read intent, for measuring it against the runtime.
+#[cfg(test)]
+fn read_intent_costs(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Cost>> {
+    let mut proof = judged(core, exports, edge_scans, false, &mut Trail::new())?;
+    members(get(core, "intents")?)?
+        .iter()
+        .map(|(_, intent)| Ok(proof.intent_cost(intent, true)?.0))
+        .collect()
+}
+/// Inventories the module's helpers and judges every one of them.
+fn judged<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    identity: bool,
+    trail: &mut Trail,
+) -> Check<Judgment<'a>> {
+    // Declared failure sets, `fail` and `attempt` across the whole module.
+    trail.at(R::FailureSets, &["core"]);
+    let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
+    failure_sets::judge(core, exports, coordinate)?;
+    trail.at(R::HelperInventory, &["exports", "pureFunctions"]);
     let mut functions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
         .map(list)
@@ -135,6 +239,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
                     name.to_owned(),
                     Function {
                         params: list(get(implementation, "params")?)?,
+                        preconditions: &[],
                         body,
                         result: string(get(item, "returnType")?)?,
                         source: false,
@@ -151,6 +256,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
     let source_functions = super::map_field(core, "functions")
         .map(members)
         .transpose()?
@@ -163,8 +269,11 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         {
             return Err(());
         }
-        exact(function, &["params", "returnType", "body"])?;
-        let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
+        let coordinate = string(get(core, "coordinate")?)?;
+        let preconditions =
+            function_preconditions::declared(function, coordinate, get(core, "functions")?)
+                .map_err(|_| ())?;
+        let name = format!("{coordinate}.{name}");
         if name.starts_with("core.")
             || effect_names.contains(name.as_str())
             || functions
@@ -172,6 +281,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
                     name,
                     Function {
                         params: list(get(function, "params")?)?,
+                        preconditions,
                         body: get(function, "body")?,
                         result: string(get(function, "returnType")?)?,
                         source: true,
@@ -189,20 +299,74 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         active: BTreeSet::new(),
         work: WORK,
         proven: Vec::new(),
+        branch: Vec::new(),
         path: Vec::new(),
         bound: Vec::new(),
         proven_sum: None,
+        edge_scans,
+        shared: shared_reads::required(core)?,
+        types: BTreeMap::new(),
+        shared_costs: BTreeMap::new(),
+        identity,
     };
     for name in proof.functions.keys().cloned().collect::<Vec<_>>() {
+        let origin = helper_origin(core, exports, &name, proof.functions[&name].source);
+        trail.at(
+            R::HelperFunction,
+            &origin.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
         proof.function(&name, 1)?;
     }
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
-        return Ok(());
+    trail.at(R::HelperPreconditions, &["core"]);
+    // Every call to a precondition-bearing function proves its preconditions
+    // from the facts that dominate it, wherever it is in the module.
+    let contracts = proof
+        .functions
+        .iter()
+        .filter(|(_, function)| !function.preconditions.is_empty())
+        .map(|(name, function)| {
+            (
+                name.clone(),
+                function_preconditions::Contract {
+                    params: function.params,
+                    preconditions: function.preconditions,
+                },
+            )
+        })
+        .collect();
+    function_preconditions::check_calls(core, &contracts).map_err(|_| ())?;
+    Ok(proof)
+}
+/// Where a helper is declared, for refusal paths: a source function under
+/// `/core/functions/<name>`, an imported one at its index in
+/// `/exports/pureFunctions`. `name` is the qualified lookup name.
+fn helper_origin(core: &Value, exports: &Value, name: &str, source: bool) -> Vec<String> {
+    if source {
+        let local = match super::map_field(core, "coordinate") {
+            Some(Value::Text(coordinate)) => name
+                .strip_prefix(coordinate.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(name),
+            _ => name,
+        };
+        return vec!["core".to_owned(), "functions".to_owned(), local.to_owned()];
     }
-    for (_, intent) in members(get(core, "intents")?)? {
-        proof.intent(intent, read)?;
-    }
-    Ok(())
+    let index = match super::map_field(exports, "pureFunctions") {
+        Some(Value::Array(items)) => items.iter().position(|item| {
+            matches!(super::map_field(item, "coordinate"), Some(Value::Text(c)) if c == name)
+        }),
+        _ => None,
+    };
+    index.map_or_else(
+        || vec!["functions".to_owned(), name.to_owned()],
+        |index| {
+            vec![
+                "exports".to_owned(),
+                "pureFunctions".to_owned(),
+                index.to_string(),
+            ]
+        },
+    )
 }
 impl<'a> Judgment<'a> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -233,6 +397,13 @@ impl<'a> Judgment<'a> {
             self.bound.push((local, cap));
         }
         Ok(())
+    }
+    /// Whether `left >= right` holds here: first from the dominating facts,
+    /// then, only if they do not prove it, from the `then`-arm predicates.
+    fn ordered(&mut self, left: &Value, right: &Value) -> Check<bool> {
+        Ok(order::proven(left, right, &self.proven, &mut self.work)?
+            || (!self.branch.is_empty()
+                && order::proven(left, right, &self.branch, &mut self.work)?))
     }
     /// The byte maximum of every counted operand an addition proof can reach,
     /// resolved through this module's type table so named byte types count.
@@ -301,6 +472,12 @@ impl<'a> Judgment<'a> {
                 decimal(max)?,
             ));
         }
+        if let Some(item) = name
+            .strip_prefix("Option<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return Ok(Ty::Option(Box::new(self.ty(item, depth + 1)?)));
+        }
         if let Some(spec) = name
             .strip_prefix("Record<")
             .and_then(|s| s.strip_suffix('>'))
@@ -318,6 +495,11 @@ impl<'a> Judgment<'a> {
         match string(get(definition, "kind")?)? {
             "Bool" => Ok(Ty::Bool),
             "Int" => self.ty(string(get(definition, "width")?)?, depth + 1),
+            // A table entry may also name an unsigned width directly, as Core does.
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                exact(definition, &["kind"])?;
+                self.ty(kind, depth + 1)
+            }
             "Nominal" => {
                 if string(get(definition, "contract")?)? != key {
                     return Err(());
@@ -360,6 +542,12 @@ impl<'a> Judgment<'a> {
                 Ok(Ty::Record(fields))
             }
             "Variant" => self.variant_type(definition, key, &prefix, depth),
+            "Option" => {
+                exact(definition, &["kind", "item"])?;
+                Ok(Ty::Option(Box::new(
+                    self.ty(string(get(definition, "item")?)?, depth + 1)?,
+                )))
+            }
             _ => Err(()),
         }
     }
@@ -391,10 +579,12 @@ impl<'a> Judgment<'a> {
         // A helper has a fresh proof scope. Restore the caller on success and
         // failure, so recursive checks cannot change enclosing all/not scopes.
         let caller_facts = std::mem::take(&mut self.proven);
+        let caller_branch = std::mem::take(&mut self.branch);
         let caller_path = std::mem::take(&mut self.path);
         let caller_bounds = std::mem::take(&mut self.bound);
         let result = self.check_function_body(name, prefix);
         self.proven = caller_facts;
+        self.branch = caller_branch;
         self.path = caller_path;
         self.bound = caller_bounds;
         self.active.remove(name);
@@ -408,6 +598,14 @@ impl<'a> Judgment<'a> {
         let mut depth = 0;
         for parameter in function.params {
             depth = depth.max(shape(&self.declaration(parameter, &mut scope)?)?.3);
+        }
+        // Each precondition is a typed predicate over the parameters alone,
+        // judged assuming the ones before it. It is never evaluated, so it
+        // adds no cost. The body may assume them all: every call re-proves
+        // them.
+        for precondition in function.preconditions {
+            self.predicate(precondition, &scope, function.source, prefix)?;
+            self.proven.push(precondition);
         }
         let mut pending = BTreeMap::new();
         for local in list(get(function.body, "locals")?)? {
@@ -427,9 +625,15 @@ impl<'a> Judgment<'a> {
             if pending.remove(string(get(local, "id")?)?) != Some(local) {
                 return Err(());
             }
-            let fact = self.expression(get(binding, "value")?, &scope, function.source, prefix)?;
+            let fact = self.declared_arm(
+                get(binding, "value")?,
+                &scope,
+                function.source,
+                prefix,
+                string(get(local, "type")?)?,
+            )?;
             let expected = self.declaration(local, &mut scope)?;
-            if !includes(&expected, &fact.ty) {
+            if !fact.ty.as_ref().is_none_or(|ty| includes(&expected, ty)) {
                 return Err(());
             }
             self.record_bound(local, get(binding, "value")?, &expected)?;
@@ -443,14 +647,19 @@ impl<'a> Judgment<'a> {
         if !pending.is_empty() {
             return Err(());
         }
-        let result = self.expression(
+        let result = self.declared_arm(
             get(function.body, "result")?,
             &scope,
             function.source,
             prefix,
+            function.result,
         )?;
         let ty = self.ty(function.result, 0)?;
-        if !includes(&ty, &result.ty) {
+        if !result
+            .ty
+            .as_ref()
+            .is_none_or(|actual| includes(&ty, actual))
+        {
             return Err(());
         }
         let (_, validations, _, ty_depth) = shape(&ty)?;
@@ -468,7 +677,47 @@ impl<'a> Judgment<'a> {
         self.completed.insert(name.to_owned(), fact.clone());
         Ok(fact)
     }
+    /// Judges an arm, binding or result that may be a `fail`, which costs
+    /// its one evaluation step and returns nothing.
+    fn arm(
+        &mut self,
+        value: &'a Value,
+        scope: &Scope<'a>,
+        source: bool,
+        prefix: usize,
+    ) -> Check<Arm> {
+        if string(get(value, "kind")?)? == "fail" {
+            self.charge(prefix)?;
+            exact(value, &["kind", "failure"])?;
+            string(get(value, "failure")?)?;
+            return Ok(Arm {
+                ty: None,
+                cost: Cost { steps: 1, bytes: 0 },
+                depth: 0,
+            });
+        }
+        let fact = self.expression(value, scope, source, prefix)?;
+        Ok(Arm {
+            ty: Some(fact.ty),
+            cost: fact.cost,
+            depth: fact.depth,
+        })
+    }
     fn expression(
+        &mut self,
+        value: &'a Value,
+        scope: &Scope<'a>,
+        source: bool,
+        prefix: usize,
+    ) -> Check<Fact> {
+        let fact = self.judged_expression(value, scope, source, prefix)?;
+        if self.shared {
+            self.types
+                .insert(std::ptr::from_ref(value).addr(), fact.ty.clone());
+        }
+        Ok(fact)
+    }
+    fn judged_expression(
         &mut self,
         value: &'a Value,
         scope: &Scope<'a>,
@@ -481,6 +730,7 @@ impl<'a> Judgment<'a> {
         let ty = match string(get(value, "kind")?)? {
             "fold" => return self.state_fold(value, scope, source, prefix),
             "match" => return self.variant_match(value, scope, source, prefix),
+            "orderedRecord" => return self.ordered_record(value, scope, source, prefix, None),
             "variant" => return self.variant_constructor(value, scope, source, prefix),
             "local" => {
                 exact(value, &["kind", "ref"])?;
@@ -595,14 +845,22 @@ impl<'a> Judgment<'a> {
                     self.predicate(get(value, "predicate")?, scope, source, prefix + 1)?;
                 let checkpoint = self.path.len();
                 self.path.push((get(value, "predicate")?, true));
-                let yes = self.expression(get(value, "then")?, scope, source, prefix + 1)?;
+                // As in Edict, the predicate is a fact inside the `then` arm.
+                let branch = self.branch.len();
+                self.branch.push(get(value, "predicate")?);
+                let yes = self.arm(get(value, "then")?, scope, source, prefix + 1)?;
+                self.branch.truncate(branch);
                 self.path.truncate(checkpoint);
                 self.path.push((get(value, "predicate")?, false));
-                let no = self.expression(get(value, "else")?, scope, source, prefix + 1)?;
+                let no = self.arm(get(value, "else")?, scope, source, prefix + 1)?;
                 self.path.truncate(checkpoint);
                 cost = cost.plus(predicate.0)?.plus(yes.cost.maximum(no.cost))?;
                 depth = predicate.1.max(yes.depth).max(no.depth) + 1;
-                union(yes.ty, no.ty)?
+                match (yes.ty, no.ty) {
+                    (Some(yes), Some(no)) => union(yes, no)?,
+                    (Some(only), None) | (None, Some(only)) => only,
+                    (None, None) => return Err(()),
+                }
             }
             "call" => {
                 exact(value, &["kind", "callee", "args", "typeArgs"])?;
@@ -646,6 +904,25 @@ impl<'a> Judgment<'a> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        (name, actual, _) if integer_operations::is_operation(name) => {
+                            let result = self.integer_operation(value, actual)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
+                        (name, actual, declared) if option_operations::is_operation(name) => {
+                            let result = self.option_operation(value, actual, declared)?;
+                            cost = cost.plus(result.cost)?;
+                            depth = depth.max(result.depth + 1);
+                            result.ty
+                        }
+                        (name, actual, [])
+                            if self.identity && identity::parameters(name).is_some() =>
+                        {
+                            let (result, charged) = identity::judge(name, actual)?;
+                            cost = cost.plus(charged)?;
+                            result
+                        }
                         (name, actual, declared) if list_operations::is_operation(name) => {
                             let result = self.list_operation(value, actual, declared)?;
                             cost = cost.plus(result.cost)?;
@@ -725,8 +1002,32 @@ impl<'a> Judgment<'a> {
                                 locals: &self.bound,
                                 counts: &counts,
                             };
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
                             let cap =
-                                unsigned_addition::prove(value, *max, &facts, &mut self.work)?;
+                                match unsigned_addition::prove(value, *max, &facts, &mut self.work)
+                                {
+                                    Err(()) if !self.branch.is_empty() => {
+                                        let predicates: Vec<&Value> = self
+                                            .proven
+                                            .iter()
+                                            .chain(&self.branch)
+                                            .copied()
+                                            .collect();
+                                        let facts = unsigned_addition::Facts {
+                                            predicates: &predicates,
+                                            locals: &self.bound,
+                                            counts: &counts,
+                                        };
+                                        unsigned_addition::prove(
+                                            value,
+                                            *max,
+                                            &facts,
+                                            &mut self.work,
+                                        )?
+                                    }
+                                    judged => judged?,
+                                };
                             self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
                             cost = cost.plus(Cost {
                                 steps: 3,
@@ -739,12 +1040,7 @@ impl<'a> Judgment<'a> {
                                 && includes(expected, right)
                                 && matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) =>
                         {
-                            if !order::proven(
-                                &arguments[0],
-                                &arguments[1],
-                                &self.proven,
-                                &mut self.work,
-                            )? {
+                            if !self.ordered(&arguments[0], &arguments[1])? {
                                 return Err(());
                             }
                             cost = cost.plus(Cost {
@@ -764,17 +1060,9 @@ impl<'a> Judgment<'a> {
                                 (Ok(start), Ok(end)) if start <= end && end <= *min => end - start,
                                 _ => {
                                     let length = order::length_of(&types[0], &arguments[0]);
-                                    if !order::proven(
-                                        &arguments[2],
-                                        &arguments[1],
-                                        &self.proven,
-                                        &mut self.work,
-                                    )? || !order::proven(
-                                        &length,
-                                        &arguments[2],
-                                        &self.proven,
-                                        &mut self.work,
-                                    )? {
+                                    if !self.ordered(&arguments[2], &arguments[1])?
+                                        || !self.ordered(&length, &arguments[2])?
+                                    {
                                         return Err(());
                                     }
                                     *max
@@ -868,7 +1156,20 @@ impl<'a> Judgment<'a> {
         ))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        let (cost, output) = self.intent_cost(intent, read)?;
+        let budget = get(intent, "coreEvaluationBudget")?;
+        if cost.steps > number(get(budget, "maxSteps")?)?
+            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
+            || output > number(get(budget, "maxOutputBytes")?)?
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+    /// The worst-case whole-intent cost and output bytes, before the budget.
+    fn intent_cost(&mut self, intent: &'a Value, read: bool) -> Check<(Cost, u64)> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;
@@ -891,6 +1192,9 @@ impl<'a> Judgment<'a> {
         }
         let mut scope = BTreeMap::new();
         let ty = self.declaration(input, &mut scope)?;
+        if option_operations::holds_option(&ty) {
+            return Err(());
+        }
         let (copy, validation, _, _) = shape(&ty)?;
         let mut cost = copy.plus(Cost {
             steps: validation,
@@ -941,13 +1245,11 @@ impl<'a> Judgment<'a> {
                     cost =
                         cost.plus(self.expression(get(node, "input")?, &scope, true, 0)?.cost)?;
                     let declared = self.declaration(get(node, "binding")?, &mut scope)?;
-                    let Ty::Bytes(_, max) = declared.representation() else {
-                        return Err(());
-                    };
-                    cost = cost.plus(Cost {
-                        steps: max.checked_add(1).ok_or(())?,
-                        bytes: max.checked_add(64).ok_or(())?,
-                    })?;
+                    cost = cost.plus(read_cost::read_cost(
+                        &declared,
+                        &self.completed,
+                        self.edge_scans,
+                    )?)?;
                 }
                 "require" if read => {
                     cost =
@@ -963,7 +1265,7 @@ impl<'a> Judgment<'a> {
         }
         let result = self.expression(get(body, "result")?, &scope, true, 0)?;
         let expected = self.ty(string(get(intent, "output")?)?, 0)?;
-        if !includes(&expected, &result.ty) {
+        if option_operations::holds_option(&expected) || !includes(&expected, &result.ty) {
             return Err(());
         }
         let (scratch, validations, output, _) = shape(&expected)?;
@@ -971,14 +1273,7 @@ impl<'a> Judgment<'a> {
             steps: validations,
             bytes: 0,
         })?;
-        let budget = get(intent, "coreEvaluationBudget")?;
-        if cost.steps > number(get(budget, "maxSteps")?)?
-            || cost.bytes > number(get(budget, "maxAllocatedBytes")?)?
-            || output > number(get(budget, "maxOutputBytes")?)?
-        {
-            return Err(());
-        }
-        Ok(())
+        Ok((cost, output))
     }
 }
 fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
@@ -986,6 +1281,19 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
         Ty::Variant { identity, cases } => variants::shape(identity, cases),
+        Ty::Option(item) => {
+            // Absent is one cell; present is one cell holding the item.
+            let (copy, validations, encoded, height) = shape(item)?;
+            Ok((
+                Cost {
+                    steps: copy.steps.checked_add(1).ok_or(())?,
+                    bytes: copy.bytes.checked_add(64).ok_or(())?,
+                },
+                validations.checked_add(1).ok_or(())?,
+                encoded.checked_add(9).ok_or(())?,
+                height + 1,
+            ))
+        }
         Ty::Bool => Ok((
             Cost {
                 steps: 1,
@@ -1090,6 +1398,7 @@ fn includes(expected: &Ty, actual: &Ty) -> bool {
                     (None, Some(_)) => false,
                 }
         }
+        (Ty::Option(a), Ty::Option(b)) => includes(a, b),
         (Ty::Record(a), Ty::Record(b)) => {
             a.len() == b.len()
                 && a.iter()
@@ -1108,6 +1417,7 @@ fn union(left: Ty, right: Ty) -> Check<Ty> {
             },
             n.max(m),
         )),
+        (Ty::Option(a), Ty::Option(b)) => Ok(Ty::Option(Box::new(union(*a, *b)?))),
         (Ty::Record(a), Ty::Record(mut b)) if a.keys().eq(b.keys()) => {
             let mut fields = BTreeMap::new();
             for (key, value) in a {
@@ -1231,7 +1541,7 @@ mod tests {
                 Value::Array(vec![map([("source", Value::Text("component".into()))])]),
             ),
         ]);
-        assert!(validate(&core, &exports, true).is_err());
+        assert!(validate(&core, &exports, true, 0).is_err());
     }
 
     #[test]
@@ -1241,7 +1551,7 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, true).is_ok());
+        assert!(validate(&core, &exports, true, 0).is_ok());
     }
     #[test]
     fn source_functions_accept_named_unsigned_int_aliases() {
@@ -1292,6 +1602,43 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod helper_origin_tests {
+    use super::{helper_origin, Value};
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    #[test]
+    fn a_helper_is_located_where_it_is_declared() {
+        let core = Value::Map(vec![(text("coordinate"), text("pkg@1"))]);
+        let exports = Value::Map(vec![(
+            text("pureFunctions"),
+            Value::Array(vec![
+                Value::Map(vec![(text("coordinate"), text("lib@1.a"))]),
+                Value::Map(vec![(text("coordinate"), text("lib@1.b"))]),
+            ]),
+        )]);
+        // Oracle: the artifact shapes. Source helpers live under
+        // `core.functions` by local name; imports in `exports.pureFunctions`.
+        assert_eq!(
+            (
+                helper_origin(&core, &exports, "pkg@1.f", true),
+                helper_origin(&core, &exports, "lib@1.b", false)
+            ),
+            (
+                vec!["core".to_owned(), "functions".to_owned(), "f".to_owned()],
+                vec![
+                    "exports".to_owned(),
+                    "pureFunctions".to_owned(),
+                    "1".to_owned()
+                ]
+            )
+        );
     }
 }

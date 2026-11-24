@@ -18,6 +18,12 @@ cd "$ROOT"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+# The probes build from a temporary directory outside the repository, which
+# loses `rust-toolchain.toml`. Resolve the pinned toolchain here and carry it.
+if [ -z "${RUSTUP_TOOLCHAIN:-}" ] && command -v rustup >/dev/null 2>&1; then
+  RUSTUP_TOOLCHAIN="$(rustup show active-toolchain | awk 'NR==1 {print $1}')"
+  export RUSTUP_TOOLCHAIN
+fi
 
 for features in "" "trusted_runtime" "native_rule_bootstrap,trusted_runtime"; do
   echo "== build warp-core features=[${features}]"

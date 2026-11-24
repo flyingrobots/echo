@@ -6,6 +6,8 @@
 mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
+mod cost_templates;
+#[cfg(test)]
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;

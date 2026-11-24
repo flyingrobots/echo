@@ -276,3 +276,18 @@ catalog, `echo.dpo.intrinsics/v2`, declares the runtime's effect intrinsics as
 judgment under it. The configuration's catalog must be the one the selected
 profile pins, and the judgment keys its intrinsic tables on the operation below
 either namespace.
+
+`resources/resource.target-intrinsics-3.cbor` is the same catalog as
+`edict.target-profile.intrinsics/v3` (amblicit#341): every effect intrinsic
+carries an `effectCostRule`, and a top-level `parameters` map declares
+`maxEdgeScans` (`graphReads.maxEdgeScans`, `uint`) and `selector`
+(`graphReads.closureSelector`, `helper`). Under the shared-read schedule a
+template replaces the compiler's generic charge of an effect step, so each
+template states exactly what this lowerer charges for the step beyond its input
+expression: the input's validations and the intrinsic's own work. The empty
+obstruction payload (1 step, 64 bytes) stays outside every template, as
+Amblicit charges it. The `cost_templates` unit tests evaluate each template
+over fixture types and require it to equal the lowerer's charge, and keep the
+committed catalog equal to the generated one (`ECHO_BLESS_V3_CATALOG=1`
+regenerates it). The catalog is not yet part of the provider package: the
+upstream provider contracts have no `/v3` schema rule to validate it against.

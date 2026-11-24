@@ -379,31 +379,10 @@ impl Judgment<'_> {
         graph: Option<GraphReads<'_>>,
     ) -> Check<Cost> {
         let graph = graph.ok_or(())?;
-        let fields = record(input)?;
-        let scans = graph.max_edge_scans;
-        let records = if read == "outgoing-edge-read" {
-            edge_abi(fields, output)?;
-            Cost {
-                steps: 1,
-                bytes: RANGE_RECORDS,
-            }
-        } else {
-            let closure = closure_abi(fields, output)?;
+        if read == "closure-read" {
+            let closure = closure_abi(record(input)?, output)?;
             self.selector(graph.selector, closure.node, closure.guide)?;
-            let ranges = closure
-                .occurrences
-                .checked_mul(closure.edge_types)
-                .ok_or(())?;
-            let node = Cost {
-                steps: 2,
-                bytes: NODE_RECORDS.checked_add(closure.atom).ok_or(())?,
-            };
-            let range = Cost {
-                steps: 1,
-                bytes: RANGE_RECORDS,
-            };
-            times(node, closure.nodes)?.plus(times(range, ranges)?)?
-        };
+        }
         // Under the shared-read schedule a closure charges its declared
         // selector, the only helper the runtime calls; the copying schedule
         // keeps the costliest helper of the module.
@@ -421,12 +400,7 @@ impl Judgment<'_> {
         } else {
             &self.completed
         };
-        super::read_cost::read_cost(output, helpers, scans)?
-            .plus(records)?
-            .plus(Cost {
-                steps: 0,
-                bytes: scans.checked_mul(RECORDED_EDGE_BYTES).ok_or(())?,
-            })
+        graph_charge(read, input, output, graph.max_edge_scans, helpers)
     }
 
     /// The declared selector is one of the module's own source helpers,
@@ -464,4 +438,45 @@ impl Judgment<'_> {
             Err(())
         }
     }
+}
+
+/// The work one graph read costs once its ABI and selector are judged: its
+/// declared scan allowance and result (`read_cost`), plus what the frame
+/// records. `helpers` are the source helpers the read may call.
+pub(super) fn graph_charge(
+    read: &str,
+    input: &Ty,
+    output: &Ty,
+    scans: u64,
+    helpers: &BTreeMap<String, super::Fact>,
+) -> Check<Cost> {
+    let fields = record(input)?;
+    let records = if read == "outgoing-edge-read" {
+        edge_abi(fields, output)?;
+        Cost {
+            steps: 1,
+            bytes: RANGE_RECORDS,
+        }
+    } else {
+        let closure = closure_abi(fields, output)?;
+        let ranges = closure
+            .occurrences
+            .checked_mul(closure.edge_types)
+            .ok_or(())?;
+        let node = Cost {
+            steps: 2,
+            bytes: NODE_RECORDS.checked_add(closure.atom).ok_or(())?,
+        };
+        let range = Cost {
+            steps: 1,
+            bytes: RANGE_RECORDS,
+        };
+        times(node, closure.nodes)?.plus(times(range, ranges)?)?
+    };
+    super::read_cost::read_cost(output, helpers, scans)?
+        .plus(records)?
+        .plus(Cost {
+            steps: 0,
+            bytes: scans.checked_mul(RECORDED_EDGE_BYTES).ok_or(())?,
+        })
 }

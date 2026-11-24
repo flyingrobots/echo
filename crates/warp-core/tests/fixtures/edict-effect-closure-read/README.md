@@ -42,9 +42,14 @@ Two tests use the package:
   `core.cost.shared-reads/v1`.
 - `the_closure_witness_runs_within_the_lowerer_minimum` in
   `crates/warp-core/tests/edict_effect_package_tests/provider_corpus/closure_witness.rs`
-  gives the package exactly that shared minimum. It reads a three-node tree
-  to the copying schedule's result and requires the runtime charge on both
-  axes to be at or below the static bound.
+  gives the package exactly that shared minimum. It reads an eight-node graph
+  to depth four (the read's node and depth bounds) to the copying schedule's
+  result and requires the runtime charge on both axes to be at or below the
+  static bound. The compiled footprint law allows 16 reads and 8 range edges,
+  too few for that read, so the test widens both to 64. The law's bytes are
+  bound twice, inside the program and as the package's
+  `footprint_contract_identity`; changing one without the other is what makes
+  preparation fail with `InvalidPackage`, and the test repins both.
 
 The package is a private evaluation witness. It does not establish
 installation, a causal Tick, WAL retention or a receipt.

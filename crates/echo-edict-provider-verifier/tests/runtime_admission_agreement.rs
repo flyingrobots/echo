@@ -11,8 +11,9 @@
 //! refuse it. A package the provider accepts must be admitted; a package the
 //! runtime refuses must be refused by the provider in the same reason class.
 use echo_edict_canonical::{decode_canonical_cbor_v1 as decode, CanonicalValueV1 as V};
-use echo_edict_provider_verifier::effect_contract::ContractRefusal;
+use echo_edict_provider_verifier::effect_contract::{judge_footprint_law, ContractRefusal};
 use echo_edict_provider_verifier::effect_package::{verify_effect_package, EffectPackageRefusal};
+use warp_core::edict_effects::{EffectFootprintLaw, EffectProgramRefusal};
 use warp_core::{
     echo_operation_package_id_v1, make_head_id, EchoOperationAdmissionError,
     EchoOperationAdmissionPolicy, EchoOperationBudgetV1, EffectPackageHost, EngineBuilder,
@@ -283,5 +284,67 @@ fn both_judges_refuse_the_basis_read_law_above_the_write_ceiling() {
     assert_eq!(
         runtime.reason_code(),
         ContractRefusal::FootprintMaxWrites.code()
+    );
+}
+
+/// The basis-read witness's footprint law with `field` set to `count`.
+fn basis_read_law_with(field: &str, count: u64) -> Vec<u8> {
+    let package = decode(&hex::decode(BASIS_READ.trim()).expect("hex")).expect("package");
+    let V::Bytes(program) = get(&package, "program") else {
+        panic!("program bytes")
+    };
+    let program = decode(program).expect("program");
+    let V::Bytes(law) = get(&program, "footprint_law") else {
+        panic!("law bytes")
+    };
+    let V::Map(fields) = decode(law).expect("law") else {
+        panic!("law map")
+    };
+    let fields = fields
+        .into_iter()
+        .map(|(k, v)| {
+            let v = if k == V::Text(field.into()) {
+                V::Integer(count.into())
+            } else if matches!(&k, V::Text(name) if name.starts_with("max_")) {
+                V::Integer(1)
+            } else {
+                v
+            };
+            (k, v)
+        })
+        .collect();
+    echo_edict_canonical::encode_canonical_cbor_v1(&V::Map(fields)).expect("canonical law")
+}
+
+/// At each ceiling and one past it, the provider's law judgment and
+/// warp-core's own law decoder reach the same verdict and name the same code,
+/// so the two definitions of the ceilings cannot drift apart unnoticed.
+#[test]
+fn the_provider_and_runtime_agree_at_and_past_each_footprint_ceiling() {
+    let ceilings = [
+        ("max_reads", 4096_u64),
+        ("max_writes", 256),
+        ("max_range_edges", 65_536),
+    ];
+    for (field, ceiling) in ceilings {
+        for count in [ceiling, ceiling + 1] {
+            let law = basis_read_law_with(field, count);
+            let provider = judge_footprint_law(&law).map_err(ContractRefusal::code);
+            let runtime = EffectFootprintLaw::from_canonical_bytes(&law)
+                .map(drop)
+                .map_err(|error| EffectProgramRefusal::from(error).code());
+            assert_eq!(provider, runtime, "{field} = {count}");
+            assert_eq!(provider.is_ok(), count == ceiling, "{field} = {count}");
+        }
+    }
+}
+
+/// The lowerer and the verifier each carry the contract judgment; both
+/// copies must stay byte-identical.
+#[test]
+fn the_lowerer_and_verifier_share_one_contract_judgment() {
+    assert_eq!(
+        include_str!("../../echo-edict-provider-lowerer/src/effect_contract.rs"),
+        include_str!("../src/effect_contract.rs"),
     );
 }

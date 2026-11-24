@@ -12,7 +12,6 @@
 //!   Value versioning is recovered by interpretation along a worldline payload
 //!   `P = (μ0, …, μn-1)` via `ValueVersionId := (slot_id, tick_index)`.
 
-use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
@@ -403,15 +402,30 @@ impl WarpTickPatchV1 {
         in_slots.dedup();
         out_slots.sort();
         out_slots.dedup();
+        // Callers may hand over lists with repeats or spare room; the patch
+        // outlives the tick, so it keeps only the room its slots need.
+        in_slots.shrink_to_fit();
+        out_slots.shrink_to_fit();
         let ops = {
-            let mut op_map: std::collections::BTreeMap<WarpOpKey, WarpOp> =
-                std::collections::BTreeMap::new();
-            for op in ops {
-                // Last-wins: if multiple ops share the same canonical sort key, keep the
-                // last op provided by the caller and drop earlier duplicates.
-                op_map.insert(op.sort_key(), op);
+            let mut keyed: Vec<(WarpOpKey, WarpOp)> =
+                ops.into_iter().map(|op| (op.sort_key(), op)).collect();
+            // A stable sort keeps ops that share a key in the caller's order.
+            keyed.sort_by_key(|(key, _)| *key);
+            let mut canonical: Vec<WarpOp> = Vec::with_capacity(keyed.len());
+            let mut previous: Option<WarpOpKey> = None;
+            for (key, op) in keyed {
+                match canonical.last_mut() {
+                    // Last-wins: if multiple ops share the same canonical sort key, keep the
+                    // last op provided by the caller and drop earlier duplicates.
+                    Some(last) if previous == Some(key) => *last = op,
+                    _ => canonical.push(op),
+                }
+                previous = Some(key);
             }
-            op_map.into_values().collect::<Vec<_>>()
+            // Room was reserved for every op offered; the patch keeps only
+            // what the canonical ops need.
+            canonical.shrink_to_fit();
+            canonical
         };
         let digest = compute_patch_digest_v2(
             policy_id,
@@ -1047,7 +1061,44 @@ fn compute_patch_digest_v2(
     out_slots: &[SlotId],
     ops: &[WarpOp],
 ) -> ContentHash {
-    let mut h = Hasher::new();
+    // Measure the encoding first, so the stage is never larger than the
+    // input: a fixed 16 KiB stage would allocate that much for every small
+    // patch (see `commit_budget` in echo-alloc-witness). The measuring pass
+    // copies and hashes nothing: it only adds up lengths.
+    let mut len = ByteCount(0);
+    encode_patch_digest_input_v2(
+        &mut len,
+        policy_id,
+        rule_pack_id,
+        commit_status,
+        in_slots,
+        out_slots,
+        ops,
+    );
+    let mut h = StagedHasher::for_input_len(len.0);
+    encode_patch_digest_input_v2(
+        &mut h,
+        policy_id,
+        rule_pack_id,
+        commit_status,
+        in_slots,
+        out_slots,
+        ops,
+    );
+    h.finalize()
+}
+
+/// Writes the patch's canonical encoding, the exact bytes `patch_digest`
+/// covers, to `h`.
+fn encode_patch_digest_input_v2(
+    h: &mut impl DigestSink,
+    policy_id: u32,
+    rule_pack_id: &ContentHash,
+    commit_status: TickCommitStatus,
+    in_slots: &[SlotId],
+    out_slots: &[SlotId],
+    ops: &[WarpOp],
+) {
     h.update(domain::PATCH_DIGEST_V1);
     // Patch format version.
     h.update(&2u16.to_le_bytes());
@@ -1055,13 +1106,120 @@ fn compute_patch_digest_v2(
     h.update(rule_pack_id);
     h.update(&[commit_status.code()]);
 
-    encode_slots(&mut h, in_slots);
-    encode_slots(&mut h, out_slots);
-    encode_ops(&mut h, ops);
-    h.finalize().into()
+    encode_slots(h, in_slots);
+    encode_slots(h, out_slots);
+    encode_ops(h, ops);
 }
 
-fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
+/// The exact bytes `patch_digest` hashes, gathered so a test can inspect them.
+#[cfg(test)]
+fn patch_digest_input_v2(
+    policy_id: u32,
+    rule_pack_id: &ContentHash,
+    commit_status: TickCommitStatus,
+    in_slots: &[SlotId],
+    out_slots: &[SlotId],
+    ops: &[WarpOp],
+) -> Vec<u8> {
+    let mut gathered = DigestBytes(Vec::new());
+    encode_patch_digest_input_v2(
+        &mut gathered,
+        policy_id,
+        rule_pack_id,
+        commit_status,
+        in_slots,
+        out_slots,
+        ops,
+    );
+    gathered.0
+}
+
+/// Receives the digest's input one piece at a time, in order.
+trait DigestSink {
+    fn update(&mut self, bytes: &[u8]);
+}
+
+/// Adds up the length of the digest's input without copying it.
+struct ByteCount(usize);
+
+impl DigestSink for ByteCount {
+    fn update(&mut self, bytes: &[u8]) {
+        self.0 += bytes.len();
+    }
+}
+
+/// The size of the staging buffer: the most bytes the small fields are
+/// gathered into before they go to the hasher. A piece at least this long
+/// goes to the hasher directly instead. Sixteen BLAKE3 chunks of 1 KiB is
+/// the widest batch its SIMD paths compress together (AVX-512; the narrower
+/// paths take 8, 4 or 1 chunks). A flush is usually a little shorter than a
+/// stage and rarely lands on a chunk boundary, so in practice the hasher
+/// compresses narrower batches than sixteen chunks; that costs only speed,
+/// since the digest does not depend on how the input is split.
+const DIGEST_STAGE_BYTES: usize = 16 * 1024;
+
+/// Hashes the digest's input, staging the small fields in a buffer of at
+/// most [`DIGEST_STAGE_BYTES`].
+///
+/// Given a few bytes per call, BLAKE3 can only buffer them; given many
+/// chunks at once, it compresses them side by side. The small fields are
+/// staged into one buffer, sized to the whole input or to one stage,
+/// whichever is smaller, and handed over when it fills. A piece that is
+/// itself at least a stage long, such as an atom payload, goes to the
+/// hasher directly, so the memory held here never grows past a stage. The
+/// digest does not depend on how the input is split.
+struct StagedHasher {
+    hasher: blake3::Hasher,
+    stage: Vec<u8>,
+}
+
+impl StagedHasher {
+    /// A hasher for an input of `input_len` bytes.
+    fn for_input_len(input_len: usize) -> Self {
+        Self {
+            hasher: blake3::Hasher::new(),
+            stage: Vec::with_capacity(input_len.min(DIGEST_STAGE_BYTES)),
+        }
+    }
+
+    fn flush(&mut self) {
+        if !self.stage.is_empty() {
+            self.hasher.update(&self.stage);
+            self.stage.clear();
+        }
+    }
+
+    fn finalize(mut self) -> ContentHash {
+        self.flush();
+        self.hasher.finalize().into()
+    }
+}
+
+impl DigestSink for StagedHasher {
+    fn update(&mut self, bytes: &[u8]) {
+        if self.stage.len() + bytes.len() > DIGEST_STAGE_BYTES {
+            self.flush();
+        }
+        if bytes.len() >= DIGEST_STAGE_BYTES {
+            self.hasher.update(bytes);
+        } else {
+            self.stage.extend_from_slice(bytes);
+        }
+    }
+}
+
+/// Gathers the digest's input instead of hashing it, for inspection.
+#[cfg(test)]
+struct DigestBytes(Vec<u8>);
+
+#[cfg(test)]
+impl DigestSink for DigestBytes {
+    fn update(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+}
+
+fn encode_slots(h: &mut impl DigestSink, slots: &[SlotId]) {
     h.update(&(slots.len() as u64).to_le_bytes());
     for slot in slots {
         match slot {
@@ -1100,7 +1258,7 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
 /// stable, versioned encoding for hashing (`patch_digest`). They are
 /// intentionally distinct from `WarpOp::sort_key`’s `kind` values, which exist
 /// only to define deterministic replay ordering.
-fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
+fn encode_ops(h: &mut impl DigestSink, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
         match op {
@@ -1164,7 +1322,7 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     }
 }
 
-fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
+fn encode_portal_init(h: &mut impl DigestSink, init: &PortalInit) {
     match init {
         PortalInit::RequireExisting => {
             h.update(&[0u8]);
@@ -1176,7 +1334,7 @@ fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
     }
 }
 
-fn encode_attachment_key_opt(h: &mut Hasher, key: Option<&AttachmentKey>) {
+fn encode_attachment_key_opt(h: &mut impl DigestSink, key: Option<&AttachmentKey>) {
     match key {
         None => {
             h.update(&[0u8]);
@@ -1188,7 +1346,7 @@ fn encode_attachment_key_opt(h: &mut Hasher, key: Option<&AttachmentKey>) {
     }
 }
 
-fn encode_attachment_key(h: &mut Hasher, key: &AttachmentKey) {
+fn encode_attachment_key(h: &mut impl DigestSink, key: &AttachmentKey) {
     let (owner_tag, plane_tag) = key.tag();
     h.update(&[owner_tag]);
     h.update(&[plane_tag]);
@@ -1204,7 +1362,7 @@ fn encode_attachment_key(h: &mut Hasher, key: &AttachmentKey) {
     }
 }
 
-fn encode_attachment_value_opt(h: &mut Hasher, value: Option<&AttachmentValue>) {
+fn encode_attachment_value_opt(h: &mut impl DigestSink, value: Option<&AttachmentValue>) {
     match value {
         None => {
             h.update(&[0u8]);
@@ -1216,7 +1374,7 @@ fn encode_attachment_value_opt(h: &mut Hasher, value: Option<&AttachmentValue>) 
     }
 }
 
-fn encode_attachment_value(h: &mut Hasher, value: &AttachmentValue) {
+fn encode_attachment_value(h: &mut impl DigestSink, value: &AttachmentValue) {
     match value {
         AttachmentValue::Atom(atom) => {
             h.update(&[1u8]);
@@ -1229,7 +1387,7 @@ fn encode_attachment_value(h: &mut Hasher, value: &AttachmentValue) {
     }
 }
 
-fn encode_atom_payload(h: &mut Hasher, atom: &AtomPayload) {
+fn encode_atom_payload(h: &mut impl DigestSink, atom: &AtomPayload) {
     h.update(&(atom.type_id).0);
     h.update(&(atom.bytes.len() as u64).to_le_bytes());
     h.update(&atom.bytes);
@@ -2607,6 +2765,136 @@ mod tests {
             },
         ));
     }
+    /// Four hundred ops over seven nodes and three values, drawn from a
+    /// fixed linear congruential sequence, so the ops repeat keys in a
+    /// varied but reproducible order.
+    fn ops_with_repeated_keys() -> Vec<WarpOp> {
+        let (_, first, second) = reversible_fixture();
+        let nodes: Vec<NodeKey> = (0..5)
+            .map(|i| NodeKey {
+                warp_id: first.warp_id,
+                local_id: make_node_id(&format!("canonical-{i}")),
+            })
+            .chain([first, second])
+            .collect();
+        let values: [&'static [u8]; 3] = [b"a", b"b", b"c"];
+        let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut ops = Vec::new();
+        for _ in 0..400 {
+            x = x
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let node = nodes[((x >> 33) % nodes.len() as u64) as usize];
+            let value = values[((x >> 20) % values.len() as u64) as usize];
+            ops.push(match (x >> 40) % 3 {
+                0 => set_attachment(node, Some(reversible_atom(value))),
+                1 => set_attachment(node, None),
+                _ => WarpOp::UpsertNode {
+                    node,
+                    record: NodeRecord {
+                        ty: make_type_id(std::str::from_utf8(value).unwrap_or("x")),
+                    },
+                },
+            });
+        }
+        ops
+    }
+
+    #[test]
+    fn op_canonicalization_matches_the_last_wins_map_it_replaced() {
+        let ops = ops_with_repeated_keys();
+        let mut reference: std::collections::BTreeMap<WarpOpKey, WarpOp> =
+            std::collections::BTreeMap::new();
+        for op in ops.clone() {
+            reference.insert(op.sort_key(), op);
+        }
+        let reference: Vec<WarpOp> = reference.into_values().collect();
+
+        let patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            Vec::new(),
+            Vec::new(),
+            ops,
+        );
+
+        assert!(reference.len() < 400, "the fixture must repeat keys");
+        assert_eq!(patch.ops(), reference.as_slice());
+    }
+
+    #[test]
+    fn canonical_ops_keep_only_the_room_they_need() {
+        let ops = ops_with_repeated_keys();
+        let offered = ops.len();
+        let patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            Vec::new(),
+            Vec::new(),
+            ops,
+        );
+        assert!(patch.ops.len() < offered, "the fixture must repeat keys");
+        // `shrink_to_fit` may leave a little slack, so the property is that
+        // the room reserved for the dropped ops is given back.
+        assert!(
+            patch.ops.capacity() < offered,
+            "the patch keeps room for the {} ops it dropped",
+            offered - patch.ops.len()
+        );
+    }
+
+    /// The staged hasher must give the digest of the gathered input when
+    /// the stage fills and flushes (600 slots), when a piece longer than a
+    /// stage bypasses it, when a piece is exactly a stage long, and when
+    /// small pieces are staged again after a direct one (whichever large op
+    /// sorts first, the other's header is staged after its payload went to
+    /// the hasher directly).
+    #[test]
+    fn staged_hashing_matches_the_gathered_input_across_stage_boundaries() {
+        let warp_id = make_warp_id("stage/warp");
+        let node = |i: usize| NodeKey {
+            warp_id,
+            local_id: make_node_id(&format!("stage/node/{i}")),
+        };
+        // Keyed by length, so the two large ops have distinct sort keys and
+        // both survive last-wins.
+        let payload = |label: &str, len: usize| WarpOp::SetAttachment {
+            key: AttachmentKey::node_alpha(node(len)),
+            value: Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(label),
+                Bytes::from(vec![7u8; len]),
+            ))),
+        };
+        let in_slots: Vec<SlotId> = (0..600).map(|i| SlotId::Node(node(i))).collect();
+        let patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            in_slots,
+            Vec::new(),
+            vec![
+                payload("stage/exact", DIGEST_STAGE_BYTES),
+                payload("stage/longer", 3 * DIGEST_STAGE_BYTES + 5),
+            ],
+        );
+        let input = patch_digest_input_v2(
+            patch.policy_id(),
+            &patch.rule_pack_id(),
+            patch.commit_status(),
+            patch.in_slots(),
+            patch.out_slots(),
+            patch.ops(),
+        );
+        assert!(
+            input.len() > 6 * DIGEST_STAGE_BYTES,
+            "the input must cross several stage boundaries"
+        );
+        let expected: ContentHash = blake3::hash(&input).into();
+        assert_eq!(patch.digest(), expected);
+        assert!(patch.validate_digest().is_ok());
+    }
 }
 
 #[cfg(test)]
@@ -3108,3 +3396,6 @@ mod touched_diff_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod compat_vectors;

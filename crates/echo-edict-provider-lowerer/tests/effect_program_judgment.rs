@@ -113,9 +113,18 @@ fn bytes(value: &V) -> &[u8] {
     };
     bytes
 }
+/// Public compiler witnesses kept outside the shared corpus, beside the
+/// runtime tests that run them.
+const WITNESSES: &[(&str, &str)] = &[(
+    "closure-read-witness",
+    include_str!(
+        "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-executable-operation-package.hex"
+    ),
+)];
 fn package(name: &str) -> V {
     let hex = RETAINED
         .iter()
+        .chain(WITNESSES)
         .find_map(|(entry, hex)| (*entry == name).then_some(*hex))
         .expect(name);
     decode(&hex::decode(hex.trim()).expect("hex")).expect("canonical package")
@@ -389,5 +398,77 @@ fn effect_program_minimums_under_each_schedule() {
             ("structured-branch-control", (179, 18_453), (177, 7031)),
             ("structured-nested-control", (456, 48_136), (254, 13_742)),
         ]
+    );
+}
+
+/// The witness's own operation configuration, as its lawpack build wrote it.
+const CLOSURE_CONFIGURATION: &str = include_str!(
+    "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-configuration.hex"
+);
+
+/// Judges an edited witness through publication, which reads the graph-read
+/// declaration (and so the closure's selector) from its configuration.
+fn judge_witness(program: &[u8]) -> Result<(), EffectPublicationError> {
+    let configuration = hex::decode(CLOSURE_CONFIGURATION.trim()).expect("hex");
+    let source = echo_edict_canonical::encode_canonical_cbor_v1(&V::Bytes(
+        b"package consumer.closures.program@1;\n".to_vec(),
+    ))
+    .expect("source");
+    encode_effect_publication(EffectPublicationInput {
+        compiler_program: program,
+        application_schema_coordinate: "consumer.closures.exports/v1",
+        source_artifact: &source,
+        source_domain: "edict.source/v1",
+        configuration: &configuration,
+    })
+    .map(|_| ())
+}
+
+/// The smallest (steps, bytes) the witness's publication admits.
+fn witness_minimum(capability: Option<&str>) -> (u64, u64) {
+    const AMPLE: u64 = 1 << 40;
+    let name = "closure-read-witness";
+    let search = |admits: &dyn Fn(u64) -> bool| {
+        assert!(admits(AMPLE), "refused even with an ample budget");
+        let (mut low, mut high) = (0_u64, AMPLE);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if admits(middle) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        high
+    };
+    (
+        search(&|steps| judge_witness(&edited(name, capability, Some(steps), Some(AMPLE))).is_ok()),
+        search(&|bytes_| {
+            judge_witness(&edited(name, capability, Some(AMPLE), Some(bytes_))).is_ok()
+        }),
+    )
+}
+
+/// The compiler-produced closure-read witness under each schedule: the
+/// copying schedule charges the module's costliest helper as the selector,
+/// the shared schedule the declared selector only (echo#1016). Change-detection
+/// goldens; `the_closure_witness_runs_within_the_lowerer_minimum` in warp-core
+/// runs the witness at exactly the shared minimum recorded here.
+#[test]
+fn closure_read_witness_minimums_under_each_schedule() {
+    let name = "closure-read-witness";
+    assert_eq!(
+        judge_witness(&compiled_program(name)),
+        Ok(()),
+        "as compiled"
+    );
+    assert_eq!(
+        judge_witness(&edited(name, Some(SHARED), None, None)),
+        Ok(()),
+        "shared"
+    );
+    assert_eq!(
+        (witness_minimum(None), witness_minimum(Some(SHARED))),
+        ((9139, 537_742), (8666, 504_387))
     );
 }

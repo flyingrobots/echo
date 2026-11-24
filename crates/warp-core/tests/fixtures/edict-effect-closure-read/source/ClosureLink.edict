@@ -1,0 +1,31 @@
+package consumer.closures.program@1;
+use lawpack consumer.closures@1 digest "sha256:49cee50fa25b560b0a1431470fd60b4c4f41b0a2be3e3ce7360c04fa3d05c3e2" as fx;
+type Candidate = { guide: fx.Guide, depth: U64, slot: U64, parent: fx.NodeRow, child: fx.NodeRow };
+type Decision = { expand: Bool, guide: fx.Guide, wellFormed: Bool, sufficient: Bool };
+fn select(candidate: Candidate) -> Decision {
+  let followA = if candidate.guide.followA == true && candidate.slot == 0u64 then true else false;
+  let followB = if candidate.guide.followB == true && candidate.slot == 1u64 then true else false;
+  let next: fx.Guide = { a: candidate.guide.a, b: candidate.guide.b, followA: followA, followB: followB, reach: candidate.guide.reach };
+  let expand = if followA == true || followB == true then true else false;
+  let sufficient = if expand == true && candidate.depth > candidate.guide.reach then false else true;
+  let wellFormed = true;
+  return { expand: expand, guide: next, wellFormed: wellFormed, sufficient: sufficient };
+}
+type Input = { anchor: Bytes<exact=32>, read: fx.ClosureQuery };
+intent readClosure(input: Input) returns fx.Closure
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  let observed: fx.Closure = fx.closure(input.read)
+    else {
+      startMissing(query) => fx.StartMissing,
+      nodeBound(query) => fx.NodeBoundExceeded,
+      depthBound(query) => fx.DepthBoundExceeded,
+      scanBound(query) => fx.ScanBoundExceeded,
+      workBound(query) => fx.WorkBoundExceeded,
+      selectorInsufficient(query) => fx.SelectorInsufficient,
+      storageMalformed(query) => fx.StorageMalformed,
+    };
+  return observed;
+}

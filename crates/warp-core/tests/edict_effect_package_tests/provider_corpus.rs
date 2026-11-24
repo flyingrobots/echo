@@ -1541,6 +1541,8 @@ fn manifest(entries: &[Entry]) -> String {
     manifest
 }
 
+#[path = "provider_corpus/closure_witness.rs"]
+mod closure_witness;
 #[path = "provider_corpus/shared_schedule.rs"]
 mod shared_schedule;
 

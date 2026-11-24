@@ -253,6 +253,16 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-graph-read-run" \
     --check
 
+  # The same witness for a program that reads a guided closure through
+  # echo.dpo@2.closure-read with a declared selector (echo#1016).
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name closure \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-closure-read" \
+    --work-root "$witness_dir/effect-closure-read-run" \
+    --check
+
   # Public source witness for a helper with a declared typed failure that
   # the intent maps to a terminal obstruction (core.failure/v1, #996).
   cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \

@@ -7,6 +7,13 @@
 
 ### Added
 
+- A proposed design for executing bridge Actions on generic Echo (#1026,
+  draft #1027), revised in response to review. It covers the synthetic
+  receipt scope, the bridge candidate and its retained representations, the
+  versioned batch digests, a single failure matrix, ceilings, range-slot
+  projection, and addressing agreement between effect packages. It ships
+  with independent byte vectors from a generator outside `warp-core`. Not
+  implemented, and it governs nothing until the owner approves it.
 - The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
   amblicit#324). warp-core, the provider lowerer and the provider verifier
   admit a pure module that requires `core.cost.shared-reads/v1`. The runtime

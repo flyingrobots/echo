@@ -45,6 +45,14 @@ host_probes=(
   "host|use warp_core::{TrustedRuntimeHost, TrustedRuntimeHostError};"
   "wal|use warp_core::{TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery};"
 )
+# Intended to be exhaustive over every public item that is gated on
+# `native_rule_bootstrap`, alone or jointly with `trusted_runtime`. To extend it
+# after adding such an item, list it with `grep -rn native_rule_bootstrap
+# crates/warp-core/src`, add one line here, and confirm the script passes.
+# `ContractQueryObserver`, `InstalledContractPackage` and
+# `ProviderContractPackageInstallerV1` are deliberately not probed: they are
+# exported without a native gate and are inert data or sealed-trait types. Every
+# call that registers or installs one is gated and probed above.
 native_probes=(
   "engine_register_rule|fn _p() { let _ = warp_core::Engine::register_rule; }"
   "engine_register_contract_package|fn _p() { let _ = warp_core::Engine::register_contract_package; }"
@@ -53,6 +61,23 @@ native_probes=(
   "runtime_ingest_installed_contract|fn _p() { let _ = warp_core::WorldlineRuntime::ingest_installed_contract_invocation; }"
   "rule_types|use warp_core::{PatternGraph, RewriteRule, RuleExecutor};"
   "build_engine|use warp_core::build_engine;"
+  "engine_installed_contract_mutation_package_id|fn _p() { let _ = warp_core::Engine::installed_contract_mutation_package_id; }"
+  "engine_installed_contract_mutation_evidence|fn _p() { let _ = warp_core::Engine::installed_contract_mutation_evidence; }"
+  "engine_installed_contract_query_package_id|fn _p() { let _ = warp_core::Engine::installed_contract_query_package_id; }"
+  "engine_installed_provider_mutation_package_id|fn _p() { let _ = warp_core::Engine::installed_provider_contract_mutation_package_id; }"
+  "engine_installed_provider_mutation_evidence|fn _p() { let _ = warp_core::Engine::installed_provider_contract_mutation_evidence_v1; }"
+  "engine_installed_provider_package|fn _p() { let _ = warp_core::Engine::installed_provider_contract_package; }"
+  "engine_installed_provider_package_by_reference|fn _p() { let _ = warp_core::Engine::installed_provider_contract_package_by_reference; }"
+  "runtime_ingest_provider_contract|fn _p() { let _ = warp_core::WorldlineRuntime::ingest_provider_contract_invocation_v1; }"
+  "host_admit_provider_package|fn _p() { let _ = warp_core::TrustedRuntimeHost::admit_provider_contract_package_v1; }"
+  "host_install_provider_package|fn _p() { let _ = warp_core::TrustedRuntimeHost::install_admitted_provider_contract_package_v1_trusted; }"
+  "host_stage_installed_submission|fn _p() { let _ = warp_core::TrustedRuntimeHost::stage_installed_contract_submission; }"
+  "host_admit_installed_submission|fn _p() { let _ = warp_core::TrustedRuntimeHost::admit_installed_contract_submission; }"
+  "host_stage_provider_submission|fn _p() { let _ = warp_core::TrustedRuntimeHost::stage_provider_contract_submission_v1; }"
+  "host_admit_provider_submission|fn _p() { let _ = warp_core::TrustedRuntimeHost::admit_provider_contract_submission_v1; }"
+  "app_submit_contract_inverse|fn _p() { let _ = warp_core::TrustedRuntimeApp::submit_contract_inverse_with_runtime_wal_ack; }"
+  "type_echo_config|use warp_core::EchoConfig;"
+  "fn_run_pair_determinism|use warp_core::run_pair_determinism;"
 )
 
 probe_builds() { # <features> <name> <body>

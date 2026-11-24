@@ -390,18 +390,22 @@ impl Judgment<'_> {
             self.selector(graph.selector, closure.node, closure.guide)?;
         }
         // Under the shared-read schedule a closure charges its declared
-        // selector, the only helper the runtime calls; the copying schedule
-        // keeps the costliest helper of the module.
+        // selector, the only helper the runtime calls, at its shared-read
+        // call cost: the runtime evaluates it with the shared evaluator. The
+        // copying schedule keeps the costliest helper of the module at its
+        // copying cost.
         let selected: BTreeMap<String, super::Fact>;
         let helpers = if self.shared {
             let coordinate = string(get(self.core, "coordinate")?)?;
             let declared = graph.selector.map(|name| format!("{coordinate}.{name}"));
-            selected = self
-                .completed
-                .iter()
-                .filter(|(name, _)| Some(name.as_str()) == declared.as_deref())
-                .map(|(name, fact)| (name.clone(), fact.clone()))
-                .collect();
+            let mut chosen = BTreeMap::new();
+            if let Some(declared) = declared {
+                if let Some(fact) = self.completed.get(&declared).cloned() {
+                    let cost = self.shared_selector(&declared)?;
+                    chosen.insert(declared, super::Fact { cost, ..fact });
+                }
+            }
+            selected = chosen;
             &selected
         } else {
             &self.completed

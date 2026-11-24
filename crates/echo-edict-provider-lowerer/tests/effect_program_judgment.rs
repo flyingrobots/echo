@@ -517,7 +517,8 @@ fn witness_minimum(name: &str, capability: Option<&str>) -> (u64, u64) {
 
 /// The compiler-produced closure-read witness under each schedule: the
 /// copying schedule charges the module's costliest helper as the selector,
-/// the shared schedule the declared selector only (echo#1016). Change-detection
+/// the shared schedule the declared selector only, at its shared-read call
+/// cost (echo#1016). Change-detection
 /// goldens; `the_closure_witness_runs_within_the_lowerer_minimum` in warp-core
 /// runs the witness at exactly the shared minimum recorded here.
 #[test]
@@ -535,7 +536,7 @@ fn closure_read_witness_minimums_under_each_schedule() {
     );
     let copying = witness_minimum(name, None);
     let shared = witness_minimum(name, Some(SHARED));
-    assert_eq!((copying, shared), ((15_367, 932_374), (8870, 504_387)));
+    assert_eq!((copying, shared), ((15_367, 932_374), (10_814, 194_487)));
     // The witness also carries `costly`, a costlier helper it never selects:
     // copying charges it on every closure edge, the shared schedule charges
     // the declared `select` only, so it is cheaper on both axes.

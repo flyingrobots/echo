@@ -14,6 +14,7 @@ use super::{
 use crate::edict_pure::{
     evaluate::{expression, validate, Meter, VALUE_CELL_BYTES},
     model::{Expr, Helper, RuntimeType},
+    shared_reads::{from_canonical, to_canonical, Evaluator, Locals},
     values::{array, bytes, exact_fields, field, number},
     EvaluationError as Error,
 };
@@ -248,6 +249,10 @@ pub(crate) struct Session<'a, A> {
     pub meter: &'a mut Meter,
     pub usage: &'a mut Usage,
     pub limits: &'a ReadLimits,
+    /// The shared-read schedule (`edict.core-cost/v2`) runs a closure's
+    /// selector on the shared evaluator; the copying schedule copies its
+    /// argument into the call.
+    pub shared: bool,
 }
 
 impl<A: NodeAtomAccess> Session<'_, A> {
@@ -444,6 +449,7 @@ impl Walk<'_> {
         at: &Position,
         helpers: &BTreeMap<String, Helper>,
         meter: &mut Meter,
+        shared: bool,
     ) -> Result<Result<(), Obstruction>, Error> {
         let (Some(current), Some(child_row)) =
             (self.pending.get(at.from), self.nodes.get(at.child))
@@ -459,8 +465,12 @@ impl Walk<'_> {
             ("parent", meter.copy(parent_row)?),
             ("child", meter.copy(child_row)?),
         ]);
-        let locals = BTreeMap::from([("candidate", candidate)]);
-        let decision = expression(&self.decide, &locals, helpers, meter, 0)?;
+        let decision = if shared {
+            self.select_shared(&candidate, helpers, meter)?
+        } else {
+            let locals = BTreeMap::from([("candidate", candidate)]);
+            expression(&self.decide, &locals, helpers, meter, 0)?
+        };
         if !flag(&decision, "wellFormed")? {
             return Ok(Err(Obstruction::ClosureStorageMalformed));
         }
@@ -475,6 +485,31 @@ impl Walk<'_> {
         }
         let guide = meter.copy(field(&decision, "guide")?)?;
         self.occupy(at.child, at.via, depth, guide, meter)
+    }
+}
+
+impl Walk<'_> {
+    /// Calls the selector on the shared evaluator: the candidate becomes a
+    /// shared value without a charge and is passed by reference, and the
+    /// decision is read back in canonical form, as the shared-read schedule
+    /// prices one source helper call.
+    fn select_shared(
+        &self,
+        candidate: &Value,
+        helpers: &BTreeMap<String, Helper>,
+        meter: &mut Meter,
+    ) -> Result<Value, Error> {
+        let Expr::Call(name, _) = &self.decide else {
+            return Err(Error::InvalidArtifact);
+        };
+        let helper = helpers.get(name).ok_or(Error::InvalidArtifact)?;
+        let [parameter] = helper.params.as_slice() else {
+            return Err(Error::InvalidArtifact);
+        };
+        let argument = from_canonical(candidate, &parameter.ty, 0)?;
+        let mut locals = Locals::from([("candidate", argument)]);
+        let decision = Evaluator { helpers, meter }.expression(&self.decide, &mut locals, 0)?;
+        to_canonical(&decision, &helper.ty, 0)
     }
 }
 
@@ -600,7 +635,9 @@ pub(crate) fn closure<A: NodeAtomAccess>(
                     via,
                     child,
                 };
-                if let Err(obstruction) = walk.offer(&at, session.helpers, session.meter)? {
+                if let Err(obstruction) =
+                    walk.offer(&at, session.helpers, session.meter, session.shared)?
+                {
                     return Ok(Err(obstruction));
                 }
             }

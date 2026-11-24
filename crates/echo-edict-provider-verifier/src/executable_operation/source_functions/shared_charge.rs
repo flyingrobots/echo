@@ -235,7 +235,11 @@ impl<'a> Checker<'a, '_> {
 
     /// One helper call's charge and result bounds under its arguments'
     /// bounds; arguments and the result pass by reference.
-    fn shared_helper(&mut self, name: &str, arguments: Vec<Bounds>) -> Check<(Charge, Bounds)> {
+    pub(super) fn shared_helper(
+        &mut self,
+        name: &str,
+        arguments: Vec<Bounds>,
+    ) -> Check<(Charge, Bounds)> {
         let key = (name.to_owned(), arguments);
         if let Some(known) = self.types.shared_helpers.helpers.get(&key) {
             return Ok(known.clone());

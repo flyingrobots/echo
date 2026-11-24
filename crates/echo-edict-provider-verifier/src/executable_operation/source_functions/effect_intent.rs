@@ -418,7 +418,7 @@ impl Checker<'_, '_> {
     /// frame records. Each graph read pays the whole allowance, as on the
     /// bounded-read route.
     pub(super) fn graph_read_charge(
-        &self,
+        &mut self,
         read: &str,
         input: &Schema,
         output: &Schema,
@@ -428,18 +428,24 @@ impl Checker<'_, '_> {
         let input = fields_of(input)?;
         let scans = graph.max_edge_scans;
         // Under the shared-read schedule a closure charges its declared
-        // selector, the only helper the runtime calls; the copying schedule
-        // keeps the costliest helper of the module.
+        // selector, the only helper the runtime calls, at its shared-read
+        // call charge, since the runtime runs it on the shared evaluator; the
+        // copying schedule keeps the costliest helper of the module at its
+        // copying charge.
         let selected: BTreeMap<String, _>;
         let summaries = if self.types.shared {
             let module = string(get(self.types.module, "coordinate")?)?;
             let declared = graph.selector.map(|name| format!("{module}.{name}"));
-            selected = self
-                .summaries
-                .iter()
-                .filter(|(name, _)| Some(name.as_str()) == declared.as_deref())
-                .map(|(name, summary)| (name.clone(), *summary))
-                .collect();
+            let mut chosen = BTreeMap::new();
+            if let Some(declared) = declared {
+                if let Some(summary) = self.summaries.get(&declared).copied() {
+                    // The candidate passes by reference with no proven list
+                    // bounds.
+                    let charge = self.shared_helper(&declared, vec![BTreeMap::new()])?.0;
+                    chosen.insert(declared, super::Summary { charge, ..summary });
+                }
+            }
+            selected = chosen;
             &selected
         } else {
             self.summaries

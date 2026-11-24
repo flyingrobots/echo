@@ -432,6 +432,7 @@ impl Program {
             meter: &mut *run.meter,
             usage: &mut run.usage,
             limits: &limits,
+            shared: false,
         };
         let outcome = match read {
             GraphRead::Edges { max_edges } => edge_read(*max_edges, &input, &mut session)?,

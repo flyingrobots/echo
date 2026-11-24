@@ -170,8 +170,8 @@ pub(super) fn run_body(
         meter: &mut *run.meter,
     }
     .boundary(result.full_size()?)?;
-    let output = encode(&to_canonical(&result, &program.output, 0)?)
-        .map_err(|_| Error::InvalidArtifact)?;
+    let output =
+        encode(&to_canonical(&result, &program.output, 0)?).map_err(|_| Error::InvalidArtifact)?;
     if output.len() as u64 > program.limits.max_output_bytes {
         return Err(Error::OutputBudgetExceeded.into());
     }
@@ -354,8 +354,9 @@ fn graph_read<'p>(
         max_reads: u64::MAX,
         max_read_bytes: u64::MAX,
     };
-    // A closure's selector is a source helper the read runs itself, on
-    // canonical values, at its copying charge.
+    // A closure's selector is a source helper the read runs itself on the
+    // shared evaluator: its candidate is built from canonical copies, then
+    // passed by reference.
     let mut session = GraphReadSession {
         graph,
         helpers: &program.helpers,
@@ -363,6 +364,7 @@ fn graph_read<'p>(
         meter: &mut *run.meter,
         usage: &mut run.usage,
         limits: &limits,
+        shared: true,
     };
     let outcome = match read {
         GraphRead::Edges { max_edges } => edge_read(*max_edges, &input, &mut session)?,

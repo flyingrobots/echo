@@ -22,7 +22,7 @@ const PACKAGE: &str = include_str!(
     "../../fixtures/edict-effect-closure-read/closure-executable-operation-package.hex"
 );
 /// The lowerer's shared-schedule minimum for the witness: (steps, bytes).
-const LOWERER_SHARED_MINIMUM: (u64, u64) = (8870, 504_387);
+const LOWERER_SHARED_MINIMUM: (u64, u64) = (10_814, 194_487);
 
 const WARP: WarpId = WarpId([3; 32]);
 /// The node and edge types the witness's graph schema and footprint law name.

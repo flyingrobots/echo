@@ -106,6 +106,12 @@ const VERDICTS: &str =
 /// runtime tests that run them.
 const WITNESSES: &[(&str, &str)] = &[
     (
+        "closure-read-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-executable-operation-package.hex"
+        ),
+    ),
+    (
         "identity-witness",
         include_str!(
             "../../warp-core/tests/fixtures/edict-content-address/identity-executable-operation-package.hex"
@@ -726,6 +732,26 @@ fn identity_witness_minimums_equal_the_lowerer_minimums() {
             ("identity-witness", (1898, 71_061), (1262, 11_580)),
             ("attachment-digest-witness", (371, 11_334), (289, 3209)),
         ]
+    );
+}
+
+/// The compiler-produced closure-read witness is audited under the
+/// shared-read schedule, and the verifier's minimums under both schedules
+/// equal the lowerer's, which `closure_read_witness_minimums_under_each_schedule`
+/// in the lowerer pins independently (oracle: the other judge). Under the
+/// shared schedule the declared selector is charged at its shared-read call
+/// charge (echo#1016).
+#[test]
+fn closure_read_witness_minimums_equal_the_lowerer_minimums() {
+    let name = "closure-read-witness";
+    assert_eq!(
+        verify_effect_package(&edited(name, Some(SHARED), None, None)),
+        Ok(()),
+        "shared"
+    );
+    assert_eq!(
+        (minimum(name, None), minimum(name, Some(SHARED))),
+        ((15_367, 932_374), (10_814, 194_487))
     );
 }
 

@@ -228,6 +228,13 @@ impl<'a> Judgment<'a> {
         cost.plus(self.shared_expression(get(body, "result")?)?)
     }
 
+    /// What one call of a closure's declared selector costs under the
+    /// shared-read schedule: its candidate is passed by reference with no
+    /// proven list bounds, so every list is charged at its declared maximum.
+    pub(super) fn shared_selector(&mut self, name: &str) -> Check<Cost> {
+        Ok(self.shared_function(name, vec![Reach::new()])?.0)
+    }
+
     /// The cost and result bounds of one source helper call under its
     /// arguments' bounds. Arguments and the result are passed by reference.
     fn shared_function(&mut self, name: &str, arguments: Vec<Reach>) -> Check<(Cost, Reach)> {

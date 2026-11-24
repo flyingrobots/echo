@@ -336,8 +336,10 @@ it does not erase the operation's portable resource charge.
 ### Two cost schedules, one meaning
 
 The two excerpts above come from the copying evaluator, which every module
-uses unless it asks for something else. Under it, passing fold state into a
-step and reading a list element are charged as copies.
+uses unless it asks for something else. Under it, a read of a local (the
+step's state parameter included) or of a list element is charged as a copy;
+the fold validates the state and moves it into the step's frame, and the copy
+is charged when the step's body reads it.
 
 A pure module that requires the capability `core.cost.shared-reads/v1` is
 judged and metered under the shared-read schedule (`edict.core-cost/v2`) and
@@ -345,11 +347,17 @@ runs on a [separate evaluator](../../crates/warp-core/src/edict_pure/shared_read
 whose values are immutable and shared. There, reading a local, a field, a list
 element or fold state costs one step and copies nothing; `listAppend` and
 `listConcat` pay for a new shell with one cell per result item; and a fold
-pays one step per iteration plus the call to its step.
+pays one step per iteration plus the call to its step. This is the schedule's
+charge; this evaluator does not validate the step's argument or result on each
+iteration, which the copying evaluator does.
 
 The schedule changes what the work costs, not what it means. Every iteration
 of the bound still runs, a full list still refuses an append, and both
-evaluators return the same result. Echo admits the capability on the pure
+evaluators return the same result for a program that both routes admit.
+Selecting shared reads can change admission: Echo refuses byte intrinsics,
+imported helpers, identity intrinsics, `Option` operations, ordered records,
+checked integer operations and `fail` under that schedule, though the copying
+route supports them. Echo admits the capability on the pure
 route only; the stored-read and effect routes keep the copying schedule. The
 [shared-read cost schedule](../architecture/application-contract-hosting.md#shared-read-cost-schedule-edictcore-costv2)
 section has the exact rules.

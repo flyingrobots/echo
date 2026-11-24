@@ -2,19 +2,41 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verifier judgment: inventory authority, eliminate dependency leaves,
 //! then audit ordered lexical frames and conservative whole-operation charges.
+#[cfg(test)]
+mod branch_fact_tests;
 mod byte_at;
 #[cfg(test)]
 mod byte_at_tests;
 #[cfg(test)]
 mod byte_literals_tests;
+#[cfg(test)]
+mod checked_integer_tests;
+mod effect_block;
+mod effect_intent;
+mod failure_sets;
 mod fold;
 #[cfg(test)]
 mod fold_tests;
+#[cfg(test)]
+mod function_precondition_tests;
+mod function_preconditions;
+mod identity;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_tests;
 mod matches;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
 mod order;
+mod ordered_records;
+mod read_charge;
+#[cfg(test)]
+mod read_charge_soundness_tests;
+mod shared_charge;
+#[cfg(test)]
+mod shared_reads_tests;
 mod types;
 #[cfg(test)]
 mod u8_literals_tests;
@@ -23,7 +45,9 @@ mod unsigned_addition;
 mod variant_tests;
 mod variants;
 use super::ProviderRefusalV1;
+use crate::refusal_reason::{RefusalReason as R, Trail};
 use echo_edict_canonical::CanonicalValueV1 as Value;
+pub(super) use effect_intent::{judge as judge_effect_intent, EffectSite};
 use std::collections::{BTreeMap, BTreeSet};
 use types::{Charge, Schema, Types};
 type Check<T> = Result<T, ()>;
@@ -31,6 +55,9 @@ type Check<T> = Result<T, ()>;
 struct Definition<'a> {
     source: bool,
     params: &'a [Value],
+    /// Static preconditions over `params`; empty for imported helpers and
+    /// for source functions without them.
+    preconditions: &'a [Value],
     body: &'a Value,
     parameter_types: Vec<Schema>,
     result: Schema,
@@ -42,6 +69,13 @@ struct Summary {
 }
 struct Expression {
     schema: Schema,
+    charge: Charge,
+    height: usize,
+}
+/// An `if` or `match` arm, or a helper binding or result. A `fail` has no
+/// schema of its own: it returns no value, and its context types it.
+struct Arm {
+    schema: Option<Schema>,
     charge: Charge,
     height: usize,
 }
@@ -84,20 +118,118 @@ impl<'a> Frame<'a> {
     }
 }
 
-pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    audit(core, exports, read).map_err(|()| {
+/// `edge_scans` is the declared per-evaluation graph scan allowance; zero when
+/// the module declares no graph reads.
+pub(super) fn validate(
+    core: &Value,
+    exports: &Value,
+    read: bool,
+    edge_scans: u64,
+) -> Result<(), ProviderRefusalV1> {
+    audit(core, exports, read, edge_scans).map_err(|()| {
         super::super::unsupported_semantics(
             "core.source-functions-verification",
             "Core source functions are outside the checked pure-function profile",
         )
     })
 }
-fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
+fn audit(core: &Value, exports: &Value, read: bool, edge_scans: u64) -> Check<()> {
+    each_intent(core, exports, edge_scans, |checker, intent| {
+        checker.intent(intent, read)
+    })
+}
+/// The conservative charge of each read intent, for measuring it at runtime.
+#[cfg(test)]
+fn read_intent_charges(core: &Value, exports: &Value, edge_scans: u64) -> Check<Vec<Charge>> {
+    let mut charges = Vec::new();
+    each_intent(core, exports, edge_scans, |checker, intent| {
+        charges.push(checker.intent_charge(intent, true)?.0);
+        Ok(())
+    })?;
+    Ok(charges)
+}
+/// Audits every helper, then hands each intent that needs a whole-intent
+/// judgment to `judge`.
+fn each_intent<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    edge_scans: u64,
+    mut judge: impl for<'b> FnMut(&mut Checker<'a, 'b>, &'a Value) -> Check<()>,
+) -> Check<()> {
     let mut types = Types::new(core);
-    let definitions = inventory(core, exports, &mut types)?;
+    let (definitions, summaries) = prepare(
+        core,
+        exports,
+        &mut types,
+        edge_scans,
+        false,
+        &mut Trail::new(),
+    )?;
+    let mut checker = Checker {
+        types: &mut types,
+        definitions: &definitions,
+        summaries: &summaries,
+        proven: Vec::new(),
+        branch: Vec::new(),
+        path: Vec::new(),
+        bound: Vec::new(),
+        proven_sum: None,
+        edge_scans,
+        identity: false,
+    };
+    // A graph read always needs its whole-intent charge judged, and so does
+    // every intent under the shared-read schedule.
+    if !checker.types.shared
+        && super::map_field(core, "functions").is_none()
+        && !unsigned_addition::present(core)?
+        && edge_scans == 0
+    {
+        return Ok(());
+    }
+    for (_, intent) in members(get(core, "intents")?)? {
+        judge(&mut checker, intent)?;
+    }
+    Ok(())
+}
+/// Inventories every helper and summarizes each one after its dependencies.
+type Prepared<'a> = (BTreeMap<String, Definition<'a>>, BTreeMap<String, Summary>);
+fn prepare<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    types: &mut Types<'a>,
+    edge_scans: u64,
+    identity_admitted: bool,
+    trail: &mut Trail,
+) -> Check<Prepared<'a>> {
+    // Declared failure sets, `fail` and `attempt` across the whole module.
+    trail.at(R::FailureSets, &["core"]);
+    let coordinate = super::map_field(core, "coordinate").map_or(Ok(""), string)?;
+    failure_sets::judge(core, exports, coordinate)?;
+    trail.at(R::HelperInventory, &["exports", "pureFunctions"]);
+    let definitions = inventory(core, exports, types, trail)?;
     let mut pending = BTreeMap::new();
     let mut callers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let origins = definitions
+        .iter()
+        .map(|(name, definition)| {
+            (
+                name.as_str(),
+                helper_origin(core, exports, name, definition.source),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mark = |trail: &mut Trail, name: &str| {
+        let origin = origins.get(name).map_or_else(
+            || vec!["functions".to_owned(), name.to_owned()],
+            Clone::clone,
+        );
+        trail.at(
+            R::HelperFunction,
+            &origin.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+    };
     for (name, definition) in &definitions {
+        mark(trail, name);
         let mut edges = BTreeSet::new();
         let mut expressions = Vec::new();
         for binding in sequence(get(definition.body, "bindings")?)? {
@@ -107,7 +239,7 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         while let Some((expression, depth)) = expressions.pop() {
             types.step(depth)?;
             match string(get(expression, "kind")?)? {
-                "const" | "local" => {}
+                "const" | "local" | "fail" => {}
                 "field" => expressions.push((get(expression, "base")?, depth + 1)),
                 "variant" => {
                     if let Some(payload) = super::map_field(expression, "payload") {
@@ -131,9 +263,14 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         expressions.push((value, depth + 1));
                     }
                 }
+                "orderedRecord" => {
+                    for entry in sequence(get(expression, "fields")?)? {
+                        expressions.push((get(entry, "value")?, depth + 1));
+                    }
+                }
                 "if" => {
                     let predicate = get(expression, "predicate")?;
-                    predicate_expressions(predicate, depth + 1, &mut types, &mut expressions)?;
+                    predicate_expressions(predicate, depth + 1, types, &mut expressions)?;
                     expressions.push((get(expression, "then")?, depth + 1));
                     expressions.push((get(expression, "else")?, depth + 1));
                 }
@@ -165,6 +302,18 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
                         "core.list.at",
                         "core.list.append",
                         "core.list.concat",
+                        "core.option.some",
+                        "core.option.none",
+                        "core.option.isSome",
+                        "core.option.default",
+                        "core.option.unwrap",
+                        "core.integer.checkedAdd",
+                        "core.integer.checkedSub",
+                        "core.integer.checkedMul",
+                        "core.integer.checkedDiv",
+                        "core.integer.checkedRem",
+                        "core.integer.min",
+                        "core.integer.max",
                     ]
                     .contains(&callee)
                     {
@@ -182,24 +331,138 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             callers.entry(edge).or_default().push(name);
         }
     }
-    let mut ready: BTreeSet<&str> = pending
+    let summaries = summarize(
+        &definitions,
+        types,
+        (pending, &callers),
+        edge_scans,
+        identity_admitted,
+        &mut |name| mark(trail, name),
+    )?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
+    if summaries.len() != definitions.len() {
+        return Err(());
+    }
+    trail.at(R::HelperPreconditions, &["core"]);
+    preconditions_are_typed(&definitions, &summaries, types, identity_admitted)?;
+    // Every call to a precondition-bearing function proves its preconditions
+    // from the facts that dominate it, wherever it is in the module.
+    let contracts = definitions
+        .iter()
+        .filter(|(_, definition)| !definition.preconditions.is_empty())
+        .map(|(name, definition)| {
+            (
+                name.clone(),
+                function_preconditions::Contract {
+                    params: definition.params,
+                    preconditions: definition.preconditions,
+                },
+            )
+        })
+        .collect();
+    function_preconditions::check_calls(core, &contracts).map_err(|_| ())?;
+    Ok((definitions, summaries))
+}
+/// Each precondition is a typed predicate over its function's parameters
+/// alone, judged assuming the ones before it, after every summary exists so
+/// that an imported call in one is judged like any other. Preconditions are
+/// never evaluated, so they add no charge.
+fn preconditions_are_typed<'a>(
+    definitions: &BTreeMap<String, Definition<'a>>,
+    summaries: &BTreeMap<String, Summary>,
+    types: &mut Types<'a>,
+    identity_admitted: bool,
+) -> Check<()> {
+    for definition in definitions.values() {
+        if definition.preconditions.is_empty() {
+            continue;
+        }
+        let mut frame = Frame::new(definition.params, types)?;
+        for (local, schema) in definition.params.iter().zip(&definition.parameter_types) {
+            frame.define(local, types.copy_type(schema)?)?;
+        }
+        let mut checker = Checker {
+            types: &mut *types,
+            definitions,
+            summaries,
+            proven: Vec::new(),
+            branch: Vec::new(),
+            path: Vec::new(),
+            bound: Vec::new(),
+            proven_sum: None,
+            edge_scans: 0,
+            identity: identity_admitted,
+        };
+        for precondition in definition.preconditions {
+            checker.predicate(precondition, &frame, 0)?;
+            checker.proven.push(precondition);
+        }
+    }
+    Ok(())
+}
+/// Where a helper is declared, for refusal paths: a source function under
+/// `/core/functions/<name>`, an imported one at its index in
+/// `/exports/pureFunctions`. `name` is the qualified lookup name.
+fn helper_origin(core: &Value, exports: &Value, name: &str, source: bool) -> Vec<String> {
+    if source {
+        let local = match super::map_field(core, "coordinate") {
+            Some(Value::Text(coordinate)) => name
+                .strip_prefix(coordinate.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .unwrap_or(name),
+            _ => name,
+        };
+        return vec!["core".to_owned(), "functions".to_owned(), local.to_owned()];
+    }
+    let index = match super::map_field(exports, "pureFunctions") {
+        Some(Value::Array(items)) => items.iter().position(|item| {
+            matches!(super::map_field(item, "coordinate"), Some(Value::Text(c)) if c == name)
+        }),
+        _ => None,
+    };
+    index.map_or_else(
+        || vec!["functions".to_owned(), name.to_owned()],
+        |index| {
+            vec![
+                "exports".to_owned(),
+                "pureFunctions".to_owned(),
+                index.to_string(),
+            ]
+        },
+    )
+}
+/// Summarizes every helper after its dependencies, so callers see complete
+/// summaries. No native recursion crosses a function edge.
+fn summarize<'a, 'n>(
+    definitions: &BTreeMap<String, Definition<'a>>,
+    types: &mut Types<'a>,
+    (mut pending, callers): (BTreeMap<&'n str, usize>, &BTreeMap<&'n str, Vec<&'n str>>),
+    edge_scans: u64,
+    identity_admitted: bool,
+    mark: &mut dyn FnMut(&str),
+) -> Check<BTreeMap<String, Summary>> {
+    let mut ready: BTreeSet<&'n str> = pending
         .iter()
         .filter_map(|(name, degree)| (*degree == 0).then_some(*name))
         .collect();
     let mut summaries = BTreeMap::new();
-    // No native recursion crosses a function edge. Dependencies receive their
-    // own complete summary before any caller can use it, in either name order.
+    // Dependencies receive their own complete summary before any caller can
+    // use it, in either name order.
     while let Some(name) = ready.pop_first() {
+        mark(name);
         types.step(0)?;
         let definition = definitions.get(name).ok_or(())?;
         let summary = Checker {
-            types: &mut types,
-            definitions: &definitions,
+            types: &mut *types,
+            definitions,
             summaries: &summaries,
             proven: Vec::new(),
+            branch: Vec::new(),
             path: Vec::new(),
             bound: Vec::new(),
             proven_sum: None,
+            edge_scans,
+            identity: identity_admitted,
         }
         .function(definition)?;
         if summary.height + 1 > 64 {
@@ -216,30 +479,13 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
             }
         }
     }
-    if summaries.len() != definitions.len() {
-        return Err(());
-    }
-    let mut checker = Checker {
-        types: &mut types,
-        definitions: &definitions,
-        summaries: &summaries,
-        proven: Vec::new(),
-        path: Vec::new(),
-        bound: Vec::new(),
-        proven_sum: None,
-    };
-    if super::map_field(core, "functions").is_none() && !unsigned_addition::present(core)? {
-        return Ok(());
-    }
-    for (_, intent) in members(get(core, "intents")?)? {
-        checker.intent(intent, read)?;
-    }
-    Ok(())
+    Ok(summaries)
 }
 fn inventory<'a>(
     core: &'a Value,
     exports: &'a Value,
     types: &mut Types<'_>,
+    trail: &mut Trail,
 ) -> Check<BTreeMap<String, Definition<'a>>> {
     let mut definitions = BTreeMap::new();
     let imported_functions = super::map_field(exports, "pureFunctions")
@@ -272,6 +518,7 @@ fn inventory<'a>(
                     Definition {
                         source: false,
                         params: sequence(get(implementation, "params")?)?,
+                        preconditions: &[],
                         body,
                         parameter_types: vec![],
                         result: types.resolve(string(get(export, "returnType")?)?, 0)?,
@@ -288,6 +535,7 @@ fn inventory<'a>(
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
+    trail.at(R::HelperInventory, &["core", "functions"]);
     let source_functions = super::map_field(core, "functions")
         .map(members)
         .transpose()?
@@ -302,7 +550,10 @@ fn inventory<'a>(
         {
             return Err(());
         }
-        exact(definition, &["params", "returnType", "body"])?;
+        let coordinate = string(get(core, "coordinate")?)?;
+        let preconditions =
+            function_preconditions::declared(definition, coordinate, get(core, "functions")?)
+                .map_err(|_| ())?;
         let body = get(definition, "body")?;
         exact(body, &["locals", "bindings", "result"])?;
         let params = sequence(get(definition, "params")?)?;
@@ -310,7 +561,7 @@ fn inventory<'a>(
         for parameter in params {
             parameter_types.push(types.local(parameter)?);
         }
-        let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
+        let name = format!("{coordinate}.{name}");
         if name.starts_with("core.")
             || effect_names.contains(name.as_str())
             || definitions
@@ -319,6 +570,7 @@ fn inventory<'a>(
                     Definition {
                         source: true,
                         params,
+                        preconditions,
                         body,
                         parameter_types,
                         result: types.resolve(string(get(definition, "returnType")?)?, 0)?,
@@ -337,12 +589,21 @@ struct Checker<'a, 'b> {
     definitions: &'b BTreeMap<String, Definition<'a>>,
     summaries: &'b BTreeMap<String, Summary>,
     proven: Vec<&'a Value>,
+    /// Predicates of the enclosing `if`s whose `then` arm is being judged,
+    /// outermost first. A range proof reads them only when it is refused
+    /// without them.
+    branch: Vec<&'a Value>,
     path: Vec<(&'a Value, bool)>,
     /// Proven caps of earlier unsigned let bindings in the current body.
     bound: Vec<(&'a Value, u64)>,
     /// The refined cap of the addition `expression` last proved, keyed by the
     /// node's address, so the binding that holds it reuses the proof.
     proven_sum: Option<(usize, u64)>,
+    /// Declared graph scan allowance charged by every graph read.
+    edge_scans: u64,
+    /// Whether the pinned `echo.dpo@2` catalog was bound to Echo's exact
+    /// identity contracts; only then are identity calls admitted.
+    identity: bool,
 }
 impl<'a> Checker<'a, '_> {
     /// An unsigned binding carries its proven cap to later evaluation in the
@@ -370,6 +631,10 @@ impl<'a> Checker<'a, '_> {
         }
         Ok(())
     }
+    /// The dominating facts followed by the `then`-arm predicates.
+    fn with_branch(&self) -> Vec<&'a Value> {
+        self.proven.iter().chain(&self.branch).copied().collect()
+    }
     fn function(&mut self, definition: &Definition<'a>) -> Check<Summary> {
         let declarations = sequence(get(definition.body, "locals")?)?;
         let mut frame = Frame::new(definition.params.iter().chain(declarations), self.types)?;
@@ -378,6 +643,9 @@ impl<'a> Checker<'a, '_> {
             height = height.max(schema.measure()?.height);
             frame.define(local, self.types.copy_type(schema)?)?;
         }
+        // The body may assume its preconditions: every call re-proves them,
+        // and `preconditions_are_typed` judges them.
+        self.proven.extend(definition.preconditions);
         let mut charge = Charge::default();
         for binding in sequence(get(definition.body, "bindings")?)? {
             exact(binding, &["kind", "binding", "value"])?;
@@ -385,9 +653,13 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             let local = get(binding, "binding")?;
-            let value = self.expression(get(binding, "value")?, &frame, 0)?;
             let declared = self.types.local(local)?;
-            if !declared.encloses(&value.schema) {
+            let value = self.declared_arm(get(binding, "value")?, &frame, &declared)?;
+            if !value
+                .schema
+                .as_ref()
+                .is_none_or(|schema| declared.encloses(schema))
+            {
                 return Err(());
             }
             self.record_bound(local, get(binding, "value")?, &declared)?;
@@ -401,8 +673,13 @@ impl<'a> Checker<'a, '_> {
             frame.define(local, declared)?;
         }
         frame.complete()?;
-        let value = self.expression(get(definition.body, "result")?, &frame, 0)?;
-        if !definition.result.encloses(&value.schema) {
+        let value =
+            self.declared_arm(get(definition.body, "result")?, &frame, &definition.result)?;
+        if !value
+            .schema
+            .as_ref()
+            .is_none_or(|schema| definition.result.encloses(schema))
+        {
             return Err(());
         }
         charge.append(value.charge)?;
@@ -415,7 +692,44 @@ impl<'a> Checker<'a, '_> {
             height: height.max(value.height),
         })
     }
+    /// Audits an arm, binding or result that may be a `fail`, which costs its
+    /// one evaluation tick and returns nothing.
+    fn arm(&mut self, value: &'a Value, frame: &Frame<'a>, depth: usize) -> Check<Arm> {
+        if string(get(value, "kind")?)? == "fail" {
+            self.types.step(depth)?;
+            exact(value, &["kind", "failure"])?;
+            string(get(value, "failure")?)?;
+            return Ok(Arm {
+                schema: None,
+                charge: Charge {
+                    ticks: 1,
+                    storage: 0,
+                },
+                height: 0,
+            });
+        }
+        let value = self.expression(value, frame, depth)?;
+        Ok(Arm {
+            schema: Some(value.schema),
+            charge: value.charge,
+            height: value.height,
+        })
+    }
     fn expression(
+        &mut self,
+        value: &'a Value,
+        frame: &Frame<'a>,
+        depth: usize,
+    ) -> Check<Expression> {
+        let audited = self.audited_expression(value, frame, depth)?;
+        if self.types.shared {
+            self.types
+                .audited
+                .insert(std::ptr::from_ref(value).addr(), audited.schema.clone());
+        }
+        Ok(audited)
+    }
+    fn audited_expression(
         &mut self,
         value: &'a Value,
         frame: &Frame<'a>,
@@ -430,6 +744,7 @@ impl<'a> Checker<'a, '_> {
         let schema = match string(get(value, "kind")?)? {
             "fold" => return self.state_fold(value, frame, depth),
             "match" => return self.audit_match(value, frame, depth),
+            "orderedRecord" => return self.ordered_record(value, frame, depth, None),
             "variant" => return self.variant_constructor(value, frame, depth),
             "const" => {
                 exact(value, &["kind", "value"])?;
@@ -551,15 +866,23 @@ impl<'a> Checker<'a, '_> {
                     self.predicate(get(value, "predicate")?, frame, depth + 1)?;
                 let boundary = self.path.len();
                 self.path.push((get(value, "predicate")?, true));
-                let yes = self.expression(get(value, "then")?, frame, depth + 1)?;
+                // As in Edict, the predicate is a fact inside the `then` arm.
+                let branch = self.branch.len();
+                self.branch.push(get(value, "predicate")?);
+                let yes = self.arm(get(value, "then")?, frame, depth + 1)?;
+                self.branch.truncate(branch);
                 self.path.truncate(boundary);
                 self.path.push((get(value, "predicate")?, false));
-                let no = self.expression(get(value, "else")?, frame, depth + 1)?;
+                let no = self.arm(get(value, "else")?, frame, depth + 1)?;
                 self.path.truncate(boundary);
                 height = predicate_height.max(yes.height).max(no.height) + 1;
                 charge.append(predicate)?;
                 charge.append(Charge::choice(yes.charge, no.charge))?;
-                yes.schema.choice(no.schema)?
+                match (yes.schema, no.schema) {
+                    (Some(yes), Some(no)) => yes.choice(no)?,
+                    (Some(only), None) | (None, Some(only)) => only,
+                    (None, None) => return Err(()),
+                }
             }
             "call" => {
                 exact(value, &["kind", "callee", "args", "typeArgs"])?;
@@ -599,75 +922,132 @@ impl<'a> Checker<'a, '_> {
                     for coordinate in types {
                         declared.push(self.types.resolve(string(coordinate)?, depth + 1)?);
                     }
-                    if list_operations::is_operation(name) {
-                        list_operations::authority(self.types.module, name, types)?;
-                        for operand in &declared {
-                            height = height.max(operand.measure()?.height + 1);
-                        }
-                    }
-                    height = height.max(1);
-                    let addition_proven = if name == "core.integer.add" {
-                        let [Schema::Word(max)] = declared.as_slice() else {
-                            return Err(());
-                        };
-                        if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
-                            return Err(());
-                        }
-                        let cap = unsigned_addition::prove(
-                            value,
-                            *max,
-                            &self.proven,
-                            &self.bound,
-                            self.types,
+                    if integer_operations::is_operation(name) {
+                        let (schema, cost, result_height) = integer_operations::infer(
+                            self.types.module,
+                            name,
+                            types,
+                            &argument_schemas,
                         )?;
-                        self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
-                        true
-                    } else {
-                        false
-                    };
-                    let order_proven = match name {
-                        "core.list.at" | "core.list.append" => {
-                            self.list_domain(value, &declared)?
-                        }
-                        "core.integer.subtract" => {
-                            let [left, right] = arguments else {
-                                return Err(());
-                            };
-                            order::proven(left, right, &self.proven, self.types)?
-                        }
-                        "core.bytes.at" => {
-                            let ([coordinate], [Schema::Blob { low, .. }]) =
-                                (types, declared.as_slice())
-                            else {
-                                return Err(());
-                            };
-                            byte_at::valid(
-                                coordinate,
+                        height = height.max(result_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else if option_operations::is_operation(name) {
+                        option_operations::authority(self.types.module)?;
+                        let present = name == "core.option.unwrap"
+                            && option_operations::present(
                                 arguments,
-                                *low,
                                 &self.proven,
                                 &self.path,
                                 self.types,
-                            )?
+                            )?;
+                        let (schema, cost, option_height) =
+                            option_operations::infer(name, &argument_schemas, &declared, present)?;
+                        height = height.max(option_height + 1);
+                        charge.append(cost)?;
+                        schema
+                    } else {
+                        if list_operations::is_operation(name) {
+                            list_operations::authority(self.types.module, name, types)?;
+                            for operand in &declared {
+                                height = height.max(operand.measure()?.height + 1);
+                            }
                         }
-                        "core.bytes.slice" => {
-                            let [coordinate] = types else {
+                        height = height.max(1);
+                        let addition_proven = if name == "core.integer.add" {
+                            let [Schema::Word(max)] = declared.as_slice() else {
                                 return Err(());
                             };
-                            order::slice_in_range(coordinate, arguments, &self.proven, self.types)?
-                        }
-                        _ => false,
-                    };
-                    let (schema, intrinsic) = intrinsic(
-                        name,
-                        arguments,
-                        &argument_schemas,
-                        &declared,
-                        addition_proven,
-                        order_proven,
-                    )?;
-                    charge.append(intrinsic)?;
-                    schema
+                            if !matches!(*max, 4_294_967_295 | 18_446_744_073_709_551_615) {
+                                return Err(());
+                            }
+                            // The `then`-arm predicates are read only when the
+                            // dominating facts do not prove the sum.
+                            let cap = match unsigned_addition::prove(
+                                value,
+                                *max,
+                                &self.proven,
+                                &self.bound,
+                                self.types,
+                            ) {
+                                Err(()) if !self.branch.is_empty() => unsigned_addition::prove(
+                                    value,
+                                    *max,
+                                    &self.with_branch(),
+                                    &self.bound,
+                                    self.types,
+                                )?,
+                                judged => judged?,
+                            };
+                            self.proven_sum = Some((std::ptr::from_ref(value).addr(), cap));
+                            true
+                        } else {
+                            false
+                        };
+                        let order_proven = match name {
+                            "core.list.at" | "core.list.append" => {
+                                self.list_domain(value, &declared)?
+                            }
+                            "core.integer.subtract" => {
+                                let [left, right] = arguments else {
+                                    return Err(());
+                                };
+                                order::proven(left, right, &self.proven, self.types)?
+                                    || (!self.branch.is_empty()
+                                        && order::proven(left, right, &self.branch, self.types)?)
+                            }
+                            "core.bytes.at" => {
+                                let ([coordinate], [Schema::Blob { low, .. }]) =
+                                    (types, declared.as_slice())
+                                else {
+                                    return Err(());
+                                };
+                                byte_at::valid(
+                                    coordinate,
+                                    arguments,
+                                    *low,
+                                    &self.proven,
+                                    &self.path,
+                                    self.types,
+                                )?
+                            }
+                            "core.bytes.slice" => {
+                                let [coordinate] = types else {
+                                    return Err(());
+                                };
+                                order::slice_in_range(
+                                    coordinate,
+                                    arguments,
+                                    &self.proven,
+                                    self.types,
+                                )? || (!self.branch.is_empty()
+                                    && order::slice_in_range(
+                                        coordinate,
+                                        arguments,
+                                        &self.with_branch(),
+                                        self.types,
+                                    )?)
+                            }
+                            _ => false,
+                        };
+                        let (schema, intrinsic) = if self.identity && identity::is_identity(name) {
+                            if !declared.is_empty() {
+                                return Err(());
+                            }
+                            identity::infer(name, &argument_schemas)?
+                        } else {
+                            intrinsic(
+                                name,
+                                arguments,
+                                &argument_schemas,
+                                &declared,
+                                addition_proven,
+                                order_proven,
+                            )?
+                        };
+                        charge.append(intrinsic)?;
+                        schema
+                    }
                 }
             }
             _ => return Err(()),
@@ -767,7 +1147,27 @@ impl<'a> Checker<'a, '_> {
         Ok((charge, height))
     }
     fn intent(&mut self, intent: &'a Value, read: bool) -> Check<()> {
+        let (mut charge, encoded) = self.intent_charge(intent, read)?;
+        if self.types.shared {
+            // Read and graph charges have no shared-read rules.
+            if read || self.edge_scans != 0 {
+                return Err(());
+            }
+            charge = self.shared_charge(intent)?;
+        }
+        let ceiling = get(intent, "coreEvaluationBudget")?;
+        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
+            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
+            || encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
+        {
+            return Err(());
+        }
+        Ok(())
+    }
+    /// The conservative whole-intent charge and encoded output, before the budget.
+    fn intent_charge(&mut self, intent: &'a Value, read: bool) -> Check<(Charge, u128)> {
         self.proven.clear();
+        self.branch.clear();
         self.path.clear();
         self.bound.clear();
         let body = get(intent, "body")?;
@@ -778,6 +1178,9 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let input_type = self.types.local(input)?;
+        if option_operations::contains_option(&input_type) {
+            return Err(());
+        }
         let size = input_type.measure()?;
         let mut charge = size.copy;
         charge.append(Charge {
@@ -827,13 +1230,11 @@ impl<'a> Checker<'a, '_> {
                     charge.append(self.expression(get(node, "input")?, &frame, 0)?.charge)?;
                     let local = get(node, "binding")?;
                     let expected = self.types.local(local)?;
-                    let Schema::Blob { high, .. } = expected.representation() else {
-                        return Err(());
-                    };
-                    charge.append(Charge {
-                        ticks: u128::from(*high) + 1,
-                        storage: u128::from(*high) + 64,
-                    })?;
+                    charge.append(read_charge::read_charge(
+                        &expected,
+                        self.summaries,
+                        self.edge_scans,
+                    )?)?;
                     frame.define(local, expected)?;
                 }
                 _ => return Err(()),
@@ -844,7 +1245,7 @@ impl<'a> Checker<'a, '_> {
         }
         let output = self.expression(get(body, "result")?, &frame, 0)?;
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
-        if !expected.encloses(&output.schema) {
+        if option_operations::contains_option(&expected) || !expected.encloses(&output.schema) {
             return Err(());
         }
         let size = expected.measure()?;
@@ -854,14 +1255,7 @@ impl<'a> Checker<'a, '_> {
             ticks: size.checks,
             storage: 0,
         })?;
-        let ceiling = get(intent, "coreEvaluationBudget")?;
-        if charge.ticks > u128::from(unsigned(get(ceiling, "maxSteps")?)?)
-            || charge.storage > u128::from(unsigned(get(ceiling, "maxAllocatedBytes")?)?)
-            || size.encoded > u128::from(unsigned(get(ceiling, "maxOutputBytes")?)?)
-        {
-            return Err(());
-        }
-        Ok(())
+        Ok((charge, size.encoded))
     }
 }
 /// A count's needle is a Core constant of exactly one byte, checked
@@ -1119,7 +1513,7 @@ mod tests {
                 Value::Array(vec![map([("source", Value::Text("component".into()))])]),
             ),
         ]);
-        assert!(validate(&core, &exports, true).is_err());
+        assert!(validate(&core, &exports, true, 0).is_err());
     }
 
     #[test]
@@ -1129,7 +1523,7 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, true).is_ok());
+        assert!(validate(&core, &exports, true, 0).is_ok());
     }
     #[test]
     fn source_functions_accept_named_unsigned_int_aliases() {
@@ -1180,6 +1574,43 @@ mod tests {
             ("effects", Value::Array(vec![])),
             ("pureFunctions", Value::Array(vec![])),
         ]);
-        assert!(validate(&core, &exports, false).is_ok());
+        assert!(validate(&core, &exports, false, 0).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod helper_origin_tests {
+    use super::{helper_origin, Value};
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    #[test]
+    fn a_helper_is_located_where_it_is_declared() {
+        let core = Value::Map(vec![(text("coordinate"), text("pkg@1"))]);
+        let exports = Value::Map(vec![(
+            text("pureFunctions"),
+            Value::Array(vec![
+                Value::Map(vec![(text("coordinate"), text("lib@1.a"))]),
+                Value::Map(vec![(text("coordinate"), text("lib@1.b"))]),
+            ]),
+        )]);
+        // Oracle: the artifact shapes. Source helpers live under
+        // `core.functions` by local name; imports in `exports.pureFunctions`.
+        assert_eq!(
+            (
+                helper_origin(&core, &exports, "pkg@1.f", true),
+                helper_origin(&core, &exports, "lib@1.b", false)
+            ),
+            (
+                vec!["core".to_owned(), "functions".to_owned(), "f".to_owned()],
+                vec![
+                    "exports".to_owned(),
+                    "pureFunctions".to_owned(),
+                    "1".to_owned()
+                ]
+            )
+        );
     }
 }

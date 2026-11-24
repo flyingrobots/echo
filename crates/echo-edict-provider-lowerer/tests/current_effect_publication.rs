@@ -2,9 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::expect_used, clippy::panic)]
 //! Synthetic serialization controls, not public compiler or execution evidence.
-use echo_edict_canonical::{decode_canonical_cbor_v1 as decode, CanonicalValueV1 as V};
+use echo_edict_canonical::{
+    decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1, CanonicalValueV1 as V,
+};
 use echo_edict_provider_lowerer::effect_publication::{
-    encode_effect_publication, EffectPublicationInput,
+    encode_effect_publication, judge_effect_program, EffectPublicationError, EffectPublicationInput,
 };
 
 fn text(value: &str) -> V {
@@ -51,6 +53,37 @@ fn material() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         hex::decode(include_str!("fixtures/current-effect-wire/configuration.hex").trim())
             .expect("synthetic configuration"),
     )
+}
+
+fn bundle_for_echo_dpo_2(bundle: &[u8]) -> Vec<u8> {
+    let profile = decode(include_bytes!(
+        "../../echo-edict-provider-verifier/resources/target-profile.echo-dpo-2.cbor"
+    ))
+    .expect("current @2 target profile");
+    let profile_digest = digest_canonical_value_bytes_v1("edict.target-profile/v1", &profile)
+        .expect("@2 profile identity");
+    let mut bundle = decode(bundle).expect("zero-effect bundle");
+    let V::Bytes(target_bytes) = get(&bundle, "target_ir_artifact") else {
+        panic!("Target IR bytes")
+    };
+    let mut target = decode(target_bytes).expect("Target IR");
+    set(
+        &mut target,
+        "targetProfile",
+        map([
+            ("id", text("echo.dpo@2")),
+            (
+                "digest",
+                V::Array(vec![text("sha256"), V::Bytes(profile_digest.to_vec())]),
+            ),
+        ]),
+    );
+    set(
+        &mut bundle,
+        "target_ir_artifact",
+        V::Bytes(encoded(&target)),
+    );
+    encoded(&bundle)
 }
 
 fn emit(
@@ -100,6 +133,32 @@ fn proposal_round_trips_the_current_runtime_decoder_without_rewriting_compiler_b
     assert_eq!(
         get(&value, "authority_profile_identity"),
         &V::Bytes(label_digest("app.effect-writer@1"))
+    );
+}
+
+#[test]
+fn pure_judgment_keeps_the_zero_effect_echo_dpo_1_control() {
+    let (bundle, _, _) = material();
+    assert_eq!(
+        judge_effect_program(&bundle),
+        Ok(()),
+        "the frozen ordered @1 zero-effect bundle remains admissible"
+    );
+}
+
+#[test]
+fn pure_judgment_rejects_zero_effect_echo_dpo_2_without_profile_artifacts() {
+    let (bundle, _, _) = material();
+    let current_profile_bundle = bundle_for_echo_dpo_2(&bundle);
+    let refusal = judge_effect_program(&current_profile_bundle);
+    assert!(
+        matches!(
+            &refusal,
+            Err(EffectPublicationError::UnsupportedProgram(program))
+                if program.reason().code() == "effect-program.relation.no-effect-profile"
+                    && program.path() == "/target/targetProfile"
+        ),
+        "the zero-effect judgment must not accept @2 without authenticated lowering artifacts: {refusal:?}"
     );
 }
 

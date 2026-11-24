@@ -234,7 +234,7 @@ fn each_mutation_write_class_is_its_effect_kind() {
 
 const READ: &str = "echo.dpo@1.node-atom-read";
 
-fn rename_read_failure(catalog: &mut V, from: &str, to: &str) {
+pub(super) fn rename_read_failure(catalog: &mut V, from: &str, to: &str) {
     let V::Map(failures) = value_field_mut(
         value_field_mut(value_field_mut(catalog, "intrinsics"), READ),
         "effectFailures",

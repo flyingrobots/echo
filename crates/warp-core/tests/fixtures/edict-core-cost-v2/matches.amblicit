@@ -1,0 +1,17 @@
+package cost.adversarial@1;
+type Item = { key: U64, weight: U64 };
+type Walk = variant { Going(List<Item, max=32>), Done(U64) };
+fn step(w: Walk) -> Walk {
+  return match w {
+    Going(items) => if listLen(items) < 32u64 then Walk::Going(listAppend(items, { key: 1u64, weight: 7u64 }))
+      else Walk::Done(listLen(items)),
+    Done(n) => Walk::Done(n),
+  };
+}
+type In = { items: List<Item, max=32> };
+type Out = { n: U64 };
+intent run(input: In) returns Out profile p.read basis none budget <= p.b {
+  let final = fold(Walk::Going(input.items), step, 40u64);
+  let n = match final { Going(items) => listLen(items), Done(total) => total, };
+  return { n };
+}

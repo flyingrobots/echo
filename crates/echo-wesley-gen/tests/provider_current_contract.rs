@@ -6,7 +6,7 @@ use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
 use sha2::{Digest as _, Sha256};
 
 #[test]
-fn current_admission_accepts_the_upstream_fold_publication() {
+fn current_admission_accepts_the_upstream_typed_failure_publication() {
     let schema =
         include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
     let manifest = include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
@@ -47,6 +47,18 @@ fn current_admission_refuses_all_historical_and_crossed_pairs() {
             include_bytes!("fixtures/historical-contract-packs/source-modules-v1/manifest.json").as_slice(),
             "8f8db4052e1bb85c4f728a0a453c4eb20904bcf2ce81530ffdbfce9351e209bc",
             "29927f6db5e0fe1e5e7475bef3fb2c6e7f0f84ea56304fd97bd1299f1c2bb4be",
+        ),
+        (
+            include_bytes!("fixtures/historical-contract-packs/bounded-state-fold-v1/edict-provider-contracts.cddl").as_slice(),
+            include_bytes!("fixtures/historical-contract-packs/bounded-state-fold-v1/manifest.json").as_slice(),
+            "2210f75386be76ea4182b967d2c29d1ff24c1c575ca4ffa7bbc1735f6e2c0284",
+            "48c08670e27bd722dc779488e5839f01252ff4ecc90c670043a509365bab6361",
+        ),
+        (
+            include_bytes!("fixtures/historical-contract-packs/function-preconditions-v1/edict-provider-contracts.cddl").as_slice(),
+            include_bytes!("fixtures/historical-contract-packs/function-preconditions-v1/manifest.json").as_slice(),
+            "d83bb51133f7b7fc03f94dde4d3cc6dee165da31db77c6f82570b468223e1a1f",
+            "31ebc222b80be213d4b240a7dee85d0c6e781851706294965d8d025684910d62",
         ),
     ] {
         assert_eq!(hex::encode(Sha256::digest(schema)), schema_hash, "historical schema provenance");

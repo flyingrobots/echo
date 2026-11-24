@@ -414,6 +414,147 @@ fn a_package_whose_program_the_judgment_refuses_is_rejected() {
     );
 }
 
+/// The public lowering request with its Core and Target IR declaring a
+/// one-step budget, each rebound under its own identity, so only the
+/// judgment's step check can refuse it.
+fn starved_request(max_diagnostic_count: u32) -> LoweringRequestV1 {
+    let mut request = lowering_request();
+    let mut core = decode(&request.core.artifact.bytes).expect("Core");
+    let mut target = decode(&request.semantic_inputs[5].artifact.artifact.bytes).expect("IR");
+    for artifact in [&mut core, &mut target] {
+        *field_mut(
+            field_mut(intent_mut(artifact), "coreEvaluationBudget"),
+            "maxSteps",
+        ) = Value::Integer(1);
+    }
+    let core_id = digest("edict.core.module/v1", &core).expect("Core identity");
+    *field_mut(
+        field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = Value::Array(vec![
+        Value::Text("sha256".to_owned()),
+        Value::Bytes(core_id.to_vec()),
+    ]);
+    request.core = bound(
+        &request.core.reference.coordinate,
+        "edict.core.module/v1",
+        encode(&core).expect("Core"),
+    );
+    request.semantic_inputs[5].artifact = bound(
+        "echo.span-ir/v2",
+        "edict.target-ir.artifact/v1",
+        encode(&target).expect("IR"),
+    );
+    request.limits.max_diagnostic_count = max_diagnostic_count;
+    request
+}
+
+/// The intent the public program declares, which names its budget's path.
+fn public_intent() -> String {
+    let core = decode(bytes(field(&bundle(), "core_artifact"))).expect("Core");
+    let Value::Map(intents) = field(&core, "intents") else {
+        panic!("intents")
+    };
+    let Value::Text(name) = &intents[0].0 else {
+        panic!("intent name")
+    };
+    name.clone()
+}
+
+#[test]
+fn the_lowerer_names_the_refusing_check_beside_its_refusal() {
+    let refusal = lower(starved_request(8)).expect_err("a one-step budget is refused");
+    let diagnostics = refusal
+        .diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.code.as_str(), diagnostic.message.clone()))
+        .collect::<Vec<_>>();
+    // Oracle: the reason-code contract (`refusal_reason`): the generic
+    // refusal, then its reason code under the same prefix, with the path of
+    // the budget the step check reads.
+    assert_eq!(
+        diagnostics,
+        vec![
+            (
+                "echo.provider.unsupported-semantics",
+                "unsupported semantics: the compiled effect program is outside the checked profile"
+                    .to_owned()
+            ),
+            (
+                "echo.provider.unsupported-semantics.effect-program.budget.steps",
+                format!(
+                    "refused at /core/intents/{}/coreEvaluationBudget",
+                    public_intent()
+                )
+            ),
+        ]
+    );
+}
+
+/// The frozen WIT contract: a provider's canonical result is independent of
+/// the host's limits; the provider never truncates it to fit a smaller bound.
+#[test]
+fn the_lowerer_refusal_is_independent_of_the_response_limits() {
+    let roomy = lower(starved_request(8)).expect_err("a one-step budget is refused");
+    let mut request = starved_request(1);
+    request.limits.max_total_response_bytes = 0;
+    let tight = lower(request).expect_err("a one-step budget is refused");
+    assert_eq!(roomy, tight);
+}
+
+/// The same contract for the verifier's rejected report and its diagnostics.
+#[test]
+fn the_verifier_rejection_is_independent_of_the_response_limits() {
+    let starved = rebound(|core, target| {
+        for artifact in [core, target] {
+            *field_mut(
+                field_mut(intent_mut(artifact), "coreEvaluationBudget"),
+                "maxSteps",
+            ) = Value::Integer(1);
+        }
+    });
+    let roomy = verifier::verify(verification_request(starved.clone())).expect("bound request");
+    let mut request = verification_request(starved);
+    request.limits.max_diagnostic_count = 1;
+    request.limits.max_total_response_bytes = 0;
+    let tight = verifier::verify(request).expect("bound request");
+    assert_eq!(roomy, tight);
+}
+
+#[test]
+fn the_verifier_names_the_refusing_check_beside_its_rejection() {
+    let starved = rebound(|core, target| {
+        for artifact in [core, target] {
+            *field_mut(
+                field_mut(intent_mut(artifact), "coreEvaluationBudget"),
+                "maxSteps",
+            ) = Value::Integer(1);
+        }
+    });
+    let response = verifier::verify(verification_request(starved)).expect("bound request");
+    let diagnostics = response
+        .diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.code.as_str(), diagnostic.message.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics,
+        vec![
+            (
+                REFUSED,
+                "the effect-program judgment refuses the package".to_owned()
+            ),
+            (
+                "echo.verifier.effect-program-refused.effect-program.budget.steps",
+                format!(
+                    "refused at /core/intents/{}/coreEvaluationBudget",
+                    public_intent()
+                )
+            ),
+        ]
+    );
+}
+
 #[test]
 fn the_lowerer_refuses_a_configuration_the_adapter_does_not_select() {
     let mut request = lowering_request();

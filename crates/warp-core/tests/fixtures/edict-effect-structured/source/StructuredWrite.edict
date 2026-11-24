@@ -1,5 +1,5 @@
 package consumer.structured.program@1;
-use lawpack consumer.structured@1 digest "sha256:88a853ae131afcba4591d1964d6afad670b9124cc0bde94f714283369214d2d0" as fx;
+use lawpack consumer.structured@1 digest "sha256:bc251a043a98e9f8aac45e0f9d673c9890d0be76ff825a677799c8a93c05269a" as fx;
 
 type Item = { create: Bool, node: fx.NodeWrite };
 type Input = {

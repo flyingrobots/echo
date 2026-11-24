@@ -11,7 +11,9 @@
 //! `crates/warp-core/tests/fixtures/edict-function-precondition/source`, whose
 //! source helper declares a precondition, and `--name option` for the program
 //! in `crates/warp-core/tests/fixtures/edict-option-value/source`, whose source
-//! helpers build, test and consume an `Option<U64>`. The
+//! helpers build, test and consume an `Option<U64>`, and `--name checked` for
+//! the program in `crates/warp-core/tests/fixtures/edict-checked-integer/source`,
+//! whose helpers use every checked integer form and `min`/`max`. The
 //! package's lowerer emits an `edict-effect-program/v1` package and its
 //! separate verifier reports on it. Nothing here constructs Core, Target IR or
 //! a package. With `--check` the fresh compiler output must equal the
@@ -32,7 +34,7 @@ struct Witness {
     old_kind: &'static str,
     old_refusal: &'static str,
 }
-const WITNESSES: [(&str, Witness); 3] = [
+const WITNESSES: [(&str, Witness); 4] = [
     (
         "flat",
         Witness {
@@ -60,6 +62,17 @@ const WITNESSES: [(&str, Witness); 3] = [
             prefix: "option",
             // The predecessor is the provider promoted before Option support
             // (echo d527f47): its lowerer refuses `core.option/v1`.
+            old_kind: "ProviderLowererRefused",
+            old_refusal: "outside the checked profile",
+        },
+    ),
+    (
+        "checked",
+        Witness {
+            program: "CheckedInteger.edict",
+            prefix: "checked",
+            // The predecessor is the provider promoted before checked integer
+            // support (echo 9141e795): its lowerer refuses the calls.
             old_kind: "ProviderLowererRefused",
             old_refusal: "outside the checked profile",
         },

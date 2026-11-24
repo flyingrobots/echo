@@ -1,0 +1,19 @@
+package cost.adversarial@1;
+type Item = { key: U64, weight: U64 };
+type State = { items: List<Item, max=32>, cursor: U64, total: U64 };
+fn weight(items: List<Item, max=32>, i: U64) -> U64 {
+  return if i < listLen(items) then listAt(items, i).weight else 0u64;
+}
+fn step(s: State) -> State {
+  return if s.cursor <= 31u64 && s.total <= 1000000u64
+      && weight(s.items, s.cursor) == weight(s.items, s.cursor) && weight(s.items, s.cursor) == 7u64
+    then { items: s.items, cursor: s.cursor + 1u64, total: s.total + 1u64 }
+    else s;
+}
+type In = { items: List<Item, max=32> };
+type Out = { total: U64 };
+intent run(input: In) returns Out profile p.read basis none budget <= p.b {
+  let initial: State = { items: input.items, cursor: 0u64, total: 0u64 };
+  let final = fold(initial, step, 40u64);
+  return { total: final.total };
+}

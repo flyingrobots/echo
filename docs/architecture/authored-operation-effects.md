@@ -522,8 +522,8 @@ a digest alone could not be executed. One law is defined:
       are shared files in
       [`tests/fixtures/content-address-v1/`](../../crates/warp-core/tests/fixtures/content-address-v1/README.md),
       with their exact inputs documented beside them. The runtime's
-      [identity intrinsics](#identity-intrinsics) reproduce the node and edge
-      vectors; the published provider does not yet offer them.
+      [identity intrinsics](#identity-intrinsics) reproduce the node, edge
+      and attachment vectors, and the published provider offers them.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal
@@ -546,7 +546,8 @@ a digest alone could not be executed. One law is defined:
 
 ### Identity intrinsics
 
-An authored program computes `ContentAddressV1` ids by calling three pure
+An authored program computes `ContentAddressV1` ids and attachment digests
+by calling four pure
 intrinsics in the current `echo.dpo@2` target namespace. The frozen
 `echo.dpo@1` profile does not name them (#985), and the runtime refuses an
 `echo.dpo@1` identity callee as `UnsupportedProgram`. Each takes no type arguments and returns
@@ -557,6 +558,7 @@ one 32-byte id. Every id operand is exactly 32 bytes.
 | `echo.dpo@2.contentAddress` | warp id, node type id, atom type id, atom bytes (at most 1,048,576), outgoing edges (a list of at most 16 `{edgeType, to}` records of two ids) | the content node id                   |
 | `echo.dpo@2.contentEdgeId`  | warp id, source node id, edge type id, target node id                                                                                          | the id of an edge from a content node |
 | `echo.dpo@2.slotEdgeId`     | warp id, source node id, edge type id                                                                                                          | the id of an edge from a mutable node |
+| `echo.dpo@2.attachmentValueDigest` | atom type id, atom bytes (at most 1,048,576)                                                                                            | the atom's attachment value digest    |
 
 The intrinsics hash with `warp_core::content_address_v1` and add nothing to
 the law. Outgoing edges may be given in any order; every order names the same
@@ -575,6 +577,7 @@ hashes. Beyond evaluating its operands, a call costs:
 | `contentAddress` | 71, plus 1 per atom byte and 67 per edge | 96, plus 64 per edge |
 | `contentEdgeId`  | 70                                       | 96                   |
 | `slotEdgeId`     | 69                                       | 96                   |
+| `attachmentValueDigest` | 68, plus 1 per atom byte          | 96                   |
 
 Edge order does not change the cost. A cost rule published for these
 intrinsics must be at least these amounts.
@@ -594,17 +597,18 @@ on flyingrobots/echo#972).
 
 The runtime evaluator in `crates/warp-core/src/edict_pure/identity.rs`
 implements these calls in intent expressions and source helpers, and a module
-cannot define a helper at one of the three coordinates. Synthetic tests in
+cannot define a helper at one of the four coordinates. Synthetic tests in
 `crates/warp-core/src/edict_pure/identity_tests.rs` compare the results with
-the frozen node and edge vectors and check the refusals, costs and
+the frozen node, edge and attachment vectors and check the refusals, costs and
 one-unit-short budgets above.
 
 **Publication.** The `echo.dpo@2` catalog (`echo.dpo.intrinsics/v2`) is
-catalog API v2. It publishes the three constructors as pure entries with
+catalog API v2. It publishes the four intrinsics as pure entries with
 contract version `echo.content-address/v1`, the operand ceilings above, the
 cost rules `contentAddress {base: 71, perArgumentMax: [0, 0, 0, 1, 67]}`,
-`contentEdgeId {base: 70, perArgumentMax: [0, 0, 0, 0]}` and
-`slotEdgeId {base: 69, perArgumentMax: [0, 0, 0]}`, and the edge type
+`contentEdgeId {base: 70, perArgumentMax: [0, 0, 0, 0]}`,
+`slotEdgeId {base: 69, perArgumentMax: [0, 0, 0]}` and
+`attachmentValueDigest {base: 68, perArgumentMax: [0, 1]}`, and the edge type
 `echo.dpo@2.OutgoingEdge`. The authored provider semantic source owns these
 declarations (`pureIntrinsics` and `types`). The frozen `echo.dpo@1` catalog
 stays API v1 and declares none of them.
@@ -626,7 +630,7 @@ intent-body fixture, and on three forgeries of the helper package: the frozen
 
 **Admission.** The lowerer, the separate verifier and the runtime each state
 the contract themselves and admit identity calls only when the pinned
-`echo.dpo@2` catalog carries exactly those three entries and the edge type,
+`echo.dpo@2` catalog carries exactly those four entries and the edge type,
 and Core's single `target` import is the selected profile. A catalog carrying
 some but not all of them, or carrying them under another profile, is refused.
 A call takes no type arguments; its operands must fit the ceilings; and the
@@ -640,6 +644,18 @@ use the public compiler output in
 `crates/warp-core/tests/fixtures/edict-content-address/`: the runtime returns
 the six frozen vectors, ensures a node at its computed address, and refuses
 duplicate edges and an insufficient budget.
+
+**Atom replacement.** `attachmentValueDigest` returns the digest a
+`ReplaceAtom` names as `expectedAtomDigest`; admission compares it with
+`content_address_v1::attachment_digest` of the atom at the evaluation basis.
+A program reads the atom and digests the bytes it read, so the expected
+digest is bound to its read set (decision and rejected alternatives recorded
+on flyingrobots/echo#1011's PR: a digest returned by the read, expected bytes
+in `ReplaceAtom`, or a separate contract version). The public witness in
+`crates/warp-core/tests/fixtures/edict-attachment-digest/` bumps a Buffer
+this way: its digest of the atom `new` equals the frozen vector, derivation
+accepts the replacement, a control that digests bytes it never read is
+refused with `PreconditionMismatch`, and an insufficient budget is refused.
 
 ## Witnessed reads over a bounded slice
 

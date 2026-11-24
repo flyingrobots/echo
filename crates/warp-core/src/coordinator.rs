@@ -13,10 +13,11 @@ use thiserror::Error;
 use crate::clock::{GlobalTick, WorldlineTick};
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use crate::echo_operation::{
-    AdmittedEchoOperationInvocation, EchoOperationActionOutcomeV1, EchoOperationApplicationBasisV1,
-    EchoOperationCommitErrorV1, EchoOperationEvaluationAuthorityV1, EchoOperationEvaluationBasisV1,
-    SchedulerEchoOperationCandidateV1,
+    AdmittedEchoOperationInvocation, EchoOperationActionOutcomeV1, EchoOperationCommitErrorV1,
+    EchoOperationEvaluationAuthorityV1, SchedulerEchoOperationCandidateV1,
 };
+#[cfg(feature = "trusted_runtime")]
+use crate::echo_operation::{EchoOperationApplicationBasisV1, EchoOperationEvaluationBasisV1};
 use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{
     HeadEligibility, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
@@ -57,7 +58,7 @@ type SchedulerOperationOutcomeV1 = ();
 #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
 type SchedulerOperationOutcomesV1 = Vec<SchedulerOperationOutcomeV1>;
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,
@@ -75,7 +76,7 @@ pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
 /// It does not depend on the invocation. Resolving it hashes the whole
 /// reachable state, so a caller that evaluates several invocations against one
 /// unchanged frontier resolves it once.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EchoOperationFrontierBasisV1 {
     writer_head: WriterHeadKey,
@@ -85,9 +86,10 @@ pub(crate) struct EchoOperationFrontierBasisV1 {
     commit_id: Hash,
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 impl EchoOperationFrontierBasisV1 {
     /// Returns the state root of the frontier this basis was resolved from.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) fn state_root(self) -> Hash {
         self.state_root
     }
@@ -108,7 +110,7 @@ impl EchoOperationFrontierBasisV1 {
     }
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn resolve_echo_operation_frontier_basis_v1(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,

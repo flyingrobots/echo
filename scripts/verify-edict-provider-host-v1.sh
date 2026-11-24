@@ -76,6 +76,25 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     -- \
     -D warnings
 
+# The shared edict.core-cost/v2 corpus (flyingrobots/echo#1001) must be exactly
+# what the pinned Amblicit compiler produces at each program's minimum budgets.
+readonly CORPUS_MANIFEST="$ROOT/tests/edict-core-cost-v2-corpus/Cargo.toml"
+readonly CORPUS_TARGET_DIR="$ROOT/target/edict-core-cost-v2-corpus"
+cargo +1.96.0 fmt --manifest-path "$CORPUS_MANIFEST" --all -- --check
+CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
+  cargo +1.96.0 clippy \
+    --manifest-path "$CORPUS_MANIFEST" \
+    --locked \
+    --all-targets \
+    -- \
+    -D warnings
+CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
+  cargo +1.96.0 run \
+    --release \
+    --manifest-path "$CORPUS_MANIFEST" \
+    --locked \
+    -- "$ROOT/crates/warp-core/tests/fixtures/edict-core-cost-v2" --check
+
 # Public compiler witnesses for typed outgoing-edge and guided closure reads,
 # for a flat authored effect program, and for an authored effect program with
 # an effect step under the echo.dpo@2 effect target profile.
@@ -169,6 +188,26 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/option-run" \
     --check
 
+  # Public compiler witness for every checked integer form and min/max (#998):
+  # the checked lowerer emits the package and the verifier accepts it; the
+  # provider promoted before checked-integer support must refuse it at Echo's
+  # lowerer.
+  readonly OLD_CHECKED_PROVIDER_REVISION=9141e79519d3fb8253a928c60d6b42cff76b31af
+  if ! git -C "$ROOT" cat-file -e "$OLD_CHECKED_PROVIDER_REVISION^{commit}" 2>/dev/null; then
+    git -C "$ROOT" fetch --no-tags --depth=1 origin "$OLD_CHECKED_PROVIDER_REVISION"
+  fi
+  mkdir "$witness_dir/old-checked-provider"
+  git -C "$ROOT" archive "$OLD_CHECKED_PROVIDER_REVISION" schemas/edict-provider/package/v1 |
+    tar -x -C "$witness_dir/old-checked-provider"
+  cargo +1.96.0 run --locked -p xtask --example effect_program_publication -- \
+    --name checked \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --old-provider "$witness_dir/old-checked-provider/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-checked-integer" \
+    --work-root "$witness_dir/checked-run" \
+    --check
+
   # Public compiler witness for an authored effect program with an effect step
   # under the echo.dpo@2 effect target profile (#985): the checked lowerer
   # emits its package and the separate verifier accepts it; the same program
@@ -203,6 +242,17 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-structured-run" \
     --check
 
+  # The same witness for a program whose helper comes from a digest-pinned
+  # source module (echo#1009): the compiler sends an edict.source-closure/v1
+  # source and the lowerer checks its `use module` pins.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name source-module \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-source-module" \
+    --work-root "$witness_dir/effect-source-module-run" \
+    --check
+
   # The same witness for a program that reads a node's outgoing edges through
   # echo.dpo@2.outgoing-edge-read and writes an edge to what it read
   # (echo#982), with the same echo.dpo@1 and substituted-profile controls.
@@ -224,6 +274,26 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --work-root "$witness_dir/effect-typed-failure-run" \
     --check
 
+  # Public source witness for a fallible record whose authored field order
+  # decides the escaping failure (orderedRecord, #997): { z: fail First, a: fail Second }.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name ordered-z \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-ordered-record-z" \
+    --work-root "$witness_dir/effect-ordered-record-z-run" \
+    --check
+
+  # Public source witness for a fallible record whose authored field order
+  # decides the escaping failure (orderedRecord, #997): { a: fail Second, z: fail First }.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name ordered-a \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-ordered-record-a" \
+    --work-root "$witness_dir/effect-ordered-record-a-run" \
+    --check
+
   # Public source witness for the three echo.dpo@2 ContentAddressV1 identity
   # constructors, bound to the catalog v2 contracts (echo#972).
   cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
@@ -232,6 +302,25 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-content-address" \
     --work-root "$witness_dir/effect-identity-run" \
+    --check
+
+  # Public source witness for a Buffer bump whose ReplaceAtom names the
+  # attachment value digest of the atom it read (echo#1011), and its control
+  # that digests bytes it never read.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name bump \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest" \
+    --work-root "$witness_dir/effect-bump-run" \
+    --check
+
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name unread \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-attachment-digest/controls/unread-bytes" \
+    --work-root "$witness_dir/effect-unread-run" \
     --check
 
   # The same identity constructors called from a source helper and from a

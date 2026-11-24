@@ -437,9 +437,27 @@ the helper and every caller up to the `attempt`, which then ends the run with
 the mapped reason and its payload. Only that arm's payload is evaluated. The
 providers charge the call plus the larger of result validation and the costliest
 arm. warp-core, the lowerer and the verifier each hold an identical copy of this
-judgment (`failure_sets.rs`). Failing `fold` steps, failures inside a `record`,
-and `orderedRecord` (flyingrobots/echo#997) refuse. The shared effect-program
-corpus holds a control and one forgery for each check.
+judgment (`failure_sets.rs`). Failing `fold` steps and failures inside an
+unordered `record` refuse. The shared effect-program corpus holds a control and
+one forgery for each check.
+
+A record whose fields can fail is an ordered record (`kind: "orderedRecord"`,
+flyingrobots/echo#997): a nonempty `fields` array of `{name, value}` entries in
+authored order. All three judges evaluate, type and charge the fields in that
+order, so the first field to fail decides the failure:
+`{ z: fail First, a: fail Second }` obstructs with `First`'s mapped reason, and
+`{ a: fail Second, z: fail First }` with `Second`'s. When every field returns,
+the value is the canonical record, byte-identical to the unordered `record`
+with the same fields and charged the same. As in Amblicit's Core integrity, an
+ordered record with a duplicate name, no fields, an entry key other than
+`name` and `value`, or no field that can fail refuses. A `fail` field takes its
+type from the declared type of the enclosing helper result or binding,
+including through nested ordered records; elsewhere, such as in a list item or
+a call argument, a bare `fail` field refuses as unsupported. A field that calls
+a failing function is typed by that function's result everywhere.
+The public compiler witnesses `edict-effect-ordered-record-z` and
+`edict-effect-ordered-record-a` are compiled from source by Amblicit and
+obstruct with the first authored field's mapped reason.
 
 The checked provider components include these judgments and were reproduced
 by two independent CI builds. The public compiler witnesses below consume
@@ -522,6 +540,19 @@ Option values stay inside helpers: an intent's input and output may not contain
 one, because Echo defines no Option wire encoding. At runtime an absent Option
 is `null` and a present one a one-item array; the providers charge it as one
 value cell plus its item.
+
+They also implement Amblicit's checked integer calls and `min`/`max`
+(flyingrobots/echo#998): `core.integer.checkedAdd`, `checkedSub`, `checkedMul`,
+`checkedDiv`, `checkedRem`, `min` and `max`. Each call takes exactly one width
+type argument, `U8`, `U32` or `U64`, and two operands of exactly that width, as
+native Target types it. A checked call returns `Option<W>` and requires
+`core.option/v1`; it is absent on overflow, underflow or a zero divisor.
+Division truncates. `min` and `max` return `W` and need no capability. Each
+judge keeps their upper bounds for later unsigned-addition proofs: `min` is
+bounded by either operand, `max` by the larger. Unknown `core.integer` names,
+other widths and mismatched operands are refused. Every call is charged two
+operand validations and one copied word, plus a presence cell for a present
+checked result.
 
 Structural joins may produce inline `Record<field:Type,...>` coordinates inside
 lists. Each provider and the runtime parses these under its existing depth and
@@ -610,6 +641,100 @@ combined depth, malformed authority, and a real stored atom passed to a helper.
 These synthetic boundary controls establish no public compiler or release
 provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
 local affected-test routing select the same feature explicitly.
+
+#### Shared-read cost schedule (`edict.core-cost/v2`)
+
+A pure Core module that requires the capability `core.cost.shared-reads/v1`
+is metered and judged under Amblicit's shared-read schedule,
+`edict.core-cost/v2` (amblicit#324, Amblicit `da1574f1`). Every module without
+the capability keeps the copying schedule described above, exactly as before.
+
+The schedule is only sound if reads really are cheap, so the runtime runs such
+a module on a separate evaluator
+([`edict_pure/shared_reads.rs`](../../crates/warp-core/src/edict_pure/shared_reads.rs)).
+Its values are immutable and reference-counted. Reading a local, a field, a
+list element or fold state returns the stored value itself, not a copy.
+Construction allocates a new shell of shared references. The copying
+evaluator is unchanged. Under the schedule:
+
+- every expression node costs one step; reads, `if`, `match`, `fold`, calls
+  and locals cost nothing more, and allocate nothing;
+- a constant costs its value cell; byte constants are copied in full;
+- a record, list literal or variant costs its shell, one cell plus one per
+  field or item (seven cells for a variant), in steps and in 64-byte cells
+  plus key and label bytes; shared children are not charged again;
+- `listAt` costs nothing more and does not rescan the list; `listLen` costs
+  one fresh cell; `listAppend` and `listConcat` cost a new shell with one cell
+  per result item;
+- a call costs one step per parameter plus two, and a fold one step per
+  iteration plus the call; arguments, results and fold state are passed by
+  reference;
+- unsigned arithmetic costs one step per operand cell, and its scalar result
+  is held inline;
+- a match costs one step per arm plus one, and one more for a payload binder;
+- a comparison scans both operands in full;
+- the intent's input and output are validated and converted at full size, two
+  steps per cell plus their bytes.
+
+The lowerer
+([`shared_reads.rs`](../../crates/echo-edict-provider-lowerer/src/executable_operation/source_functions/shared_reads.rs))
+and the verifier
+([`shared_charge.rs`](../../crates/echo-edict-provider-verifier/src/executable_operation/source_functions/shared_charge.rs))
+each apply Amblicit's static rules from
+`target_ir/fold_work/shared_reads.rs`, so their minimum budget equals the
+compiler's. Each static rule charges at least what the runtime charges for the
+same node. Where Amblicit's code and its prose differ, the judges follow the
+code: a record shell is charged two cells per field statically, while the
+runtime charges one. The ordinary judgment and audit still run first and alone
+establish typing, totality and depth; the cost pass reads the types they
+recorded. A module whose copying cost overflows `u64` is therefore still
+refused.
+
+Echo admits the capability on the pure route only. The read, graph-read and
+effect routes have no shared-read rules: the runtime's shared helper decoder
+refuses the capability there, and the lowerer and verifier refuse it on those
+routes too. Under the schedule, byte intrinsics and imported helpers are
+refused by all three, because the schedule leaves the storage of a computed
+byte string uncharged. Identity intrinsics, `Option` operations, ordered
+records, checked integer operations and `fail` have no shared-read rule in
+Echo either, and the runtime refuses them; a pure
+intent cannot call a failing helper, because only an effect program's
+`attempt` maps failures.
+
+The [shared corpus](../../crates/warp-core/tests/fixtures/edict-core-cost-v2/README.md)
+holds Core modules that the pinned compiler produced at their minimum budgets,
+together with their producer. All three judges read the same bytes. For each
+of Amblicit's four adversarial programs that Echo admits, the lowerer and
+verifier admit the compiler minimum and refuse one step, one allocated byte or
+one output byte less. The runtime runs the worst-case input within the minimum
+and refuses one step or byte below its own metered work. Generated inputs stay
+within the minimum and match the copying evaluator's result. Goldens pin the
+copying-schedule cost of the same programs without the capability in all three
+judges. The bounded-descent rope maps a typed failure with `attempt`, which
+Echo admits only on the effect-program route, so no judge reads its corpus
+entry under the shared-read schedule yet.
+
+`maxAllocatedBytes` keeps its cumulative meaning under both schedules: the
+runtime adds every charged allocation and never refunds. The shared-read
+schedule does not depend on peak live memory.
+
+Measured on 2026-11-16 (Apple silicon, release build, Echo `c4b93ab7`), with
+fail-free variants of the bounded-descent rope that a test-only harness called
+directly. The variants were the nested and padded-flat split loops from the
+rope cost investigation, 27 split cases per variant. v1 and v2 results were
+byte-identical in all 162 case pairs. The figures are medians across cases:
+
+| Variant | v1 steps | v2 steps | v1 charged bytes | v2 charged bytes | v1 time | v2 time | v1 peak RSS | v2 peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| nested, height 8, 64 nodes | 566,162 | 28,063 | 26,585,819 | 72,503 | 5.6 ms | 0.06 ms | 6.3 MB | 5.8 MB |
+| nested, height 16, 256 nodes | 5,666,710 | 60,938 | 255,563,140 | 186,399 | 52.7 ms | 0.14 ms | 7.7 MB | 6.1 MB |
+| flat, height 16, 594 rounds | 8,386,622 | 93,744 | 376,456,935 | 241,824 | 75.2 ms | 0.19 ms | 7.8 MB | 6.4 MB |
+
+Padded fold rounds, which leave the state unchanged, take 41–71% of v1 steps
+and 26–67% of v2 steps across the six variants. Fold semantics are unchanged:
+every iteration of the bound still runs. Peak RSS is that of the whole test
+process, measured with `/usr/bin/time -l` on one case (3.2 MB with no
+evaluation). These are local measurements, not a contract.
 
 #### Closed variants in provider judgments and the runtime
 
@@ -1122,6 +1247,20 @@ not replace Edict's source parsing or import-graph authentication. The generic
 bounded-read decoder applies the same bounded envelope checks and rechecks the
 closure identity under the selected source domain before any reading. Pure
 execution continues to require its independently supplied exact package pin.
+
+Authored effect programs may call helpers from digest-pinned source modules
+(#1009). Amblicit links those helpers into the one Core module, so the lowerer,
+the verifier and the runtime judge and run them exactly as they do the entry
+module's own helpers. Each of the three judges also reads the retained source:
+one `edict.source/v1` string, or an `edict.source-closure/v1` envelope. In
+every module's declaration preamble, each `use module` line must name a
+retained module by its exact `edict.source/v1` identity, and the pins from the
+entry module must reach every retained module. A `use target` line must name
+the selected pinned profile, and a `use lawpack` line the bound lawpack. A
+substituted module, an unpinned module, or a pin to a module the closure does
+not retain refuses. A single source retains no modules, so a pin in it refuses.
+This is a binding check on the retained provenance; it does not reparse helper
+bodies or replace Amblicit's import-graph authentication.
 
 The current semantic declaration includes the source-module input alternative
 and its schema binding. Generation and raw package admission use the same

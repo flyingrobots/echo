@@ -611,6 +611,20 @@
             0,
             0
           ]
+        },
+        {
+          "operation": "attachmentValueDigest",
+          "argumentTypes": [
+            "Bytes<exact=32>",
+            "Bytes<max=1048576>"
+          ],
+          "returnType": "Bytes<exact=32>",
+          "contractVersion": "echo.content-address/v1",
+          "costBase": 68,
+          "costPerArgumentMax": [
+            0,
+            1
+          ]
         }
       ],
       "types": {

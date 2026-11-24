@@ -7200,35 +7200,6 @@ fn recovery_index_binds_retained_sections_and_action_attribution_under_one_recip
 #[path = "common/edict_effect_publication.rs"]
 mod current_effect_publication_fixture;
 
-#[path = "executable_operation_pipeline/public_flat_effect.rs"]
-mod public_flat_effect;
-
-#[path = "executable_operation_pipeline/public_read_effect.rs"]
-mod public_read_effect;
-
-#[path = "executable_operation_pipeline/public_mutation_effect.rs"]
-mod public_mutation_effect;
-
-#[path = "executable_operation_pipeline/public_structured_effect.rs"]
-mod public_structured_effect;
-
-#[path = "executable_operation_pipeline/public_graph_read_effect.rs"]
-mod public_graph_read_effect;
-
-#[path = "executable_operation_pipeline/public_typed_failure_effect.rs"]
-mod public_typed_failure_effect;
-
-#[path = "executable_operation_pipeline/public_content_address_effect.rs"]
-mod public_content_address_effect;
-
-#[path = "executable_operation_pipeline/public_helper_identity_effect.rs"]
-mod public_helper_identity_effect;
-
-#[path = "executable_operation_pipeline/public_option_value.rs"]
-mod public_option_value;
-#[path = "executable_operation_pipeline/public_precondition_effect.rs"]
-mod public_precondition_effect;
-
 fn install_effect_catalog_fixture(host: &mut TrustedRuntimeHost) -> InstalledEchoOperation {
     use current_effect_publication_fixture as publication;
     let bytes = publication::encoded(&publication::package(&publication::program()));

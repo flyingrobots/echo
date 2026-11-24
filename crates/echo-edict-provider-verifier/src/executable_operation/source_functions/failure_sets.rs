@@ -10,9 +10,11 @@
 //! exactly the callee's set to terminal obstruction reasons. A module needs
 //! `core.failure/v1` exactly when some function declares failures.
 //!
-//! A failing `fold` step, a failure inside a `record` field and every
-//! `orderedRecord` are refused: Echo does not yet evaluate ordered records
-//! (flyingrobots/echo#997), which Core requires for a fallible record.
+//! A record whose fields can fail is an `orderedRecord`: a nonempty array of
+//! uniquely named `{name, value}` entries, evaluated in array order, at least
+//! one of which can fail. A failure inside an unordered `record` field, an
+//! `orderedRecord` none of whose fields can fail and a failing `fold` step
+//! are refused, as Amblicit's Core integrity refuses them.
 //!
 //! warp-core, the provider lowerer and the provider verifier each hold an
 //! identical copy of this file and must reach the same verdicts.
@@ -109,7 +111,29 @@ impl<'a> Sets<'a> {
                         found.insert(failure.to_owned());
                         return Ok(());
                     }
-                    Some(Ok("orderedRecord" | "attempt")) => return Err(()),
+                    Some(Ok("attempt")) => return Err(()),
+                    Some(Ok("orderedRecord")) => {
+                        exact(value, &["kind", "fields"])?;
+                        let Value::Array(entries) = required(value, "fields")? else {
+                            return Err(());
+                        };
+                        let mut names = BTreeSet::new();
+                        let mut inner = BTreeSet::new();
+                        for entry in entries {
+                            exact(entry, &["name", "value"])?;
+                            if !names.insert(text(required(entry, "name")?)?) {
+                                return Err(());
+                            }
+                            self.produced(required(entry, "value")?, &mut inner, depth + 1)?;
+                        }
+                        // An empty or wholly total ordered record has one
+                        // canonical spelling: the unordered `record`.
+                        if inner.is_empty() {
+                            return Err(());
+                        }
+                        found.extend(inner);
+                        return Ok(());
+                    }
                     Some(Ok("call")) => {
                         let callee = text(required(value, "callee")?)?;
                         found.extend(self.of(callee).iter().map(|&failure| failure.to_owned()));
@@ -192,8 +216,10 @@ impl<'a> Sets<'a> {
 
 /// Judges every declared set, `fail` and `attempt` in `core`, whose source
 /// functions are named under `coordinate`, and the `core.failure/v1`
-/// capability, and returns the module's sets.
-pub(crate) fn judge<'a>(core: &'a Value, coordinate: &str) -> Check<Sets<'a>> {
+/// capability, and returns the module's sets. Pure helpers imported through
+/// `exports` are total: a body that can fail is refused, since no call site
+/// maps an imported helper's failures (flyingrobots/echo#1006).
+pub(crate) fn judge<'a>(core: &'a Value, exports: &Value, coordinate: &str) -> Check<Sets<'a>> {
     let functions = match get(core, "functions") {
         None => &[][..],
         Some(Value::Map(functions)) => functions.as_slice(),
@@ -231,6 +257,9 @@ pub(crate) fn judge<'a>(core: &'a Value, coordinate: &str) -> Check<Sets<'a>> {
         {
             return Err(());
         }
+    }
+    if let Some(imported) = get(exports, "pureFunctions") {
+        sets.total(imported)?;
     }
     let intents = match get(core, "intents") {
         Some(Value::Map(intents)) => intents.as_slice(),

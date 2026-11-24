@@ -43,6 +43,9 @@ pub(crate) enum Expr {
         right: Box<Expr>,
     },
     Record(Vec<(String, Expr)>),
+    /// A record whose fields evaluate in this authored order, so the first
+    /// field to fail decides the failure. Its value is the canonical record.
+    OrderedRecord(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
     Fold {
@@ -98,6 +101,13 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// A checked integer call or `min`/`max` at the width whose maximum is `max`.
+    Integer {
+        operation: IntegerOperation,
+        max: u64,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     /// Ends the enclosing source helper with this declared failure.
     Fail(String),
     /// A `core.option.*` call; `item` is its one type argument.
@@ -108,6 +118,18 @@ pub(crate) enum Expr {
     },
     /// One of Echo's pure identity intrinsics over its operands, in call order.
     Identity(IdentityIntrinsic, Vec<Expr>),
+}
+
+/// The closed set of checked integer calls and `min`/`max`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IntegerOperation {
+    CheckedAdd,
+    CheckedSub,
+    CheckedMul,
+    CheckedDiv,
+    CheckedRem,
+    Min,
+    Max,
 }
 
 /// The closed `core.option/v1` operation set.
@@ -129,6 +151,9 @@ pub(crate) enum IdentityIntrinsic {
     ContentEdgeId,
     /// `echo.dpo@2.slotEdgeId`: the id of an edge from a mutable node.
     SlotEdgeId,
+    /// `echo.dpo@2.attachmentValueDigest`: the attachment value digest of an
+    /// atom, which a `ReplaceAtom` names as its expected current value.
+    AttachmentValueDigest,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -234,4 +259,6 @@ pub(crate) struct Program {
     pub helpers: BTreeMap<String, Helper>,
     pub result: Expr,
     pub limits: EvaluationLimits,
+    /// The Core work schedule the program is metered under.
+    pub schedule: super::functions::CostSchedule,
 }

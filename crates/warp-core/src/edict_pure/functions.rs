@@ -5,8 +5,8 @@ use super::function_preconditions;
 use super::proven_order::{length_of, proven, upper_limit};
 use super::{
     model::{
-        Binding, Expr, Helper, IdentityIntrinsic, Parameter, Predicate, RuntimeType, MAX_DEPTH,
-        MAX_PROGRAM_NODES,
+        Binding, Expr, Helper, IdentityIntrinsic, IntegerOperation, Parameter, Predicate,
+        RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES,
     },
     syntax::Parser,
     values::{array, bytes, exact_fields, field, map, number, require_text, text, text_field},
@@ -26,30 +26,64 @@ pub(crate) struct Definition<'a> {
     fold_capability: bool,
 }
 
+/// Core capability selecting the shared-read cost schedule, `edict.core-cost/v2`.
+pub(crate) const SHARED_READS_CAPABILITY: &str = "core.cost.shared-reads/v1";
+
+/// The Core work schedule a module requires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CostSchedule {
+    /// `edict.core-cost/v1`: every read is metered as a full copy.
+    Copying,
+    /// `edict.core-cost/v2`: reads share values; construction pays its shell.
+    SharedReads,
+}
+
+/// Whether a caller has a meter for the shared-read schedule.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SharedReadAdmission {
+    Refuse,
+    Admit,
+}
+
 /// Collect the one current source/imported helper signature authority.
 pub(crate) fn definitions<'a>(
     core: &'a Value,
     exports: &'a Value,
     coordinate: &str,
 ) -> Result<BTreeMap<String, Definition<'a>>, Error> {
+    Ok(admitted_definitions(core, exports, coordinate, SharedReadAdmission::Refuse)?.0)
+}
+
+fn admitted_definitions<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    coordinate: &str,
+    admission: SharedReadAdmission,
+) -> Result<(BTreeMap<String, Definition<'a>>, CostSchedule), Error> {
     let mut definitions = BTreeMap::new();
     let mut capabilities = BTreeSet::new();
     if let Ok(required) = field(core, "requiredCoreCapabilities") {
         for capability in array(required)? {
             let capability = text(capability)?;
-            if !matches!(
+            let known = matches!(
                 capability,
                 "core.fold/v1"
                     | "core.variant/v1"
                     | "core.list/v1"
                     | "core.option/v1"
                     | super::failure_sets::CAPABILITY
-            ) || !capabilities.insert(capability)
-            {
+            ) || (admission == SharedReadAdmission::Admit
+                && capability == SHARED_READS_CAPABILITY);
+            if !known || !capabilities.insert(capability) {
                 return Err(Error::UnsupportedProgram);
             }
         }
     }
+    let schedule = if capabilities.contains(SHARED_READS_CAPABILITY) {
+        CostSchedule::SharedReads
+    } else {
+        CostSchedule::Copying
+    };
     let fold_capability = capabilities.contains("core.fold/v1");
     // Each input was separately admitted by the canonical decoder. Scan under
     // those wire budgets; the parser keeps its shared program budget.
@@ -58,10 +92,10 @@ pub(crate) fn definitions<'a>(
             "core.list/v1",
             super::list_operations::is_operation as fn(&str) -> bool,
         ),
-        (
-            super::option_operations::CAPABILITY,
-            super::option_operations::is_operation,
-        ),
+        (super::option_operations::CAPABILITY, |name: &str| {
+            super::option_operations::is_operation(name)
+                || super::integer_operations::is_checked(name)
+        }),
     ] {
         if !capabilities.contains(capability) {
             for artifact in [core, exports] {
@@ -153,7 +187,7 @@ pub(crate) fn definitions<'a>(
             }
         }
     }
-    Ok(definitions)
+    Ok((definitions, schedule))
 }
 
 /// Decodes and checks every pure helper definition, used or not. A helper
@@ -161,19 +195,47 @@ pub(crate) fn definitions<'a>(
 /// call to a precondition-bearing helper is re-proven from the facts that
 /// dominate it. An unsigned binding proven below its width carries that
 /// ceiling to the later bindings of the same body.
+///
+/// The read and effect routes use this entry and have no shared-read meter, so
+/// it refuses `core.cost.shared-reads/v1`.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
     parser: &mut Parser<'_>,
 ) -> Result<BTreeMap<String, Helper>, Error> {
     let definitions = definitions(core, exports, parser.coordinate)?;
+    decode_definitions(core, exports, &definitions, parser)
+}
+
+/// The pure-package entry: also admits the shared-read schedule and returns
+/// the schedule the module requires.
+pub(crate) fn decode_pure(
+    core: &Value,
+    exports: &Value,
+    parser: &mut Parser<'_>,
+) -> Result<(BTreeMap<String, Helper>, CostSchedule), Error> {
+    let (definitions, schedule) =
+        admitted_definitions(core, exports, parser.coordinate, SharedReadAdmission::Admit)?;
+    Ok((
+        decode_definitions(core, exports, &definitions, parser)?,
+        schedule,
+    ))
+}
+
+fn decode_definitions(
+    core: &Value,
+    exports: &Value,
+    definitions: &BTreeMap<String, Definition<'_>>,
+    parser: &mut Parser<'_>,
+) -> Result<BTreeMap<String, Helper>, Error> {
     // Declared failure sets, `fail` and `attempt` are judged over the whole
     // module before any body is typed.
-    super::failure_sets::judge(core, parser.coordinate).map_err(|()| Error::InvalidArtifact)?;
+    super::failure_sets::judge(core, exports, parser.coordinate)
+        .map_err(|()| Error::InvalidArtifact)?;
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.
-    for (name, definition) in &definitions {
+    for (name, definition) in definitions {
         parser.enter(0)?;
         exact_fields(definition.body, &["locals", "bindings", "result"])?;
         let mut scope = BTreeMap::new();
@@ -205,7 +267,7 @@ pub(crate) fn decode(
                     reads_branch: true,
                     path: &[],
                 },
-                &definitions,
+                definitions,
                 definition.source_owned,
                 parser,
                 0,
@@ -241,7 +303,7 @@ pub(crate) fn decode(
                     reads_branch: true,
                     path: &[],
                 },
-                &definitions,
+                definitions,
                 definition.source_owned,
                 parser,
             )?;
@@ -277,7 +339,7 @@ pub(crate) fn decode(
                 reads_branch: true,
                 path: &[],
             },
-            &definitions,
+            definitions,
             definition.source_owned,
             parser,
         )?;
@@ -324,7 +386,7 @@ pub(crate) fn decode(
                     reads_branch: true,
                     path: &[],
                 },
-                &definitions,
+                definitions,
                 true,
                 parser,
                 0,
@@ -387,6 +449,19 @@ fn typed<'v>(
     source: bool,
     parser: &mut Parser<'_>,
 ) -> Result<RuntimeType, Error> {
+    if text_field(value, "kind")? == "orderedRecord" {
+        parser.enter(0)?;
+        return super::ordered_records::infer(
+            value,
+            Some(expected),
+            scope,
+            proof,
+            definitions,
+            source,
+            parser,
+            0,
+        );
+    }
     Ok(
         infer_arm(value, scope, proof, definitions, source, parser, 0)?
             .unwrap_or_else(|| expected.clone()),
@@ -706,6 +781,16 @@ pub(crate) fn infer<'v>(
                 .collect::<Result<Vec<_>, Error>>()?;
             Ok(RuntimeType::Record(fields))
         }
+        "orderedRecord" => super::ordered_records::infer(
+            value,
+            None,
+            scope,
+            proof,
+            definitions,
+            source,
+            parser,
+            depth,
+        ),
         "if" => {
             exact_fields(value, &["kind", "predicate", "then", "else"])?;
             check_predicate(
@@ -843,6 +928,9 @@ pub(crate) fn infer<'v>(
                 .iter()
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
+            if super::integer_operations::is_operation(name) {
+                return super::integer_operations::infer(name, types, &actual);
+            }
             if super::option_operations::is_operation(name) {
                 let [item] = declared.as_slice() else {
                     return Err(Error::InvalidArtifact);
@@ -1048,6 +1136,22 @@ fn structural_ceiling(
     }
     if text_field(value, "kind")? == "const" {
         return unsigned_literal(value);
+    }
+    if text_field(value, "kind")? == "call" {
+        let callee = text_field(value, "callee")?;
+        if callee == "core.integer.min" || callee == "core.integer.max" {
+            // `min` is at most either operand's ceiling; `max` at most the larger.
+            let [left, right] = array(field(value, "args")?)? else {
+                return Err(Error::InvalidArtifact);
+            };
+            let left = unsigned_ceiling(left, max, caps, facts, parser, depth + 1)?;
+            let right = unsigned_ceiling(right, max, caps, facts, parser, depth + 1)?;
+            return Ok(if callee == "core.integer.min" {
+                left.min(right)
+            } else {
+                left.max(right)
+            });
+        }
     }
     if text_field(value, "kind")? == "call" && text_field(value, "callee")? == "core.integer.add" {
         let [left, right] = array(field(value, "args")?)? else {
@@ -1292,7 +1396,7 @@ impl Heights<'_> {
                 }
                 maximum
             }
-            Expr::Record(fields) => {
+            Expr::Record(fields) | Expr::OrderedRecord(fields) => {
                 let mut maximum = 0;
                 for (_, value) in fields {
                     maximum = maximum.max(self.expr(value, depth + 1)? + 1);
@@ -1348,6 +1452,22 @@ impl Heights<'_> {
                     maximum = maximum.max(self.expr(argument, depth + 1)?);
                 }
                 maximum + 1
+            }
+            Expr::Integer {
+                operation,
+                left,
+                right,
+                ..
+            } => {
+                // A checked result is an Option cell around the word.
+                let shell = usize::from(!matches!(
+                    operation,
+                    IntegerOperation::Min | IntegerOperation::Max
+                ));
+                self.expr(left, depth + 1)?
+                    .max(self.expr(right, depth + 1)?)
+                    .max(shell)
+                    + 1
             }
             Expr::Option { item, args, .. } => {
                 // A present Option nests its item one level below the value.

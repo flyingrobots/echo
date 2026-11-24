@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 748,639-byte checked lowerer component has SHA-256
-`1b86867781cdfc6b6ebaba1f0cf5efa5f20e821dc17dcded340b2de5a71fcf61` and has
+The refreshed 796,576-byte checked lowerer component has SHA-256
+`f03a902279d60ec37dbedf9209aad58fc2c153da9b8b3f49216ef1951805e2c9` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -229,6 +229,34 @@ the body's types, proven ranges and declared Core budget, under a static cost
 model over declared types that does not bound the runtime's meter. It does not
 judge graph-law semantics or grant authority. The verifier judges the same programs
 independently in `effect_package::verify_effect_package`.
+
+## Refusal reasons
+
+`UnsupportedProgram` carries a `refusal_reason::ProgramRefusal` that names the
+check that refused and the artifact path it was reading, such as
+`effect-program.relation.source-alias` at `/lowering_artifacts/source_artifact`
+or `effect-program.budget.steps` at
+`/core/intents/<intent>/coreEvaluationBudget`. `RefusalReason::code` returns
+the stable code; a code never changes meaning. Codes are grouped by stage:
+`bundle-envelope`, the `*-envelope` and `core-pin` checks, `intent-*`,
+`correspondence.*` (Core and Target IR node for node), `relation.*` (the pinned
+profile, catalog, lawpack, adapter, source closure, source alias, source-module pins and each effect's
+authorization, intrinsic contract and failure arms),
+`graph-read-declaration`, `type-table`, `failure-sets`, `helpers.*`,
+`input-binding`, `basis`, `input-constraint`, `body.*` (one node, with its
+path under `body/nodes/<n>`) and `budget.*`. Paths are at most 256 bytes; a
+longer path is cut at a character boundary and ends in `...`.
+
+On the component route the refusal keeps its kind (`UnsupportedSemantics`)
+and its first diagnostic, `echo.provider.unsupported-semantics`, and adds a
+second diagnostic whose code is that code followed by `.` and the reason
+code, with the message `refused at <path>`. As the frozen WIT requires, the
+refusal is independent of the request's response limits: it is always these
+two diagnostics, a few hundred bytes at most with the path bounded, and the
+host enforces any smaller bound.
+The shared corpus pins the code each refused entry reaches
+(`tests/fixtures/effect-programs/reasons.txt`), and the verifier names the
+same code for every entry.
 
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host

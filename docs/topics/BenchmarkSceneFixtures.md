@@ -293,7 +293,7 @@ Their conformance is checked by
 | C1             | `benches/support/fixtures/star.rs`         | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells (star leaves, not F6's grid cells), and a pinned root                               |
 | F5             | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated                                                                                                       |
 | Runner         | `benches/scene_fixtures.rs`                | A fixed matrix (tiers S and M, seed 7, five rounds each) of classified rounds; a summary only when every round is valid                                     |
-| F6             | `benches/support/fixtures/game.rs`         | Arena, pile and bullets game scenes run frame by frame through the trusted host, validated against an in-memory reference and a declared expectation; pinned initial-world digests and small-scene roots |
+| F6             | `benches/support/fixtures/game.rs`         | Arena, pile and bullets game scenes run frame by frame through the trusted host, validated against an in-memory reference and a declared expectation; pinned initial-world digests (format `world/v2`: frame, next body number, bodies and contacts) and small-scene roots |
 | F6 runner      | `benches/game_scenes.rs`                   | Each scene once per compiled-in commitment profile, seed 6; measured frame latencies and phases only when the run is valid; non-zero exit otherwise          |
 
 ### F5 append and replay
@@ -334,6 +334,12 @@ Their conformance is checked by
   runner is a normal build; it does not measure memory yet.
 
 ### F6 game scenes
+
+The F6 pins (initial-world digests and the pile and bullets live roots) changed
+before this fixture's first merge: the world digest now covers the frame, the
+next body number and the contacts; contact correction keeps circles inside the
+walls; and the pair search follows bodies as corrections move them. Nothing
+published depends on the earlier values.
 
 - **Construction.** Each scene starts a trusted host, installs the game's
   contract package and builds its world. Every frame submits one step intent
@@ -389,8 +395,9 @@ Their conformance is checked by
   frames over the 60 Hz budget, start-up, the render read alone, the
   reference step timed alone outside Echo before the hosted run, teardown and
   replay. Start-up, teardown and replay are single samples per run. A
-  separate residual line reports frame time minus twice the reference step.
-  It is an estimate, not Echo's cost and not a bound on it: cache effects,
+  separate residual line reports frame time minus twice the reference step,
+  floored at zero per frame before the percentiles and the maximum are
+  taken. It is an estimate, not Echo's cost and not a bound on it: cache effects,
   measurement conditions and the rule's own read-and-diff work prevent that
   inference. Each run also prints its dimensions and work accounting.
 - **Changing or adding a scene.** A scene's `index` must equal its position

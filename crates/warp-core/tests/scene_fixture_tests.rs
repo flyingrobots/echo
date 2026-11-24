@@ -261,17 +261,17 @@ const SMALL_SCENES: [game::Scene; 3] = [
 /// to `step`, the generator, the graph layout, or Echo's state-root encoding.
 const SMALL_SCENE_ROOTS: [&str; SMALL_SCENES.len()] = [
     "1b695925daf1a57b0a53575c0aada90843607a7eb2cc48aae5e9a653185e5f62",
-    "d1f2d370e9d1bb132a78f79337d165cd5269271576284f93f80e11970d970877",
-    "9cad1fc1d5ed77dbbe26fb9be2a1ca8254cb6dc1bcbb36e883f131a47b1885e4",
+    "ab7d68e48574b543b1ee02ae190a9d822cd41b7fc18a51bdc05d62698dcb5871",
+    "7d501ee4ee2296265d7a10df49be06d50cf2f085fdca886d5dc3c4ae365aa57c",
 ];
 
 /// Pinned initial-world digests (`game::world_digest`) of the full-size
 /// scenes at seed 6. Repin (the failure lists every observed digest) after
 /// any intended generator change, and bump `FIXTURE_VERSION` with it.
 const INITIAL_WORLD_DIGESTS: [&str; game::SCENES.len()] = [
-    "f52ff86823d1f9f9f3abb09876ad862d45c6df23782a5db41092477acd6cd07d",
-    "8dbba2bbf07ac78842ae76df5246ede0fb4728d78e5ee03af078f5bb2a9fece9",
-    "2c05f8ea8c696c5ad6ed65db61b73f7d76dda255fa7db5622cef57bc5e41508d",
+    "7b9e8ef71826e3fe1780c0bd88ccc5fd1709f830dac6e5b66c615b2533726aec",
+    "7591afdce979db78db3d3ee249ee0ab8ff5f26d3af230372fc59af97d143cb44",
+    "41b6e8748f009e3a09f4a940c130044257e091b98e3266edc3e55f9f37381176",
 ];
 
 /// Small F6 scenes run validly in a debug build, where footprint enforcement
@@ -395,6 +395,12 @@ fn f6_reader_and_accounting_refuse_stray_graph_state() {
         .expect("the body's own cell");
     let elsewhere = (home + 1) % scene_cells(scene);
     let mut misplaced = game::initial_store(scene, &world);
+    // Remove the body's correct home edge first, so only the placement check
+    // (not duplicate-body detection) can refuse the graph.
+    assert!(misplaced.delete_edge_exact(
+        game::cell_node_id(home),
+        game::member_edge_record(body.id, home).id
+    ));
     misplaced.insert_edge(
         game::cell_node_id(elsewhere),
         game::member_edge_record(body.id, elsewhere),
@@ -652,4 +658,117 @@ fn f6_hand_projectile_despawns_and_drops_its_contact() {
     );
     let despawned = hand_world(2, 2, &[resting], &[]);
     check_hand_scene(&start, &[aged, despawned]);
+}
+
+/// The world digest covers everything the world carries: a changed frame, a
+/// changed next body number or a changed contact set each move it.
+#[test]
+fn f6_world_digest_covers_frame_next_id_and_contacts() {
+    use game::{Kind::Dynamic, ONE};
+    let body = hand_body(0, Dynamic, [10 * ONE, 10 * ONE], [0, 0], ONE);
+    let base = hand_world(0, 1, &[body], &[]);
+    let digest = game::world_digest(&base);
+    assert_ne!(
+        digest,
+        game::world_digest(&hand_world(1, 1, &[body], &[])),
+        "frame"
+    );
+    assert_ne!(
+        digest,
+        game::world_digest(&hand_world(0, 2, &[body], &[])),
+        "next_id"
+    );
+    assert_ne!(
+        digest,
+        game::world_digest(&hand_world(0, 1, &[body], &[(0, 1)])),
+        "contacts"
+    );
+}
+
+/// `holds_only` checks the root-to-world edge's endpoints, not only the edge
+/// counts: an edge of the right type pointing at the wrong node is refused.
+#[test]
+fn f6_holds_only_refuses_a_misdirected_root_edge() {
+    use game::{Kind::Dynamic, ONE};
+    let world = hand_world(
+        0,
+        1,
+        &[hand_body(0, Dynamic, [10 * ONE, 10 * ONE], [0, 0], ONE)],
+        &[],
+    );
+    let mut store = game::initial_store(HAND, &world);
+    assert!(game::holds_only(&store, HAND, &world));
+    let ty = warp_core::make_type_id("bench/f6/world-of");
+    let (from, edge) = store
+        .iter_edges()
+        .flat_map(|(from, out)| out.iter().map(move |edge| (*from, edge.clone())))
+        .find(|(_, edge)| edge.ty == ty)
+        .expect("the root-to-world edge");
+    assert!(store.delete_edge_exact(from, edge.id));
+    store.insert_edge(
+        from,
+        warp_core::EdgeRecord {
+            to: game::cell_node_id(0),
+            ..edge
+        },
+    );
+    assert!(!game::holds_only(&store, HAND, &world), "misdirected edge");
+}
+
+/// Contact correction cannot push a circle through a wall: two resting unit
+/// circles at x = 1 and x = 2 are corrected half a unit each, which would put
+/// the first at 0.5; it stays at the wall, 1. The second moves to 2.5.
+#[test]
+fn f6_contact_correction_keeps_circles_inside_the_walls() {
+    use game::{Kind::Dynamic, ONE};
+    let y = 10 * ONE;
+    let start = hand_world(
+        0,
+        2,
+        &[
+            hand_body(0, Dynamic, [ONE, y], [0, 0], ONE),
+            hand_body(1, Dynamic, [2 * ONE, y], [0, 0], ONE),
+        ],
+        &[],
+    );
+    let after = hand_world(
+        1,
+        2,
+        &[
+            hand_body(0, Dynamic, [ONE, y], [0, 0], ONE),
+            hand_body(1, Dynamic, [2 * ONE + ONE / 2, y], [0, 0], ONE),
+        ],
+        &[(0, 1)],
+    );
+    check_hand_scene(&start, &[after]);
+}
+
+/// The pair search sees bodies where earlier corrections left them: the same
+/// four crowded circles step to the same world whether the grid has one cell
+/// (every pair is searched) or small cells.
+#[test]
+fn f6_pair_search_does_not_depend_on_the_grid_cell_size() {
+    use game::{Kind::Dynamic, ONE};
+    let y = 4 * ONE;
+    let world = hand_world(
+        0,
+        4,
+        &[
+            hand_body(0, Dynamic, [ONE, y], [0, 0], ONE),
+            hand_body(1, Dynamic, [3 * ONE, y], [0, 0], ONE),
+            hand_body(2, Dynamic, [3 * ONE + 3 * ONE / 4, y], [0, 0], ONE),
+            hand_body(3, Dynamic, [ONE + 7 * ONE / 8, y], [0, 0], ONE),
+        ],
+        &[],
+    );
+    let whole = game::Scene {
+        world: 8,
+        cell: 8,
+        ..HAND
+    };
+    let fine = game::Scene { cell: 2, ..whole };
+    assert_eq!(
+        game::step(whole, 0, &world, [0, 0]),
+        game::step(fine, 0, &world, [0, 0])
+    );
 }

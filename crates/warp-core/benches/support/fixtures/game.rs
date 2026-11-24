@@ -200,8 +200,9 @@ pub struct Scene {
     /// World width and height, whole units.
     pub world: i64,
     /// Grid cell size, whole units. At least twice the largest radius: the
-    /// grid is rebuilt after integration and pairs are searched in the 3x3
-    /// neighbourhood, so touching bodies always share a cell or a neighbour.
+    /// grid is built after integration, kept current as contact corrections
+    /// move bodies, and pairs are searched in the 3x3 neighbourhood of a
+    /// body's current cell, so touching bodies share a cell or a neighbour.
     /// Speed does not enter.
     pub cell: i64,
     /// Gravity per frame, Q16.16.
@@ -392,9 +393,16 @@ pub fn with_live_root(mut expect: Expectation, live_root_hex: &str) -> Expectati
 /// Digest of a world's bodies: their encodings in id order.
 pub fn world_digest(world: &World) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo.bench.fixture.f6.world/v1\0");
+    hasher.update(b"echo.bench.fixture.f6.world/v2\0");
+    hasher.update(&world.frame.to_le_bytes());
+    hasher.update(&world.next_id.to_le_bytes());
     for body in world.bodies.values() {
         hasher.update(&body.encode());
+    }
+    // Contacts in canonical (sorted) order.
+    for (low, high) in &world.contacts {
+        hasher.update(&low.to_le_bytes());
+        hasher.update(&high.to_le_bytes());
     }
     hasher.finalize().into()
 }
@@ -613,64 +621,96 @@ pub fn step(scene: Scene, seed: u64, world: &World, input: [i64; 2]) -> World {
     // Narrowphase and response, in canonical order: each body against later
     // bodies in its own and neighbouring cells.
     let mut contacts = BTreeSet::new();
+    let mut partners = Vec::new();
+    let mut tested: Vec<usize> = Vec::new();
     for i in 0..bodies.len() {
         if !bodies[i].kind.collides() {
             continue;
         }
-        let home = i64::from(cell_of(scene, bodies[i].pos));
-        let (cx, cy) = (home % grid, home / grid);
-        let mut partners = Vec::new();
-        for ny in (cy - 1).max(0)..=(cy + 1).min(grid - 1) {
-            for nx in (cx - 1).max(0)..=(cx + 1).min(grid - 1) {
-                partners.extend(
-                    cells[usize::try_from(ny * grid + nx).unwrap_or(0)]
-                        .iter()
-                        .copied(),
-                );
+        // Search the neighbourhood of the body's current cell. Corrections move
+        // bodies, so buckets are kept current (below) and the search repeats
+        // from the body's new cell until it finds no untested partner.
+        tested.clear();
+        loop {
+            let home = i64::from(cell_of(scene, bodies[i].pos));
+            let (cx, cy) = (home % grid, home / grid);
+            partners.clear();
+            for ny in (cy - 1).max(0)..=(cy + 1).min(grid - 1) {
+                for nx in (cx - 1).max(0)..=(cx + 1).min(grid - 1) {
+                    partners.extend(
+                        cells[usize::try_from(ny * grid + nx).unwrap_or(0)]
+                            .iter()
+                            .copied(),
+                    );
+                }
+            }
+            partners.retain(|&j| j > i && !tested.contains(&j));
+            partners.sort_unstable();
+            if partners.is_empty() {
+                break;
+            }
+            for &j in &partners {
+                tested.push(j);
+                let (a, b) = (bodies[i], bodies[j]);
+                if a.kind == Kind::Projectile && b.kind == Kind::Projectile {
+                    continue;
+                }
+                let d = [
+                    i128::from(b.pos[0] - a.pos[0]),
+                    i128::from(b.pos[1] - a.pos[1]),
+                ];
+                let reach = i128::from(a.radius + b.radius);
+                let dist2 = d[0] * d[0] + d[1] * d[1];
+                if dist2 >= reach * reach {
+                    continue;
+                }
+                contacts.insert((a.id.min(b.id), a.id.max(b.id)));
+                let dist = i128::try_from(u128::try_from(dist2).unwrap_or(0).isqrt()).unwrap_or(0);
+                let normal = if dist == 0 {
+                    [i128::from(ONE), 0]
+                } else {
+                    [d[0] * i128::from(ONE) / dist, d[1] * i128::from(ONE) / dist]
+                };
+                let push = (reach - dist) / 2;
+                let rel = [
+                    i128::from(b.vel[0] - a.vel[0]),
+                    i128::from(b.vel[1] - a.vel[1]),
+                ];
+                let closing = (rel[0] * normal[0] + rel[1] * normal[1]) / i128::from(ONE);
+                let impulse = if closing < 0 {
+                    -(256 + i128::from(scene.restitution)) * closing / 512
+                } else {
+                    0
+                };
+                for (axis, n) in normal.iter().enumerate() {
+                    let shift = i64::try_from(n * push / i128::from(ONE)).unwrap_or(0);
+                    let kick = i64::try_from(n * impulse / i128::from(ONE)).unwrap_or(0);
+                    bodies[i].pos[axis] -= shift;
+                    bodies[j].pos[axis] += shift;
+                    bodies[i].vel[axis] -= kick;
+                    bodies[j].vel[axis] += kick;
+                }
+                // Keep the buckets current for both moved bodies.
+                for index in [i, j] {
+                    let before = cell_of(scene, if index == i { a.pos } else { b.pos }) as usize;
+                    let after = cell_of(scene, bodies[index].pos) as usize;
+                    if before != after {
+                        cells[before].retain(|&k| k != index);
+                        cells[after].push(index);
+                    }
+                }
             }
         }
-        partners.retain(|&j| j > i);
-        partners.sort_unstable();
-        for j in partners {
-            let (a, b) = (bodies[i], bodies[j]);
-            if a.kind == Kind::Projectile && b.kind == Kind::Projectile {
-                continue;
-            }
-            let d = [
-                i128::from(b.pos[0] - a.pos[0]),
-                i128::from(b.pos[1] - a.pos[1]),
-            ];
-            let reach = i128::from(a.radius + b.radius);
-            let dist2 = d[0] * d[0] + d[1] * d[1];
-            if dist2 >= reach * reach {
-                continue;
-            }
-            contacts.insert((a.id.min(b.id), a.id.max(b.id)));
-            let dist = i128::try_from(u128::try_from(dist2).unwrap_or(0).isqrt()).unwrap_or(0);
-            let normal = if dist == 0 {
-                [i128::from(ONE), 0]
-            } else {
-                [d[0] * i128::from(ONE) / dist, d[1] * i128::from(ONE) / dist]
-            };
-            let push = (reach - dist) / 2;
-            let rel = [
-                i128::from(b.vel[0] - a.vel[0]),
-                i128::from(b.vel[1] - a.vel[1]),
-            ];
-            let closing = (rel[0] * normal[0] + rel[1] * normal[1]) / i128::from(ONE);
-            let impulse = if closing < 0 {
-                -(256 + i128::from(scene.restitution)) * closing / 512
-            } else {
-                0
-            };
-            for (axis, n) in normal.iter().enumerate() {
-                let shift = i64::try_from(n * push / i128::from(ONE)).unwrap_or(0);
-                let kick = i64::try_from(n * impulse / i128::from(ONE)).unwrap_or(0);
-                bodies[i].pos[axis] -= shift;
-                bodies[j].pos[axis] += shift;
-                bodies[i].vel[axis] -= kick;
-                bodies[j].vel[axis] += kick;
-            }
+    }
+
+    // Contact correction may push a body into a wall: keep every moving body
+    // inside, without touching its velocity.
+    for body in &mut bodies {
+        if body.kind == Kind::Emitter {
+            continue;
+        }
+        for axis in 0..2 {
+            body.pos[axis] = body.pos[axis].clamp(body.radius, limit - body.radius);
         }
     }
 
@@ -817,7 +857,15 @@ pub fn holds_only(store: &GraphStore, scene: Scene, world: &World) -> bool {
         .flat_map(|(_, out)| out.iter())
         .filter(|edge| edge_types.contains(&edge.ty))
         .count();
-    nodes == 2 + cells + world.bodies.len()
+    // Counts alone cannot see a misdirected edge: the root's one `world-of`
+    // edge must reach the world node.
+    let root_edge_ok = store
+        .edges_from(&root_node())
+        .filter(|edge| edge.ty == world_of_type())
+        .map(|edge| edge.to)
+        .eq([world_node()]);
+    root_edge_ok
+        && nodes == 2 + cells + world.bodies.len()
         && edges == 1 + cells + world.bodies.len() + world.contacts.len()
 }
 

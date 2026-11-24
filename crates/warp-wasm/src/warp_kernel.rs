@@ -232,7 +232,7 @@ impl WarpKernel {
 
         let engine = EngineBuilder::new(store, root)
             .scheduler(SchedulerKind::Radix)
-            .workers(1) // WASM is single-threaded
+            .workers(1) // std cannot spawn threads on wasm32-unknown-unknown; one worker runs inline, no spawn
             .build();
         Self::with_engine(
             engine,
@@ -252,6 +252,11 @@ impl WarpKernel {
     /// The engine must be fresh: `WarpKernel` can mirror graph state into the
     /// default worldline runtime, but it cannot reconstruct prior tick history
     /// or materialization state from an already-advanced engine.
+    ///
+    /// On `wasm32-unknown-unknown` the engine must use one worker
+    /// (`EngineBuilder::workers(1)`, the default): std cannot spawn threads
+    /// there, so a multi-worker engine traps on its first tick with two or
+    /// more work units.
     pub fn with_engine(
         mut engine: Engine,
         registry: RegistryInfo,

@@ -562,7 +562,9 @@ fn execute_unretained(
 /// # Worker Count Cap
 ///
 /// Workers are capped at `min(workers, NUM_SHARDS)` to avoid spawning
-/// more threads than there are shards to process.
+/// more threads than there are shards to process. Unlike
+/// [`execute_work_queue`], this helper spawns a scoped thread even at
+/// `workers == 1`.
 ///
 /// # Panics
 ///
@@ -1023,10 +1025,44 @@ pub fn build_work_units(
     units
 }
 
-/// Execute work queue with parallel workers (cross-warp parallelism).
+/// Execute the cross-warp work queue: inline with one worker, on scoped
+/// threads with more.
 ///
-/// This is the **only** spawn site for cross-warp execution. Workers claim
-/// units atomically and execute items serially within each unit.
+/// This is the **only** place cross-warp execution may spawn; with one worker
+/// it spawns nothing (see Threads). Workers claim units atomically and execute
+/// items serially within each unit.
+///
+/// # Threads
+///
+/// - `workers >= 2`: each worker runs on its own scoped thread, spawned for
+///   this call and joined before it returns; nothing a rule leaves in
+///   thread-local storage survives the tick.
+/// - `workers == 1` (the engine default, and any tick the unit-count cap
+///   reduces to one worker): no thread is spawned; the single worker runs on
+///   the caller's thread and stack.
+/// - Consequences for rule executors: do not rely on a fresh thread or
+///   thread-local environment per tick. With one worker, thread-local values
+///   a rule sets persist on the caller's thread across ticks, and a deeply
+///   recursive rule uses the caller's stack, which may be larger (the main
+///   thread) or smaller (a small runtime worker) than a spawned thread's
+///   default.
+/// - A rule also runs while the caller's own borrows across `commit` are
+///   live, so it must not reach back into them. For a thread-local `RefCell`
+///   this is new: a spawned worker saw a fresh, separate copy, and now the
+///   rule meets the caller's borrowed one and the borrow panics. Re-locking a
+///   lock the caller holds was never safe: a spawned worker blocked while the
+///   caller waited to join it; the same thread re-locking is unspecified
+///   (it may panic or deadlock).
+/// - Results, their order, and panic payloads are the same either way.
+/// - The panic hook runs on the panicking thread for every panic, including
+///   the ordinary rule panics the per-item `catch_unwind` captures, so with
+///   one worker the default hook now names the caller's thread where it
+///   used to print `<unnamed>` (spawned workers have no name).
+///   Payloads are unchanged; only the hook's reported thread differs. A panic
+///   that escapes `catch_unwind` (see Panics) unwinds the caller's thread
+///   directly instead of being re-raised from a join.
+/// - The single-warp `execute_parallel*` helpers in this module are not
+///   affected; they still spawn a scoped thread at `workers == 1`.
 ///
 /// # Footprint Enforcement (cfg-gated)
 ///
@@ -1060,7 +1096,11 @@ pub fn build_work_units(
 ///
 /// # Panics
 ///
-/// Panics if `workers == 0` or if any worker thread panics.
+/// Panics if `workers == 0`, or if a worker panics outside the per-item
+/// `catch_unwind`, for example in the footprint-guard `assert!`s that run
+/// before that `catch_unwind`. With one worker the panic unwinds directly from
+/// the caller's thread; with more it is re-raised from the join with the same
+/// payload.
 pub fn execute_work_queue<'state, F>(
     units: &[WorkUnit],
     workers: usize,
@@ -1079,50 +1119,21 @@ where
 
     let next_unit = AtomicUsize::new(0);
 
+    // One worker gains nothing from a thread: it would run the same loop
+    // while this thread waits to join it. Run it here instead. Rules then run
+    // on the caller's thread and stack (see "Threads" above). `warp-wasm`
+    // relies on this branch: std cannot spawn on wasm32-unknown-unknown, so
+    // removing it would trap every tick with at least one work unit there.
+    if workers == 1 {
+        return vec![drain_units(units, &next_unit, &resolve_store)];
+    }
+
     std::thread::scope(|s| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
-                let units = &units;
                 let next_unit = &next_unit;
                 let resolve_store = &resolve_store;
-
-                s.spawn(move || -> WorkerResult {
-                    let mut delta = TickDelta::new();
-                    let mut evidence = Vec::new();
-
-                    // Work-stealing loop: claim units until none remain
-                    loop {
-                        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
-                        if unit_idx >= units.len() {
-                            break;
-                        }
-
-                        let unit = &units[unit_idx];
-
-                        // Resolve view for this warp (per-unit, NOT cached across units)
-                        let Some(store) = resolve_store(&unit.warp_id) else {
-                            return WorkerResult::MissingStore(unit.warp_id);
-                        };
-
-                        // Execute items SERIALLY (no nested threading!)
-                        for (idx, item) in unit.items.iter().enumerate() {
-                            match execute_item_enforced(store, item, idx, unit, delta) {
-                                Ok((next_delta, record)) => {
-                                    delta = next_delta;
-                                    evidence.push(record);
-                                }
-                                Err(mut poisoned) => {
-                                    poisoned.prepend_evidence(evidence);
-                                    return WorkerResult::Poisoned(poisoned);
-                                }
-                            }
-                        }
-
-                        // View dropped here - no long-lived borrows across warps
-                    }
-
-                    WorkerResult::Success(WorkerExecution::new(delta, evidence))
-                })
+                s.spawn(move || drain_units(units, next_unit, resolve_store))
             })
             .collect();
 
@@ -1134,6 +1145,55 @@ where
             })
             .collect()
     })
+}
+
+/// One worker's loop: claims units from the shared counter until none
+/// remain, executing each unit's items serially against its warp's store.
+/// Returns at the first `MissingStore` or `Poisoned` item, leaving any
+/// unclaimed units to the other workers (with one worker, to nobody).
+fn drain_units<'state, F>(
+    units: &[WorkUnit],
+    next_unit: &AtomicUsize,
+    resolve_store: &F,
+) -> WorkerResult
+where
+    F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
+{
+    let mut delta = TickDelta::new();
+    let mut evidence = Vec::new();
+
+    // Claim loop: take the next unit index until none remain
+    loop {
+        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
+        if unit_idx >= units.len() {
+            break;
+        }
+
+        let unit = &units[unit_idx];
+
+        // Resolve view for this warp (per-unit, NOT cached across units)
+        let Some(store) = resolve_store(&unit.warp_id) else {
+            return WorkerResult::MissingStore(unit.warp_id);
+        };
+
+        // Execute items SERIALLY (no nested threading!)
+        for (idx, item) in unit.items.iter().enumerate() {
+            match execute_item_enforced(store, item, idx, unit, delta) {
+                Ok((next_delta, record)) => {
+                    delta = next_delta;
+                    evidence.push(record);
+                }
+                Err(mut poisoned) => {
+                    poisoned.prepend_evidence(evidence);
+                    return WorkerResult::Poisoned(poisoned);
+                }
+            }
+        }
+
+        // View dropped here - no long-lived borrows across warps
+    }
+
+    WorkerResult::Success(WorkerExecution::new(delta, evidence))
 }
 
 struct ItemExecutionOutcome {
@@ -1836,5 +1896,50 @@ mod tests {
             resolve_adaptive_shard_routing(&large_items, worker_hint(8)),
             (ParallelExecutionPolicy::DYNAMIC_PER_SHARD, worker_hint(4),)
         );
+    }
+
+    /// A missing store surfaces identically whether the single worker runs
+    /// inline on the caller's thread or workers run on scoped threads: exactly
+    /// one `MissingStore` naming the unresolvable warp (the resolver fails for
+    /// every warp, and only the worker that claims the single unit ever calls
+    /// it), and every other worker an empty success. This exercises
+    /// `execute_work_queue`'s own contract at 1, 2, 4 and 8 workers over one
+    /// unit; the engine pre-validates every
+    /// store before building units and caps workers at the unit count, so it
+    /// never sends this shape itself.
+    #[test]
+    fn missing_store_surfaces_once_however_many_workers_share_the_queue() {
+        use super::{execute_work_queue, WorkUnit, WorkerResult};
+        use crate::make_warp_id;
+
+        let missing = make_warp_id("exec-test/missing-store");
+        let units = [WorkUnit {
+            warp_id: missing,
+            items: Vec::new(),
+            #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+            #[cfg(not(feature = "unsafe_graph"))]
+            guards: Vec::new(),
+        }];
+
+        for workers in [1_usize, 2, 4, 8] {
+            let results = execute_work_queue(&units, workers, |_| None);
+            assert_eq!(results.len(), workers, "one result per worker");
+            let missing_stores: Vec<_> = results
+                .iter()
+                .filter_map(|result| match result {
+                    WorkerResult::MissingStore(warp_id) => Some(*warp_id),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(missing_stores, vec![missing], "{workers} workers");
+            let empty_successes = results
+                .iter()
+                .filter(|result| {
+                    matches!(result, WorkerResult::Success(execution)
+                        if execution.delta.is_empty() && execution.evidence.is_empty())
+                })
+                .count();
+            assert_eq!(empty_successes, workers - 1, "{workers} workers");
+        }
     }
 }

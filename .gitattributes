@@ -32,3 +32,6 @@ schemas/edict-provider/package/v1/**/*.wasm binary
 crates/echo-wesley-gen/assets/v1/** -text
 crates/echo-wesley-gen/assets/v1/**/*.cbor binary
 crates/echo-wesley-gen/assets/v1/**/*.wasm binary
+
+# Preserve captured compiler artifacts whose bound digests the tests check.
+crates/echo-edict-provider-lowerer/tests/fixtures/replace-range-flat/*.cbor binary

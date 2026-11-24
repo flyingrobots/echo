@@ -335,12 +335,8 @@ fn decoded_node_budget_rejects_compact_container_amplification_before_reserve() 
     );
 
     let map_entries = node_limit / 2;
-    let mut map = vec![0xb9];
-    map.extend_from_slice(
-        &u16::try_from(map_entries)
-            .expect("half the canonical decode-node limit fits the CBOR u16 length form")
-            .to_be_bytes(),
-    );
+    let mut map = vec![0xba];
+    map.extend_from_slice(&map_entries.to_be_bytes());
     map.resize(map.len() + MAX_CANONICAL_DECODE_NODES_V1, 0xf6);
     let map_error = decode_canonical_cbor_v1(&map)
         .expect_err("a map that exhausts the key/value-node budget rejects before reserve");
@@ -348,5 +344,37 @@ fn decoded_node_budget_rejects_compact_container_amplification_before_reserve() 
     assert_eq!(
         map_error.detail(),
         "canonical CBOR decoded node budget exceeded"
+    );
+}
+
+/// The provider host's request cap: Amblicit's application build sends at
+/// most 1 MiB of WIT logical bytes to one provider invocation
+/// (`APPLICATION_BUILD_MAX_INPUT_BYTES` in `amblicit-provider-host-wasmtime`).
+const PROVIDER_HOST_MAX_INPUT_BYTES: usize = 1024 * 1024;
+
+#[test]
+fn densest_artifact_within_the_provider_input_cap_decodes() {
+    // Oracle: every decoded node consumes at least one input byte, so the
+    // densest artifact the host can send is one array head followed by
+    // one-byte nulls filling the rest of the cap.
+    let members = PROVIDER_HOST_MAX_INPUT_BYTES - 5;
+    let mut array = vec![0x9a];
+    array.extend_from_slice(
+        &u32::try_from(members)
+            .expect("the member count fits the CBOR u32 length form")
+            .to_be_bytes(),
+    );
+    array.resize(PROVIDER_HOST_MAX_INPUT_BYTES, 0xf6);
+
+    let decoded = decode_canonical_cbor_v1(&array);
+
+    assert_eq!(
+        decoded.map(|value| match value {
+            CanonicalValueV1::Array(items) => items.len(),
+            _ => 0,
+        }),
+        Ok(members),
+        "a {PROVIDER_HOST_MAX_INPUT_BYTES}-byte artifact of {} nodes must decode",
+        members + 1
     );
 }

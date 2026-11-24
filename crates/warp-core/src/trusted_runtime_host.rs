@@ -20,8 +20,12 @@ mod retained_strands;
 pub use observed_context::EchoOperationContextErrorV1;
 
 use crate::causal_anchor::prepare_causal_anchor_admission;
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+use crate::contract_host::{decode_canonical_eint, encode_canonical_eint};
 use crate::coordinator::{SuperTickUndo, TicketedIngressStagingRollback};
 use crate::effect_package_host::{EffectPackageHostError, EffectPackageRoute};
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+use crate::provider_contract::admit_provider_contract_package_v1;
 
 use crate::{
     causal_wal::{
@@ -46,7 +50,6 @@ use crate::{
         WalTickDecision, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
         WalTransactionKind, WriterEpochId, WriterEpochRequest, TRUSTED_RUNTIME_WAL_DOMAIN,
     },
-    contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
         action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
         action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
@@ -64,41 +67,45 @@ use crate::{
         validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
         SchedulerEchoOperationCandidateV1,
     },
-    provider_contract::admit_provider_contract_package_v1,
     AdmittedEchoOperationInvocation, AdmittedExecutableOperationPackage,
-    AdmittedProviderContractPackageV1, CausalAnchorAdmissionRequest, CausalAnchorClaim,
-    CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
-    CausalFrontierRef, CausalReceiptHistoryObstruction, CausalReceiptHistoryPage,
-    CausalReceiptHistoryRequest, ContractInverseAdmissionRequest, ContractInverseContext,
+    CausalAnchorAdmissionRequest, CausalAnchorClaim, CausalAnchorError, CausalAnchorId,
+    CausalAnchorRootSupportPolicy, CausalAnchorSupportError, CausalFrontierRef,
+    CausalReceiptHistoryObstruction, CausalReceiptHistoryPage, CausalReceiptHistoryRequest,
     ContractInverseDerivation, ContractInverseHistoryObstruction, ContractInverseObstruction,
-    ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionError,
-    EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
-    EchoOperationCommitErrorV1, EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
+    EchoOperationActionOutcomeV1, EchoOperationAdmissionError, EchoOperationAdmissionPolicy,
+    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1, EchoOperationCommitErrorV1,
+    EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
     EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionError,
     EchoOperationInvocationAdmissionErrorKind, EchoOperationInvocationAdmissionPolicy,
     EchoOperationPreparationV1, EchoOperationReceiptV1, EchoOperationTerminalPostureV1, Engine,
-    IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
-    IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageRecord, InstalledEchoOperation,
-    InstalledProviderContractPackageRecordV1, IntentOutcome, IntentOutcomeDecision,
-    IntentOutcomeObservation, IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact,
-    ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
-    PreparedEchoOperationV1, ProvenanceEntry, ProvenanceService, ProvenanceStore,
-    ProviderContractAdmissionError, ProviderContractAdmissionPolicyV1,
-    ProviderContractInstallationError, ProviderContractPackageInstallerV1,
-    ProviderContractPackageProposalV1, ProviderPackageReferenceV1,
-    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RetainedProvenanceError,
-    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptDisposition, TickReceiptRejection,
-    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    IngressEnvelope, IngressEnvelopeDecodeError, IngressSubmissionGeneration,
+    InstalledEchoOperation, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
+    IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact, ObservationError,
+    ObservationRequest, ObservationService, PreparedEchoOperationV1, ProvenanceEntry,
+    ProvenanceService, ProvenanceStore, ReceiptCorrelationPersistenceRecord,
+    ReceiptCorrelationRecord, RetainedProvenanceError, RuntimeError, SchedulerCoordinator,
+    StepRecord, TickReceiptDisposition, TickReceiptRejection, TicketedRuntimeIngressAuthority,
     WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+};
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+use crate::{
+    AdmittedProviderContractPackageV1, ContractInverseAdmissionRequest, ContractInverseContext,
+    ContractOperationKind, IngressCausalParent, IngressPayload, InstalledContractPackage,
+    InstalledContractPackageError, InstalledContractPackageRecord,
+    InstalledProviderContractPackageRecordV1, OpticAdmissionTicket, ProviderContractAdmissionError,
+    ProviderContractAdmissionPolicyV1, ProviderContractInstallationError,
+    ProviderContractPackageInstallerV1, ProviderContractPackageProposalV1,
+    ProviderPackageReferenceV1, TicketedRuntimeIngressDisposition,
 };
 use crate::{Hash, HistoryError};
 
 #[cfg(any(test, feature = "host_test"))]
 use crate::causal_wal::FilesystemWalFaultPlan;
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 const INSTALLED_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
     b"echo:trusted-host-installed-contract-admission:v1\0";
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 const PROVIDER_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
     b"echo:trusted-host-provider-contract-admission:v1\0";
 const ECHO_OPERATION_ACTION_ADMISSION_DIGEST_DOMAIN: &[u8] =
@@ -1572,11 +1579,7 @@ impl TrustedRuntimeHost {
 
     /// Injects one scheduler Action Tick construction failure for a targeted
     /// rollback test.
-    #[cfg(all(
-        feature = "native_rule_bootstrap",
-        feature = "trusted_runtime",
-        any(test, feature = "host_test")
-    ))]
+    #[cfg(all(feature = "trusted_runtime", any(test, feature = "host_test")))]
     pub fn inject_echo_operation_action_tick_construction_failure_for_test(&mut self) {
         self.runtime
             .inject_echo_operation_action_tick_construction_failure_for_test();
@@ -1598,6 +1601,7 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a structured admission error when any package occurrence or
     /// provider-registry proposition differs from policy.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn admit_provider_contract_package_v1<'a>(
         &self,
         policy: &ProviderContractAdmissionPolicyV1<'_>,
@@ -1623,6 +1627,7 @@ impl TrustedRuntimeHost {
     /// Returns a structured provider installation failure when the claim is
     /// malformed or conflicts with admitted or already installed state.
     #[doc(hidden)]
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn install_admitted_provider_contract_package_v1_trusted(
         &mut self,
         package_reference: ProviderPackageReferenceV1,
@@ -1638,6 +1643,7 @@ impl TrustedRuntimeHost {
     ///
     /// Returns an installed-package error when registry verification fails or
     /// any handler/observer conflicts with existing runtime state.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn register_contract_package<'a>(
         &mut self,
         package: InstalledContractPackage<'a>,
@@ -1645,6 +1651,7 @@ impl TrustedRuntimeHost {
         self.engine.register_contract_package(package)
     }
 
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     fn resolve_contract_inverse_envelope(
         &self,
         request: &ContractInverseAdmissionRequest,
@@ -1819,6 +1826,7 @@ impl TrustedRuntimeHost {
         ))
     }
 
+    #[cfg(feature = "trusted_runtime")]
     fn contract_inverse_derivation(
         &self,
         inverse_receipt_ref: &crate::CausalTickReceiptRef,
@@ -1838,6 +1846,7 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the submission is unknown, unsupported by an
     /// installed package, or rejected by the ticketed ingress boundary.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn stage_installed_contract_submission(
         &mut self,
         submission_id: Hash,
@@ -1866,6 +1875,7 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the submission is unknown, malformed,
     /// unsupported by an installed provider package, or rejected by ingress.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn stage_provider_contract_submission_v1(
         &mut self,
         submission_id: Hash,
@@ -1897,6 +1907,7 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the submission is unknown, malformed, not
     /// backed by an installed mutation package, or rejected by runtime ingress.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn admit_installed_contract_submission(
         &mut self,
         submission_id: Hash,
@@ -1938,6 +1949,7 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the submission is unknown, malformed, not
     /// backed by an installed provider mutation, or rejected by ingress.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn admit_provider_contract_submission_v1(
         &mut self,
         submission_id: Hash,
@@ -2344,8 +2356,10 @@ impl TrustedRuntimeHost {
     }
 }
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 impl crate::provider_contract::SealedProviderContractPackageInstallerV1 for TrustedRuntimeHost {}
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 impl ProviderContractPackageInstallerV1 for TrustedRuntimeHost {
     fn install_admitted_provider_contract_package_v1_trusted(
         &mut self,
@@ -6666,6 +6680,7 @@ pub struct TrustedRuntimeApp<'a> {
 #[derive(Clone, Copy)]
 enum AppIntentAdmission {
     Ordinary,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     ContractInverse,
 }
 
@@ -6951,6 +6966,7 @@ impl TrustedRuntimeApp<'_> {
             AppIntentAdmission::Ordinary => {
                 self.host.runtime.submit_app_intent(envelope.clone())?
             }
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             AppIntentAdmission::ContractInverse => self
                 .host
                 .runtime
@@ -7049,6 +7065,7 @@ impl TrustedRuntimeApp<'_> {
     /// Returns a typed inverse obstruction when required causal evidence or the
     /// matching contract law is unavailable. Returns the usual trusted-host
     /// error when WAL-backed submission cannot be durably acknowledged.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn submit_contract_inverse_with_runtime_wal_ack(
         &mut self,
         request: ContractInverseAdmissionRequest,
@@ -7224,6 +7241,7 @@ fn submission_transaction_digest(
     hasher.finalize().into()
 }
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn installed_contract_host_admission_digest(
     submission: &IntentSubmissionRecord,
     contract: &crate::ContractEvidenceIdentity,
@@ -7239,6 +7257,7 @@ fn installed_contract_host_admission_digest(
     hasher.finalize().into()
 }
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn provider_contract_host_admission_digest(
     submission: &IntentSubmissionRecord,
     contract: &crate::ProviderContractEvidenceIdentityV1,

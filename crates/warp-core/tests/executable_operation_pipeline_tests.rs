@@ -5868,20 +5868,31 @@ fn typed_effect_law_refuses_noncanonical_sets_shapes_and_oversized_counts() {
     use CanonicalValueV1 as V;
     let base = effect_law_value(&[], &[], &[], 0);
     let V::Map(fields) = base else { unreachable!() };
-    for (name, invalid) in [
-        ("max_reads", V::Integer(4097)),
-        ("max_writes", V::Integer(257)),
-        ("max_range_edges", V::Integer(65537)),
-        ("max_reads", V::Integer(-1)),
+    // Each count above its effect-profile ceiling names that ceiling (#1023).
+    for (name, invalid, refusal) in [
+        ("max_reads", V::Integer(4097), EffectLawError::MaxReads),
+        ("max_writes", V::Integer(257), EffectLawError::MaxWrites),
+        (
+            "max_range_edges",
+            V::Integer(65537),
+            EffectLawError::MaxRangeEdges,
+        ),
+        ("max_reads", V::Integer(-1), EffectLawError::InvalidLaw),
         (
             "read_node_types",
             V::Array(vec![V::Bytes(vec![2; 32]), V::Bytes(vec![1; 32])]),
+            EffectLawError::InvalidLaw,
         ),
         (
             "atom_types",
             V::Array(vec![V::Bytes(vec![1; 32]), V::Bytes(vec![1; 32])]),
+            EffectLawError::InvalidLaw,
         ),
-        ("portal_owner_types", V::Array(vec![V::Bytes(vec![1; 31])])),
+        (
+            "portal_owner_types",
+            V::Array(vec![V::Bytes(vec![1; 31])]),
+            EffectLawError::InvalidLaw,
+        ),
     ] {
         let mut bad = fields.clone();
         bad.iter_mut()
@@ -5893,8 +5904,27 @@ fn typed_effect_law_refuses_noncanonical_sets_shapes_and_oversized_counts() {
                 &encode_canonical_cbor_v1(&V::Map(bad))
                     .expect("typed-law fixture and independently encoded witness")
             ),
-            Err(EffectLawError::InvalidLaw),
+            Err(refusal),
             "{name}"
+        );
+    }
+    for (name, ceiling) in [
+        ("max_reads", 4096),
+        ("max_writes", 256),
+        ("max_range_edges", 65536),
+    ] {
+        let mut at_ceiling = fields.clone();
+        at_ceiling
+            .iter_mut()
+            .find(|(key, _)| *key == V::Text(name.into()))
+            .expect("typed-law fixture")
+            .1 = V::Integer(ceiling);
+        assert!(
+            EffectFootprintLaw::from_canonical_bytes(
+                &encode_canonical_cbor_v1(&V::Map(at_ceiling)).expect("typed-law fixture")
+            )
+            .is_ok(),
+            "{name} at its ceiling"
         );
     }
     let mut missing = fields.clone();

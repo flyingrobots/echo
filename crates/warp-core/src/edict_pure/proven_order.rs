@@ -43,11 +43,11 @@ pub(crate) fn proven(
 }
 
 /// The smallest constant upper bound a dominating fact gives `term`:
-/// `term <= c`, `term == c` or `c == term` give `c`. Conjunctions contribute
-/// every conjunct. Edict also reads the strict and reversed forms (`<`, `>`,
-/// `>=`); the checked lowerer and verifier read only these three, so Echo
-/// reads only these too, and the other forms are to be added to all three
-/// judgments together (#960).
+/// `term <= c`, `c >= term`, `term == c` and `c == term` give `c`; the strict
+/// `term < c` and `c > term` give `c - 1`, or 0 when `c` is 0, where the fact
+/// cannot hold. Conjunctions contribute every conjunct. A lower bound gives
+/// nothing. Native Target, the checked lowerer and the verifier read the same
+/// six forms (#1010).
 pub(crate) fn upper_limit(
     term: &Value,
     facts: &[&Value],
@@ -67,7 +67,7 @@ pub(crate) fn upper_limit(
 }
 
 /// Lowers `limit` to the smallest constant bound that `fact` gives the
-/// canonically encoded `term`. It reads conjunctions and the three comparison
+/// canonically encoded `term`. It reads conjunctions and the six comparison
 /// forms that `upper_limit` names, and ignores every other predicate.
 fn limit_from(
     fact: &Value,
@@ -90,17 +90,27 @@ fn limit_from(
             let mut bound = |value: u64| {
                 *limit = Some(limit.map_or(value, |current| current.min(value)));
             };
-            if matches!(op, "<=" | "==") {
+            // As native Target: `x < n` bounds x by n - 1, saturating at 0
+            // (a branch that never runs); `n > x` and `n >= x` mirror them.
+            let strict = matches!(op, "<" | ">");
+            let limit = |value: u64| {
+                if strict {
+                    value.saturating_sub(1)
+                } else {
+                    value
+                }
+            };
+            if matches!(op, "<=" | "<" | "==") {
                 if let Some(value) = constant(right) {
                     if key(left, parser)? == term {
-                        bound(value);
+                        bound(limit(value));
                     }
                 }
             }
-            if op == "==" {
+            if matches!(op, ">=" | ">" | "==") {
                 if let Some(value) = constant(left) {
                     if key(right, parser)? == term {
-                        bound(value);
+                        bound(limit(value));
                     }
                 }
             }

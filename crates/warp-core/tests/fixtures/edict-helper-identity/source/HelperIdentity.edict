@@ -1,0 +1,51 @@
+package consumer.identity.program@1;
+use lawpack consumer.identity@1 digest "sha256:a309fb8a75ab153ea48c4fed51113be34a1a8a4500e01c2d2070f169aed4d20d" as fx;
+use target echo.dpo@2 digest "sha256:7cadb97e7e2d3f586f3e16ebfe5b357346a33a4e27f3beeb63f0b8889835cc50" as echo;
+type Id = Bytes<exact=32>;
+type Input = {
+  warp: Id,
+  nodeType: Id,
+  atomType: Id,
+  atom: Bytes<max=16>,
+  edgeA: Id,
+  storedType: Id,
+  storedAtomType: Id,
+};
+type Output = {
+  helperNode: Id,
+  folded: Id,
+};
+type Chain = { warp: Id, nodeType: Id, atomType: Id, atom: Bytes<max=16>, edge: Id, id: Id };
+// A source helper computing a ContentAddressV1 node id.
+fn leafId(warp: Id, nodeType: Id, atomType: Id, atom: Bytes<max=16>) -> Id {
+  return echo.contentAddress(warp, nodeType, atomType, atom, []);
+}
+// A fold step: each step addresses a node whose one edge points at the previous id.
+fn parentStep(s: Chain) -> Chain {
+  return {
+    warp: s.warp,
+    nodeType: s.nodeType,
+    atomType: s.atomType,
+    atom: s.atom,
+    edge: s.edge,
+    id: echo.contentAddress(s.warp, s.nodeType, s.atomType, s.atom, [{ edgeType: s.edge, to: s.id }]),
+  };
+}
+intent ids(input: Input) returns Output
+  profile fx.graphEffects
+  basis input.warp
+  budget <= fx.budget
+{
+  let helperNode = leafId(input.warp, input.nodeType, input.atomType, input.atom);
+  let start: Chain = { warp: input.warp, nodeType: input.nodeType, atomType: input.atomType, atom: input.atom, edge: input.edgeA, id: helperNode };
+  let chain = fold(start, parentStep, 2u64);
+  let node: fx.NodeWrite = {
+    atomBytes: input.atom,
+    atomType: input.storedAtomType,
+    nodeId: leafId(input.warp, input.storedType, input.storedAtomType, input.atom),
+    nodeType: input.storedType,
+    warpId: input.warp,
+  };
+  let written: fx.Written = fx.ensureNode(node);
+  return { helperNode, folded: chain.id };
+}

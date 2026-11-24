@@ -47,6 +47,9 @@ mod public_ordered_record_effect;
 #[path = "executable_operation_pipeline/public_content_address_effect.rs"]
 mod public_content_address_effect;
 
+#[path = "executable_operation_pipeline/public_helper_identity_effect.rs"]
+mod public_helper_identity_effect;
+
 #[path = "executable_operation_pipeline/public_attachment_digest_effect.rs"]
 mod public_attachment_digest_effect;
 

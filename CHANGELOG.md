@@ -86,7 +86,10 @@
   bindings, so the `let` validations charged are safe but not tight;
   record-valued failure payload fields are measured on the runtime only in
   a `require` loop; an `attempt` inside a loop is refused by the failure-set
-  check.
+  check. The provider components are promoted from
+  byte-equal G4 candidates built at `abf9470a` (lowerer `97047fc5`, verifier
+  `c88611f4`); the `/v3` catalog moved to the lowerer's `catalogs/`, since
+  provider generation owns `resources/` exactly.
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact

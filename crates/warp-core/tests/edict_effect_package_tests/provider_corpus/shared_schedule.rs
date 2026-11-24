@@ -120,7 +120,7 @@ const LOWERER_SHARED_MINIMUMS: [(&str, u64, u64); 5] = [
     ("structured-nested-control", 284, 13_742),
 ];
 
-/// The runtime never charges more than the lowerer's static bound: each
+/// The runtime never charges more than the lowerer's bound: each
 /// program, given exactly the lowerer's shared minimum as its Core budget,
 /// runs its largest input here to the copying schedule's result. The read
 /// runs a 400,000-byte atom, the largest the frame's fixed step ceiling lets

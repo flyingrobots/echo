@@ -628,7 +628,7 @@ fn shared_schedule_package() -> (Vec<u8>, [u8; 32]) {
 /// a Core budget of (steps, bytes) in Core and its lowered intent alike,
 /// repinned as `shared_schedule_package` describes. SYNTHETIC.
 fn shared_schedule_package_of(bytes: &[u8], budget: Option<(u64, u64)>) -> (Vec<u8>, [u8; 32]) {
-    let mut package = echo_edict_canonical::decode_canonical_cbor_v1(&bytes).expect("package");
+    let mut package = echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("package");
     let mut program = decoded(publication::get(&package, "program"));
     let mut bundle = decoded(publication::get(&program, "compiled_program"));
     let mut core = decoded(publication::get(&bundle, "core_artifact"));

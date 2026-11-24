@@ -33,7 +33,7 @@
 //! cargo run -p xtask --example effect_v2_admission -- \
 //!   --compiler <amblicit 9f10fb91 or later> \
 //!   --provider schemas/edict-provider/package/v1 \
-//!   --catalog crates/echo-edict-provider-lowerer/resources/resource.target-intrinsics-3.cbor \
+//!   --catalog crates/echo-edict-provider-lowerer/catalogs/resource.target-intrinsics-3.cbor \
 //!   --fixtures crates/warp-core/tests/fixtures/edict-effect-closure-read \
 //!   --work-root <new directory>
 //! ```

@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 802,832-byte checked lowerer component has SHA-256
-`165b41a85d70cfe9f2578cc920ff40e41e2e48d3e1f31410b6b28bea4603e528` and has
+The refreshed 844,027-byte checked lowerer component has SHA-256
+`97047fc505d55f30e6f55b6163a0b959d5a7b6fb16cf7d62c0d4e38a48ebce5b` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -326,7 +326,8 @@ judgment under it. The configuration's catalog must be the one the selected
 profile pins, and the judgment keys its intrinsic tables on the operation below
 either namespace.
 
-`resources/resource.target-intrinsics-3.cbor` is the same catalog as
+`catalogs/resource.target-intrinsics-3.cbor` (outside `resources/`, whose
+contents provider generation owns exactly) is the same catalog as
 `edict.target-profile.intrinsics/v3` (amblicit#341): every effect intrinsic
 carries an `effectCostRule`, and a top-level `parameters` map declares
 `maxEdgeScans` (`graphReads.maxEdgeScans`, `uint`) and `selector`
@@ -337,6 +338,7 @@ expression: the input's validations and the intrinsic's own work. The empty
 obstruction payload (1 step, 64 bytes) stays outside every template, as
 Amblicit charges it. The `cost_templates` unit tests evaluate each template
 over fixture types and require it to equal the lowerer's charge, and keep the
-committed catalog equal to the generated one (`ECHO_BLESS_V3_CATALOG=1`
-regenerates it). The catalog is not yet part of the provider package: the
+committed catalog byte-equal to the generated one; the test reads no files
+or environment, so a changed catalog is written by hand from its failure.
+The catalog is not yet part of the provider package: the
 upstream provider contracts have no `/v3` schema rule to validate it against.

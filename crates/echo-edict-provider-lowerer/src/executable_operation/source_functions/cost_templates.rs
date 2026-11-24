@@ -27,10 +27,7 @@ use std::collections::BTreeMap;
 const V2_CATALOG: &[u8] = include_bytes!(
     "../../../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
 );
-const V3_CATALOG_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/resources/resource.target-intrinsics-3.cbor"
-);
+const V3_CATALOG: &[u8] = include_bytes!("../../../catalogs/resource.target-intrinsics-3.cbor");
 const V3_API: &str = "edict.target-profile.intrinsics/v3";
 
 // ---- template construction -------------------------------------------------
@@ -692,13 +689,11 @@ fn the_obstruction_payload_is_amblicits_constant_and_no_template_carries_it() {
 #[test]
 fn the_published_v3_catalog_is_the_v2_catalog_with_every_template() {
     let generated = encode(&v3_catalog()).expect("canonical v3 catalog");
-    if std::env::var_os("ECHO_BLESS_V3_CATALOG").is_some() {
-        std::fs::write(V3_CATALOG_PATH, &generated).unwrap();
-    }
-    let published = std::fs::read(V3_CATALOG_PATH).expect("published /v3 catalog");
+    let published = V3_CATALOG.to_vec();
     assert_eq!(
-        published, generated,
-        "regenerate with ECHO_BLESS_V3_CATALOG=1"
+        published,
+        generated,
+        "catalogs/resource.target-intrinsics-3.cbor differs from the generated catalog"
     );
     let catalog = decode(&published).unwrap();
     assert_eq!(field(&catalog, "apiVersion"), Some(&text(V3_API)));

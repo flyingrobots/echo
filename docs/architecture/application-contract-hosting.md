@@ -724,7 +724,7 @@ ordered records, `fail`, byte intrinsics, `attempt`, `require`, the intent's
 input and output, and a shared closure-read selector. Each charge is the one
 Amblicit's `docs/topics/core-cost-schedules/README.md` (Amblicit `e306ecc9`)
 states, with Echo's `/v3` effect cost templates
-(`crates/echo-edict-provider-lowerer/resources/resource.target-intrinsics-3.cbor`).
+(`crates/echo-edict-provider-lowerer/catalogs/resource.target-intrinsics-3.cbor`).
 The effect-body terms, as both sides now charge them:
 
 ```text

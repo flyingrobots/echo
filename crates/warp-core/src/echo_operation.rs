@@ -6777,11 +6777,7 @@ pub enum EchoOperationCommitErrorV1 {
         entries: usize,
     },
     /// Test-only scheduler fault injected before Action Tick construction.
-    #[cfg(all(
-        feature = "native_rule_bootstrap",
-        feature = "trusted_runtime",
-        any(test, feature = "host_test")
-    ))]
+    #[cfg(all(feature = "trusted_runtime", any(test, feature = "host_test")))]
     #[error("injected executable-operation Action Tick construction failure")]
     InjectedTickConstructionFailure,
 }

@@ -363,6 +363,17 @@
 
 ### Changed
 
+- The trusted runtime host, WAL, recovery and receipt machinery build under
+  `trusted_runtime` alone (flyingrobots/echo#1026, Decision 0). This moves the
+  feature gate and the export gate only. Items that register or run native
+  Rust rules, such as `register_contract_package`, installed-contract and
+  provider mutation ingress, and the contract-inverse handler resolution, keep
+  the joint `native_rule_bootstrap` and `trusted_runtime` gate. No Tick,
+  receipt, digest or WAL behaviour changes. `scripts/check-trusted-runtime-gate.sh`
+  builds neither feature, `trusted_runtime` alone, and both, and fails if a
+  native-rule registration is reachable under `trusted_runtime` alone. It runs
+  in the `verify-local` full lane.
+
 - Breaking: read images witness the size of every outgoing bucket a read
   consulted (#981). Typed range reads, outgoing-edge reads and closure reads
   record the number of edges of every type in the source's bucket on its node

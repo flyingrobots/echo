@@ -104,7 +104,7 @@ pub enum ContractInverseHistoryObstruction {
     },
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn recover_contract_inverse_derivation(
     runtime: &WorldlineRuntime,
     inverse_receipt_ref: &CausalTickReceiptRef,

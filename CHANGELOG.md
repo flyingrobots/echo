@@ -406,7 +406,9 @@
   `MaxRangeEdges` variants. The shared effect-program corpus gains
   `footprint-writes-at-ceiling` and `footprint-writes-over-ceiling`, and a new
   verifier test admits every corpus package through `EffectPackageHost` and
-  requires the same verdict in the same reason class.
+  requires the same verdict in the same reason class. The components are
+  promoted from byte-equal G4 candidates (lowerer `165b41a8`, verifier
+  `6872448b`).
 - The provider lowerer no longer refuses large compiler output as
   "canonical artifact binding is invalid" (#1025). The canonical decoder's
   node budget was 65,536, below what the provider host can send: the flat

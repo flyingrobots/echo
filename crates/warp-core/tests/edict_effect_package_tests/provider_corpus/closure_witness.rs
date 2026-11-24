@@ -77,7 +77,7 @@ fn tree() -> GraphStore {
         store.insert_edge(
             node(*parent),
             EdgeRecord {
-                id: EdgeId([0x90 + index as u8; 32]),
+                id: EdgeId([0x90 + u8::try_from(index).expect("few edges"); 32]),
                 from: node(*parent),
                 to: node(*child),
                 ty: EDGE_TYPE,
@@ -228,8 +228,13 @@ pub(super) fn repinned(package: &V, capability: &str, budget: Option<(u64, u64)>
 fn the_closure_witness_runs_within_the_lowerer_minimum() {
     let package = with_max_reads(&witness(), WIDE_READS, true);
     let (copying, _, _) = run_closure(&package);
-    let closure = copying.unwrap_or_else(|error| panic!("the copying schedule reads the tree: {error:?}"));
-    assert_eq!(listed(&closure, "nodes"), Some(usize::from(NODES)), "every node");
+    let closure =
+        copying.unwrap_or_else(|error| panic!("the copying schedule reads the tree: {error:?}"));
+    assert_eq!(
+        listed(&closure, "nodes"),
+        Some(usize::from(NODES)),
+        "every node"
+    );
     // Control for the repinning: an unused capability added the same way.
     let (control, _, _) = run_closure(&repinned(&package, "core.variant/v1", None));
     assert_eq!(control.as_deref(), Ok(closure.as_slice()), "control");
@@ -253,7 +258,11 @@ fn with_max_reads(package: &V, max_reads: u64, repin: bool) -> V {
     let mut law = decode(get(&program, "footprint_law"));
     set(&mut law, "max_reads", V::Integer(i128::from(max_reads)));
     // The bucket edges every read range may hold, widened alike.
-    set(&mut law, "max_range_edges", V::Integer(i128::from(max_reads)));
+    set(
+        &mut law,
+        "max_range_edges",
+        V::Integer(i128::from(max_reads)),
+    );
     let law = encoded(&law);
     set(&mut program, "footprint_law", V::Bytes(law.clone()));
     let mut widened = package.clone();
@@ -301,5 +310,8 @@ fn listed(result: &[u8], name: &str) -> Option<usize> {
             _ => None,
         }
     }
-    find(&echo_edict_canonical::decode_canonical_cbor_v1(result).ok()?, name)
+    find(
+        &echo_edict_canonical::decode_canonical_cbor_v1(result).ok()?,
+        name,
+    )
 }

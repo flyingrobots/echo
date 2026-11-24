@@ -116,7 +116,10 @@ fn parameters() -> Value {
             "maxEdgeScans",
             declared(["graphReads", "maxEdgeScans"], "uint"),
         ),
-        ("selector", declared(["graphReads", "closureSelector"], "helper")),
+        (
+            "selector",
+            declared(["graphReads", "closureSelector"], "helper"),
+        ),
     ])
 }
 
@@ -364,7 +367,13 @@ impl Site<'_> {
 
     fn measure(&self, value: &Value) -> u64 {
         if let Some(Value::Text(half)) = field(value, "of") {
-            let pick = |cost: Cost| if half == "steps" { cost.steps } else { cost.bytes };
+            let pick = |cost: Cost| {
+                if half == "steps" {
+                    cost.steps
+                } else {
+                    cost.bytes
+                }
+            };
             if let Some(ty) = field(value, "copy") {
                 return pick(shape(&self.ty(ty)).expect("shape").0);
             }
@@ -455,7 +464,11 @@ fn mutation_fixtures() -> Vec<(&'static str, Ty, Ty)> {
         fixtures.push(("create-node", node, unit()));
         let mut replace = ids(&["warpId", "nodeId", "expectedAtomDigest", "atomType"]);
         replace.push(("atomBytes".to_owned(), Ty::Bytes(0, atom)));
-        fixtures.push(("replace-atom", Ty::Record(replace.into_iter().collect()), unit()));
+        fixtures.push((
+            "replace-atom",
+            Ty::Record(replace.into_iter().collect()),
+            unit(),
+        ));
     }
     fixtures.push((
         "ensure-edge",
@@ -498,8 +511,18 @@ fn closure_types(nodes: u64, atom: u64, edges: u64, occurrences: u64, edge_types
         ("atomType", Ty::Bytes(0, 32)),
         ("atomBytes", Ty::Bytes(0, atom)),
     ]);
-    let edge = record([("edgeId", ID), ("from", WORD), ("slot", WORD), ("node", WORD)]);
-    let occurrence = record([("node", WORD), ("edge", WORD), ("depth", WORD), ("guide", guide)]);
+    let edge = record([
+        ("edgeId", ID),
+        ("from", WORD),
+        ("slot", WORD),
+        ("node", WORD),
+    ]);
+    let occurrence = record([
+        ("node", WORD),
+        ("edge", WORD),
+        ("depth", WORD),
+        ("guide", guide),
+    ]);
     let output = record([
         ("nodes", list(node, nodes)),
         ("edges", list(edge, edges)),
@@ -572,7 +595,13 @@ fn every_mutation_template_equals_the_lowerer_charge() {
 fn the_node_atom_read_template_equals_the_lowerer_charge() {
     let input = Ty::Record(ids(&["warpId", "nodeId", "typeId"]).into_iter().collect());
     for max in [1, 77, 16 * 1024 * 1024] {
-        agrees("node-atom-read", &input, &Ty::Bytes(0, max), 0, Cost::default());
+        agrees(
+            "node-atom-read",
+            &input,
+            &Ty::Bytes(0, max),
+            0,
+            Cost::default(),
+        );
     }
 }
 
@@ -581,7 +610,13 @@ fn the_outgoing_edge_read_template_equals_the_lowerer_charge() {
     let input = Ty::Record(ids(&["warpId", "nodeId", "edgeType"]).into_iter().collect());
     let row = record([("edgeId", ID), ("toId", ID)]);
     for (rows, scans) in [(1, 0), (4, 16), (65_536, 1024)] {
-        agrees("outgoing-edge-read", &input, &list(row.clone(), rows), scans, Cost::default());
+        agrees(
+            "outgoing-edge-read",
+            &input,
+            &list(row.clone(), rows),
+            scans,
+            Cost::default(),
+        );
     }
 }
 
@@ -593,7 +628,13 @@ fn the_closure_read_template_equals_the_lowerer_charge_for_its_declared_selector
         (4096, 4096, 65_536, 65_536, 16, 1024),
     ] {
         let (input, output) = closure_types(nodes, atom, edges, occurrences, edge_types);
-        for selector in [Cost::default(), Cost { steps: 37, bytes: 4195 }] {
+        for selector in [
+            Cost::default(),
+            Cost {
+                steps: 37,
+                bytes: 4195,
+            },
+        ] {
             agrees("closure-read", &input, &output, scans, selector);
         }
     }
@@ -612,7 +653,16 @@ fn a_costlier_unselected_helper_does_not_reach_the_closure_template() {
     // 16 edge rows each pay the helper once.
     assert_eq!(v1.steps - v2.steps, 16 * 990);
     assert_eq!(v1.bytes - v2.bytes, 16 * 63_360);
-    agrees("closure-read", &input, &output, 16, Cost { steps: 10, bytes: 640 });
+    agrees(
+        "closure-read",
+        &input,
+        &output,
+        16,
+        Cost {
+            steps: 10,
+            bytes: 640,
+        },
+    );
 }
 
 /// amblicit#345 (6e217bb9) charges one empty obstruction payload of (1, 64)
@@ -646,7 +696,10 @@ fn the_published_v3_catalog_is_the_v2_catalog_with_every_template() {
         std::fs::write(V3_CATALOG_PATH, &generated).unwrap();
     }
     let published = std::fs::read(V3_CATALOG_PATH).expect("published /v3 catalog");
-    assert_eq!(published, generated, "regenerate with ECHO_BLESS_V3_CATALOG=1");
+    assert_eq!(
+        published, generated,
+        "regenerate with ECHO_BLESS_V3_CATALOG=1"
+    );
     let catalog = decode(&published).unwrap();
     assert_eq!(field(&catalog, "apiVersion"), Some(&text(V3_API)));
     let Some(Value::Map(intrinsics)) = field(&catalog, "intrinsics") else {

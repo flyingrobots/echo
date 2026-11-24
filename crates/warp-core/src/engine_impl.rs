@@ -459,10 +459,7 @@ pub struct Engine {
     installed_contract_packages:
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
     installed_echo_operation_packages: BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperation>,
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     installed_echo_operations_by_coordinate: BTreeMap<String, EchoOperationPackageIdV1>,
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     installed_provider_contract_packages:
@@ -1447,10 +1444,7 @@ impl Engine {
         self.installed_echo_operation_packages.get(&package_id)
     }
 
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) fn preflight_recovered_echo_operation_packages(
         &self,
         recovered: &[InstalledEchoOperation],
@@ -1463,10 +1457,7 @@ impl Engine {
         Ok(())
     }
 
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) fn restore_recovered_echo_operation_packages(
         &mut self,
         recovered: &[InstalledEchoOperation],
@@ -1481,10 +1472,7 @@ impl Engine {
         Ok(())
     }
 
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) fn installed_echo_operation_packages(
         &self,
     ) -> impl Iterator<Item = &InstalledEchoOperation> {
@@ -1492,10 +1480,7 @@ impl Engine {
     }
 
     /// Returns the engine-owned policy id used by operation patches.
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) const fn echo_operation_policy_id(&self) -> u32 {
         self.policy_id
     }

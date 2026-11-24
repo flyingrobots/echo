@@ -16,8 +16,10 @@ maps by canonical key bytes and rejects duplicate canonical keys. Decoding
 rejects indefinite-length, tagged, floating-point, simple, non-minimal,
 trailing, malformed, duplicate-key, and noncanonical inputs. Both directions
 enforce Edict's exact 128-container nesting boundary. Decoding additionally
-caps one materialized value tree at 65,536 nodes, charging map keys and values
-separately. A matching cumulative reservation budget is charged before every
+caps one materialized value tree at 1,048,576 nodes, charging map keys and
+values separately. That is the provider host's 1 MiB request cap: every node
+consumes at least one input byte, so the cap never refuses a canonical artifact
+the host admits. A matching cumulative reservation budget is charged before every
 container capacity allocation, so nested declarations cannot reuse the same
 budget to amplify host allocation. Those ceilings are Echo host resource
 bounds, not new Edict byte-identity claims.

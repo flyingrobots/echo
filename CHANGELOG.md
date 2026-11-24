@@ -21,7 +21,7 @@
   witness, a shared corpus fixes the three verdicts, and warp-core runs
   the control. A public compiler witness (`edict-effect-source-module`,
   Amblicit `7dbcbc23`) builds through the promoted provider package
-  (lowerer `f03a9022`, verifier `54a7c9fc`).
+  (lowerer `4484b05d`, verifier `01893c1e`).
 - Effect-program refusals name the failing check (#1018). The lowerer's
   `EffectPublicationError::UnsupportedProgram` and the verifier's
   `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a
@@ -392,6 +392,15 @@
 
 ### Fixed
 
+- The provider lowerer no longer refuses large compiler output as
+  "canonical artifact binding is invalid" (#1025). The canonical decoder's
+  node budget was 65,536, below what the provider host can send: the flat
+  ReplaceRange Core from jedit#410 is 598,411 bytes and 94,472 nodes. The
+  budget is now the host's 1 MiB request cap, 1,048,576 nodes; every node
+  takes at least one byte, so the budget never refuses an artifact the host
+  admits. Every binding refusal also names its artifact by domain and its
+  failed check in a second diagnostic, `<code>.artifact-binding.<check>`,
+  where the check is `reference`, `decode`, `canonical-form` or `digest`.
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package
   whose intent called an exported pure helper whose body fails, outright or in

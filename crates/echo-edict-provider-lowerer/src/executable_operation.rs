@@ -1024,10 +1024,13 @@ fn validate_bound(
             &format!("bound artifact domain is not {domain}"),
         ));
     }
-    validate_binding(bound).map_err(|()| {
-        invalid_artifact(
-            &bound.reference.coordinate,
-            "canonical artifact binding is invalid",
+    validate_binding(bound).map_err(|failure| {
+        failure.refuse(
+            invalid_artifact(
+                &bound.reference.coordinate,
+                "canonical artifact binding is invalid",
+            ),
+            bound,
         )
     })
 }

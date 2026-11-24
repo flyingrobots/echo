@@ -28,4 +28,4 @@ under a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `helper-executable-operation-package.hex` | `echo:operation-package:v1` `8fa2c87724c1b0c27ae58a83ce35d3f18874064dc91cb8b8ce02858296cd20d7` |
+| `helper-executable-operation-package.hex` | `echo:operation-package:v1` `703b0377a51065211576fd86c1521a4305a400bbb7a29c3474b2114fa9311936` |

@@ -24,7 +24,7 @@ mod corpus;
 const PACKAGE: &str =
     include_str!("../fixtures/edict-helper-identity/helper-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "8fa2c87724c1b0c27ae58a83ce35d3f18874064dc91cb8b8ce02858296cd20d7";
+const PACKAGE_PIN: &str = "703b0377a51065211576fd86c1521a4305a400bbb7a29c3474b2114fa9311936";
 const OPERATION: &str = "consumer.identity.program@1.ids";
 const AUTHORITY: &[u8] = b"consumer.identity.authority/v1";
 const STORED_TYPE: TypeId = TypeId([0x5b; 32]);

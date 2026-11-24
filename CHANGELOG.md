@@ -412,7 +412,11 @@
   source helpers and fold steps (#1005). It refused such packages although the
   lowerer and warp-core accepted them and the verifier accepted the same call
   in the intent body. A shared corpus now holds all three judges to one
-  verdict, including forged catalog, intrinsic and budget cases.
+  verdict, including forged catalog, intrinsic and budget cases, and a
+  verifier unit test requires each fold iteration to be charged its identity
+  call. The promoted verifier is `614e6101` (848,137 bytes); the
+  `edict-helper-identity` witness (Amblicit `7dbcbc23`) is recompiled
+  through it.
 
 - Provider and runtime bound reasoning now reads strict and reversed
   comparisons as native Target does (#1010): `x < n` bounds an unsigned term

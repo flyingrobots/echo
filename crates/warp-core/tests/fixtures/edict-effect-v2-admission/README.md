@@ -47,5 +47,25 @@ pins Echo's shared-read minimums for them, (145, 2291) and (131, 2227),
 which are what warp-core's shared executor charges for the payload, term by
 term, as the test's constants explain.
 
+`payload-attempt-two-executable-operation-package.hex` and
+`payload-require-empty-executable-operation-package.hex` were written the same
+way by Amblicit `80b52f956197fb94aeb2776abb844e482d3591e1` (main after
+amblicit#348) from `payload-attempt-two-source/` (payload schema
+`Record<at:U64,until:U64>`, arm payload `{ at: input.start, until: input.end }`)
+and `payload-require-empty-source/` (`require input.start <= input.end else
+fx.RangeInverted`, payload schema `Record<>`), with the typed-failure
+configuration.
+
+Under Amblicit `80b52f95` with Echo's `/v3` templates the compiler reports
+these shared-read minimums, and refuses one unit below on either axis:
+read (100, 1631), link (244, 8240), write (176, 6796), typed (140, 2095),
+payload-attempt (145, 2291), payload-require (131, 2227), payload-attempt-two
+(150, 2493), payload-require-empty (126, 2031). Its checked packages for the
+first six are byte-identical to the files here.
+`effect_programs_are_admitted_at_exactly_the_compiler_minimum` pins all eight;
+`two_field_and_empty_failure_payload_minimums_equal_the_compiler_minimum` in
+the verifier's `effect_program_judgment.rs` pins the verifier's minimums for
+the last two.
+
 The packages are private evaluation witnesses. They do not establish
 installation, a causal Tick, WAL retention or a receipt.

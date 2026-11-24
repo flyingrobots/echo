@@ -145,6 +145,18 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-executable-operation-package.hex"
         ),
     ),
+    (
+        "payload-attempt-two-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-two-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-empty-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-empty-executable-operation-package.hex"
+        ),
+    ),
 ];
 
 fn package_bytes(name: &str) -> Vec<u8> {
@@ -752,6 +764,23 @@ fn a_failure_payload_field_minimum_equals_the_lowerer_minimum() {
             minimum("payload-require-v2-admission", Some(SHARED)),
         ],
         [(145, 2_291), (131, 2_227)]
+    );
+}
+
+/// A two-field failure payload `{ at: input.start, until: input.end }` on an
+/// `attempt` arm, and a `require` with an empty payload, under the
+/// shared-read schedule (echo#1016): the verifier's minimums equal the public
+/// compiler's, Amblicit 80b52f95, which
+/// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
+/// lowerer pins for the lowerer (oracle: the compiler's own reports).
+#[test]
+fn two_field_and_empty_failure_payload_minimums_equal_the_compiler_minimum() {
+    assert_eq!(
+        [
+            minimum("payload-attempt-two-v2-admission", Some(SHARED)),
+            minimum("payload-require-empty-v2-admission", Some(SHARED)),
+        ],
+        [(150, 2_493), (126, 2_031)]
     );
 }
 

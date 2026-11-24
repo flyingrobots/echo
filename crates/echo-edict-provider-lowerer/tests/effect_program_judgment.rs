@@ -176,6 +176,18 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-executable-operation-package.hex"
         ),
     ),
+    (
+        "payload-attempt-two-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-two-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-empty-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-empty-executable-operation-package.hex"
+        ),
+    ),
 ];
 fn package(name: &str) -> V {
     let hex = RETAINED
@@ -526,7 +538,9 @@ fn context(name: &str) -> Context {
         },
         "typed-failure-v2-admission"
         | "payload-attempt-v2-admission"
-        | "payload-require-v2-admission" => Context {
+        | "payload-require-v2-admission"
+        | "payload-attempt-two-v2-admission"
+        | "payload-require-empty-v2-admission" => Context {
             configuration: include_str!(
                 "../../warp-core/tests/fixtures/edict-effect-typed-failure/typed-configuration.hex"
             ),
@@ -637,20 +651,29 @@ fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
     );
 }
 
-/// The public compiler's shared-read minimums for three more effect programs,
-/// (name, (steps, bytes)): Amblicit 65dc5362 with Echo's `/v3` effect
-/// templates, as `xtask --example effect_v2_admission` reports them. Each
-/// package under `edict-effect-v2-admission/` is that compiler's checked
-/// output for the matching `edict-effect-*/source`.
-const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 3] = [
+/// The public compiler's shared-read minimums for eight more effect
+/// programs, (name, (steps, bytes)), with Echo's `/v3` effect templates, as
+/// `xtask --example effect_v2_admission` reports them for Amblicit
+/// 80b52f956197fb94aeb2776abb844e482d3591e1 (main after amblicit#348, which
+/// charges an effect-body `attempt` its failure arm and a failing `require`
+/// its payload). The first three are unchanged from Amblicit 65dc5362. Each
+/// package under `edict-effect-v2-admission/` is byte for byte that
+/// compiler's checked output for its source.
+const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 8] = [
     ("node-atom-read-v2-admission", (100, 1_631)),
     ("outgoing-edge-read-v2-admission", (244, 8_240)),
     ("mutations-v2-admission", (176, 6_796)),
+    ("typed-failure-v2-admission", TYPED_FAILURE_SHARED_MINIMUM),
+    ("payload-attempt-v2-admission", PAYLOAD_ATTEMPT_SHARED_MINIMUM),
+    ("payload-require-v2-admission", PAYLOAD_REQUIRE_SHARED_MINIMUM),
+    ("payload-attempt-two-v2-admission", (150, 2_493)),
+    ("payload-require-empty-v2-admission", (126, 2_031)),
 ];
 
 /// Exact admission at the compiler's minimum (echo#1016) for the node-atom
-/// read, the outgoing-edge read with `ensure-edge`, and the five mutation
-/// intrinsics: Echo admits each program at exactly the compiler's minimum
+/// read, the outgoing-edge read with `ensure-edge`, the five mutation
+/// intrinsics, the typed-failure `attempt` and the failure-payload programs:
+/// Echo admits each program at exactly the compiler's minimum
 /// and refuses it one unit below on either axis. Oracle: the compiler's own
 /// reports, pinned above.
 #[test]

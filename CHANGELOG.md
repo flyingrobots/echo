@@ -70,20 +70,23 @@
   `edict.core-cost/v2` rules with Echo's `/v3` effect cost templates; the
   effect-body formulas are in `docs/architecture/application-contract-hosting.md`.
   Every runtime test runs the same package under both schedules and requires
-  the same result and mutations. With Amblicit `80b52f95` (main after
-  amblicit#348) the lowerer admits eight compiler-produced effect packages at
+  the same result and mutations. With Amblicit `e306ecc9` (main after
+  amblicit#350) the lowerer admits sixteen compiler-produced effect packages,
+  six of them `require` loops, at
   exactly the compiler's minimum and refuses one step or byte less, the
   verifier measures the same minimums, and the closure-read witness's
   residual is (0, 0). warp-core runs the closure witness, the node-atom read,
-  the outgoing-edge read and the mutations at exactly that minimum, charging
-  at or below it on both axes. Programs without the capability are run,
+  the outgoing-edge read, the mutations and the six loops (on every failing
+  item) at exactly that minimum, charging at or below it on both axes. Programs without the capability are run,
   judged and charged exactly as before. The packages are retained under
   `crates/warp-core/tests/fixtures/edict-effect-v2-admission/`. Known gaps:
   the `/v3` catalog is not in the provider package (its profile pins `/v2`);
   copying-schedule `let` validations are charged by Echo and not by Amblicit
   (unmeasured); the shared runtime validates neither `let` nor `attempt`
   bindings, so the `let` validations charged are safe but not tight;
-  non-scalar failure payload fields are unmeasured on the runtime.
+  record-valued failure payload fields are measured on the runtime only in
+  a `require` loop; an `attempt` inside a loop is refused by the failure-set
+  check.
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact

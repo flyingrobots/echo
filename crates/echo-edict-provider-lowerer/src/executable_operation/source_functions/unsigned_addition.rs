@@ -226,17 +226,21 @@ fn refine(
             let op = string(get(predicate, "op")?)?;
             let left = get(predicate, "left")?;
             let right = get(predicate, "right")?;
-            if matches!(op, "<=" | "==") {
+            // As native Target: `x < n` bounds x by n - 1, saturating at 0
+            // (a branch that never runs); `n > x` and `n >= x` mirror them.
+            let strict = matches!(op, "<" | ">");
+            let cap = |n: u64| if strict { n.saturating_sub(1) } else { n };
+            if matches!(op, "<=" | "<" | "==") {
                 if let Ok(limit) = literal(right) {
                     if same(left, expr, work)? {
-                        *upper = (*upper).min(limit);
+                        *upper = (*upper).min(cap(limit));
                     }
                 }
             }
-            if op == "==" {
+            if matches!(op, ">=" | ">" | "==") {
                 if let Ok(limit) = literal(left) {
                     if same(right, expr, work)? {
-                        *upper = (*upper).min(limit);
+                        *upper = (*upper).min(cap(limit));
                     }
                 }
             }

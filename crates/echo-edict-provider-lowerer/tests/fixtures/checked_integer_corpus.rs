@@ -603,5 +603,174 @@ pub(crate) fn cases() -> Vec<Case> {
             vec![CAPABILITY],
         );
     }
+    // Upper bounds from strict and mirrored comparisons (#1010), as native
+    // Target derives them: `x < n` bounds x by n - 1 (0 when n = 0, a branch
+    // that never runs), and `n > x`, `n >= x` bound x like `x < n`, `x <= n`.
+    {
+        let cmp = |op: &str, left: Value, right: Value| {
+            map([
+                ("kind", text("compare")),
+                ("op", text(op)),
+                ("left", left),
+                ("right", right),
+            ])
+        };
+        let both =
+            |a: Value, b: Value| map([("kind", text("all")), ("values", Value::Array(vec![a, b]))]);
+        let guarded = |width: &str, predicate: Value| {
+            map([
+                ("kind", text("if")),
+                ("predicate", predicate),
+                (
+                    "then",
+                    typed(
+                        "core.integer.add",
+                        vec![width],
+                        vec![arg(0, width), arg(1, width)],
+                    ),
+                ),
+                ("else", int(width, 0)),
+            ])
+        };
+        let a = || arg(0, "U64");
+        let b = || arg(1, "U64");
+        let strict = [
+            (
+                "a_strict_bound_inside_a_conjunction",
+                both(cmp("<=", a(), u64v(224)), cmp("<", b(), u64v(24))),
+                vec![(3, 6), (30, 0)],
+            ),
+            (
+                "two_strict_bounds",
+                both(cmp("<", a(), u64v(225)), cmp("<", b(), u64v(24))),
+                vec![(3, 6), (30, 0)],
+            ),
+            (
+                "mirrored_strict_and_non_strict_bounds",
+                both(cmp(">=", u64v(224), a()), cmp(">", u64v(24), b())),
+                vec![(3, 6), (30, 0)],
+            ),
+            (
+                "a_strict_bound_of_zero_guards_a_branch_that_never_runs",
+                both(cmp("<", b(), u64v(0)), cmp("<", b(), u64v(0))),
+                vec![(3, 0), (u64::MAX, 0)],
+            ),
+        ];
+        for (name, predicate, runs) in strict {
+            cases.push(
+                name,
+                Some(runs),
+                vec![
+                    (
+                        "pair",
+                        function(
+                            vec![param(0, "U64"), param(1, "U64")],
+                            "U64",
+                            guarded("U64", predicate),
+                        ),
+                    ),
+                    main_fn("U64", call("pair", vec![v(), v()])),
+                ],
+                "U64",
+                vec![CAPABILITY],
+            );
+        }
+        // At the U32 maximum: a < MAX and b < 2 fit; a < MAX and b < 3 do not.
+        // The mirrored forms have the same edge: MAX > a with 2 > b fits and
+        // 3 > b does not; MAX - 1 >= a with 1 >= b fits and 2 >= b does not.
+        // A lower bound, strict or not and from either side, bounds nothing,
+        // so a sum of two terms known only to exceed 1 is refused.
+        let top = u64::from(u32::MAX);
+        let x = || arg(0, "U32");
+        let y = || arg(1, "U32");
+        let n = |value: u64| int("U32", value);
+        let pair_of = |op: &str, constant_first: bool, a: u64, b: u64| {
+            if constant_first {
+                both(cmp(op, n(a), x()), cmp(op, n(b), y()))
+            } else {
+                both(cmp(op, x(), n(a)), cmp(op, y(), n(b)))
+            }
+        };
+        for (name, predicate, accepted) in [
+            (
+                "strict_bounds_that_fit_the_width_exactly",
+                pair_of("<", false, top, 2),
+                true,
+            ),
+            (
+                "strict_bounds_one_past_the_width",
+                pair_of("<", false, top, 3),
+                false,
+            ),
+            (
+                "mirrored_strict_bounds_that_fit_the_width_exactly",
+                pair_of(">", true, top, 2),
+                true,
+            ),
+            (
+                "mirrored_strict_bounds_one_past_the_width",
+                pair_of(">", true, top, 3),
+                false,
+            ),
+            (
+                "mirrored_bounds_that_fit_the_width_exactly",
+                pair_of(">=", true, top - 1, 1),
+                true,
+            ),
+            (
+                "mirrored_bounds_one_past_the_width",
+                pair_of(">=", true, top - 1, 2),
+                false,
+            ),
+            (
+                "a_strict_lower_bound_bounds_nothing",
+                pair_of(">", false, 1, 1),
+                false,
+            ),
+            (
+                "a_mirrored_strict_lower_bound_bounds_nothing",
+                pair_of("<", true, 1, 1),
+                false,
+            ),
+            (
+                "a_lower_bound_bounds_nothing",
+                pair_of(">=", false, 1, 1),
+                false,
+            ),
+            (
+                "a_mirrored_lower_bound_bounds_nothing",
+                pair_of("<=", true, 1, 1),
+                false,
+            ),
+        ] {
+            // The control call stays on the false guard; each accepted
+            // predicate also gets a case that reaches the guarded sum, the
+            // only place the derived bounds are exercised at run time.
+            let calls: &[(&str, u64, u64)] = if accepted {
+                &[("", top, 0), ("_runs_the_guarded_sum", top - 1, top)]
+            } else {
+                &[("", top, 0)]
+            };
+            for (suffix, first, output) in calls {
+                cases.push(
+                    &format!("{name}{suffix}"),
+                    accepted.then(|| vec![(0, *output)]),
+                    vec![
+                        (
+                            "pair",
+                            function(
+                                vec![param(0, "U32"), param(1, "U32")],
+                                "U32",
+                                guarded("U32", predicate.clone()),
+                            ),
+                        ),
+                        main_fn("U32", call("pair", vec![int("U32", *first), int("U32", 1)])),
+                    ],
+                    "U32",
+                    vec![CAPABILITY],
+                );
+            }
+        }
+    }
     cases.0
 }

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Echo's `edict.target-profile.intrinsics/v3` effect cost templates
-//! (amblicit#341, grammar of amblicit#345), and their conformance to the
-//! lowerer's own per-effect charge.
+//! Conformance of Echo's packaged `edict.target-profile.intrinsics/v3` effect
+//! cost templates (amblicit#341, grammar of amblicit#345; authored in
+//! `echo-wesley-gen`'s `provider_effect_costs`) to the lowerer's own
+//! per-effect charge.
 //!
 //! Under the shared-read schedule a template replaces the compiler's generic
 //! charge of an effect step, so each template states exactly what the lowerer
@@ -24,269 +25,26 @@ use echo_edict_canonical::{
 };
 use std::collections::BTreeMap;
 
-const V2_CATALOG: &[u8] = include_bytes!(
-    "../../../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+/// The packaged `echo.dpo@2` catalog, which provider generation writes from
+/// `echo-wesley-gen`'s `provider_effect_costs`: the templates evaluated here
+/// are exactly the published ones.
+const CATALOG: &[u8] = include_bytes!(
+    "../../../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor"
 );
-const V3_CATALOG: &[u8] = include_bytes!("../../../catalogs/resource.target-intrinsics-3.cbor");
-const V3_API: &str = "edict.target-profile.intrinsics/v3";
-
-// ---- template construction -------------------------------------------------
+const CATALOG_API: &str = "edict.target-profile.intrinsics/v3";
 
 fn text(value: &str) -> Value {
     Value::Text(value.to_owned())
 }
-fn map<const N: usize>(entries: [(&str, Value); N]) -> Value {
-    Value::Map(entries.into_iter().map(|(k, v)| (text(k), v)).collect())
-}
-fn c(value: u64) -> Value {
-    map([("const", Value::Integer(value.into()))])
-}
-fn sum<const N: usize>(terms: [Value; N]) -> Value {
-    map([("sum", Value::Array(terms.into()))])
-}
-fn product(left: Value, right: Value) -> Value {
-    map([("product", Value::Array(vec![left, right]))])
-}
-fn measure(inner: Value) -> Value {
-    map([("measure", inner)])
-}
-/// `{ path: { side, fields, item, ? then } }`.
-fn path(side: &str, fields: &[&str], item: u64, then: &[&str]) -> Value {
-    let names = |names: &[&str]| Value::Array(names.iter().map(|name| text(name)).collect());
-    let mut entries = vec![
-        (text("side"), text(side)),
-        (text("fields"), names(fields)),
-        (text("item"), Value::Integer(item.into())),
-    ];
-    if !then.is_empty() {
-        entries.push((text("then"), names(then)));
-    }
-    map([("path", Value::Map(entries))])
-}
-fn input(fields: &[&str]) -> Value {
-    path("input", fields, 0, &[])
-}
-fn output(fields: &[&str]) -> Value {
-    path("output", fields, 0, &[])
-}
-fn item(list: &str, then: &[&str]) -> Value {
-    path("output", &[list], 1, then)
-}
-fn bytes_max(ty: Value) -> Value {
-    measure(map([("bytesMax", ty)]))
-}
-fn list_max(ty: Value) -> Value {
-    measure(map([("listMax", ty)]))
-}
-fn validations(ty: Value) -> Value {
-    measure(map([("validations", ty)]))
-}
-fn copy(ty: Value, half: &str) -> Value {
-    measure(map([("copy", ty), ("of", text(half))]))
-}
-fn parameter(name: &str) -> Value {
-    measure(map([("parameter", text(name))]))
-}
-fn helper(half: &str) -> Value {
-    measure(map([
-        ("helper", map([("parameter", text("selector"))])),
-        ("of", text(half)),
-    ]))
-}
-fn rule(steps: Value, bytes: Value) -> Value {
-    map([("steps", steps), ("bytes", bytes)])
-}
 
-/// The `/v3` catalog's top-level `parameters` map.
-fn parameters() -> Value {
-    let declared = |names: [&str; 2], kind: &str| {
-        map([
-            (
-                "path",
-                Value::Array(names.iter().map(|name| text(name)).collect()),
-            ),
-            ("kind", text(kind)),
-        ])
-    };
-    map([
-        (
-            "maxEdgeScans",
-            declared(["graphReads", "maxEdgeScans"], "uint"),
-        ),
-        (
-            "selector",
-            declared(["graphReads", "closureSelector"], "helper"),
-        ),
-    ])
-}
-
-/// The `effectCostRule` of one `echo.dpo@2` effect operation.
-pub(super) fn effect_cost_rule(operation: &str) -> Option<Value> {
-    let checked = || validations(input(&[]));
-    Some(match operation {
-        // `abi`: max + 1 steps; the payload twice beside the read records.
-        "node-atom-read" => rule(
-            sum([checked(), bytes_max(output(&[])), c(1)]),
-            sum([product(c(2), bytes_max(output(&[]))), c(448)]),
-        ),
-        // `abi`: one step and the unit value beside the emission reservation.
-        "ensure-node" | "create-node" | "replace-atom" | "ensure-edge" | "replace-edge" => {
-            rule(sum([checked(), c(1)]), c(64 + 280))
-        }
-        // `graph_charge`: every scan (128 bytes, recorded twice), the whole
-        // result copied and validated, and one recorded range.
-        "outgoing-edge-read" => rule(
-            sum([
-                checked(),
-                parameter("maxEdgeScans"),
-                copy(output(&[]), "steps"),
-                validations(output(&[])),
-                c(1),
-            ]),
-            sum([
-                product(parameter("maxEdgeScans"), c(256)),
-                copy(output(&[]), "bytes"),
-                c(384),
-            ]),
-        ),
-        "closure-read" => closure_rule(),
-        _ => return None,
-    })
-}
-
-/// `graph_charge` of a closure read with only the declared selector:
-/// `read_cost`'s closure terms plus the recorded nodes and ranges.
-fn closure_rule() -> Value {
-    let guide = || input(&["guide"]);
-    let node = || item("nodes", &[]);
-    let atom = || bytes_max(item("nodes", &["atomBytes"]));
-    let nodes = || list_max(output(&["nodes"]));
-    let edges = || list_max(output(&["edges"]));
-    let occurrences = || list_max(output(&["occurrences"]));
-    let ranges = || product(occurrences(), list_max(input(&["edgeTypes"])));
-    let candidate = || {
-        map([(
-            "record",
-            map([
-                ("guide", guide()),
-                ("depth", map([("word", Value::Null)])),
-                ("slot", map([("word", Value::Null)])),
-                ("parent", node()),
-                ("child", node()),
-            ]),
-        )])
-    };
-    let steps = sum([
-        validations(input(&[])),
-        validations(output(&[])),
-        parameter("maxEdgeScans"),
-        validations(guide()),
-        copy(guide(), "steps"),
-        // Each node: its atom, its row copy, and two recorded steps.
-        product(nodes(), sum([atom(), copy(node(), "steps"), c(2)])),
-        product(
-            occurrences(),
-            sum([
-                c(1),
-                copy(guide(), "steps"),
-                copy(item("occurrences", &[]), "steps"),
-            ]),
-        ),
-        product(
-            edges(),
-            sum([
-                copy(item("edges", &[]), "steps"),
-                copy(guide(), "steps"),
-                copy(node(), "steps"),
-                copy(node(), "steps"),
-                copy(candidate(), "steps"),
-                validations(candidate()),
-                c(2),
-                helper("steps"),
-                copy(guide(), "steps"),
-            ]),
-        ),
-        ranges(),
-    ]);
-    let bytes = sum([
-        product(parameter("maxEdgeScans"), c(256)),
-        copy(guide(), "bytes"),
-        // Each node: its atom charged, then copied in the row, beside the
-        // row copy and the node's recorded observations.
-        product(
-            nodes(),
-            sum([atom(), c(64), copy(node(), "bytes"), atom(), c(384)]),
-        ),
-        product(
-            occurrences(),
-            sum([
-                copy(guide(), "bytes"),
-                copy(item("occurrences", &[]), "bytes"),
-            ]),
-        ),
-        product(
-            edges(),
-            sum([
-                copy(item("edges", &[]), "bytes"),
-                copy(guide(), "bytes"),
-                copy(node(), "bytes"),
-                copy(node(), "bytes"),
-                copy(candidate(), "bytes"),
-                helper("bytes"),
-                copy(guide(), "bytes"),
-            ]),
-        ),
-        c(256),
-        product(ranges(), c(384)),
-    ]);
-    rule(steps, bytes)
-}
-
-/// The `/v3` catalog: the `/v2` catalog with an `effectCostRule` on every
-/// effect intrinsic and the `parameters` map.
-fn v3_catalog() -> Value {
-    let Value::Map(mut fields) = decode(V2_CATALOG).expect("v2 catalog") else {
-        panic!("catalog map")
-    };
-    for (key, value) in &mut fields {
-        if *key == text("apiVersion") {
-            *value = text(V3_API);
-        }
-        if *key == text("intrinsics") {
-            let Value::Map(intrinsics) = value else {
-                panic!("intrinsics map")
-            };
-            for (name, entry) in intrinsics.iter_mut() {
-                let (Value::Text(name), Value::Map(entry)) = (name, entry) else {
-                    panic!("entry")
-                };
-                if entry.contains(&(text("intrinsicClass"), text("effect"))) {
-                    let operation = name.rsplit('.').next().expect("operation");
-                    let rule = effect_cost_rule(operation).expect("every effect has a template");
-                    entry.push((text("effectCostRule"), rule));
-                }
-            }
-        }
-    }
-    fields.push((text("parameters"), parameters()));
-    canonical(Value::Map(fields))
-}
-
-/// Re-encode through decode so map keys take canonical order.
-fn canonical(value: Value) -> Value {
-    fn sort(value: Value) -> Value {
-        match value {
-            Value::Map(entries) => {
-                let mut entries: Vec<(Value, Value)> =
-                    entries.into_iter().map(|(k, v)| (k, sort(v))).collect();
-                entries.sort_by_key(|(key, _)| encode(key).expect("key"));
-                Value::Map(entries)
-            }
-            Value::Array(items) => Value::Array(items.into_iter().map(sort).collect()),
-            other => other,
-        }
-    }
-    sort(value)
+/// The published `effectCostRule` of one `echo.dpo@2` effect operation.
+fn effect_cost_rule(operation: &str) -> Option<Value> {
+    let catalog = decode(CATALOG).expect("packaged catalog");
+    let intrinsic = field(
+        field(&catalog, "intrinsics")?,
+        &format!("echo.dpo@2.{operation}"),
+    )?;
+    field(intrinsic, "effectCostRule").cloned()
 }
 
 // ---- evaluation ------------------------------------------------------------
@@ -687,15 +445,9 @@ fn the_obstruction_payload_is_amblicits_constant_and_no_template_carries_it() {
 }
 
 #[test]
-fn the_published_v3_catalog_is_the_v2_catalog_with_every_template() {
-    let generated = encode(&v3_catalog()).expect("canonical v3 catalog");
-    let published = V3_CATALOG.to_vec();
-    assert_eq!(
-        published, generated,
-        "catalogs/resource.target-intrinsics-3.cbor differs from the generated catalog"
-    );
-    let catalog = decode(&published).unwrap();
-    assert_eq!(field(&catalog, "apiVersion"), Some(&text(V3_API)));
+fn the_packaged_catalog_is_v3_with_a_template_on_every_effect() {
+    let catalog = decode(CATALOG).unwrap();
+    assert_eq!(field(&catalog, "apiVersion"), Some(&text(CATALOG_API)));
     let Some(Value::Map(intrinsics)) = field(&catalog, "intrinsics") else {
         panic!("intrinsics")
     };
@@ -705,4 +457,5 @@ fn the_published_v3_catalog_is_the_v2_catalog_with_every_template() {
         .inspect(|(_, entry)| assert!(field(entry, "effectCostRule").is_some()))
         .count();
     assert_eq!(effects, 8);
+    assert!(field(&catalog, "parameters").is_some());
 }

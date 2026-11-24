@@ -325,9 +325,9 @@
       "provision": "generated"
     },
     {
-      "role": "resource.target-intrinsics-2",
-      "coordinate": "echo.dpo.intrinsics/v2",
-      "schemaContract": "edict.target-profile.intrinsics/v2",
+      "role": "resource.target-intrinsics-3",
+      "coordinate": "echo.dpo.intrinsics/v3",
+      "schemaContract": "edict.target-profile.intrinsics/v3",
       "provision": "generated"
     },
     {
@@ -437,7 +437,7 @@
       "artifactRole": "target-profile.echo-dpo-2",
       "id": "echo.dpo",
       "version": "2",
-      "intrinsicsResource": "resource.target-intrinsics-2",
+      "intrinsicsResource": "resource.target-intrinsics-3",
       "targetIrResource": "resource.target-ir-2",
       "targetIrDomain": "echo.span-ir/v3",
       "intrinsics": [
@@ -913,7 +913,7 @@
       "rootRule": "echo-frozen-catalog-v1-intrinsics-document"
     },
     {
-      "domain": "echo.dpo.intrinsics/v2",
+      "domain": "echo.dpo.intrinsics/v3",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
       "rootRule": "intrinsics-document"

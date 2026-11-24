@@ -32,6 +32,9 @@ use crate::provider_canonical::{
 use crate::provider_contract_pack::{
     AdmittedProviderContractPackV1, ProviderContractValidationErrorKind,
 };
+use crate::provider_effect_costs::{
+    effect_cost_parameters, effect_cost_rule, EFFECT_COST_CATALOG_API,
+};
 use crate::provider_generation::{
     ProviderGenerationInputV1, EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_COORDINATE_V1,
 };
@@ -1323,7 +1326,7 @@ fn resource_root(role: &str) -> Result<&'static str, ProviderArtifactGenerationE
 fn resource_edict_contract(role: &str) -> Option<&'static str> {
     match role {
         "resource.lawpack-exports" => Some("lawpack-exports"),
-        "resource.target-intrinsics-2" => Some("target-profile-intrinsics"),
+        "resource.target-intrinsics-3" => Some("target-profile-intrinsics"),
         "resource.target-operation-profiles" => Some("target-profile-operation-profiles"),
         // Includes the frozen echo.dpo@1 catalog (`resource.target-intrinsics`):
         // its owner is the generated `echo-frozen-catalog-v1-` projection of
@@ -2232,7 +2235,7 @@ fn effect_profile_resource(
         .find_map(|declaration| {
             let namespace = effect_namespace(declaration);
             if resource.role == declaration.intrinsics_resource {
-                Some(build_runtime_intrinsics(declaration, &namespace))
+                build_runtime_intrinsics(declaration, &namespace)
             } else if resource.role == declaration.target_ir_resource {
                 let mut capabilities = JsonMap::new();
                 for intrinsic in &declaration.intrinsics {
@@ -2254,12 +2257,14 @@ fn effect_profile_resource(
         })
 }
 
-/// The catalog of an effect target profile: each runtime intrinsic under the
-/// profile's namespace, typed by its Echo-owned ABI coordinates.
+/// The `/v3` catalog of an effect target profile: each runtime intrinsic
+/// under the profile's namespace, typed by its Echo-owned ABI coordinates,
+/// every effect intrinsic with its `effectCostRule`, and the template
+/// `parameters`. `None` when an effect intrinsic has no cost template.
 fn build_runtime_intrinsics(
     declaration: &EffectTargetProfileDeclaration,
     namespace: &str,
-) -> JsonValue {
+) -> Option<JsonValue> {
     let mut intrinsics = JsonMap::new();
     for intrinsic in &declaration.intrinsics {
         let name = format!("{namespace}.{}", intrinsic.operation);
@@ -2292,6 +2297,7 @@ fn build_runtime_intrinsics(
                 "costTemplate": format!("{name}.cost"),
                 "writeClass": kind,
                 "canParticipateInAtomicGuard": intrinsic.can_participate_in_atomic_guard,
+                "effectCostRule": effect_cost_rule(&intrinsic.operation)?,
             }),
         );
     }
@@ -2317,8 +2323,9 @@ fn build_runtime_intrinsics(
         );
     }
     let mut catalog = json!({
-        "apiVersion": "edict.target-profile.intrinsics/v2",
+        "apiVersion": EFFECT_COST_CATALOG_API,
         "intrinsics": intrinsics,
+        "parameters": effect_cost_parameters(),
     });
     if !declaration.types.is_empty() {
         catalog["types"] = declaration
@@ -2328,7 +2335,7 @@ fn build_runtime_intrinsics(
             .collect::<JsonMap<_, _>>()
             .into();
     }
-    catalog
+    Some(catalog)
 }
 
 /// An effect target profile: the selected profile with its own version,

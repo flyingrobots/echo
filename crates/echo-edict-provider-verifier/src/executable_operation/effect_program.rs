@@ -512,13 +512,22 @@ fn relation<'a>(
     let catalog_reference = get(&profile, "intrinsics")?;
     equal_text(catalog_reference, "id", namespace.catalog)?;
     pinned(catalog_reference, identity(namespace.catalog, &catalog)?)?;
-    // Catalog v2 may also publish the named types its pure contracts
-    // reference; the frozen v1 catalog has exactly two fields.
-    if namespace.catalog_api == "edict.target-profile.intrinsics/v2"
-        && get(&catalog, "types").is_ok()
-    {
-        exact(&catalog, &["apiVersion", "intrinsics", "types"])?;
-        members(get(&catalog, "types")?)?;
+    // Catalog v3 carries its template `parameters` and may also publish the
+    // named types its pure contracts reference; the frozen v1 catalog has
+    // exactly two fields.
+    let templated = namespace.catalog_api == "edict.target-profile.intrinsics/v3";
+    if templated {
+        let typed = get(&catalog, "types").is_ok();
+        let fields: &[&str] = if typed {
+            &["apiVersion", "intrinsics", "parameters", "types"]
+        } else {
+            &["apiVersion", "intrinsics", "parameters"]
+        };
+        exact(&catalog, fields)?;
+        members(get(&catalog, "parameters")?)?;
+        if typed {
+            members(get(&catalog, "types")?)?;
+        }
     } else {
         exact(&catalog, &["apiVersion", "intrinsics"])?;
     }
@@ -647,7 +656,14 @@ fn relation<'a>(
             return Err(());
         }
         trail.mark(R::IntrinsicContract);
-        contract(intrinsic_name, kind, intrinsic, effect, implementation)?;
+        contract(
+            intrinsic_name,
+            kind,
+            intrinsic,
+            effect,
+            implementation,
+            templated,
+        )?;
         let output = string(get(effect, "outputType")?)?;
         equal_text(get(node, "binding")?, "type", output)?;
         trail.mark(R::FailureArms);
@@ -799,22 +815,30 @@ fn contract(
     intrinsic: &Value,
     effect: &Value,
     implementation: &Value,
+    templated: bool,
 ) -> Check<()> {
+    // A catalog v3 effect intrinsic carries its `effectCostRule`; its bytes
+    // are fixed by the pinned catalog digest.
+    let rule: &[&str] = if templated { &["effectCostRule"] } else { &[] };
     exact(
         intrinsic,
         &[
-            "intrinsicClass",
-            "argumentTypes",
-            "returnType",
-            "typeParameters",
-            "effectKind",
-            "writeClass",
-            "guardSupport",
-            "canParticipateInAtomicGuard",
-            "costTemplate",
-            "footprintTemplate",
-            "effectFailures",
-        ],
+            &[
+                "intrinsicClass",
+                "argumentTypes",
+                "returnType",
+                "typeParameters",
+                "effectKind",
+                "writeClass",
+                "guardSupport",
+                "canParticipateInAtomicGuard",
+                "costTemplate",
+                "footprintTemplate",
+                "effectFailures",
+            ][..],
+            rule,
+        ]
+        .concat(),
     )?;
     equal_text(intrinsic, "intrinsicClass", "effect")?;
     equal_text(effect, "executionClass", "runtime")?;

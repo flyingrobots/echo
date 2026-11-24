@@ -87,13 +87,22 @@ pub(super) fn validate<'a>(
         catalog_reference,
         digest(namespace.catalog, &catalog).map_err(|_| Error::InvalidArtifact)?,
     )?;
-    // Catalog v2 may also publish the named types its pure contracts
-    // reference; the frozen v1 catalog has exactly two fields.
-    if namespace.catalog_api == "edict.target-profile.intrinsics/v2"
-        && field(&catalog, "types").is_ok()
-    {
-        exact_fields(&catalog, &["apiVersion", "intrinsics", "types"])?;
-        map(field(&catalog, "types")?)?;
+    // Catalog v3 carries its template `parameters` and may also publish the
+    // named types its pure contracts reference; the frozen v1 catalog has
+    // exactly two fields.
+    let templated = namespace.catalog_api == "edict.target-profile.intrinsics/v3";
+    if templated {
+        let typed = field(&catalog, "types").is_ok();
+        let fields: &[&str] = if typed {
+            &["apiVersion", "intrinsics", "parameters", "types"]
+        } else {
+            &["apiVersion", "intrinsics", "parameters"]
+        };
+        exact_fields(&catalog, fields)?;
+        map(field(&catalog, "parameters")?)?;
+        if typed {
+            map(field(&catalog, "types")?)?;
+        }
     } else {
         exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
     }
@@ -191,7 +200,13 @@ pub(super) fn validate<'a>(
         if declarations.next().is_some() {
             return Err(Error::InvalidArtifact);
         }
-        super::intrinsic_contract::validate(intrinsic_name, intrinsic, effect, implementation)?;
+        super::intrinsic_contract::validate(
+            intrinsic_name,
+            intrinsic,
+            effect,
+            implementation,
+            templated,
+        )?;
         super::runtime_abi::validate(intrinsic_name, module, effect, intrinsic)?;
         if super::mutations::MutationKind::from_intrinsic(intrinsic_name).is_some() {
             require_text(

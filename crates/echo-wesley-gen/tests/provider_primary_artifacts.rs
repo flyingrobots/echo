@@ -50,7 +50,7 @@ const GENERATED_RESOURCE_ROLES: [&str; 16] = [
     "resource.target-cost-algebra",
     "resource.target-footprint-algebra",
     "resource.target-intrinsics",
-    "resource.target-intrinsics-2",
+    "resource.target-intrinsics-3",
     "resource.target-ir",
     "resource.target-ir-2",
     "resource.target-lowerer-contract",
@@ -313,7 +313,7 @@ fn primary_generation_is_byte_identical_digest_closed_and_root_validated() {
         ("resource.lawpack-exports", "lawpack-exports"),
         // The frozen echo.dpo@1 catalog is catalog v1, owned by the generated
         // frozen projection; the current upstream root owns the v2 catalog.
-        ("resource.target-intrinsics-2", "target-profile-intrinsics"),
+        ("resource.target-intrinsics-3", "target-profile-intrinsics"),
         (
             "resource.target-operation-profiles",
             "target-profile-operation-profiles",

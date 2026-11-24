@@ -212,20 +212,32 @@ pub fn encode_effect_publication(
     let catalog = policy_bytes(&config, "intrinsicCatalog")?;
     let catalog_value = decode(catalog).map_err(|_| C)?;
     // The frozen echo.dpo@1 catalog is API v1 with two fields; echo.dpo@2's
-    // is catalog v2 and may also publish named types. Which one the selected
-    // profile pins is checked by the effect-resource relation.
+    // is catalog v3, with its template `parameters`, and may also publish
+    // named types. Which one the selected profile pins is checked by the
+    // effect-resource relation.
     match field(&catalog_value, "apiVersion", C)? {
         V::Text(api) if api == "edict.target-profile.intrinsics/v1" => {
             exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
         }
-        V::Text(api) if api == "edict.target-profile.intrinsics/v2" => {
+        V::Text(api) if api == "edict.target-profile.intrinsics/v3" => {
             if field(&catalog_value, "types", C).is_ok() {
-                exact(&catalog_value, &["apiVersion", "intrinsics", "types"], C)?;
+                exact(
+                    &catalog_value,
+                    &["apiVersion", "intrinsics", "parameters", "types"],
+                    C,
+                )?;
                 if !matches!(field(&catalog_value, "types", C)?, V::Map(_)) {
                     return Err(C);
                 }
             } else {
-                exact(&catalog_value, &["apiVersion", "intrinsics"], C)?;
+                exact(
+                    &catalog_value,
+                    &["apiVersion", "intrinsics", "parameters"],
+                    C,
+                )?;
+            }
+            if !matches!(field(&catalog_value, "parameters", C)?, V::Map(_)) {
+                return Err(C);
             }
         }
         _ => return Err(C),

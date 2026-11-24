@@ -32,14 +32,14 @@ pub const EDICT_PROVIDER_CONTRACT_PACK_LICENSE: &str = "Apache-2.0";
 
 /// SHA-256 of the admitted self-contained CDDL bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256: &str =
-    "ed60e6ad6e0a80e23f915a8f791342b9e97cadd03034541865e754ef30352233";
+    "66f28b74bfa236a534455c36cc12e4dce106e1a3346880638f73b827ffa57a82";
 
 /// SHA-256 of the admitted Edict publication manifest bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256: &str =
-    "ef57e32542bea8c07f4629e54174c1598fb1852378dc147ee2da505fdaf069fa";
+    "7eadeaba705879a09f826bf6cbdadb0f8a25d4c3b05e2f720c040bb4013196fa";
 
 /// Maximum manifest size parsed at the contract-pack authority boundary.
-pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 92_284;
+pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 98_574;
 
 const EXPECTED_CONTRACTS: [(&str, &str); 12] = [
     ("authority-facts", "authority-facts"),

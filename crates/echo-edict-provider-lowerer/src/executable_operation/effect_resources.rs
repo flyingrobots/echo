@@ -44,19 +44,20 @@ pub(super) fn validate(
     );
     let namespace = super::intrinsic_names::namespace(&coordinate).ok_or_else(invalid)?;
     let catalog_domain = namespace.catalog;
-    // Catalog v2 may also publish named types; the frozen v1 catalog has
-    // exactly two fields.
-    let fields: &[&str] = if namespace.catalog_api == "edict.target-profile.intrinsics/v2"
-        && map_field(&catalog, "types").is_some()
-    {
-        &["apiVersion", "intrinsics", "types"]
-    } else {
-        &["apiVersion", "intrinsics"]
+    // Catalog v3 carries its template `parameters` and may also publish
+    // named types; the frozen v1 catalog has exactly two fields.
+    let templated = namespace.catalog_api == "edict.target-profile.intrinsics/v3";
+    let typed = templated && map_field(&catalog, "types").is_some();
+    let fields: &[&str] = match (templated, typed) {
+        (true, true) => &["apiVersion", "intrinsics", "parameters", "types"],
+        (true, false) => &["apiVersion", "intrinsics", "parameters"],
+        _ => &["apiVersion", "intrinsics"],
     };
     require_exact_fields(&catalog, fields, SUBJECT).map_err(|_| invalid())?;
     if text_field(&catalog, "apiVersion") != Some(namespace.catalog_api)
         || map_field(&catalog, "intrinsics").and_then(as_map).is_none()
-        || (fields.len() == 3 && map_field(&catalog, "types").and_then(as_map).is_none())
+        || (templated && map_field(&catalog, "parameters").and_then(as_map).is_none())
+        || (typed && map_field(&catalog, "types").and_then(as_map).is_none())
     {
         return Err(invalid());
     }

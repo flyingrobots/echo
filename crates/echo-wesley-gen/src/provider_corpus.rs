@@ -623,9 +623,9 @@ pub fn checked_provider_artifact_corpus_v1(
             ),
         ),
         (
-            "resources/resource.target-intrinsics-2.cbor",
+            "resources/resource.target-intrinsics-3.cbor",
             include_bytes!(
-                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor"
             ),
         ),
         (

@@ -771,13 +771,80 @@ target-profile-manifest = {
 ; required pure signature reaches; admission checks that, this schema does not.
 ; A v1 catalog is not a value of this rule; the publications that admit v1
 ; are frozen under fixtures/provider-contracts/.
-intrinsics-document = {
+intrinsics-document = intrinsics-document-v2 / intrinsics-document-v3
+
+intrinsics-document-v2 = {
   apiVersion: "edict.target-profile.intrinsics/v2",
   intrinsics: { * tstr => intrinsic },
   ; Provider-owned named types that pure-intrinsic signatures reference, keyed
   ; by a coordinate below the profile id. Each value is a structural
   ; `Record<...>` core-type-ref whose fields are structural types.
   ? types: { * tstr => tstr },
+}
+
+; Catalog v3 (#341): catalog v2 plus effect cost templates. Pure contracts
+; keep their v2 shape; every effect intrinsic carries a required
+; `effectCostRule`. The optional `parameters` map says where each named
+; template parameter lives in the operation configuration. The schema fixes
+; the shape; admission (`admit_target_effect_costs`) checks depth and path
+; syntax and resolves parameters against the configuration; evaluating a
+; charge resolves type paths against the effect's signature.
+intrinsics-document-v3 = {
+  apiVersion: "edict.target-profile.intrinsics/v3",
+  intrinsics: { * tstr => intrinsic-v3 },
+  ? types: { * tstr => tstr },
+  ; At most 64 declarations, the decoder's limit.
+  ? parameters: { 0*64 nonempty-text => effect-cost-parameter },
+}
+
+intrinsic-v3 = pure-intrinsic / effect-intrinsic-v3
+
+effect-cost-parameter = {
+  path: [1*16 nonempty-text],
+  kind: "uint" / "helper",
+}
+
+; Closed u64 expressions; admission refuses depth above 16, evaluation
+; refuses overflow. This schema does not bound nesting depth; the decoder is
+; stricter there and is authoritative. The schema requires `effectCostRule` on
+; every effect intrinsic of a v3 catalog, while the compiler reads it only for
+; the effects a program uses.
+effect-cost-rule = {
+  steps: effect-cost-expr,
+  bytes: effect-cost-expr,
+}
+
+effect-cost-expr = { const: uint }
+                 / { sum: [2*16 effect-cost-expr] }
+                 / { product: [effect-cost-expr, effect-cost-expr] }
+                 / { measure: effect-cost-measure }
+
+effect-cost-half = "steps" / "bytes"
+
+effect-cost-measure = { bytesMax: effect-cost-type }
+                    / { listMax: effect-cost-type }
+                    / { validations: effect-cost-type }
+                    / { copy: effect-cost-type, of: effect-cost-half }
+                    / { parameter: nonempty-text }
+                    / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                    / { costliestHelper: effect-cost-half }
+
+; A type in the effect's signature (record fields, then `item` list-item
+; steps, then optional fields inside the item), the u64 word, or a
+; synthesized record. `then` needs at least one item step.
+effect-cost-type = { path: effect-cost-path }
+                 / { word: null }
+                 / { record: { * tstr => effect-cost-type } }
+
+effect-cost-path = {
+  side: "input" / "output",
+  fields: [* tstr],
+  item: uint,
+} / {
+  side: "input" / "output",
+  fields: [* tstr],
+  item: uint .ge 1,
+  then: [1* tstr],
 }
 
 ; The artifact referenced by the manifest's `operationProfiles` resource-ref.
@@ -874,6 +941,23 @@ effect-intrinsic = {
   writeClass: "read" / "create" / "ensure" / "append" / "replace" /
               "delete" / "custom",
   canParticipateInAtomicGuard: bool,
+}
+
+; A catalog v3 effect intrinsic: the v2 shape plus its cost template.
+effect-intrinsic-v3 = {
+  intrinsicClass: "effect",
+  typeParameters: [* tstr],
+  argumentTypes: [* core-type-ref],
+  returnType: core-type-ref,
+  effectKind: effect-kind,
+  effectFailures: { * failure-ident => effect-failure-body },
+  guardSupport: bool,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "read" / "create" / "ensure" / "append" / "replace" /
+              "delete" / "custom",
+  canParticipateInAtomicGuard: bool,
+  effectCostRule: effect-cost-rule,
 }
 
 ; effect-failure-body, effect-kind, authority-class, and core-type-ref are defined

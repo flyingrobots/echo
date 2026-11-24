@@ -173,11 +173,11 @@ struct GeneratedResourceFixture {
 /// to the effect profile, not to the `echo.dpo@1` contract bundle below.
 const EFFECT_PROFILE_RESOURCE_FIXTURES: &[GeneratedResourceFixture] = &[
     GeneratedResourceFixture {
-        path: "resource.target-intrinsics-2.cbor",
-        domain: "echo.dpo.intrinsics/v2",
+        path: "resource.target-intrinsics-3.cbor",
+        domain: "echo.dpo.intrinsics/v3",
         root: "intrinsics-document",
         bytes: include_bytes!(
-            "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+            "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor"
         ),
     },
     GeneratedResourceFixture {

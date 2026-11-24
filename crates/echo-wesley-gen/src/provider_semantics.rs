@@ -3480,7 +3480,7 @@ fn validate_effect_target_profiles<'a>(
         require_resource(
             resources,
             &profile.intrinsics_resource,
-            Some("edict.target-profile.intrinsics/v2"),
+            Some("edict.target-profile.intrinsics/v3"),
             Some(ArtifactResourceProvision::Generated),
             &profile.artifact_role,
             used_resources,
@@ -3883,7 +3883,7 @@ pub(crate) fn generated_resource_root(role: &str) -> Option<&'static str> {
         // The frozen echo.dpo@1 catalog keeps its original owning schema
         // (#985); the current echo.dpo@2 catalog is upstream catalog v2.
         "resource.target-intrinsics" => Some("echo-frozen-catalog-v1-intrinsics-document"),
-        "resource.target-intrinsics-2" => Some("intrinsics-document"),
+        "resource.target-intrinsics-3" => Some("intrinsics-document"),
         "resource.target-ir" | "resource.target-ir-2" => Some("echo-span-ir"),
         "resource.target-lowerer-contract" => Some("echo-dpo-lowerer"),
         "resource.target-obstruction-taxonomy" => Some("echo-dpo-obstructions"),

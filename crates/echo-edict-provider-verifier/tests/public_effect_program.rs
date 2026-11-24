@@ -864,7 +864,7 @@ fn both_routes_refuse_a_target_ir_naming_two_lawpacks() {
 
 const EFFECT_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo-2.cbor");
 const EFFECT_CATALOG: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+    "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor"
 );
 const PROFILE_TARGET_IR_MISMATCH: &str = "Target IR domain does not match the bound target profile";
 

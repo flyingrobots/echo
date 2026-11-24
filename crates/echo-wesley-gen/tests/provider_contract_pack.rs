@@ -49,7 +49,7 @@ fn checked_edict_provider_contract_pack_is_admitted() {
     assert_eq!(pack.license(), "Apache-2.0");
     assert_eq!(
         pack.schema_sha256(),
-        "ed60e6ad6e0a80e23f915a8f791342b9e97cadd03034541865e754ef30352233"
+        "66f28b74bfa236a534455c36cc12e4dce106e1a3346880638f73b827ffa57a82"
     );
     assert_eq!(pack.contract_count(), 12);
     assert_eq!(pack.domain_count(), 8);
@@ -87,7 +87,7 @@ fn tampered_contract_cddl_has_stable_failure_kind() {
         error.to_string(),
         concat!(
             "provider contract pack schema-bytes-mismatch: schema.bytesHex -> ",
-            "ed60e6ad6e0a80e23f915a8f791342b9e97cadd03034541865e754ef30352233"
+            "66f28b74bfa236a534455c36cc12e4dce106e1a3346880638f73b827ffa57a82"
         )
     );
 }

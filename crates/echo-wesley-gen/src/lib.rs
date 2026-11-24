@@ -27,6 +27,9 @@ pub mod provider_generation;
 /// Deterministic, schema-validated primary Edict provider artifacts.
 pub mod provider_artifacts;
 
+/// Echo's `/v3` effect cost templates for the `echo.dpo@2` catalog.
+pub mod provider_effect_costs;
+
 /// Exact-material Wesley provenance for provider artifact generation.
 pub mod provider_provenance;
 

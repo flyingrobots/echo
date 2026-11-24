@@ -17,23 +17,31 @@ pub(super) fn validate(
     intrinsic: &Value,
     effect: &Value,
     implementation: &Value,
+    templated: bool,
 ) -> Result<(), Error> {
     let abi = super::runtime_abi::contract(intrinsic_name);
+    // A catalog v3 effect intrinsic carries its `effectCostRule`; its bytes
+    // are fixed by the pinned catalog digest.
+    let rule: &[&str] = if templated { &["effectCostRule"] } else { &[] };
     exact_fields(
         intrinsic,
         &[
-            "intrinsicClass",
-            "argumentTypes",
-            "returnType",
-            "typeParameters",
-            "effectKind",
-            "writeClass",
-            "guardSupport",
-            "canParticipateInAtomicGuard",
-            "costTemplate",
-            "footprintTemplate",
-            "effectFailures",
-        ],
+            &[
+                "intrinsicClass",
+                "argumentTypes",
+                "returnType",
+                "typeParameters",
+                "effectKind",
+                "writeClass",
+                "guardSupport",
+                "canParticipateInAtomicGuard",
+                "costTemplate",
+                "footprintTemplate",
+                "effectFailures",
+            ][..],
+            rule,
+        ]
+        .concat(),
     )?;
     require_text(intrinsic, "intrinsicClass", "effect")?;
     require_text(effect, "executionClass", "runtime")?;

@@ -343,9 +343,10 @@ fn f6_canaries_are_invalid() {
     let obs = game::run(scene, 6);
     let expect = game::expectation(scene, 6);
     assert_eq!(game::validate(scene, &expect, &obs), ResultClass::Valid);
-    let canaries: [(&str, fn(&mut game::Observation)); 5] = [
+    type Canary = (&'static str, fn(&mut game::Observation));
+    let canaries: [Canary; 5] = [
         ("leftover graph state", |o| {
-            o.graph_holds_only_the_world = false
+            o.graph_holds_only_the_world = false;
         }),
         ("unreadable graph world", |o| o.final_world = None),
         ("replay differs", |o| o.replay_root = Some([0; 32])),

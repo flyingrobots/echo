@@ -411,7 +411,11 @@ pub fn script_digest(scene: Scene, seed: u64) -> [u8; 32] {
 }
 
 fn hex(bytes: &[u8; 32]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 /// The game world: what the step reads and produces.
@@ -1423,8 +1427,10 @@ fn run_scene(
     start_world: World,
     profile: impl FnOnce(WorldlineState) -> WorldlineState,
 ) -> Observation {
-    let mut obs = Observation::default();
-    obs.initial_world_digest = world_digest(&start_world);
+    let mut obs = Observation {
+        initial_world_digest: world_digest(&start_world),
+        ..Observation::default()
+    };
     let inputs: Vec<[i64; 2]> = (0..scene.frames).map(|f| input(scene, seed, f)).collect();
     let mut script = blake3::Hasher::new();
     script.update(b"echo.bench.fixture.f6.script/v1\0");

@@ -673,8 +673,8 @@ fn byte_operation_minimums_equal_the_lowerer_minimums() {
     assert_eq!(
         measured,
         [
-            ("slice-proven", (195, 3383), (870, 971)),
-            ("typed-failure-control", (74, 3312), (373, 1295)),
+            ("slice-proven", (195, 3383), (873, 971)),
+            ("typed-failure-control", (74, 3312), (376, 1295)),
         ]
     );
 }
@@ -694,12 +694,12 @@ fn effect_package_minimums_equal_the_lowerer_minimums() {
             (
                 "read-control",
                 (2_097_226, 9_441_348),
-                (2_097_257, 4_195_841)
+                (2_097_262, 4_195_841)
             ),
-            ("ensure-node-control", (41, 4258), (29, 2301)),
-            ("structured-loop-control", (173, 18_325), (107, 6903)),
-            ("structured-branch-control", (179, 18_453), (177, 7031)),
-            ("structured-nested-control", (456, 48_136), (254, 13_742)),
+            ("ensure-node-control", (41, 4258), (34, 2301)),
+            ("structured-loop-control", (173, 18_325), (122, 6903)),
+            ("structured-branch-control", (179, 18_453), (192, 7031)),
+            ("structured-nested-control", (456, 48_136), (284, 13_742)),
         ]
     );
 }
@@ -723,8 +723,8 @@ fn identity_witness_minimums_equal_the_lowerer_minimums() {
     assert_eq!(
         measured,
         [
-            ("identity-witness", (1898, 71_061), (1246, 11_580)),
-            ("attachment-digest-witness", (371, 11_334), (283, 3209)),
+            ("identity-witness", (1898, 71_061), (1262, 11_580)),
+            ("attachment-digest-witness", (371, 11_334), (289, 3209)),
         ]
     );
 }
@@ -754,11 +754,11 @@ fn family_four_minimums_equal_the_lowerer_minimums() {
     assert_eq!(
         measured,
         [
-            ("ordered-record-z-first", (57, 2793), (110, 1489)),
-            ("ordered-record-a-first", (57, 2793), (110, 1489)),
-            ("ordered-record-guarded-z-first", (71, 3177), (250, 1745)),
-            ("ordered-record-guarded-a-first", (71, 3177), (250, 1745)),
-            ("option-value-witness", (88, 2936), (828, 942)),
+            ("ordered-record-z-first", (57, 2793), (113, 1489)),
+            ("ordered-record-a-first", (57, 2793), (113, 1489)),
+            ("ordered-record-guarded-z-first", (71, 3177), (253, 1745)),
+            ("ordered-record-guarded-a-first", (71, 3177), (253, 1745)),
+            ("option-value-witness", (88, 2936), (831, 942)),
         ]
     );
 }

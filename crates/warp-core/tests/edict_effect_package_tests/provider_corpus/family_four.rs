@@ -51,7 +51,7 @@ const OPTION_WITNESSES: [(&str, Witness); 2] = [
             root: OPTION_ROOT,
             input: || option_input(3, 9),
             reads: &[],
-            minimum: (828, 942),
+            minimum: (831, 942),
         },
     ),
     (
@@ -65,7 +65,7 @@ const OPTION_WITNESSES: [(&str, Witness); 2] = [
             root: OPTION_ROOT,
             input: || option_input(9, 3),
             reads: &[],
-            minimum: (828, 942),
+            minimum: (831, 942),
         },
     ),
 ];
@@ -96,10 +96,10 @@ fn option_constructors_run_within_the_lowerer_minimum() {
 
 /// The lowerer's shared minimums for the retained ordered-record programs.
 const ORDERED_MINIMUMS: [(&str, u64, u64); 4] = [
-    ("ordered-record-z-first", 110, 1489),
-    ("ordered-record-a-first", 110, 1489),
-    ("ordered-record-guarded-z-first", 250, 1745),
-    ("ordered-record-guarded-a-first", 250, 1745),
+    ("ordered-record-z-first", 113, 1489),
+    ("ordered-record-a-first", 113, 1489),
+    ("ordered-record-guarded-z-first", 253, 1745),
+    ("ordered-record-guarded-a-first", 253, 1745),
 ];
 
 /// Every `at` the guards distinguish: both fields fail, one fails, neither.

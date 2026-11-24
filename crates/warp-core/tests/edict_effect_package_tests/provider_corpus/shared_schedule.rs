@@ -64,10 +64,10 @@ fn byte_effects_run_within_the_lowerer_minimum() {
         ("text", V::Bytes(b"hello".to_vec())),
     ]));
     for (name, input, steps, bytes) in [
-        ("slice-proven", slice, 870, 971),
-        ("typed-failure-control", typed_failure_input(0), 373, 1295),
-        ("typed-failure-control", typed_failure_input(2), 373, 1295),
-        ("typed-failure-control", typed_failure_input(9), 373, 1295),
+        ("slice-proven", slice, 873, 971),
+        ("typed-failure-control", typed_failure_input(0), 376, 1295),
+        ("typed-failure-control", typed_failure_input(2), 376, 1295),
+        ("typed-failure-control", typed_failure_input(9), 376, 1295),
     ] {
         let package = retained(name);
         let frame = Frame::widest(None);
@@ -113,11 +113,11 @@ fn structured_branches_and_nesting_match_the_copying_schedule() {
 /// schedule, as `effect_program_minimums_under_each_schedule` in
 /// `echo-edict-provider-lowerer` measures and pins them: (steps, bytes).
 const LOWERER_SHARED_MINIMUMS: [(&str, u64, u64); 5] = [
-    ("read-control", 2_097_257, 4_195_841),
-    ("ensure-node-control", 29, 2301),
-    ("structured-loop-control", 107, 6903),
-    ("structured-branch-control", 177, 7031),
-    ("structured-nested-control", 254, 13_742),
+    ("read-control", 2_097_262, 4_195_841),
+    ("ensure-node-control", 34, 2301),
+    ("structured-loop-control", 122, 6903),
+    ("structured-branch-control", 192, 7031),
+    ("structured-nested-control", 284, 13_742),
 ];
 
 /// The runtime never charges more than the lowerer's static bound: each

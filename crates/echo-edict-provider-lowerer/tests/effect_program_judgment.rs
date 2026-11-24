@@ -396,8 +396,8 @@ fn byte_operation_minimums_under_each_schedule() {
     assert_eq!(
         measured,
         [
-            ("slice-proven", (195, 3383), (870, 971)),
-            ("typed-failure-control", (74, 3312), (373, 1295)),
+            ("slice-proven", (195, 3383), (873, 971)),
+            ("typed-failure-control", (74, 3312), (376, 1295)),
         ]
     );
 }
@@ -419,12 +419,12 @@ fn effect_program_minimums_under_each_schedule() {
             (
                 "read-control",
                 (2_097_226, 9_441_348),
-                (2_097_257, 4_195_841)
+                (2_097_262, 4_195_841)
             ),
-            ("ensure-node-control", (41, 4258), (29, 2301)),
-            ("structured-loop-control", (173, 18_325), (107, 6903)),
-            ("structured-branch-control", (179, 18_453), (177, 7031)),
-            ("structured-nested-control", (456, 48_136), (254, 13_742)),
+            ("ensure-node-control", (41, 4258), (34, 2301)),
+            ("structured-loop-control", (173, 18_325), (122, 6903)),
+            ("structured-branch-control", (179, 18_453), (192, 7031)),
+            ("structured-nested-control", (456, 48_136), (284, 13_742)),
         ]
     );
 }
@@ -535,7 +535,7 @@ fn closure_read_witness_minimums_under_each_schedule() {
     );
     let copying = witness_minimum(name, None);
     let shared = witness_minimum(name, Some(SHARED));
-    assert_eq!((copying, shared), ((15_367, 932_374), (8666, 504_387)));
+    assert_eq!((copying, shared), ((15_367, 932_374), (8870, 504_387)));
     // The witness also carries `costly`, a costlier helper it never selects:
     // copying charges it on every closure edge, the shared schedule charges
     // the declared `select` only, so it is cheaper on both axes.
@@ -568,8 +568,8 @@ fn identity_witness_minimums_under_each_schedule() {
     assert_eq!(
         measured,
         [
-            ("identity-witness", (1898, 71_061), (1246, 11_580)),
-            ("attachment-digest-witness", (371, 11_334), (283, 3209)),
+            ("identity-witness", (1898, 71_061), (1262, 11_580)),
+            ("attachment-digest-witness", (371, 11_334), (289, 3209)),
         ]
     );
 }
@@ -620,9 +620,9 @@ const FAMILY_FOUR: [&str; 4] = [
 
 #[allow(clippy::type_complexity)]
 const FAMILY_FOUR_MINIMUMS: [(&str, (u64, u64), (u64, u64)); 5] = [
-    ("ordered-record-z-first", (57, 2793), (110, 1489)),
-    ("ordered-record-a-first", (57, 2793), (110, 1489)),
-    ("ordered-record-guarded-z-first", (71, 3177), (250, 1745)),
-    ("ordered-record-guarded-a-first", (71, 3177), (250, 1745)),
-    ("option-value-witness", (88, 2936), (828, 942)),
+    ("ordered-record-z-first", (57, 2793), (113, 1489)),
+    ("ordered-record-a-first", (57, 2793), (113, 1489)),
+    ("ordered-record-guarded-z-first", (71, 3177), (253, 1745)),
+    ("ordered-record-guarded-a-first", (71, 3177), (253, 1745)),
+    ("option-value-witness", (88, 2936), (831, 942)),
 ];

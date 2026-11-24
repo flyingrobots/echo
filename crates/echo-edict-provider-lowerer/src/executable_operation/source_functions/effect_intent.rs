@@ -108,11 +108,7 @@ impl<'a> Judgment<'a> {
         claim(input, &mut pending, &mut walk)?;
         let mut scope = BTreeMap::new();
         let ty = self.declaration(input, &mut scope)?;
-        let (copy, validation, _, _) = shape(&ty)?;
-        let mut cost = copy.plus(Cost {
-            steps: validation,
-            bytes: 0,
-        })?;
+        let mut cost = self.boundary(&ty)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
             let fact = self.expression(basis, &scope, true, 0)?;
             // The runtime refuses any evaluation basis but exactly 32 bytes.
@@ -155,11 +151,8 @@ impl<'a> Judgment<'a> {
         if !includes(&expected, &result.ty) {
             return Err(());
         }
-        let (scratch, validations, output, _) = shape(&expected)?;
-        cost = cost.plus(result_cost)?.plus(scratch)?.plus(Cost {
-            steps: validations,
-            bytes: 0,
-        })?;
+        let output = shape(&expected)?.2;
+        cost = cost.plus(result_cost)?.plus(self.boundary(&expected)?)?;
         let budget = get(intent, "coreEvaluationBudget")?;
         exact(budget, &["maxSteps", "maxAllocatedBytes", "maxOutputBytes"])?;
         let max_output = number(get(budget, "maxOutputBytes")?)?;
@@ -362,6 +355,19 @@ fn times(cost: Cost, count: u64) -> Check<Cost> {
         steps: cost.steps.checked_mul(count).ok_or(())?,
         bytes: cost.bytes.checked_mul(count).ok_or(())?,
     })
+}
+
+impl Judgment<'_> {
+    /// The charge for converting the intent's input or output at its
+    /// boundary. The copying schedule copies and validates the value; the
+    /// shared-read schedule charges two steps per cell and the value's bytes,
+    /// the rule its pure programs use (`shared_intent_cost`).
+    fn boundary(&self, ty: &Ty) -> Check<Cost> {
+        let (copy, validations, _, _) = shape(ty)?;
+        // A copy charges one step per cell, so the shared rule adds one more.
+        let steps = if self.shared { copy.steps } else { validations };
+        copy.plus(Cost { steps, bytes: 0 })
+    }
 }
 
 impl Judgment<'_> {

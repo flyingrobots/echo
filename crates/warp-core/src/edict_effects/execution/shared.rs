@@ -5,9 +5,11 @@
 //!
 //! Locals hold shared values, so reading one between instructions never
 //! copies it, and every expression and predicate is metered by the shared
-//! evaluator. Each effect step keeps its copying-schedule charge exactly: the
-//! intent's input and output, every read, graph read, emission and
-//! obstruction is validated and charged as the copying executor charges it.
+//! evaluator. The intent's input and output cross the boundary as a pure
+//! shared-read program's do: two steps per cell and the value's bytes. Each
+//! effect step keeps its copying-schedule charge exactly: every read, graph
+//! read, emission and obstruction is validated and charged as the copying
+//! executor charges it.
 //! A value crosses into an effect step as its canonical form, and a value an
 //! effect step returns is shared from then on.
 use super::{
@@ -29,7 +31,7 @@ use crate::edict_read::{
     ReadLimits, ReadObstruction,
 };
 use crate::{SlotId, SlotReading};
-use echo_edict_canonical::CanonicalValueV1 as Value;
+use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::BTreeMap;
 
 /// Refuses, before any work, a program using an operation without a
@@ -125,15 +127,20 @@ pub(super) fn run_body(
     schema: &EffectGraphSchema,
     meter: &mut Meter,
 ) -> Result<Evaluation, EffectFrameError> {
-    validate(&input, &program.input, meter, 0).map_err(|e| {
+    // The intent boundary converts and validates the input at full size, as
+    // a pure shared-read program's does: two steps per cell and its bytes.
+    let shared = from_canonical(&input, &program.input, 0).map_err(|e| {
         if e == Error::InvalidArtifact {
             Error::InvalidInput
         } else {
             e
         }
     })?;
-    meter.charge(&input, 0)?;
-    let shared = from_canonical(&input, &program.input, 0)?;
+    Evaluator {
+        helpers: &program.helpers,
+        meter: &mut *meter,
+    }
+    .boundary(shared.full_size()?)?;
     let mut run = Run {
         locals: Locals::from([("arg.0", shared)]),
         mutations: Vec::new(),
@@ -157,10 +164,19 @@ pub(super) fn run_body(
     }
     block(program, &program.instructions, &mut run, 0)?;
     let result = run.value(program, &program.result)?;
-    let value = to_canonical(&result, &program.output, 0)?;
-    validate(&value, &program.output, run.meter, 0)?;
+    // The output crosses the same boundary.
+    Evaluator {
+        helpers: &program.helpers,
+        meter: &mut *run.meter,
+    }
+    .boundary(result.full_size()?)?;
+    let output = encode(&to_canonical(&result, &program.output, 0)?)
+        .map_err(|_| Error::InvalidArtifact)?;
+    if output.len() as u64 > program.limits.max_output_bytes {
+        return Err(Error::OutputBudgetExceeded.into());
+    }
     Ok(Evaluation {
-        output: program.output_bytes(&value, run.meter)?,
+        output,
         mutations: run.mutations,
     })
 }

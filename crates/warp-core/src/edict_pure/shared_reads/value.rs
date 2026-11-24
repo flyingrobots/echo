@@ -107,7 +107,7 @@ pub(super) fn length(value: usize) -> Result<u64, Error> {
 impl Shared<'_> {
     /// The value's full size, as a comparison or the intent boundary sees it.
     /// The walk visits every cell once.
-    pub(super) fn full_size(&self) -> Result<Size, Error> {
+    pub(crate) fn full_size(&self) -> Result<Size, Error> {
         match self {
             // Absence is one cell; a presence is one cell plus its item.
             Self::Bool(_) | Self::Integer(_) | Self::Absent => Ok(CELL),

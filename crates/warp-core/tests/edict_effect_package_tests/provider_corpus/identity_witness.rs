@@ -111,7 +111,7 @@ const WITNESSES: [(&str, Witness); 2] = [
             root: IDENTITY_ROOT,
             input: identity_input,
             reads: &[],
-            minimum: (1246, 11_580),
+            minimum: (1262, 11_580),
         },
     ),
     (
@@ -125,7 +125,7 @@ const WITNESSES: [(&str, Witness); 2] = [
             root: BUFFER_ROOT,
             input: buffer_input,
             reads: &[(BUFFER, BUFFER_TYPE)],
-            minimum: (283, 3209),
+            minimum: (289, 3209),
         },
     ),
 ];

@@ -85,7 +85,7 @@ pub(super) fn run(
 impl Evaluator<'_, '_> {
     /// The intent boundary converts and validates a value at full size: two
     /// steps per cell and the value's bytes.
-    fn boundary(&mut self, size: Size) -> Result<(), Error> {
+    pub(crate) fn boundary(&mut self, size: Size) -> Result<(), Error> {
         self.build(Size {
             cells: size.cells.checked_mul(2).ok_or(Error::StepBudgetExceeded)?,
             bytes: size.bytes,

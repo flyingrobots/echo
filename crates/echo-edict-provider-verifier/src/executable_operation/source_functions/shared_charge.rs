@@ -117,9 +117,9 @@ pub(super) fn required(module: &Value) -> Check<bool> {
 
 /// A value's footprint in 64-byte cells and storage bytes.
 #[derive(Clone, Copy)]
-struct Footprint {
-    cells: u128,
-    bytes: u128,
+pub(super) struct Footprint {
+    pub(super) cells: u128,
+    pub(super) bytes: u128,
 }
 
 impl Footprint {
@@ -165,7 +165,7 @@ impl Footprint {
         })
     }
 
-    fn of(schema: &Schema) -> Check<Self> {
+    pub(super) fn of(schema: &Schema) -> Check<Self> {
         let copy = schema.measure()?.copy;
         Ok(Self {
             cells: copy.ticks,

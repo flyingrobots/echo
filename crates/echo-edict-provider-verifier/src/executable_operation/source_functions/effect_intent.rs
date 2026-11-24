@@ -93,6 +93,29 @@ pub(in crate::executable_operation) fn judge(
     .effect_intent(intent, sites, graph)
 }
 
+impl Checker<'_, '_> {
+    /// What converting the intent's input or output costs at its boundary:
+    /// a copy and its validations under the copying schedule; under the
+    /// shared-read schedule two ticks per cell and the value's storage, as
+    /// for a pure intent (`shared_charge`).
+    fn boundary(&self, schema: &Schema) -> Check<Charge> {
+        if self.types.shared {
+            let footprint = super::shared_charge::Footprint::of(schema)?;
+            return Ok(Charge {
+                ticks: footprint.cells.checked_mul(2).ok_or(())?,
+                storage: footprint.bytes,
+            });
+        }
+        let size = schema.measure()?;
+        let mut charge = size.copy;
+        charge.append(Charge {
+            ticks: size.checks,
+            storage: 0,
+        })?;
+        Ok(charge)
+    }
+}
+
 impl<'a> Checker<'a, '_> {
     #[allow(
         clippy::too_many_lines,
@@ -117,12 +140,7 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let input_type = self.types.local(input)?;
-        let size = input_type.measure()?;
-        let mut charge = size.copy;
-        charge.append(Charge {
-            ticks: size.checks,
-            storage: 0,
-        })?;
+        let mut charge = self.boundary(&input_type)?;
         frame.define(input, input_type)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
             let checked = self.expression(basis, &frame, 0)?;
@@ -176,11 +194,7 @@ impl<'a> Checker<'a, '_> {
         }
         let size = expected.measure()?;
         charge.append(result_charge)?;
-        charge.append(size.copy)?;
-        charge.append(Charge {
-            ticks: size.checks,
-            storage: 0,
-        })?;
+        charge.append(self.boundary(&expected)?)?;
         let ceiling = get(intent, "coreEvaluationBudget")?;
         exact(
             ceiling,

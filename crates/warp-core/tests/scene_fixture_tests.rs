@@ -333,6 +333,8 @@ fn f6_initial_worlds_match_their_pinned_digests() {
     );
 }
 
+type Canary = (&'static str, fn(&mut game::Observation));
+
 /// The validator refuses each kind of hosting failure it declares: leftover
 /// graph state, an unreadable or different graph world, a replay that does
 /// not reproduce the live root, a different submitted script, and a moved
@@ -343,7 +345,6 @@ fn f6_canaries_are_invalid() {
     let obs = game::run(scene, 6);
     let expect = game::expectation(scene, 6);
     assert_eq!(game::validate(scene, &expect, &obs), ResultClass::Valid);
-    type Canary = (&'static str, fn(&mut game::Observation));
     let canaries: [Canary; 5] = [
         ("leftover graph state", |o| {
             o.graph_holds_only_the_world = false;

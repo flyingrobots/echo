@@ -7,6 +7,269 @@
 
 ### Added
 
+- Effect programs may call helpers from digest-pinned source modules
+  (#1009). The lowerer, the verifier and warp-core previously refused any
+  `echo.dpo@2` effect program built from an `edict.source-closure/v1`
+  source as outside the checked profile. Each now reads the closure,
+  requires every `use module` pin to name a retained module by its exact
+  `edict.source/v1` identity and the entry module's pins to reach every
+  retained module, and judges and runs the linked helpers as entry
+  helpers. Substituted modules, unpinned modules and pins to absent
+  modules refuse in all three; the lowerer and verifier name them
+  `effect-program.relation.source-module-pins`, and a malformed closure
+  `effect-program.relation.source-closure`. The compiler's own request is a lowerer
+  witness, a shared corpus fixes the three verdicts, and warp-core runs
+  the control. A public compiler witness (`edict-effect-source-module`,
+  Amblicit `7dbcbc23`) builds through the promoted provider package
+  (lowerer `f03a9022`, verifier `54a7c9fc`).
+- Effect-program refusals name the failing check (#1018). The lowerer's
+  `EffectPublicationError::UnsupportedProgram` and the verifier's
+  `EffectPackageRefusal::UnsupportedProgram` now carry a `ProgramRefusal`: a
+  stable reason code such as `effect-program.relation.source-alias` or
+  `effect-program.budget.steps`, and a bounded path into the Core, Target IR
+  or lowering artifacts, at most 256 bytes. The component refusal keeps its
+  kind and first diagnostic, and adds
+  `echo.provider.unsupported-semantics.<code>` (`refused at <path>`),
+  independent of the host's response limits; the verifier's `rejected`
+  report adds `echo.verifier.effect-program-refused.<code>` the same way, and
+  its report bytes do not change. A shared `reasons.txt` pins the code each of
+  the 52 refused corpus entries reaches, and the lowerer and verifier each
+  name it. The jedit#296 basis-read witness, previously refused with no
+  detail, names three causes in turn: comment lines before `package`
+  (`relation.source-alias`), `tooLarge` declared `resourceFault` where Echo's
+  node-atom-read table says `integrityFault` (`relation.intrinsic-contract`),
+  and its failure arm then mapping to a `resourceFault` obstruction
+  (`relation.failure-arms`). The components are promoted from byte-equal G4
+  candidates (lowerer `687acde4`, verifier `2d97285b`).
+
+- The shared-read Core cost schedule, `edict.core-cost/v2` (#1001,
+  amblicit#324). warp-core, the provider lowerer and the provider verifier
+  admit a pure module that requires `core.cost.shared-reads/v1`. The runtime
+  evaluates it on immutable, reference-counted values, so local, field,
+  element and fold-state reads are O(1) and charge one step; construction
+  charges only its shell. Both providers judge the module with the compiler's
+  own static rules, so they admit exactly the compiler's minimum budget and
+  refuse one step or byte less. The read, graph-read and effect routes refuse
+  the capability, and so do byte intrinsics and imported helpers under it.
+  Modules without the capability are metered and judged exactly as before. A
+  shared corpus, produced by the pinned compiler and rechecked in CI, drives
+  all three judges.
+- `EffectPackageHost` (#1017) runs an authored effect package on generic
+  Echo with `trusted_runtime` alone, without the internal
+  `native_rule_bootstrap` feature. It admits the exact package under an exact
+  policy, installs it, resolves the writer's exact parent, admits one
+  invocation, evaluates it in a recording frame and derives the proposal
+  without applying it. `TrustedRuntimeHost` delegates the same steps to the
+  same internal route, so admission, policies, budgets and evaluation
+  authority are unchanged; the public host has no scheduler, WAL, commit or
+  native rule authoring. A downstream witness outside the workspace,
+  `tests/public-effect-host-consumer/`, runs Echo's public `link` package with
+  `trusted_runtime` only, and Echo's `public_*` effect witnesses now run
+  through the new host. An invocation refused because its parent cannot
+  resolve now names the runtime error without the
+  `trusted runtime host runtime error:` prefix.
+
+- `echo.dpo@2.attachmentValueDigest(atomType, atom) -> Bytes<exact=32>`
+  (#1011), a fourth `ContentAddressV1` pure intrinsic, lets Edict source
+  compute the `expectedAtomDigest` a `ReplaceAtom` must name. The runtime
+  hashes with `content_address_v1::attachment_digest`, the function
+  admission compares against; it reproduces the frozen `attachment-new.hex`
+  vector. The catalog publishes it under `echo.content-address/v1` with cost
+  rule `{base: 68, perArgumentMax: [0, 1]}`, and the lowerer, verifier and
+  runtime each require all four identity contracts. A public Buffer-bump
+  witness (`edict-attachment-digest`, Amblicit `7dbcbc23`) reads the atom,
+  digests the bytes it read, and derives the replacement; a control that
+  digests unread bytes is refused. The `echo.dpo@2` profile digest is now
+  `7cadb97e`, every `echo.dpo@2` public fixture is recompiled, and the
+  components are promoted (lowerer `cd144677`, verifier `0d01aba8`).
+
+- Core ordered records (`orderedRecord`, #997). The runtime, the lowerer and
+  the verifier evaluate a fallible record's fields in authored order, so
+  `{ z: fail First, a: fail Second }` and `{ a: fail Second, z: fail First }`
+  obstruct with different, correct reasons. When every field returns, the
+  value equals the unordered record's. Duplicate names, an empty field list,
+  extra entry keys and an ordered record with no fallible field refuse in all
+  three judges, as Amblicit refuses them. Public compiler witnesses
+  (`edict-effect-ordered-record-z` and `-a`, Amblicit `7dbcbc23`) obstruct
+  with exactly `fx.FirstRaised` and `fx.SecondRaised` through the promoted provider
+  package (lowerer `a218dd22`, verifier `2a272e29`).
+
+- Checked integer arithmetic and `min`/`max` (#998, the Echo half of
+  amblicit#321). warp-core, the provider lowerer and the provider verifier
+  each admit `core.integer.checked{Add,Sub,Mul,Div,Rem}<W>`, returning
+  `Option<W>` under `core.option/v1` and absent on overflow, underflow or a
+  zero divisor, and `core.integer.{min,max}<W>`, on `U8`, `U32` and `U64`
+  operands of exactly that width. `min` and `max` keep their upper bounds for
+  later addition proofs. Unknown names, other widths and mismatched operands
+  are refused by all three. A shared corpus fixes the verdicts at each width's
+  bounds, and warp-core executes each accepted case. A public compiler witness
+  publishes every checked form and `min`/`max` through the promoted provider
+  package (lowerer `05c5d39e`, verifier `a6b967f0`) and the runtime checks
+  each result at the type bounds. Artifacts without these calls are judged as
+  before.
+- Typed pure-function failures (`core.failure/v1`, #996). The runtime, the
+  lowerer and the verifier accept declared function failure sets, `fail` and
+  intent `attempt` nodes lowered as Target pure bindings with `failureArms`.
+  A mapped failure from a helper ends the run with exactly its declared
+  terminal obstruction and payload. Only that arm's payload is evaluated, and
+  the providers charge the costliest arm. Undeclared, unmapped or malformed
+  failure sets, a missing capability and lowered arms that differ from Core
+  refuse in all three judges.
+  A public compiler witness (`edict-effect-typed-failure`, Amblicit
+  `7dbcbc23`) obstructs with exactly its mapped `RangeInverted`.
+
+- Amblicit `Option<T>` values (#995, the Echo half of amblicit#261).
+  warp-core, the provider lowerer and the provider verifier each admit
+  `core.option/v1`, the `Option<T>` type and the calls
+  `core.option.{some,none,isSome,default,unwrap}<T>`, and independently
+  re-prove that every `unwrap` operand is a local that a dominating `isSome`
+  fact proves present, so pure helpers may build, test and consume Options.
+  Option matches, Option variant constructors, ill-typed calls, a missing
+  capability and Option-valued intent inputs or outputs are refused by all
+  three. A shared corpus fixes the verdicts and warp-core executes each
+  accepted case. A public compiler witness publishes helpers that return and
+  consume an Option through the promoted provider package (lowerer
+  `4cb31f46`, verifier `a965c385`) and the runtime executes it. Artifacts
+  without Option calls are judged as before.
+- Echo adopts Amblicit's `typed-failures-v1` provider contract pack and
+  publishes intrinsic catalog v2 for `echo.dpo@2`. The `echo.dpo@2` catalog
+  declares the three `ContentAddressV1` identity constructors
+  `echo.dpo@2.contentAddress`, `echo.dpo@2.contentEdgeId` and
+  `echo.dpo@2.slotEdgeId` with contract `echo.content-address/v1`, 32-byte id
+  operands, a 1,048,576-byte atom ceiling, a 16-edge ceiling and their cost
+  rules. The frozen `echo.dpo@1` profile, catalog and adapters are unchanged;
+  its catalog keeps its original owning rules under a namespaced projection.
+  The lowerer, the separate verifier and the runtime each admit identity calls
+  only under the exact pinned contracts, charge their documented work, and
+  refuse the `echo.dpo@1` names. A duplicated outgoing edge is refused with
+  `EvaluationError::DuplicateOutgoingEdge`; edges are never deduplicated. A
+  public compiler fixture returns the six frozen identity vectors at runtime.
+  Typed failures in the new pack are schema-admitted only.
+
+- Graph reads inside authored effect programs (#982). The `echo.dpo@2`
+  catalog declares `echo.dpo@2.outgoing-edge-read` and
+  `echo.dpo@2.closure-read` with the bounded-read route's failure sets, and
+  an effect program may call them as steps and use what they read in the
+  effects it commits. The lowering configuration declares them with the
+  optional `graphReads` record; the runtime, the lowerer and the verifier
+  each refuse an undeclared read, an unused declaration and a closure without
+  a conforming selector, and charge each read its whole scan allowance. Each
+  read is recorded in the effect's read image with its scanned bucket sizes,
+  and derivation confirms those sizes at the image's basis. A public-source
+  program that links a node to the target of an edge it read is lowered,
+  verified and run with no hand-built package. Adding the intrinsics changes
+  the `echo.dpo@2` profile identity, so the retained `echo.dpo@2` public
+  fixtures are recompiled; `echo.dpo@1` and its fixtures are unchanged.
+- Source-function preconditions (Amblicit `where` on `fn`, amblicit#264).
+  warp-core, the provider lowerer and the provider verifier each admit a
+  function's Core `preconditions` as Amblicit `1196396b` specifies them, judge
+  the body assuming them, and independently re-prove every call to the
+  function from the facts that dominate it, so a helper may subtract or slice
+  under a precondition. A Core that drops a precondition its body needs, or
+  whose call does not establish one, is refused by all three, and so is a
+  precondition-bearing fold step. Functions without preconditions are judged
+  exactly as before. A shared corpus translates every Core-level case of
+  Amblicit's precondition and forgery tests.
+  A public compiler witness publishes a helper with a precondition through the
+  checked provider package and the runtime executes it.
+- Structured effect control under `echo.dpo@2` (#947). An authored effect
+  program whose Target IR declares `echo.span-ir/v3` may wrap its
+  instructions in bounded `for` loops and statement branches. The runtime,
+  the lowerer and the verifier each check the order tree against Core node
+  for node, admit only literal bounds that cover the iterated list type, scope
+  each block's locals to the block, and, in both providers, bound the worst
+  case (a loop's body times its bound, a branch's larger arm) against the
+  declared step, allocation, output and mutation ceilings before
+  installation. The runtime evaluates a loop's list once, binds each item
+  fresh, runs only the chosen arm and keeps every emission in the one atomic
+  buffer. `echo.dpo@1` stays frozen and refuses structured programs; ordered
+  `echo.span-ir/v2` programs are unchanged.
+- A second, separately versioned target profile, `echo.dpo@2`, in the checked
+  provider package. Its catalog `echo.dpo.intrinsics/v2` declares the runtime's
+  six effect intrinsics as `echo.dpo@2.*` and it names the ordered
+  `echo.span-ir/v2`; every other reference is `echo.dpo@1`'s. Both components
+  admit it for authored effect programs only, each profile admits only the
+  catalog it pins, and the runtime recognises the same intrinsics under either
+  namespace through one implementation of each (an owner-approved exception to
+  "One Current Version", #985). `echo.dpo@1`, its digest and everything pinned
+  to it are unchanged.
+  A program that reads an atom through `echo.dpo@2.node-atom-read`, compiled
+  from public source by Amblicit `0999db83` (CI now pins `0034605`), is
+  lowered, separately verified, admitted and run; CI recompiles it to the retained package and report, and
+  requires the lowerer to refuse it under `echo.dpo@1` and under a substituted
+  `echo.dpo@2` profile.
+  A second public program calls all five `echo.dpo@2` mutation intrinsics
+  without a failure map (Amblicit `0034605`, amblicit#311) and runs, emitting
+  its five intents in source order; a read called without a failure map,
+  although `node-atom-read` declares failures, is refused by the lowerer, the
+  verifier and the runtime.
+- The public provider components lower and verify authored effect programs.
+  For an `edict-effect-program/v1` target configuration the lowerer component
+  emits the judged effect package, and the separate verifier component accepts
+  only the exact package the compiler request determines, when its own
+  effect-program judgment also accepts it; substituted or re-bound packages
+  receive a rejected report. A flat program compiled from public source by the
+  unmodified Amblicit compiler travels this path and runs on the generic
+  runtime, and CI recompiles it to the retained package and report. The
+  checked `echo.dpo@1` target profile does not yet declare effect intrinsics or
+  the ordered Target IR, so programs with effect steps still fail closed at the
+  judgment. Existing fixed, pure and bounded-read routes are unchanged.
+- The bounded-read runtime evaluates two generic graph-read intrinsics:
+  `echo.dpo@1.outgoing-edge-read` returns a node's outgoing edges of one type,
+  and `echo.dpo@1.closure-read` reads the bounded closure a declared pure
+  selector helper asks for, with `maxNodes` and `maxDepth`. Closure material is
+  deduplicated by node identity while every selected position keeps its own
+  edge path and guide. Node, depth, scan and work bounds, an insufficient
+  selector and malformed storage are distinct authored failures; bucket scans
+  count edges of other types. A package declares the capability with a
+  `graphReads` lowering-configuration record and the
+  `typed-graph-read-aperture/v1` footprint contract, and the host grants edge
+  and node types through `ReadView::with_graph_aperture`. Packages that do not
+  declare it refuse graph reads; existing
+  node-read packages are unchanged. Typed recording frames witness graph reads in
+  their read image; untyped recording frames refuse them. The provider lowerer
+  and separate verifier judge both intrinsics, their signatures, the selector
+  and the authority class of every failure arm, and the reproducibly promoted
+  components accept them. Authored source compiles through the unmodified
+  public compiler, and CI recompiles it to the retained packages and reports.
+  `ReadResult` gains `edge_scans`; `ReadError` gains
+  `OutsideGraphAperture` and `GraphObstructed`.
+
+- Branch facts in range proofs (#979). warp-core, the provider lowerer and the
+  provider verifier assume an `if` predicate inside its `then` arm when they
+  prove an addition, subtraction or slice, as Edict's totality rule does. So
+  `if index <= 2 then index + 1 else index`,
+  `if start <= end then end - start else 0` and
+  `if start <= end && end <= len(bytes) then slice(bytes, start, end) else b""`
+  are accepted by all three.
+  - The `else` arm, disjunctions, negations and the predicate itself gain
+    nothing, and branch facts do not cross into helper frames.
+  - Branch facts use the same comparison forms as other facts: an addition
+    still reads only `term <= c`, `term == c` and `c == term`, so
+    `index < 3` does not bound `index + 1` (#960).
+  - Each judgment reads them only when the operation is refused without them,
+    so programs accepted before keep their cost and depth.
+  - A shared corpus fixes the verdicts all three must reach. The checked
+    lowerer and verifier components are re-promoted.
+
+- `warp-core`: authored effect programs are prepared with proven-range facts,
+  so a runtime `slice`, `subtract`, byte lookup or list lookup verifies when
+  the facts prove its range (#934). For example, under the input constraint
+  `at <= len(text)` a program may compute `isUtf8(slice(text, 0, at))` or
+  `len(text) - at`.
+  - Input constraints hold for the whole body.
+  - An unsigned `let` proven below its width carries that ceiling to later
+    additions.
+  - A dominating `term <= c`, `term == c` or `c == term` bounds an addition,
+    in effect bodies and, newly, in pure helpers' conjunct prefixes.
+  - A `require` still adds no fact, matching Edict's totality rule.
+  - A node, and each addition, is first judged without these facts, as
+    before; the facts and carried ceilings are read, and their encoding
+    charged to the proof budget, only when that judgment refuses. Unread
+    constraints and unneeded conjuncts therefore cost only their own size.
+  - Differences from the provider lowerer and verifier and from Edict are
+    tracked in #960.
+
 - The provider judgments and runtime paths support bounded list length,
   checked access, capacity-preserving append and bound-summing concatenation
   under `core.list/v1`. Synthetic tests cover strict domains, capability and
@@ -101,6 +364,19 @@
 
 ### Changed
 
+- Breaking: read images witness the size of every outgoing bucket a read
+  consulted (#981). Typed range reads, outgoing-edge reads and closure reads
+  record the number of edges of every type in the source's bucket on its node
+  row, whether the scan ran or was refused, because that size decides the
+  scan's bound and charge. `EffectReadSetView::confirm_bucket_sizes` refuses an
+  image whose recorded size differs from the bucket at its basis with the new
+  `EffectReadImageError::BucketSizeMismatch`. Parsing refuses a range without
+  its source's node row, a present source without its bucket, and ranges from
+  one source that together retain more pairs than its bucket holds. The read
+  row grows from 192 to 200 bytes (public `bucket` and `bucket_len_le` fields)
+  and the read-set digest domain becomes `echo.bridge.read-set.v2`; version-1
+  images are not read. Evaluation outcomes and charges are unchanged.
+
 - Replace historical contract-publication selectors with one current upstream
   schema/manifest pair and one 32-binding package inventory. Remove
   `ProviderContractPublicationV1` and `admit_provider_contract_pack_for_publication_v1`;
@@ -115,6 +391,45 @@
   limit without adding runtime value tags or changing runtime storage charges.
 
 ### Fixed
+
+- A failure in an imported lawpack helper can no longer escape unmapped
+  (#1006). The runtime, the lowerer and the verifier accepted a forged package
+  whose intent called an exported pure helper whose body fails, outright or in
+  one branch, with no `attempt`. All three now require every exported pure
+  helper body to be failure-free. Amblicit already refuses to publish such a
+  helper, so compiler-produced packages are unaffected. Four shared-corpus
+  entries fix the verdicts.
+
+- Both provider components now accept an authored effect program whose intent
+  has a `where` clause. Core input constraints carry `coordinate`, `source`
+  and `predicate`; the effect-intent judgments required only the first and
+  last, refusing every such program.
+
+- The lowerer, verifier and runtime effect judgments check a lawpack's `exports`
+  pin and each target adapter pin under the coordinate the reference names, as
+  the compiler frames them, instead of the fixed `edict.lawpack-exports/v1` and
+  `edict.lawpack-adapter/v1` domains. Every compiler-produced program with an
+  effect step was refused before; the synthetic effect-program corpus is
+  regenerated with the compiler's framing.
+
+- `warp-core` and `echo-wesley-gen` require cap-std and cap-fs-ext 4.0.3, and
+  the locked rustix is 1.1.6, fixing RUSTSEC-2026-0482 (a cap-primitives
+  sandbox escape through a trailing slash) and RUSTSEC-2026-0486 (unsound
+  rustix extended-attribute calls). rustix 1.1.6 requires libc 0.2.182 and
+  linux-raw-sys 0.12. The isolated Echo–Keep experiment pins Keep
+  `e316d71abd08`, the first first-parent Keep `main` commit that requires
+  rustix 1.1.6, cap-std 4.0.3 and blake3 1.8.7; its library source differs
+  from the previous pin only in those requirements and one platform-profile
+  test. The
+  provider-host test lockfile takes the same patched releases. No
+  advisory exceptions are added. The provider package's `provider.digest`
+  changes; consumers that pin it must update the pin. Component bytes are
+  unchanged.
+
+- pulldown-cmark is updated to 0.13.6, and `xtask` requires at least that
+  version, fixing RUSTSEC-2026-0433 (quadratic parsing of nested image
+  wikilinks). No advisory exceptions are added. The provider package's
+  `provider.digest` changes; consumers that pin it must update the pin.
 
 - Semantic-source admission requires all seven current auxiliary inputs and
   rejects the historical inventory without the source-closure input and binding.
@@ -696,6 +1011,30 @@
   hook regressions.
 
 ### Added
+
+- Echo's provider lowerer and verifier judge authored effect programs
+  themselves before publication and installation: artifact binding, adapter
+  authorization, each effect's intrinsic ABI and version-scoped failure
+  contract, declared obstructions, Core and Target IR correspondence, and
+  typing, proven ranges and the declared Core budget under each component's
+  own static cost model, which does not bound the runtime's meter.
+  `effect_publication::judge_effect_program` and
+  `encode_effect_publication` refuse unsafe programs with
+  `UnsupportedProgram`. `effect_package::verify_effect_package` also refuses a
+  package whose envelope, fixed profile or schema identities the runtime would
+  not admit, and a package whose Core, canonical meaning, Target IR, exports,
+  operation, output type or footprint contract names another program. As in
+  the runtime, each input constraint is judged with no facts before any of
+  them proves the body; an effect's result is exactly its ABI type; an
+  evaluation basis is 32 bytes; a type table has no `Int` kind and its nominal
+  entries have exactly their kind, contract and representation; each failure
+  is declared once; every emitted
+  mutation is charged the 280-byte row the runtime reserves for it and every
+  read the records it keeps; every failure payload must fit the output
+  ceiling; and a body emits at most 1,024 mutations. A retained corpus
+  generated by warp-core pins the verdict all three judgments reach.
+- The lowerer's and verifier's Core type readers accept an unsigned width named
+  directly in a type table (`{ kind: "U32" }`), as Core and the runtime do.
 
 - Runtime-owned installation retains exact policy and package evidence in the
   current WAL catalog and restores all program kinds through one fresh-host

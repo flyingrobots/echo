@@ -49,7 +49,7 @@ impl AssetSpec {
     }
 }
 
-const ASSETS: [AssetSpec; 39] = [
+const ASSETS: [AssetSpec; 42] = [
     AssetSpec::new(
         "edict-provider/contracts/v1/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl",
@@ -112,6 +112,11 @@ const ASSETS: [AssetSpec; 39] = [
         "schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl",
     ),
     AssetSpec::corroborated(
+        "edict-provider/package/v1/generated/primary/target-profile.echo-dpo-2.cbor",
+        "schemas/edict-provider/package/v1/generated/primary/target-profile.echo-dpo-2.cbor",
+        "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo-2.cbor",
+    ),
+    AssetSpec::corroborated(
         "edict-provider/package/v1/generated/primary/target-profile.echo-dpo.cbor",
         "schemas/edict-provider/package/v1/generated/primary/target-profile.echo-dpo.cbor",
         "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor",
@@ -157,9 +162,19 @@ const ASSETS: [AssetSpec; 39] = [
         "schemas/edict-provider/generated/v1/resources/resource.target-footprint-algebra.cbor",
     ),
     AssetSpec::corroborated(
+        "edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor",
+        "schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-intrinsics-2.cbor",
+    ),
+    AssetSpec::corroborated(
         "edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor",
         "schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor",
         "schemas/edict-provider/generated/v1/resources/resource.target-intrinsics.cbor",
+    ),
+    AssetSpec::corroborated(
+        "edict-provider/package/v1/generated/resources/resource.target-ir-2.cbor",
+        "schemas/edict-provider/package/v1/generated/resources/resource.target-ir-2.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-ir-2.cbor",
     ),
     AssetSpec::corroborated(
         "edict-provider/package/v1/generated/resources/resource.target-ir.cbor",
@@ -226,7 +241,7 @@ const ASSETS: [AssetSpec; 39] = [
     ),
 ];
 
-const LOWERER_RESOURCES: [AssetSpec; 4] = [
+const LOWERER_RESOURCES: [AssetSpec; 5] = [
     AssetSpec::new(
         "authority-facts.echo-dpo.cbor",
         "schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor",
@@ -240,12 +255,16 @@ const LOWERER_RESOURCES: [AssetSpec; 4] = [
         "schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor",
     ),
     AssetSpec::new(
+        "target-profile.echo-dpo-2.cbor",
+        "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo-2.cbor",
+    ),
+    AssetSpec::new(
         "target-profile.echo-dpo.cbor",
         "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor",
     ),
 ];
 
-const VERIFIER_RESOURCES: [AssetSpec; 15] = [
+const VERIFIER_RESOURCES: [AssetSpec; 16] = [
     AssetSpec::new(
         "authority-facts.echo-dpo.cbor",
         "schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor",
@@ -301,6 +320,10 @@ const VERIFIER_RESOURCES: [AssetSpec; 15] = [
     AssetSpec::new(
         "resource.target-verifier-contract.cbor",
         "schemas/edict-provider/generated/v1/resources/resource.target-verifier-contract.cbor",
+    ),
+    AssetSpec::new(
+        "target-profile.echo-dpo-2.cbor",
+        "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo-2.cbor",
     ),
     AssetSpec::new(
         "target-profile.echo-dpo.cbor",

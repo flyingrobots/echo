@@ -1,0 +1,15 @@
+package cost.adversarial@1;
+type Item = { key: U64, weight: U64 };
+type State = { source: List<Item, max=32>, acc: List<Item, max=32>, i: U64 };
+fn step(s: State) -> State {
+  return if s.i < listLen(s.source) && listLen(s.acc) < 32u64 && s.i <= 31u64
+    then { source: s.source, acc: listAppend(s.acc, listAt(s.source, s.i)), i: s.i + 1u64 }
+    else s;
+}
+type In = { items: List<Item, max=32> };
+type Out = { acc: List<Item, max=32> };
+intent run(input: In) returns Out profile p.read basis none budget <= p.b {
+  let initial: State = { source: input.items, acc: [], i: 0u64 };
+  let final = fold(initial, step, 33u64);
+  return { acc: final.acc };
+}

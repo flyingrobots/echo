@@ -5,9 +5,9 @@
 //!
 //! A slice needs `start <= end <= len(bytes)` and a subtraction needs
 //! `right <= left`, each from a dominating fact: equal terms, a zero right
-//! side, ordered constants, an input constraint, or an earlier conjunct of
-//! the same `all`. Conditional predicates, negations and later conjuncts
-//! prove nothing.
+//! side, ordered constants, an input constraint, an earlier conjunct of the
+//! same `all`, or the predicate of an enclosing `if` inside its `then` arm.
+//! The `else` arm, negations, disjunctions and later conjuncts prove nothing.
 use super::*;
 
 const BYTES: &str = "Bytes<max=32>";
@@ -134,6 +134,7 @@ fn probe(case: &str) -> CanonicalValueV1 {
             ])),
             use_prefix(),
         ])),
+        // The predicate of an `if` is a fact in its `then` arm only.
         "guard in a conditional" => {
             choose(prefix(bytes.clone()), flag(use_prefix()), literal("U32", 0))
         }
@@ -175,6 +176,7 @@ fn dominating_range_facts_admit_runtime_slices_and_subtractions_in_both_judgment
         "end offset",
         "guarded suffix",
         "guarded subtraction",
+        "guard in a conditional",
     ] {
         let (names, fixture, package) = probe_fixture(case);
         let lowered = lowerer::lower(lowering_request(names, &fixture))
@@ -196,7 +198,6 @@ fn missing_or_non_dominating_range_facts_refuse_in_both_judgments() {
         "guard on another offset",
         "guard by declared capacity",
         "disjunctive guard",
-        "guard in a conditional",
         "guard in a sibling branch",
         "unguarded subtraction",
         "reversed subtraction guard",
@@ -209,6 +210,16 @@ fn missing_or_non_dominating_range_facts_refuse_in_both_judgments() {
 /// `endByte - startByte` in the intent body, proven by the fixture's own
 /// input constraint `startByte <= endByte` when it is kept.
 fn width_fixture(constrained: bool) -> (FixtureNames<'static>, RawFixture, Vec<u8>) {
+    width_program(constrained, |_, start, end| subtract(end, start))
+}
+
+/// The fixture's intent with its first binding computed by `value` from the
+/// input constraint `startByte <= endByte` and its two terms. The constraint
+/// stays only when `constrained`.
+fn width_program(
+    constrained: bool,
+    value: impl Fn(CanonicalValueV1, CanonicalValueV1, CanonicalValueV1) -> CanonicalValueV1,
+) -> (FixtureNames<'static>, RawFixture, Vec<u8>) {
     called_fixture(|core, target| {
         let CanonicalValueV1::Array(constraints) = map_field(intent(core), "inputConstraints")
         else {
@@ -232,7 +243,8 @@ fn width_fixture(constrained: bool) -> (FixtureNames<'static>, RawFixture, Vec<u
             let CanonicalValueV1::Array(bindings) = map_field_mut(body, key) else {
                 panic!("bindings")
             };
-            *map_field_mut(&mut bindings[0], "value") = subtract(end.clone(), start.clone());
+            *map_field_mut(&mut bindings[0], "value") =
+                value(predicate.clone(), start.clone(), end.clone());
         }
     })
 }
@@ -245,4 +257,82 @@ fn input_constraints_prove_intent_subtraction_in_both_judgments() {
     assert!(verifier_accepts(names, &fixture, package));
     let (names, fixture, package) = width_fixture(false);
     both_refuse(names, &fixture, package, "unconstrained width");
+}
+
+/// With no input constraint, `if startByte <= endByte then endByte - startByte
+/// else 0` in the intent body lowers and verifies: the predicate is a fact in
+/// the `then` arm. The same subtraction in the `else` arm is refused.
+#[test]
+fn a_branch_predicate_proves_intent_subtraction_in_both_judgments() {
+    let (names, fixture, package) = width_program(false, |predicate, start, end| {
+        choose(predicate, subtract(end, start), literal("U64", 0))
+    });
+    let lowered = lowerer::lower(lowering_request(names, &fixture));
+    assert_eq!(
+        lowered.map(|success| success.outputs[0].artifact.bytes == package),
+        Ok(true)
+    );
+    assert!(verifier_accepts(names, &fixture, package));
+    let (names, fixture, package) = width_program(false, |predicate, start, end| {
+        choose(predicate, literal("U64", 0), subtract(end, start))
+    });
+    both_refuse(names, &fixture, package, "else-arm width");
+}
+
+#[path = "../../../echo-edict-provider-lowerer/tests/fixtures/branch_fact_corpus.rs"]
+#[allow(
+    dead_code,
+    reason = "this pipeline test reads only the helper corpus from the shared fixture"
+)]
+mod branch_fact_corpus;
+
+/// Every single-helper case of the shared branch-fact corpus, added to a
+/// complete compiler fixture, gets the corpus verdict from the full lowering
+/// and from the independent verifier of the lowered package. The corpus
+/// includes the Core of Jedit's `subtraction-helper.edict` and
+/// `byte-slice-helper.edict`.
+#[test]
+fn branch_fact_corpus_helpers_lower_and_verify_with_the_corpus_verdict() {
+    let mut checked = 0;
+    let mut skipped = Vec::new();
+    for case in branch_fact_corpus::cases() {
+        let CanonicalValueV1::Map(functions) = map_field(&case.core, "functions") else {
+            panic!("{}: functions", case.name)
+        };
+        // A multi-helper case names its callee by the corpus module's
+        // coordinate, which this fixture does not share.
+        let [(CanonicalValueV1::Text(name), helper)] = functions.as_slice() else {
+            skipped.push(case.name);
+            continue;
+        };
+        let name = format!("branch_{name}");
+        let (names, fixture, package) = called_fixture(|core, _| {
+            add_field(map_field_mut(core, "functions"), &name, helper.clone());
+        });
+        let lowered = lowerer::lower(lowering_request(names, &fixture));
+        if case.accepted {
+            assert_eq!(
+                lowered.map(|success| success.outputs[0].artifact.bytes == package),
+                Ok(true),
+                "{}: lowering",
+                case.name
+            );
+            assert!(
+                verifier_accepts(names, &fixture, package),
+                "{}: verifier",
+                case.name
+            );
+        } else {
+            both_refuse(names, &fixture, package, case.name);
+        }
+        checked += 1;
+    }
+    assert_eq!(
+        skipped,
+        [
+            "a caller's branch does not reach its helper",
+            "a caller keeps its branch facts after a helper call",
+        ]
+    );
+    assert_eq!(checked + skipped.len(), branch_fact_corpus::cases().len());
 }

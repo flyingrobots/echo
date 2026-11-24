@@ -10,11 +10,19 @@
 //! constant uses the same deterministic copy charges as other runtime values;
 //! package-size limits bound decoding before evaluation.
 
+#[cfg(test)]
+mod checked_integer_tests;
 mod decode;
 pub(crate) mod evaluate;
+pub(crate) mod failure_sets;
 #[cfg(test)]
 mod fold_tests;
+mod function_preconditions;
 pub(crate) mod functions;
+mod identity;
+#[cfg(test)]
+mod identity_tests;
+mod integer_operations;
 mod list_operations;
 #[cfg(test)]
 mod list_operations_tests;
@@ -24,7 +32,14 @@ mod list_preparation_tests;
 mod list_tests;
 mod matches;
 pub(crate) mod model;
+mod option_operations;
+#[cfg(test)]
+mod option_value_tests;
+mod ordered_records;
 pub(crate) mod proven_order;
+mod shared_reads;
+#[cfg(test)]
+mod shared_reads_tests;
 pub(crate) mod syntax;
 pub(crate) mod values;
 #[cfg(test)]
@@ -89,6 +104,13 @@ pub enum EvaluationError {
     HostAllocationFailed,
     /// The canonical result exceeds its output budget.
     OutputBudgetExceeded,
+    /// A source helper ended with this declared typed failure and no
+    /// `attempt` mapped it. Judgment proves every failure is mapped, so a
+    /// judged program never returns this.
+    UnmappedFailure(String),
+    /// A content-address call named the same (edge type, target) outgoing
+    /// edge more than once. The edge set is refused, never deduplicated.
+    DuplicateOutgoingEdge,
 }
 
 /// Evaluates exact compiler-produced package bytes under a verified host pin.
@@ -136,4 +158,13 @@ mod byte_utf8_tests;
 mod proven_range_tests;
 
 #[cfg(test)]
+mod branch_fact_tests;
+
+#[cfg(test)]
+mod function_precondition_tests;
+
+#[cfg(test)]
 mod byte_at_tests;
+
+#[cfg(test)]
+mod ordered_record_tests;

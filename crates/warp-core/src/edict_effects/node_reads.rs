@@ -5,7 +5,7 @@ use super::{
     EffectFrameError, EffectRangeReadError, EffectRangeReadSession, OBSERVATION_STORAGE_BYTES,
 };
 use crate::edict_pure::evaluate::Meter;
-use crate::edict_read::{NodeAtomAccess, ReadBasis, ReadObstruction};
+use crate::edict_read::{Material, NodeAtomAccess, Outgoing, ReadBasis, ReadObstruction};
 use crate::{AttachmentKey, AttachmentValue, NodeKey, SlotId, SlotReading, TypeId};
 
 pub(crate) struct RecordedNodeAccess<'r, 'f> {
@@ -37,6 +37,57 @@ impl NodeAtomAccess for RecordedNodeAccess<'_, '_> {
                     .ok_or(EffectRangeReadError::FootprintLawViolation)?;
                 self.reads
                     .record_typed_atom(node, absent_type, expected, max_bytes, meter)
+            }
+        }
+    }
+    // Graph reads are recorded only under a typed footprint law, whose
+    // permissions act as the graph aperture and whose read image witnesses
+    // them. An untyped recording frame grants no graph read.
+    fn scan_ceiling(&self) -> u64 {
+        match self.aperture {
+            NodeAperture::Typed(_) => self.reads.graph_scan_ceiling(),
+            NodeAperture::Untyped(_) => 0,
+        }
+    }
+    fn outgoing(
+        &mut self,
+        range: crate::OutgoingEdgeRange,
+        source_type: Option<TypeId>,
+        allowance: u64,
+        meter: &mut Meter,
+    ) -> Result<Outgoing, Self::Error> {
+        let absent = self.graph_absence(range.source, source_type)?;
+        self.reads
+            .record_graph_range(range, absent, allowance, meter)
+    }
+    fn material(
+        &mut self,
+        node: NodeKey,
+        referrer: Option<TypeId>,
+        max_bytes: u64,
+        meter: &mut Meter,
+    ) -> Result<Material<'_>, Self::Error> {
+        let absent = self.graph_absence(node, referrer)?;
+        self.reads.record_material(node, absent, max_bytes, meter)
+    }
+}
+
+impl RecordedNodeAccess<'_, '_> {
+    /// The type that authorizes a graph-read node's absence: the observed
+    /// type that named it, or the host-declared type of a selected node.
+    fn graph_absence(
+        &self,
+        node: NodeKey,
+        known: Option<TypeId>,
+    ) -> Result<TypeId, EffectFrameError> {
+        match (&self.aperture, known) {
+            (NodeAperture::Typed(_), Some(known)) => Ok(known),
+            (NodeAperture::Typed(_), None) => self
+                .aperture
+                .absent_type(node)
+                .ok_or_else(|| EffectRangeReadError::FootprintLawViolation.into()),
+            (NodeAperture::Untyped(_), _) => {
+                Err(EffectRangeReadError::FootprintLawViolation.into())
             }
         }
     }

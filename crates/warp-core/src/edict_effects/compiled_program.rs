@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Current compiler-artifact binding and ordered instruction correspondence.
+//! Current compiler-artifact binding and ordered or structured instruction
+//! correspondence.
 use crate::edict_pure::{
     values::{array, exact_fields, field, map, number, require_text, text, text_field},
     EvaluationError as Error,
@@ -9,6 +10,9 @@ use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1 as digest,
     CanonicalValueV1 as Value,
 };
+
+/// The ordered Target IR contract.
+const ORDERED_TARGET_IR: &str = "echo.span-ir/v2";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CompiledProgram {
@@ -62,8 +66,20 @@ impl CompiledProgram {
                 "sourceCoreCoordinate",
             ],
         )?;
-        require_text(&target, "domain", "echo.span-ir/v2")?;
-        require_text(&target, "kind", "orderedTargetIrArtifact")?;
+        // The ordered contract admits only a flat order of instruction ids;
+        // the structured one adds `for` and `branch` entries, and the
+        // lowering relation admits it only under `echo.dpo@2`.
+        match (text_field(&target, "domain")?, text_field(&target, "kind")?) {
+            (ORDERED_TARGET_IR, "orderedTargetIrArtifact") => {
+                for (_, intent) in map(field(&target, "intents")?)? {
+                    for entry in array(field(intent, "executionOrder")?)? {
+                        text(entry)?;
+                    }
+                }
+            }
+            (super::control_order::STRUCTURED_TARGET_IR, "structuredTargetIrArtifact") => {}
+            _ => return Err(Error::UnsupportedProgram),
+        }
         exact_fields(
             &exports,
             &[
@@ -142,6 +158,7 @@ impl CompiledProgram {
     pub(super) fn execution(
         &self,
         limits: crate::edict_pure::EvaluationLimits,
+        graph_reads: Option<&crate::edict_read::GraphReads>,
     ) -> Result<super::execution::Program, Error> {
         super::execution::Program::prepare(
             &self.module,
@@ -149,7 +166,44 @@ impl CompiledProgram {
             field(field(&self.target, "intents")?, &self.intent)?,
             &self.exports,
             limits,
+            graph_reads,
         )
+    }
+    /// The Core module coordinate that qualifies the module's own helpers.
+    pub(super) fn module_coordinate(&self) -> Result<&str, Error> {
+        text_field(&self.module, "coordinate")
+    }
+    /// The lowered steps that read the graph, and how many of those are
+    /// closure reads.
+    pub(super) fn graph_read_steps(&self) -> Result<(usize, usize), Error> {
+        let target = field(field(&self.target, "intents")?, &self.intent)?;
+        let mut reads = 0_usize;
+        let mut closures = 0_usize;
+        for step in array(field(target, "steps")?)? {
+            match super::intrinsic_names::operation(text_field(step, "targetIntrinsic")?) {
+                Some("outgoing-edge-read") => reads = reads.saturating_add(1),
+                Some("closure-read") => {
+                    reads = reads.saturating_add(1);
+                    closures = closures.saturating_add(1);
+                }
+                _ => {}
+            }
+        }
+        Ok((reads, closures))
+    }
+    /// Whether `qualified`, a `<module>.<name>` coordinate, names one of the
+    /// module's own source helpers.
+    pub(super) fn declares_helper(&self, qualified: &str) -> bool {
+        let Ok(module) = self.module_coordinate() else {
+            return false;
+        };
+        qualified
+            .strip_prefix(module)
+            .and_then(|rest| rest.strip_prefix('.'))
+            .is_some_and(|name| {
+                field(&self.module, "functions")
+                    .is_ok_and(|functions| field(functions, name).is_ok())
+            })
     }
     pub(super) fn validate_binding(
         &self,

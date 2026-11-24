@@ -23,7 +23,7 @@ pub struct EffectSlotRow {
     /// Range edge type only; zero for every other class.
     pub edge_type: crate::Hash,
 }
-/// Fixed canonical typed observation, 192 bytes.
+/// Fixed canonical typed observation, 200 bytes.
 #[repr(C, align(8))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
 pub struct EffectReadRow {
@@ -31,14 +31,22 @@ pub struct EffectReadRow {
     pub slot: EffectSlotRow,
     /// Present 0, absent 1, range 2, portal 3.
     pub outcome: u8,
+    /// Whether a range or graph read consulted this node's outgoing bucket:
+    /// no 0, yes 1. Only a present node row may carry 1. A consulted bucket
+    /// decided a scan bound, whether the scan then ran or was refused.
+    pub bucket: u8,
     /// Canonical zero padding.
-    pub padding: [u8; 7],
+    pub padding: [u8; 6],
     /// Actual/named/portal-owner type, or zero for a range.
     pub read_type: crate::Hash,
     /// Present value or portal digest; zero for absent/range outcomes.
     pub subject: crate::Hash,
     /// Contiguous edge-pair run for a range; zero for all other outcomes.
     pub pairs: crate::wsc::types::Range,
+    /// Edges of every type in the consulted bucket, little-endian; zero
+    /// unless `bucket` is 1. Every range from this node retains at most this
+    /// many pairs.
+    pub bucket_len_le: u64,
 }
 /// One outgoing-range result, 64 bytes, in edge-local-ID order.
 #[repr(C, align(8))]
@@ -50,7 +58,7 @@ pub struct EffectEdgePairRow {
     pub target_local_id: crate::Hash,
 }
 const _: () = assert!(std::mem::size_of::<EffectSlotRow>() == 104);
-const _: () = assert!(std::mem::size_of::<EffectReadRow>() == 192);
+const _: () = assert!(std::mem::size_of::<EffectReadRow>() == 200);
 const _: () = assert!(std::mem::size_of::<EffectEdgePairRow>() == 64);
 
 impl EffectSlotRow {
@@ -122,13 +130,26 @@ impl EffectSlotRow {
     }
 }
 impl EffectReadRow {
+    /// Edges in the consulted source bucket; zero when `bucket` is 0.
+    #[must_use]
+    pub const fn bucket_len(&self) -> u64 {
+        u64::from_le(self.bucket_len_le)
+    }
     pub(super) fn compare(&self, other: &Self) -> std::cmp::Ordering {
         self.slot
             .compare(&other.slot)
             .then_with(|| self.read_type.cmp(&other.read_type))
     }
     pub(super) fn valid(&self) -> bool {
-        if !self.slot.valid() || self.padding != [0; 7] {
+        if !self.slot.valid() || self.padding != [0; 6] {
+            return false;
+        }
+        let witnesses_bucket = match self.bucket {
+            0 => self.bucket_len_le == 0,
+            1 => self.slot.class == 0 && self.outcome == 0,
+            _ => false,
+        };
+        if !witnesses_bucket {
             return false;
         }
         let no_pairs = self.pairs.start() == 0 && self.pairs.is_empty();

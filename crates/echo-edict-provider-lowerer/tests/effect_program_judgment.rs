@@ -543,6 +543,35 @@ fn closure_read_witness_minimums_under_each_schedule() {
     assert!(shared.0 < copying.0 && shared.1 < copying.1);
 }
 
+/// The public compiler's own shared-read minimum for the closure-read
+/// witness, (steps, bytes): Amblicit 9f10fb91 with Echo's `/v3` effect
+/// templates, as `xtask --example effect_v2_admission` reports it. The
+/// witness package is byte-identical to that compiler's checked output.
+const COMPILER_SHARED_MINIMUM: (u64, u64) = (10_813, 194_487);
+/// What Echo's lowerer charges above that compiler: one step for the
+/// witness's single effect node, which Amblicit 9f10fb91 omits. Amblicit is
+/// adding it (echo#1016 term 3); with that compiler this is `(0, 0)` and the
+/// compiler's minimum is admitted exactly.
+const COMPILER_RESIDUAL: (u64, u64) = (1, 0);
+
+/// Exact admission at the compiler's minimum (echo#1016): Echo's lowerer
+/// minimum for the closure-read witness under the shared-read schedule is
+/// the compiler's minimum plus only the known residual, so one unit below
+/// the compiler's minimum on either axis is what Echo refuses once the
+/// residual is gone. Oracle: the compiler's own report, pinned above.
+#[test]
+fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
+    let name = "closure-read-witness";
+    let (steps, bytes_) = witness_minimum(name, Some(SHARED));
+    assert_eq!(
+        (
+            steps - COMPILER_SHARED_MINIMUM.0,
+            bytes_ - COMPILER_SHARED_MINIMUM.1
+        ),
+        COMPILER_RESIDUAL
+    );
+}
+
 /// The compiler-produced identity witnesses (all four `echo.dpo@2` identity
 /// intrinsics) are judged under the shared-read schedule (echo#1016, family
 /// 3). Each call is charged its catalog rule plus a full copy of every

@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 796,576-byte checked lowerer component has SHA-256
-`f03a902279d60ec37dbedf9209aad58fc2c153da9b8b3f49216ef1951805e2c9` and has
+The refreshed 799,152-byte checked lowerer component has SHA-256
+`4484b05dc93583bdd3b12df9bcf6d7e77f875821dc0f9f5f409fef06b3960e35` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -257,6 +257,20 @@ host enforces any smaller bound.
 The shared corpus pins the code each refused entry reaches
 (`tests/fixtures/effect-programs/reasons.txt`), and the verifier names the
 same code for every entry.
+
+A bound artifact that fails its canonical binding is refused as
+`InvalidSemanticArtifact` with a second diagnostic of the same shape. Its code
+is the first diagnostic's code followed by `.artifact-binding.` and the check
+that refused: `reference` (an empty coordinate or domain, or a digest that is
+not 32 SHA-256 bytes), `decode` (the bytes are not one canonical CBOR value
+within the decoder's bounds), `canonical-form` (the bytes decode but are not
+the value's canonical encoding) or `digest` (the domain-framed digest is not
+the bound digest). Its message is
+`<domain> artifact failed artifact-binding.<check>: <detail>`, which names the
+artifact by domain; the refusal's subject names it by coordinate or role. The
+domain is the request's own text and is not shortened.
+`tests/artifact_binding.rs` pins one named reason per check and every bound
+artifact of a request.
 
 The witness uses synthetic crate-local inputs and the current runtime decoder
 as a separate native test oracle. Kernel dependencies and their trusted-host

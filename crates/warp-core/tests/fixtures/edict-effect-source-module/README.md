@@ -19,7 +19,7 @@ exact `edict.source/v1` identity.
 The five retained `source-module-*.hex` files are public compiler output. The
 `effect_step_publication` example compiles this directory (output name
 `source-module`) through Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`
-and the promoted provider package (lowerer `f03a9022`, verifier `54a7c9fc`);
+and the promoted provider package (lowerer `4484b05d`, verifier `01893c1e`);
 `scripts/verify-edict-provider-host-v1.sh` reruns it with `--check`. The
 producer also requires the same program to be refused under `echo.dpo@1` and
 under a substituted `echo.dpo@2` profile. The package is byte-identical to the

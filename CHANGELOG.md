@@ -376,6 +376,15 @@
   unchanged, and warp-core runs each program at its new minimum. The
   compiler's typed-failure package is retained beside the other exact
   admission packages.
+- Under the shared-read schedule each field of an obstruction payload adds
+  one keyed cell to the payload record's shell, (1, 64 + key length), as
+  warp-core's shared evaluator builds it (echo#1016). The lowerer and the
+  verifier added two cells per field, (1, 64) more than the runtime. Shared
+  minimums fall by (1, 64) for `typed-failure-control` (374, 1231) and the
+  four ordered-record programs (111, 1425; 251, 1681); every copying minimum
+  and every empty payload are unchanged. Two compiler packages with a
+  one-field payload, as an `attempt` arm's and as a `require`'s, are retained
+  beside the exact admission packages with their sources.
 
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package

@@ -1,0 +1,20 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "consumer.typedfail.program@1",
+  "sources": [
+    "src/Program.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/effect-typed-failure/manifest.cbor",
+      "exports": "vendor/effect-typed-failure/exports.cbor",
+      "adapter": "vendor/effect-typed-failure/adapter.cbor",
+      "targetConfiguration": "vendor/effect-typed-failure/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@2",
+    "providerPackage": "provider"
+  },
+  "outputDirectory": "application-output"
+}

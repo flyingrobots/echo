@@ -35,5 +35,17 @@ Amblicit `65dc5362` reports (137, 1967) for it: that compiler charges an
 empty-payload arm (3, 128). Exact admission of this package waits for the
 compiler change (amblicit#341).
 
+`payload-attempt-executable-operation-package.hex` and
+`payload-require-executable-operation-package.hex` were written the same way
+by Amblicit `66f6ca4d9513ada331895a94facae4922f5dc5e1` from the sources in
+`payload-attempt-source/` and `payload-require-source/`: the typed-failure
+program whose `RangeInverted` payload schema is `Record<at:U64>`, with the
+failure payload `{ at: input.start }` on its `attempt` arm, or on a
+`require input.start <= input.end` in place of the `attempt`. They use the
+typed-failure configuration. `a_failure_payload_field_is_charged_what_the_shared_runtime_charges`
+pins Echo's shared-read minimums for them, (145, 2291) and (131, 2227),
+which are what warp-core's shared executor charges for the payload, term by
+term, as the test's constants explain.
+
 The packages are private evaluation witnesses. They do not establish
 installation, a causal Tick, WAL retention or a receipt.

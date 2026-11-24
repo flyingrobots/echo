@@ -164,6 +164,18 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/typed-executable-operation-package.hex"
         ),
     ),
+    (
+        "payload-attempt-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-executable-operation-package.hex"
+        ),
+    ),
 ];
 fn package(name: &str) -> V {
     let hex = RETAINED
@@ -421,7 +433,7 @@ fn byte_operation_minimums_under_each_schedule() {
         measured,
         [
             ("slice-proven", (195, 3383), (873, 971)),
-            ("typed-failure-control", (74, 3312), (375, 1295)),
+            ("typed-failure-control", (74, 3312), (374, 1231)),
         ]
     );
 }
@@ -512,7 +524,9 @@ fn context(name: &str) -> Context {
             schema: "consumer.writes.exports/v1",
             package: b"package consumer.writes.program@1;\n",
         },
-        "typed-failure-v2-admission" => Context {
+        "typed-failure-v2-admission"
+        | "payload-attempt-v2-admission"
+        | "payload-require-v2-admission" => Context {
             configuration: include_str!(
                 "../../warp-core/tests/fixtures/edict-effect-typed-failure/typed-configuration.hex"
             ),
@@ -689,6 +703,37 @@ fn an_attempt_is_charged_what_the_shared_runtime_charges() {
     );
 }
 
+/// Echo's shared-read minimums for the typed-failure program with a one-field
+/// failure payload `{ at: input.start }`, (steps, bytes): first as the
+/// `attempt` arm's payload, then as a `require`'s. warp-core's shared
+/// executor, measured on each failing path, builds that payload as one
+/// expression step, the field's own work (2, 0) and a shell of one cell plus
+/// one keyed cell, (2, 64 + 64 + 2), so (5, 130); then it encodes it, one
+/// cell for the record, the key and the integer, (3, 64 + 66 + 64) =
+/// (3, 194). An empty payload is (2, 64) then (1, 64).
+///
+/// - `attempt`: the typed-failure minimum (140, 2095) less the empty arm
+///   (3, 128), plus this arm (8, 324).
+/// - `require`: its predicate, the field's own work and the rest of the
+///   program, (125, 1903) as Amblicit 66f6ca4d charges them, plus the
+///   payload's expression step and shell (3, 130) and its encoding (3, 194).
+const PAYLOAD_ATTEMPT_SHARED_MINIMUM: (u64, u64) = (145, 2_291);
+const PAYLOAD_REQUIRE_SHARED_MINIMUM: (u64, u64) = (131, 2_227);
+
+/// A failure payload's fields are charged what the shared runtime charges
+/// for them (echo#1016): one keyed cell each in the shell, not two.
+#[test]
+fn a_failure_payload_field_is_charged_what_the_shared_runtime_charges() {
+    assert_eq!(
+        witness_minimum("payload-attempt-v2-admission", Some(SHARED)),
+        PAYLOAD_ATTEMPT_SHARED_MINIMUM
+    );
+    assert_eq!(
+        witness_minimum("payload-require-v2-admission", Some(SHARED)),
+        PAYLOAD_REQUIRE_SHARED_MINIMUM
+    );
+}
+
 /// The compiler-produced identity witnesses (all four `echo.dpo@2` identity
 /// intrinsics) are judged under the shared-read schedule (echo#1016, family
 /// 3). Each call is charged its catalog rule plus a full copy of every
@@ -767,9 +812,9 @@ const FAMILY_FOUR: [&str; 4] = [
 
 #[allow(clippy::type_complexity)]
 const FAMILY_FOUR_MINIMUMS: [(&str, (u64, u64), (u64, u64)); 5] = [
-    ("ordered-record-z-first", (57, 2793), (112, 1489)),
-    ("ordered-record-a-first", (57, 2793), (112, 1489)),
-    ("ordered-record-guarded-z-first", (71, 3177), (252, 1745)),
-    ("ordered-record-guarded-a-first", (71, 3177), (252, 1745)),
+    ("ordered-record-z-first", (57, 2793), (111, 1425)),
+    ("ordered-record-a-first", (57, 2793), (111, 1425)),
+    ("ordered-record-guarded-z-first", (71, 3177), (251, 1681)),
+    ("ordered-record-guarded-a-first", (71, 3177), (251, 1681)),
     ("option-value-witness", (88, 2936), (831, 942)),
 ];

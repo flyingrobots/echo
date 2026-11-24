@@ -133,6 +133,18 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/typed-executable-operation-package.hex"
         ),
     ),
+    (
+        "payload-attempt-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-executable-operation-package.hex"
+        ),
+    ),
 ];
 
 fn package_bytes(name: &str) -> Vec<u8> {
@@ -685,7 +697,7 @@ fn byte_operation_minimums_equal_the_lowerer_minimums() {
         measured,
         [
             ("slice-proven", (195, 3383), (873, 971)),
-            ("typed-failure-control", (74, 3312), (375, 1295)),
+            ("typed-failure-control", (74, 3312), (374, 1231)),
         ]
     );
 }
@@ -724,6 +736,22 @@ fn an_attempt_minimum_equals_the_lowerer_minimum() {
     assert_eq!(
         minimum("typed-failure-v2-admission", Some(SHARED)),
         (140, 2_095)
+    );
+}
+
+/// A one-field failure payload `{ at: input.start }` under the shared-read
+/// schedule (echo#1016), as an `attempt` arm's and as a `require`'s: the
+/// verifier's minimums equal the lowerer's, which
+/// `a_failure_payload_field_is_charged_what_the_shared_runtime_charges` in
+/// the lowerer pins independently (oracle: the other judge).
+#[test]
+fn a_failure_payload_field_minimum_equals_the_lowerer_minimum() {
+    assert_eq!(
+        [
+            minimum("payload-attempt-v2-admission", Some(SHARED)),
+            minimum("payload-require-v2-admission", Some(SHARED)),
+        ],
+        [(145, 2_291), (131, 2_227)]
     );
 }
 
@@ -797,10 +825,10 @@ fn family_four_minimums_equal_the_lowerer_minimums() {
     assert_eq!(
         measured,
         [
-            ("ordered-record-z-first", (57, 2793), (112, 1489)),
-            ("ordered-record-a-first", (57, 2793), (112, 1489)),
-            ("ordered-record-guarded-z-first", (71, 3177), (252, 1745)),
-            ("ordered-record-guarded-a-first", (71, 3177), (252, 1745)),
+            ("ordered-record-z-first", (57, 2793), (111, 1425)),
+            ("ordered-record-a-first", (57, 2793), (111, 1425)),
+            ("ordered-record-guarded-z-first", (71, 3177), (251, 1681)),
+            ("ordered-record-guarded-a-first", (71, 3177), (251, 1681)),
             ("option-value-witness", (88, 2936), (831, 942)),
         ]
     );

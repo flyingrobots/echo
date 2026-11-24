@@ -459,8 +459,9 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// Under the schedule, building an obstruction payload record: one tick,
-    /// its shell as any record's, and each field's shared-read work. `None`
-    /// keeps the copying charge.
+    /// its shell as any record's (one cell plus one keyed cell per field, as
+    /// warp-core's shared evaluator builds it), and each field's shared-read
+    /// work. `None` keeps the copying charge.
     pub(super) fn effect_payload(&mut self, fields: &'a [(Value, Value)]) -> Check<Option<Charge>> {
         if !self.types.shared {
             return Ok(None);
@@ -470,7 +471,7 @@ impl<'a> Checker<'a, '_> {
         // as warp-core's shared evaluator charges it.
         let mut charge = ticks(0);
         for (name, value) in fields {
-            shell = shell.with(Footprint::CELL.keyed(string(name)?)?)?;
+            shell = shell.keyed(string(name)?)?;
             charge.append(self.shared_value(value)?)?;
         }
         charge.append(shell.built()?)?;

@@ -65,9 +65,9 @@ fn byte_effects_run_within_the_lowerer_minimum() {
     ]));
     for (name, input, steps, bytes) in [
         ("slice-proven", slice, 873, 971),
-        ("typed-failure-control", typed_failure_input(0), 375, 1295),
-        ("typed-failure-control", typed_failure_input(2), 375, 1295),
-        ("typed-failure-control", typed_failure_input(9), 375, 1295),
+        ("typed-failure-control", typed_failure_input(0), 374, 1231),
+        ("typed-failure-control", typed_failure_input(2), 374, 1231),
+        ("typed-failure-control", typed_failure_input(9), 374, 1231),
     ] {
         let package = retained(name);
         let frame = Frame::widest(None);

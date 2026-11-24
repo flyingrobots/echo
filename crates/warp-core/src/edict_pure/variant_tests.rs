@@ -305,6 +305,7 @@ fn variant_execution_refuses_each_resource_limit_before_success() -> Result<(), 
         helpers,
         result: Expr::Call("choices.example@1.make".into(), vec![]),
         limits: limits(),
+        schedule: super::functions::CostSchedule::Copying,
     };
     let first = super::evaluate::run(&program, Value::Integer(0))?;
     assert_eq!(super::evaluate::run(&program, Value::Integer(0))?, first);

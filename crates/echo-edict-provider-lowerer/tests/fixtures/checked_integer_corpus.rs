@@ -676,15 +676,73 @@ pub(crate) fn cases() -> Vec<Case> {
             );
         }
         // At the U32 maximum: a < MAX and b < 2 fit; a < MAX and b < 3 do not.
+        // The mirrored forms have the same edge: MAX > a with 2 > b fits and
+        // 3 > b does not; MAX - 1 >= a with 1 >= b fits and 2 >= b does not.
+        // A lower bound, strict or not and from either side, bounds nothing,
+        // so a sum of two terms known only to exceed 1 is refused.
         let top = u64::from(u32::MAX);
-        for (name, limit, accepted) in [
-            ("strict_bounds_that_fit_the_width_exactly", 2, true),
-            ("strict_bounds_one_past_the_width", 3, false),
+        let x = || arg(0, "U32");
+        let y = || arg(1, "U32");
+        let n = |value: u64| int("U32", value);
+        let pair_of = |op: &str, constant_first: bool, a: u64, b: u64| {
+            if constant_first {
+                both(cmp(op, n(a), x()), cmp(op, n(b), y()))
+            } else {
+                both(cmp(op, x(), n(a)), cmp(op, y(), n(b)))
+            }
+        };
+        for (name, predicate, accepted) in [
+            (
+                "strict_bounds_that_fit_the_width_exactly",
+                pair_of("<", false, top, 2),
+                true,
+            ),
+            (
+                "strict_bounds_one_past_the_width",
+                pair_of("<", false, top, 3),
+                false,
+            ),
+            (
+                "mirrored_strict_bounds_that_fit_the_width_exactly",
+                pair_of(">", true, top, 2),
+                true,
+            ),
+            (
+                "mirrored_strict_bounds_one_past_the_width",
+                pair_of(">", true, top, 3),
+                false,
+            ),
+            (
+                "mirrored_bounds_that_fit_the_width_exactly",
+                pair_of(">=", true, top - 1, 1),
+                true,
+            ),
+            (
+                "mirrored_bounds_one_past_the_width",
+                pair_of(">=", true, top - 1, 2),
+                false,
+            ),
+            (
+                "a_strict_lower_bound_bounds_nothing",
+                pair_of(">", false, 1, 1),
+                false,
+            ),
+            (
+                "a_mirrored_strict_lower_bound_bounds_nothing",
+                pair_of("<", true, 1, 1),
+                false,
+            ),
+            (
+                "a_lower_bound_bounds_nothing",
+                pair_of(">=", false, 1, 1),
+                false,
+            ),
+            (
+                "a_mirrored_lower_bound_bounds_nothing",
+                pair_of("<=", true, 1, 1),
+                false,
+            ),
         ] {
-            let predicate = both(
-                cmp("<", arg(0, "U32"), int("U32", top)),
-                cmp("<", arg(1, "U32"), int("U32", limit)),
-            );
             cases.push(
                 name,
                 accepted.then(|| vec![(0, 0)]),

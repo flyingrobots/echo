@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 753,762 bytes with SHA-256
-`1d9513667796bd0d4ba77cdd42c18b244b108fb5b1fb071ca2b438410c9cafae`.
+The checked component is 796,576 bytes with SHA-256
+`f03a902279d60ec37dbedf9209aad58fc2c153da9b8b3f49216ef1951805e2c9`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 793,658 bytes
+`wit-component` version recorded above. Its checked component is 847,957 bytes
 with SHA-256
-`b63d84bc110f149f6eea55eb9958385dbaae7adc71417c4f105d1bb7038e6fb9`.
+`54a7c9fc54fe3b8833ee9cec06e2120c992753b6ebbbf6e4a1dd415ef86cacbd`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -56,17 +56,21 @@ building. A nested source archive without its own Git metadata can resolve to
 an ancestor checkout and build different sources. Retain the root, commit and
 clean-tree checks with the component evidence.
 
-The current component pair, built from echo#997's source (ordered records,
-on top of echo#990 and echo#1004), was independently reproduced by the two G4
-candidate jobs in
-[CI run 44049212491](https://github.com/flyingrobots/echo/actions/runs/44049212491)
-at source commit `5300d174b10ef9b4ed2ac4cd18a8c62435e85208`. Both copies of
+The current component pair, built from echo#1009's source (effect programs
+call helpers from digest-pinned source modules, merged with main at
+`dc9dcbbf`: echo#1018's refusal reason codes, echo#1002's shared-read cost
+schedule and echo#1008), was independently reproduced by the two G4 candidate
+jobs in
+[CI run 44478993735](https://github.com/flyingrobots/echo/actions/runs/44478993735)
+at source commit `0319e734caa7c9a391c38deb01062b87d33d0011`. Both copies of
 each component matched byte-for-byte before promotion. Component publication,
 runtime interpretation, and public compiler witnesses are separate checks.
 Both components' interfaces now call the effect-program judgment for an
 `edict-effect-program/v1` configuration, including its
 structured loop and branch statements under `echo.span-ir/v3` and its
-`echo.dpo@2` outgoing-edge and closure graph-read steps.
+`echo.dpo@2` outgoing-edge and closure graph-read steps, and the four
+`echo.dpo@2` identity intrinsics. Both judge pure Core under the shared-read
+cost schedule `edict.core-cost/v2`.
 
 Rebuild and check the artifact without rewriting it:
 

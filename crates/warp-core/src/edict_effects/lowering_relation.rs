@@ -48,7 +48,7 @@ pub(super) fn validate<'a>(
     )?;
     let embedded = |key| decode(bytes(field(artifacts, key)?)?).map_err(|_| Error::InvalidArtifact);
     let source = embedded("source_artifact")?;
-    let source = std::str::from_utf8(bytes(&source)?).map_err(|_| Error::InvalidArtifact)?;
+    let sources = super::source_modules::Sources::new(&source, text_field(module, "coordinate")?)?;
     let lawpack = embedded("lawpack_artifact")?;
     let adapter = embedded("adapter_artifact")?;
     let target_profile = embedded("target_profile_artifact")?;
@@ -146,13 +146,13 @@ pub(super) fn validate<'a>(
         text_field(target_artifact, "domain")?,
     )?;
     owner_pinned(field(entry, "adapter")?, &adapter)?;
-    let alias = alias(
-        source,
-        &coordinate,
-        identity,
-        text_field(module, "coordinate")?,
-        profile_reference,
-    )?;
+    let preamble =
+        |module, source| preamble(source, &coordinate, identity, module, profile_reference);
+    let (alias, root_pins) = preamble(text_field(module, "coordinate")?, sources.root())?;
+    let alias = alias.ok_or(Error::InvalidArtifact)?;
+    sources.require_pinned(root_pins, |module, source| {
+        preamble(module, source).map(|(_, pins)| pins)
+    })?;
     super::imported_types::validate(module, exports, &coordinate)?;
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
     let authorized = array(field(profile, "semanticEffects")?)?;
@@ -305,13 +305,18 @@ fn unique_profile<'a>(adapter: &'a Value, core: &str) -> Result<&'a Value, Error
     // are used only for effect names, never to select a different Core profile.
     selected.ok_or(Error::InvalidArtifact)
 }
-fn alias(
-    source: &str,
+/// One module's declaration preamble: its `package` line, then only `use`
+/// lines. A `use target` names exactly the selected, pinned profile, at most
+/// once; a `use lawpack` names exactly the bound lawpack, at most once; a
+/// `use module` pins a source module, which [`super::source_modules`]
+/// resolves. Returns the lawpack alias, if declared, and the module pins.
+fn preamble<'s>(
+    source: &'s str,
     coordinate: &str,
     identity: [u8; 32],
     module: &str,
     profile_reference: &Value,
-) -> Result<String, Error> {
+) -> Result<(Option<String>, Vec<super::source_modules::Pin<'s>>), Error> {
     // Accept a bounded, explicit declaration preamble, not an import-looking
     // string inside a body or comment. A full source/Core proof remains separate.
     let mut lines = source
@@ -337,44 +342,52 @@ fn alias(
     );
     let mut targeted = false;
     let mut result = None;
+    let mut pins = Vec::new();
     for line in lines {
         if !line.starts_with("use ") {
             break;
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
-        if let ["use", "target", name, "digest", value, "as", target_alias] = tokens.as_slice() {
-            let target_alias = target_alias
-                .strip_suffix(';')
-                .ok_or(Error::InvalidArtifact)?;
-            if format!("{name} {value}") != target || target_alias.is_empty() || targeted {
-                return Err(Error::InvalidArtifact);
-            }
-            targeted = true;
-            continue;
-        }
-        let ["use", "lawpack", name, "digest", value, "as", alias] = tokens.as_slice() else {
+        let [_, kind, name, "digest", value, "as", alias] = tokens.as_slice() else {
             return Err(Error::UnsupportedProgram);
         };
         let alias = alias.strip_suffix(';').ok_or(Error::InvalidArtifact)?;
-        if *name != coordinate
-            || *value != expected
-            || alias.is_empty()
-            || !alias
-                .bytes()
-                .enumerate()
-                .all(|(i, c)| c == b'_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
-            || result.replace(alias.to_owned()).is_some()
-        {
-            return Err(Error::InvalidArtifact);
+        let valid_alias = !alias.is_empty()
+            && alias.bytes().enumerate().all(|(i, c)| {
+                c == b'_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit())
+            });
+        match *kind {
+            "target" => {
+                if format!("{name} {value}") != target || alias.is_empty() || targeted {
+                    return Err(Error::InvalidArtifact);
+                }
+                targeted = true;
+            }
+            "lawpack" => {
+                if *name != coordinate
+                    || *value != expected
+                    || !valid_alias
+                    || result.replace(alias.to_owned()).is_some()
+                {
+                    return Err(Error::InvalidArtifact);
+                }
+            }
+            "module" => {
+                if !valid_alias || pins.iter().any(|(pinned, _)| pinned == name) {
+                    return Err(Error::InvalidArtifact);
+                }
+                pins.push((*name, *value));
+            }
+            _ => return Err(Error::UnsupportedProgram),
         }
     }
-    result.ok_or(Error::InvalidArtifact)
+    Ok((result, pins))
 }
 
 /// The runtime's statement of the identity contracts a catalog must carry
 /// before a program may call them: operand ceilings, base steps and step
 /// coefficients, matching [`crate::edict_pure`]'s own metering.
-const IDENTITY: [(&str, &[&str], i128, &[i128]); 3] = [
+const IDENTITY: [(&str, &[&str], i128, &[i128]); 4] = [
     (
         "echo.dpo@2.contentAddress",
         &[
@@ -399,10 +412,16 @@ const IDENTITY: [(&str, &[&str], i128, &[i128]); 3] = [
         69,
         &[0; 3],
     ),
+    (
+        "echo.dpo@2.attachmentValueDigest",
+        &["Bytes<exact=32>", "Bytes<max=1048576>"],
+        68,
+        &[0, 1],
+    ),
 ];
 
 /// Whether the pinned catalog authorizes identity calls: under `echo.dpo@2`
-/// it carries all three exact contracts and the `OutgoingEdge` record, and
+/// it carries all four exact contracts and the `OutgoingEdge` record, and
 /// Core's single target import is the selected profile. A partial or altered
 /// set of contracts is refused, never ignored.
 fn identity_bound(

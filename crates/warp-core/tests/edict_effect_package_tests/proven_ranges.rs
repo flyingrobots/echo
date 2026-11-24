@@ -131,6 +131,32 @@ pub(super) fn package_editing(
     core_edit: impl FnOnce(&mut V),
     target_edit: impl FnOnce(&mut V),
 ) -> V {
+    package_importing(
+        constraints,
+        nodes,
+        result,
+        core_edit,
+        target_edit,
+        compiled_exports(),
+    )
+}
+
+/// The empty lawpack exports, exporting `functions` as pure helpers.
+pub(super) fn compiled_exports_with(functions: Vec<V>) -> V {
+    let mut exports = compiled_exports();
+    set(&mut exports, "pureFunctions", V::Array(functions));
+    exports
+}
+
+/// `package_editing`, judged against `exports` as the lawpack exports.
+pub(super) fn package_importing(
+    constraints: Vec<V>,
+    nodes: Vec<Node>,
+    result: V,
+    core_edit: impl FnOnce(&mut V),
+    target_edit: impl FnOnce(&mut V),
+    exports: V,
+) -> V {
     let mut core = compiled_core();
     set(
         &mut core,
@@ -256,7 +282,7 @@ pub(super) fn package_editing(
     set(selected, "requirements", V::Array(requirements));
     set(selected, "executionOrder", V::Array(order));
     target_edit(selected);
-    bound_compiler_package(&core, &target, &compiled_exports(), "update@1")
+    bound_compiler_package(&core, &target, &exports, "update@1")
 }
 
 pub(super) fn ok_binding() -> V {

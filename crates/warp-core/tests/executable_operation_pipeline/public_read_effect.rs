@@ -19,15 +19,15 @@ use warp_core::edict_pure::EvaluationLimits;
 use warp_core::{
     make_head_id, AtomPayload, AttachmentValue, EchoOperationAdmissionErrorKind,
     EchoOperationAdmissionPolicy, EchoOperationApplicationBasisV1, EchoOperationBudgetV1,
-    EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey, NodeRecord, PlaybackMode,
-    TrustedRuntimeHost, TypeId, WarpId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    EffectPackageHost, EngineBuilder, GraphStore, InboxPolicy, NodeId, NodeKey, NodeRecord,
+    PlaybackMode, TypeId, WarpId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
     WriterHeadKey,
 };
 
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-step/read-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "cde01daa4626835b516a8632430a4b80c6a18552b4a7d71124a7d4d13f4d391b";
+const PACKAGE_PIN: &str = "264e6a2a90d1c6141e1b056c048e5a9e00a161cb48ef2e620d0037954004027c";
 const OPERATION: &str = "consumer.effects.program@1.read";
 const AUTHORITY_LABEL: &[u8] = b"consumer.effects.authority/v1";
 /// The node and atom types the program's graph schema and footprint law name.
@@ -57,7 +57,7 @@ fn policy(identity: [u8; 32]) -> EchoOperationAdmissionPolicy {
 }
 
 /// A worldline whose root node carries the fact the program reads.
-pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
+pub(super) fn host() -> (EffectPackageHost, WriterHeadKey, NodeKey) {
     let node = NodeKey {
         warp_id: WarpId([0x31; 32]),
         local_id: NodeId([0x32; 32]),
@@ -91,7 +91,7 @@ pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
         .expect("head");
     let engine = EngineBuilder::new(store, node.local_id).build();
     (
-        TrustedRuntimeHost::new(runtime, engine).expect("host"),
+        EffectPackageHost::new(runtime, engine).expect("host"),
         head,
         node,
     )

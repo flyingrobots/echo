@@ -9,6 +9,7 @@
 //! version-scoped failure table, that Core and Target IR agree node for node,
 //! and that the body is typed, proven and within its declared budget.
 use super::source_functions::{judge_effect_intent, EffectSite};
+use crate::refusal_reason::{ProgramRefusal, RefusalReason as R, Trail};
 use echo_edict_canonical::{
     decode_canonical_cbor_v1 as decode, digest_canonical_value_bytes_v1 as digest,
     encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value,
@@ -188,7 +189,23 @@ pub(crate) fn graph_reads(declared: &Value) -> Check<GraphReads<'_>> {
 /// Judges compiler-produced effect-program bytes under the package's
 /// graph-read declaration, which is present exactly when a step reads the
 /// graph.
-pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> Check<Judged> {
+///
+/// # Errors
+/// Names the check that refused and the artifact path it was reading.
+pub(crate) fn judge(
+    compiled_program: &[u8],
+    graph: Option<GraphReads<'_>>,
+) -> Result<Judged, ProgramRefusal> {
+    let mut trail = Trail::new();
+    judge_on(compiled_program, graph, &mut trail).map_err(|()| trail.refusal())
+}
+
+fn judge_on(
+    compiled_program: &[u8],
+    graph: Option<GraphReads<'_>>,
+    trail: &mut Trail,
+) -> Check<Judged> {
+    trail.at(R::BundleEnvelope, &[]);
     let bundle = decode(compiled_program).map_err(|_| ())?;
     exact(
         &bundle,
@@ -211,21 +228,30 @@ pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> C
     let module = embedded("core_artifact")?;
     let target = embedded("target_ir_artifact")?;
     let exports = embedded("lawpack_exports_artifact")?;
-    let structured = artifacts(&module, &target, &exports)?;
+    let structured = artifacts(&module, &target, &exports, trail)?;
+    trail.at(R::IntentSelection, &["core", "intents", intent_name]);
     let intent = get(get(&module, "intents")?, intent_name)?;
+    trail.at(R::IntentSelection, &["target", "intents", intent_name]);
     let lowered = get(get(&target, "intents")?, intent_name)?;
-    binding(intent, lowered)?;
-    let instructions = correspondence(intent, lowered, structured)?;
+    trail.at(R::IntentBinding, &["core", "intents", intent_name]);
+    binding(intent, lowered, trail)?;
+    trail.at(
+        R::CorrespondenceEnvelope,
+        &["target", "intents", intent_name],
+    );
+    let instructions = correspondence(intent, lowered, structured, trail)?;
     let (sites, identity_admitted) = relation(
         &module,
-        intent,
+        (intent_name, intent),
         &target,
         &instructions,
         &exports,
         get(&bundle, "lowering_artifacts")?,
+        trail,
     )?;
     // A graph read is a declared capability: the declaration is the one the
     // program uses, and a closure names its selector.
+    trail.at(R::GraphReadDeclaration, &["configuration", "graphReads"]);
     let mut reads = 0_usize;
     let mut closures = 0_usize;
     for site in sites.values() {
@@ -243,7 +269,17 @@ pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> C
     {
         return Err(());
     }
-    judge_effect_intent(&module, &exports, intent, &sites, graph, identity_admitted)?;
+    trail.at(R::TypeTable, &["core", "types"]);
+    judge_effect_intent(
+        &module,
+        &exports,
+        (intent_name, intent),
+        &sites,
+        graph,
+        identity_admitted,
+        trail,
+    )?;
+    trail.at(R::BundleEnvelope, &[]);
     Ok(Judged {
         core_identity: identity("edict.core.module/v1", &module)?,
         target_identity: identity("edict.target-ir.artifact/v1", &target)?,
@@ -255,7 +291,8 @@ pub(crate) fn judge(compiled_program: &[u8], graph: Option<GraphReads<'_>>) -> C
 
 /// The three embedded artifacts and the Core pin the Target IR carries.
 /// True when the Target IR declares the structured contract.
-fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
+fn artifacts(module: &Value, target: &Value, exports: &Value, trail: &mut Trail) -> Check<bool> {
+    trail.at(R::TargetIrEnvelope, &["target"]);
     exact(
         target,
         &[
@@ -276,6 +313,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
         equal_text(target, "kind", "structuredTargetIrArtifact")?;
         true
     };
+    trail.at(R::ExportsEnvelope, &["exports"]);
     exact(
         exports,
         &[
@@ -292,6 +330,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
     for key in ["effects", "constants", "obstructions", "pureFunctions"] {
         list(get(exports, key)?)?;
     }
+    trail.at(R::CoreEnvelope, &["core"]);
     let mut fields = vec![
         "apiVersion",
         "coordinate",
@@ -319,6 +358,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
     for capability in list(get(module, "requiredCoreCapabilities")?)? {
         string(capability)?;
     }
+    trail.at(R::CorePin, &["target", "semanticClosure", "sourceCore"]);
     equal_text(target, "sourceCoreCoordinate", coordinate)?;
     let source = get(get(target, "semanticClosure")?, "sourceCore")?;
     exact(source, &["id", "digest"])?;
@@ -329,7 +369,7 @@ fn artifacts(module: &Value, target: &Value, exports: &Value) -> Check<bool> {
 
 /// The selected intent and its lowered form agree on everything the runtime
 /// executes besides the body's instructions.
-fn binding(intent: &Value, lowered: &Value) -> Check<()> {
+fn binding(intent: &Value, lowered: &Value, trail: &mut Trail) -> Check<()> {
     for key in ["inputConstraints", "coreEvaluationBudget"] {
         if get(lowered, key)? != get(intent, key)? {
             return Err(());
@@ -356,6 +396,7 @@ fn binding(intent: &Value, lowered: &Value) -> Check<()> {
     }
     if map_field(intent, "optic").is_some() {
         // Optic-scoped programs are outside the authored-effect route.
+        trail.mark(R::OpticIntent);
         return Err(());
     }
     exact(intent, &fields)?;
@@ -383,12 +424,14 @@ fn binding(intent: &Value, lowered: &Value) -> Check<()> {
 )]
 fn relation<'a>(
     module: &'a Value,
-    intent: &'a Value,
+    (intent_name, intent): (&str, &'a Value),
     target_artifact: &'a Value,
     instructions: &[(&'a Value, &'a Value)],
     exports: &'a Value,
     lowering: &'a Value,
+    trail: &mut Trail,
 ) -> Check<(BTreeMap<usize, EffectSite>, bool)> {
+    trail.at(R::NoEffectProfile, &["target", "targetProfile"]);
     let structured = equal_text(target_artifact, "domain", STRUCTURED_DOMAIN).is_ok();
     let mut effect_count = 0_usize;
     for (node, _) in instructions {
@@ -409,6 +452,7 @@ fn relation<'a>(
             Err(())
         };
     }
+    trail.at(R::LoweringArtifacts, &["lowering_artifacts"]);
     exact(
         lowering,
         &[
@@ -421,11 +465,18 @@ fn relation<'a>(
     )?;
     let embedded = |key| decode(bytes(get(lowering, key)?)?).map_err(|_| ());
     let source = embedded("source_artifact")?;
-    let source = std::str::from_utf8(bytes(&source)?).map_err(|_| ())?;
+    trail.at(R::SourceClosure, &["lowering_artifacts", "source_artifact"]);
+    let sources =
+        super::source_modules::Sources::new(&source, string(get(module, "coordinate")?)?)?;
+    trail.at(R::LoweringArtifacts, &["lowering_artifacts"]);
     let lawpack = embedded("lawpack_artifact")?;
     let adapter = embedded("adapter_artifact")?;
     let profile = embedded("target_profile_artifact")?;
     let catalog = embedded("intrinsics_artifact")?;
+    trail.at(
+        R::TargetProfile,
+        &["lowering_artifacts", "target_profile_artifact"],
+    );
     equal_text(&profile, "apiVersion", "edict.target-profile/v1")?;
     let profile_coordinate = format!(
         "{}@{}",
@@ -454,6 +505,10 @@ fn relation<'a>(
     if structured && !namespace.structured {
         return Err(());
     }
+    trail.at(
+        R::IntrinsicCatalog,
+        &["lowering_artifacts", "intrinsics_artifact"],
+    );
     let catalog_reference = get(&profile, "intrinsics")?;
     equal_text(catalog_reference, "id", namespace.catalog)?;
     pinned(catalog_reference, identity(namespace.catalog, &catalog)?)?;
@@ -468,13 +523,18 @@ fn relation<'a>(
         exact(&catalog, &["apiVersion", "intrinsics"])?;
     }
     equal_text(&catalog, "apiVersion", namespace.catalog_api)?;
+    trail.mark(R::IdentityContracts);
     let identity_admitted =
         identity_binding(namespace.coordinate, &catalog, module, profile_reference)?;
+    trail.mark(R::IntrinsicCatalog);
     let catalog = get(&catalog, "intrinsics")?;
     members(catalog)?;
+    trail.at(R::Lawpack, &["lowering_artifacts", "lawpack_artifact"]);
     equal_text(&lawpack, "apiVersion", "edict.lawpack/v1")?;
+    trail.at(R::Adapter, &["lowering_artifacts", "adapter_artifact"]);
     equal_text(&adapter, "apiVersion", "edict.lawpack-adapter/v1")?;
     equal_text(&adapter, "class", "declarative")?;
+    trail.at(R::Lawpack, &["lowering_artifacts", "lawpack_artifact"]);
     let lawpack_coordinate = format!(
         "{}@{}",
         string(get(&lawpack, "id")?)?,
@@ -494,6 +554,7 @@ fn relation<'a>(
         return Err(());
     }
     owner_pinned(get(&lawpack, "exports")?, exports)?;
+    trail.at(R::Adapter, &["lowering_artifacts", "adapter_artifact"]);
     let mut matching = list(get(&lawpack, "targetAdapters")?)?
         .iter()
         .filter(|entry| map_field(entry, "acceptedTargetProfile") == Some(profile_reference));
@@ -507,14 +568,36 @@ fn relation<'a>(
         string(get(target_artifact, "domain")?)?,
     )?;
     owner_pinned(get(entry, "adapter")?, &adapter)?;
-    let alias = alias(
-        source,
-        &lawpack_coordinate,
-        &lawpack_identity,
-        string(get(module, "coordinate")?)?,
-        &target_line(profile_reference)?,
-    )?;
+    trail.at(R::SourceAlias, &["lowering_artifacts", "source_artifact"]);
+    let target = target_line(profile_reference)?;
+    let preamble = |module, source| {
+        preamble(
+            source,
+            &lawpack_coordinate,
+            &lawpack_identity,
+            module,
+            &target,
+        )
+    };
+    let (alias, root_pins) = preamble(string(get(module, "coordinate")?)?, sources.root())?;
+    let alias = alias.ok_or(())?;
+    trail.at(
+        R::SourceModulePins,
+        &["lowering_artifacts", "source_artifact", "modules"],
+    );
+    sources.require_pinned(root_pins, |module, source| {
+        preamble(module, source).map(|(_, pins)| pins)
+    })?;
+    trail.at(R::ImportedTypes, &["core", "types"]);
     imported_types(module, exports, &lawpack_coordinate)?;
+    trail.at(
+        R::OperationProfile,
+        &[
+            "lowering_artifacts",
+            "adapter_artifact",
+            "operationProfiles",
+        ],
+    );
     let operation_profile = string(get(intent, "requiredOperationProfile")?)?;
     let authorized = list(get(
         unique_profile(&adapter, operation_profile)?,
@@ -528,6 +611,16 @@ fn relation<'a>(
         if string(get(node, "kind")?)? != "effect" {
             continue;
         }
+        trail.at(
+            R::EffectAuthorization,
+            &[
+                "target",
+                "intents",
+                intent_name,
+                "steps",
+                string(get(step, "id")?)?,
+            ],
+        );
         let name = resolve(string(get(node, "effect")?)?, &alias, &lawpack_coordinate)?;
         if !authorized.iter().any(|value| value == &text(&name)) {
             return Err(());
@@ -553,9 +646,11 @@ fn relation<'a>(
         if declarations.next().is_some() {
             return Err(());
         }
+        trail.mark(R::IntrinsicContract);
         contract(intrinsic_name, kind, intrinsic, effect, implementation)?;
         let output = string(get(effect, "outputType")?)?;
         equal_text(get(node, "binding")?, "type", output)?;
+        trail.mark(R::FailureArms);
         arms(
             node,
             step,
@@ -574,6 +669,10 @@ fn relation<'a>(
             },
         );
     }
+    trail.at(
+        R::EffectAuthorization,
+        &["target", "intents", intent_name, "steps"],
+    );
     if sites.len() != effect_count {
         return Err(());
     }
@@ -598,12 +697,13 @@ fn identity_contract(name: &str) -> Option<(Vec<&'static str>, i128, Vec<i128>)>
         ),
         "echo.dpo@2.contentEdgeId" => (vec![ID; 4], 70, vec![0; 4]),
         "echo.dpo@2.slotEdgeId" => (vec![ID; 3], 69, vec![0; 3]),
+        "echo.dpo@2.attachmentValueDigest" => (vec![ID, "Bytes<max=1048576>"], 68, vec![0, 1]),
         _ => return None,
     })
 }
 
 /// Binds identity calls to the pinned catalog. Admitted only when the
-/// profile is `echo.dpo@2`, the catalog carries all three contracts exactly
+/// profile is `echo.dpo@2`, the catalog carries all four contracts exactly
 /// with the `OutgoingEdge` record, and Core's one target import is the
 /// selected profile. Any partial or altered contract is refused.
 fn identity_binding(
@@ -625,6 +725,7 @@ fn identity_binding(
         "echo.dpo@2.contentAddress",
         "echo.dpo@2.contentEdgeId",
         "echo.dpo@2.slotEdgeId",
+        "echo.dpo@2.attachmentValueDigest",
     ];
     let intrinsics = members(get(catalog, "intrinsics")?)?;
     let declared: Vec<&Value> = names
@@ -847,6 +948,7 @@ fn correspondence<'a>(
     intent: &'a Value,
     lowered: &'a Value,
     structured: bool,
+    trail: &mut Trail,
 ) -> Check<Vec<(&'a Value, &'a Value)>> {
     let mut fields = vec![
         "operationProfile",
@@ -882,6 +984,8 @@ fn correspondence<'a>(
     let mut controls = BTreeSet::new();
     let mut paired = Vec::new();
     let mut budget = MAX_NODES;
+    trail.mark(R::CorrespondenceOrder);
+    trail.enter("executionOrder");
     pair_block(
         get(intent, "body")?,
         get(lowered, "executionOrder")?,
@@ -891,9 +995,11 @@ fn correspondence<'a>(
             controls: &mut controls,
             paired: &mut paired,
             budget: &mut budget,
+            trail: &mut *trail,
         },
         0,
     )?;
+    trail.mark(R::CorrespondenceOrder);
     if !instructions.is_empty() {
         return Err(());
     }
@@ -908,6 +1014,8 @@ struct Pairing<'p, 'a> {
     controls: &'p mut BTreeSet<&'a str>,
     paired: &'p mut Vec<(&'a Value, &'a Value)>,
     budget: &'p mut usize,
+    /// The running check and the order entry it pairs.
+    trail: &'p mut Trail,
 }
 
 fn pair_block<'a>(
@@ -917,6 +1025,7 @@ fn pair_block<'a>(
     pairing: &mut Pairing<'_, 'a>,
     depth: usize,
 ) -> Check<()> {
+    pairing.trail.mark(R::CorrespondenceOrder);
     if depth > MAX_DEPTH {
         return Err(());
     }
@@ -926,17 +1035,21 @@ fn pair_block<'a>(
     if nodes.len() != order.len() {
         return Err(());
     }
-    for (node, entry) in nodes.iter().zip(order) {
+    for (position, (node, entry)) in nodes.iter().zip(order).enumerate() {
+        pairing.trail.enter(position.to_string());
+        pairing.trail.mark(R::CorrespondenceOrder);
         *pairing.budget = pairing.budget.checked_sub(1).ok_or(())?;
         match entry {
             Value::Text(id) => {
                 let (kind, instruction) = pairing.instructions.remove(id.as_str()).ok_or(())?;
+                pairing.trail.mark(R::CorrespondenceInstruction);
                 same_instruction(node, kind, instruction)?;
                 pairing.paired.push((node, instruction));
             }
             Value::Map(_) if structured => pair_control(node, entry, pairing, depth)?,
             _ => return Err(()),
         }
+        pairing.trail.leave();
     }
     Ok(())
 }
@@ -947,6 +1060,7 @@ fn pair_control<'a>(
     pairing: &mut Pairing<'_, 'a>,
     depth: usize,
 ) -> Check<()> {
+    pairing.trail.mark(R::CorrespondenceControl);
     let id = nonempty(get(entry, "id")?)?;
     // Control ids are unique and never an instruction id.
     if pairing.instructions.contains_key(id)
@@ -985,6 +1099,8 @@ fn pair_control<'a>(
         _ => return Err(()),
     };
     for (core_block, target_order) in blocks {
+        pairing.trail.enter(*target_order);
+        pairing.trail.mark(R::CorrespondenceStatementBlock);
         let block = get(node, core_block)?;
         // Loop bodies and branch arms are statements: their result is null.
         let result = get(block, "result")?;
@@ -993,6 +1109,8 @@ fn pair_control<'a>(
         exact(get(result, "value")?, &["kind"])?;
         equal_text(get(result, "value")?, "kind", "null")?;
         pair_block(block, get(entry, target_order)?, true, pairing, depth + 1)?;
+        pairing.trail.leave();
+        pairing.trail.mark(R::CorrespondenceControl);
     }
     Ok(())
 }
@@ -1091,13 +1209,18 @@ fn target_line(profile_reference: &Value) -> Check<String> {
     ))
 }
 
-fn alias(
-    source: &str,
+/// One module's declaration preamble: its `package` line, then only `use`
+/// lines. A `use target` names exactly the selected, pinned profile, at most
+/// once; a `use lawpack` names exactly the bound lawpack, at most once; a
+/// `use module` pins a source module, which the closure check resolves.
+/// Returns the lawpack alias, if declared, and the module pins.
+fn preamble<'s>(
+    source: &'s str,
     coordinate: &str,
     identity: &Value,
     module: &str,
     target: &str,
-) -> Check<String> {
+) -> Check<(Option<String>, Vec<super::source_modules::Pin<'s>>)> {
     let Value::Bytes(identity) = identity else {
         return Err(());
     };
@@ -1111,33 +1234,44 @@ fn alias(
     }
     let mut result = None;
     let mut targeted = false;
+    let mut pins = Vec::new();
     for line in lines {
         if !line.starts_with("use ") {
             break;
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
-        // One `use target` naming exactly the selected, pinned profile.
-        if let ["use", "target", name, "digest", value, "as", alias] = tokens.as_slice() {
-            let alias = alias.strip_suffix(';').ok_or(())?;
-            if format!("{name} {value}") != target || !identifier(alias) || targeted {
-                return Err(());
-            }
-            targeted = true;
-            continue;
-        }
-        let ["use", "lawpack", name, "digest", value, "as", alias] = tokens.as_slice() else {
+        let [_, kind, name, "digest", value, "as", alias] = tokens.as_slice() else {
             return Err(());
         };
         let alias = alias.strip_suffix(';').ok_or(())?;
-        if *name != coordinate
-            || *value != expected
-            || !identifier(alias)
-            || result.replace(alias.to_owned()).is_some()
-        {
+        if !identifier(alias) {
             return Err(());
         }
+        match *kind {
+            "target" => {
+                if format!("{name} {value}") != target || targeted {
+                    return Err(());
+                }
+                targeted = true;
+            }
+            "lawpack" => {
+                if *name != coordinate
+                    || *value != expected
+                    || result.replace(alias.to_owned()).is_some()
+                {
+                    return Err(());
+                }
+            }
+            "module" => {
+                if pins.iter().any(|(pinned, _)| pinned == name) {
+                    return Err(());
+                }
+                pins.push((*name, *value));
+            }
+            _ => return Err(()),
+        }
     }
-    result.ok_or(())
+    Ok((result, pins))
 }
 
 /// Every Core type under the lawpack's namespace renders to exactly the

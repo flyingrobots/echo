@@ -22,14 +22,15 @@ mod intrinsic_contract;
 mod intrinsic_names;
 mod lowering_relation;
 mod mutations;
+mod source_modules;
 pub use mutations::EffectMutation;
 mod package;
 mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};
 mod completion;
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) mod derive;
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(feature = "trusted_runtime")]
 pub use derive::{DerivedEffectPatch, EffectDerivationError, EffectDerivationKind};
 mod frame;
 pub use completion::{CompletedEffectEvaluation, EffectCompletionError};

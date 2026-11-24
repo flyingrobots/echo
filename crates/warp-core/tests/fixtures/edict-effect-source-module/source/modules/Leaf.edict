@@ -1,0 +1,2 @@
+package jedit.probe.leaf@1;
+fn same(v: U64) -> U64 { return v; }

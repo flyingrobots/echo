@@ -146,7 +146,7 @@ impl<'a> EffectEvaluationFrame<'a> {
 
     // Only the runtime owner may pair a frame with its resolved parent.
     // A caller-provided frontier cannot acquire this coordinate through `new`.
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn at_parent(
         reads: EffectRangeReadSession<'a>,
         limits: EvaluationLimits,

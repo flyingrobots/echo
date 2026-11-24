@@ -69,6 +69,9 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "source-module-control",
+    "source-module-substituted",
+    "source-module-unpinned",
     "imported-helper-total",
     "imported-helper-fails",
     "imported-helper-fails-in-arm",
@@ -106,6 +109,9 @@ const RETAINED: &[(&str, &str)] = retained![
 const LAW_REFUSED: &str = "footprint-writes-over-ceiling";
 const VERDICTS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/verdicts.txt");
+/// The check each refused entry targets, shared with the lowerer.
+const REASONS: &str =
+    include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/reasons.txt");
 
 fn package_bytes(name: &str) -> Vec<u8> {
     let hex = RETAINED
@@ -224,19 +230,50 @@ fn the_verifier_reaches_every_retained_corpus_verdict() {
     let mut disagreements = Vec::new();
     for (name, accept) in verdicts {
         let judged = verify_effect_package(&package_bytes(&name));
-        let expected = if accept {
-            Ok(())
-        } else if name == LAW_REFUSED {
-            Err(EffectPackageRefusal::Contract(
-                ContractRefusal::FootprintMaxWrites,
-            ))
-        } else {
-            Err(EffectPackageRefusal::UnsupportedProgram)
+        let agrees = match &judged {
+            Ok(()) => accept,
+            Err(EffectPackageRefusal::Contract(ContractRefusal::FootprintMaxWrites)) => {
+                name == LAW_REFUSED
+            }
+            Err(EffectPackageRefusal::UnsupportedProgram(_)) => !accept && name != LAW_REFUSED,
+            Err(_) => false,
         };
-        if judged != expected {
-            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
+        if !agrees {
+            disagreements.push(format!("{name}: expected accept={accept}, got {judged:?}"));
         }
     }
+    assert_eq!(disagreements, Vec::<String>::new());
+}
+
+/// Every refused entry names the check its one edit targets, the same code
+/// the lowerer names.
+#[test]
+fn the_verifier_names_the_check_each_refused_entry_targets() {
+    let reasons = REASONS
+        .lines()
+        .map(|line| line.split_once(' ').expect("entry"))
+        .collect::<Vec<_>>();
+    let refused = verdicts()
+        .into_iter()
+        .filter_map(|(name, accept)| (!accept).then_some(name))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        refused.iter().map(String::as_str).collect::<Vec<_>>(),
+        "every refused entry has exactly one reason, in corpus order"
+    );
+    let mut disagreements = Vec::new();
+    for (name, code) in &reasons {
+        match verify_effect_package(&package_bytes(name)) {
+            Err(EffectPackageRefusal::UnsupportedProgram(refusal))
+                if refusal.reason().code() == *code => {}
+            Err(EffectPackageRefusal::Contract(refusal))
+                if *name == LAW_REFUSED && refusal.code() == *code => {}
+            other => disagreements.push(format!("{name}: expected {code}, got {other:?}")),
+        }
+    }
+    // Zero witnesses would pass vacuously.
+    assert!(reasons.len() >= 10, "{} refused entries", reasons.len());
     assert_eq!(disagreements, Vec::<String>::new());
 }
 
@@ -253,7 +290,11 @@ fn verifier_pure_judgment_keeps_the_zero_effect_echo_dpo_1_control() {
 fn verifier_pure_judgment_rejects_zero_effect_echo_dpo_2_without_profile_artifacts() {
     let refusal = verify_effect_package(&zero_effect_package_with_dpo_2_target_profile());
     assert!(
-        matches!(refusal, Err(EffectPackageRefusal::UnsupportedProgram)),
+        matches!(
+            &refusal,
+            Err(EffectPackageRefusal::UnsupportedProgram(program))
+                if program.reason().code() == "effect-program.relation.no-effect-profile"
+        ),
         "expected pure verifier to refuse unauthenticated @2 zero-effect Target; got {refusal:?}"
     );
 }
@@ -517,5 +558,103 @@ fn package_envelopes_the_runtime_cannot_admit_are_refused() {
             Err(EffectPackageRefusal::Contract(refusal)),
             "{field}"
         );
+    }
+}
+
+/// An adapter outside the declarative class is refused as the adapter, at
+/// the adapter artifact, not as the lawpack checked just before it.
+#[test]
+fn an_undeclared_adapter_class_is_named_as_the_adapter() {
+    let package = decode(&package_bytes("read-control")).expect("package");
+    let edited = with_program(&package, |program| {
+        let V::Bytes(compiled) = field_mut(program, "compiled_program") else {
+            panic!("compiled program")
+        };
+        let mut bundle = decode(compiled).expect("bundle");
+        let V::Bytes(adapter_bytes) = field_mut(
+            field_mut(&mut bundle, "lowering_artifacts"),
+            "adapter_artifact",
+        ) else {
+            panic!("adapter bytes")
+        };
+        let mut adapter = decode(adapter_bytes).expect("adapter");
+        *field_mut(&mut adapter, "class") = V::Text("procedural".into());
+        *adapter_bytes = encode(&adapter).expect("adapter");
+        *compiled = encode(&bundle).expect("bundle");
+    });
+    match verify_effect_package(&encode(&edited).expect("package")) {
+        Err(EffectPackageRefusal::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.relation.adapter",
+                "/lowering_artifacts/adapter_artifact"
+            )
+        ),
+        other => panic!("expected the adapter check, got {other:?}"),
+    }
+}
+
+/// The admitted `read-control` package with one more required Core
+/// capability, every Core and Target IR pin recomputed.
+fn read_control_with_capability(capability: &str) -> Vec<u8> {
+    let bytes_of = |value: &V| {
+        let V::Bytes(bytes) = value else {
+            panic!("bytes")
+        };
+        bytes.clone()
+    };
+    let mut package = decode(&package_bytes("read-control")).expect("package");
+    let mut program = decode(&bytes_of(field_mut(&mut package, "program"))).expect("program");
+    let mut bundle =
+        decode(&bytes_of(field_mut(&mut program, "compiled_program"))).expect("compiler bundle");
+    let mut module = decode(&bytes_of(field_mut(&mut bundle, "core_artifact"))).expect("Core");
+    let V::Array(capabilities) = field_mut(&mut module, "requiredCoreCapabilities") else {
+        panic!("capabilities")
+    };
+    capabilities.push(V::Text(capability.into()));
+    let core_identity =
+        digest_canonical_value_bytes_v1("edict.core.module/v1", &module).expect("Core identity");
+    let mut target =
+        decode(&bytes_of(field_mut(&mut bundle, "target_ir_artifact"))).expect("Target IR");
+    *field_mut(
+        field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = V::Array(vec![
+        V::Text("sha256".into()),
+        V::Bytes(core_identity.to_vec()),
+    ]);
+    let target_identity = digest_canonical_value_bytes_v1("edict.target-ir.artifact/v1", &target)
+        .expect("Target IR identity");
+    *field_mut(&mut bundle, "core_artifact") = V::Bytes(encode(&module).expect("Core"));
+    *field_mut(&mut bundle, "target_ir_artifact") = V::Bytes(encode(&target).expect("Target IR"));
+    *field_mut(&mut program, "compiled_program") =
+        V::Bytes(encode(&bundle).expect("compiler bundle"));
+    *field_mut(&mut program, "target_ir_identity") = V::Bytes(target_identity.to_vec());
+    *field_mut(&mut package, "program") = V::Bytes(encode(&program).expect("program"));
+    let closure = field_mut(&mut package, "semantic_closure");
+    *field_mut(closure, "core_identity") = V::Bytes(core_identity.to_vec());
+    *field_mut(closure, "canonical_meaning_identity") = V::Bytes(core_identity.to_vec());
+    *field_mut(closure, "target_ir_identity") = V::Bytes(target_identity.to_vec());
+    encode(&package).expect("package")
+}
+
+/// The effect route has no shared-read meter, so the verifier refuses a
+/// module that requires `core.cost.shared-reads/v1`, as the runtime does.
+#[test]
+fn effect_packages_refuse_the_shared_read_schedule() {
+    // Control: an unused capability with the same re-pinning still verifies.
+    assert_eq!(
+        verify_effect_package(&read_control_with_capability("core.variant/v1")),
+        Ok(())
+    );
+    match verify_effect_package(&read_control_with_capability("core.cost.shared-reads/v1")) {
+        Err(EffectPackageRefusal::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.shared-read-schedule",
+                "/core/requiredCoreCapabilities"
+            )
+        ),
+        other => panic!("expected the shared-read schedule check, got {other:?}"),
     }
 }

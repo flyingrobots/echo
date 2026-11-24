@@ -1,0 +1,22 @@
+package cost.adversarial@1;
+type Item = { key: U64, weight: U64 };
+type Inner = { items: List<Item, max=16>, n: U64 };
+type Outer = { inner: Inner, rounds: U64 };
+fn innerStep(s: Inner) -> Inner {
+  return if listLen(s.items) < 16u64 && s.n <= 999u64
+    then { items: listAppend(s.items, { key: s.n, weight: 7u64 }), n: s.n + 1u64 }
+    else s;
+}
+fn outerStep(s: Outer) -> Outer {
+  let empty: Inner = { items: [], n: 0u64 };
+  let refilled = fold(empty, innerStep, 16u64);
+  return if s.rounds <= 99u64 then { inner: refilled, rounds: s.rounds + 1u64 } else s;
+}
+type In = { rounds: U64 };
+type Out = { n: U64 };
+intent run(input: In) returns Out profile p.read basis none budget <= p.b {
+  let start: Inner = { items: [], n: 0u64 };
+  let initial: Outer = { inner: start, rounds: 0u64 };
+  let final = fold(initial, outerStep, 8u64);
+  return { n: final.inner.n };
+}

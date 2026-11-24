@@ -67,6 +67,9 @@ const RETAINED: &[(&str, &str)] = retained![
     "typed-failure-empty-set",
     "typed-failure-without-capability",
     "typed-failure-arms-differ",
+    "source-module-control",
+    "source-module-substituted",
+    "source-module-unpinned",
     "imported-helper-total",
     "imported-helper-fails",
     "imported-helper-fails-in-arm",
@@ -103,6 +106,9 @@ const RETAINED: &[(&str, &str)] = retained![
 /// The entry refused by its footprint law, not by its program (echo#1023).
 const LAW_REFUSED: &str = "footprint-writes-over-ceiling";
 const VERDICTS: &str = include_str!("fixtures/effect-programs/verdicts.txt");
+/// The check each refused entry targets, from the corpus README's account of
+/// the one edit that distinguishes it from its accepted sibling.
+const REASONS: &str = include_str!("fixtures/effect-programs/reasons.txt");
 
 fn get<'a>(value: &'a V, key: &str) -> &'a V {
     let V::Map(fields) = value else { panic!("map") };
@@ -128,6 +134,16 @@ fn package(name: &str) -> V {
 fn compiled_program(name: &str) -> Vec<u8> {
     let program = decode(bytes(get(&package(name), "program"))).expect("program");
     bytes(get(&program, "compiled_program")).to_vec()
+}
+/// The reason code each refused entry must name.
+fn reasons() -> Vec<(String, String)> {
+    REASONS
+        .lines()
+        .map(|line| {
+            let (name, code) = line.split_once(' ').expect("entry");
+            (name.to_owned(), code.to_owned())
+        })
+        .collect()
 }
 fn verdicts() -> Vec<(String, bool)> {
     VERDICTS
@@ -157,13 +173,9 @@ fn the_lowerer_reaches_every_retained_corpus_verdict() {
     for (name, accept) in verdicts {
         let judged = judge_effect_program(&compiled_program(&name));
         // The law entry's program is sound; publication refuses its law.
-        let expected = if accept || name == LAW_REFUSED {
-            Ok(())
-        } else {
-            Err(EffectPublicationError::UnsupportedProgram)
-        };
-        if judged != expected {
-            disagreements.push(format!("{name}: expected {expected:?}, got {judged:?}"));
+        let expected = accept || name == LAW_REFUSED;
+        if judged.is_ok() != expected {
+            disagreements.push(format!("{name}: expected accept={expected}, got {judged:?}"));
         }
     }
     assert_eq!(disagreements, Vec::<String>::new());
@@ -237,6 +249,37 @@ fn publish(name: &str, law: Option<Vec<u8>>) -> Result<Vec<u8>, EffectPublicatio
     })
 }
 
+/// Every refused entry names the check its one edit targets.
+#[test]
+fn the_lowerer_names_the_check_each_refused_entry_targets() {
+    let reasons = reasons();
+    let refused = verdicts()
+        .into_iter()
+        .filter_map(|(name, accept)| (!accept).then_some(name))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+        refused.iter().collect::<Vec<_>>(),
+        "every refused entry has exactly one reason, in corpus order"
+    );
+    let mut disagreements = Vec::new();
+    for (name, code) in &reasons {
+        match judge_effect_program(&compiled_program(name)) {
+            Err(EffectPublicationError::UnsupportedProgram(refusal))
+                if refusal.reason().code() == code => {}
+            // The law entry's program is sound; publication names its law.
+            Ok(()) if name == LAW_REFUSED => match publish(name, None) {
+                Err(EffectPublicationError::Contract(refusal)) if refusal.code() == code => {}
+                other => disagreements.push(format!("{name}: expected {code}, got {other:?}")),
+            },
+            other => disagreements.push(format!("{name}: expected {code}, got {other:?}")),
+        }
+    }
+    // Zero witnesses would pass vacuously.
+    assert!(reasons.len() >= 10, "{} refused entries", reasons.len());
+    assert_eq!(disagreements, Vec::<String>::new());
+}
+
 /// Publication runs the same judgment, so a refused program is never
 /// serialized into a package.
 #[test]
@@ -245,7 +288,7 @@ fn publication_refuses_what_the_judgment_refuses() {
     for (name, accept) in verdicts() {
         let published = publish(&name, None);
         match (accept, &published) {
-            (true, Ok(_)) | (false, Err(EffectPublicationError::UnsupportedProgram)) => {}
+            (true, Ok(_)) | (false, Err(EffectPublicationError::UnsupportedProgram(_))) => {}
             (false, Err(EffectPublicationError::Contract(ContractRefusal::FootprintMaxWrites)))
                 if name == LAW_REFUSED => {}
             (true, Err(error)) => {
@@ -290,4 +333,109 @@ fn publication_refuses_a_law_above_the_write_ceiling() {
         refused.expect_err("refused").to_string(),
         "effect-program.footprint-law.max-writes"
     );
+}
+
+/// The adapter artifact embedded in `compiled`, with its class replaced.
+fn with_adapter_class(compiled: &[u8], class: &str) -> Vec<u8> {
+    let mut bundle = decode(compiled).expect("bundle");
+    let V::Map(fields) = &mut bundle else {
+        panic!("bundle")
+    };
+    let lowering = &mut fields
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("lowering_artifacts".into()))
+        .expect("lowering artifacts")
+        .1;
+    let V::Map(lowering) = lowering else {
+        panic!("lowering")
+    };
+    let slot = &mut lowering
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("adapter_artifact".into()))
+        .expect("adapter")
+        .1;
+    let V::Bytes(bytes) = slot else {
+        panic!("adapter bytes")
+    };
+    let mut adapter = decode(bytes).expect("adapter");
+    let V::Map(entries) = &mut adapter else {
+        panic!("adapter map")
+    };
+    entries
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text("class".into()))
+        .expect("class")
+        .1 = V::Text(class.into());
+    *slot = V::Bytes(echo_edict_canonical::encode_canonical_cbor_v1(&adapter).expect("adapter"));
+    echo_edict_canonical::encode_canonical_cbor_v1(&bundle).expect("bundle")
+}
+
+/// An adapter outside the declarative class is refused as the adapter, at
+/// the adapter artifact, not as the lawpack checked just before it.
+#[test]
+fn an_undeclared_adapter_class_is_named_as_the_adapter() {
+    let compiled = with_adapter_class(&compiled_program("read-control"), "procedural");
+    match judge_effect_program(&compiled) {
+        Err(EffectPublicationError::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.relation.adapter",
+                "/lowering_artifacts/adapter_artifact"
+            )
+        ),
+        other => panic!("expected the adapter check, got {other:?}"),
+    }
+}
+
+fn entry<'a>(value: &'a mut V, key: &str) -> &'a mut V {
+    let V::Map(fields) = value else { panic!("map") };
+    &mut fields
+        .iter_mut()
+        .find(|(k, _)| k == &V::Text(key.into()))
+        .unwrap_or_else(|| panic!("field {key}"))
+        .1
+}
+
+/// The admitted `read-control` program with one more required capability,
+/// its Core re-encoded and the Target IR's Core pin recomputed.
+fn with_capability(capability: &str) -> Vec<u8> {
+    use echo_edict_canonical::{
+        digest_canonical_value_bytes_v1 as digest, encode_canonical_cbor_v1 as encode,
+    };
+    let mut bundle = decode(&compiled_program("read-control")).expect("bundle");
+    let mut module = decode(bytes(get(&bundle, "core_artifact"))).expect("core");
+    let V::Array(capabilities) = entry(&mut module, "requiredCoreCapabilities") else {
+        panic!("capabilities")
+    };
+    capabilities.push(V::Text(capability.into()));
+    let pin = digest("edict.core.module/v1", &module).expect("core digest");
+    let mut target = decode(bytes(get(&bundle, "target_ir_artifact"))).expect("target");
+    *entry(
+        entry(entry(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = V::Array(vec![V::Text("sha256".into()), V::Bytes(pin.to_vec())]);
+    *entry(&mut bundle, "core_artifact") = V::Bytes(encode(&module).expect("core bytes"));
+    *entry(&mut bundle, "target_ir_artifact") = V::Bytes(encode(&target).expect("target bytes"));
+    encode(&bundle).expect("bundle bytes")
+}
+
+/// The effect route has no shared-read meter, so it refuses a module that
+/// requires `core.cost.shared-reads/v1`; the runtime's effect route does too.
+#[test]
+fn effect_programs_refuse_the_shared_read_schedule() {
+    // Control: an unused capability with the same re-pinning is still admitted.
+    assert_eq!(
+        judge_effect_program(&with_capability("core.variant/v1")),
+        Ok(())
+    );
+    match judge_effect_program(&with_capability("core.cost.shared-reads/v1")) {
+        Err(EffectPublicationError::UnsupportedProgram(refusal)) => assert_eq!(
+            (refusal.reason().code(), refusal.path()),
+            (
+                "effect-program.shared-read-schedule",
+                "/core/requiredCoreCapabilities"
+            )
+        ),
+        other => panic!("expected the shared-read schedule check, got {other:?}"),
+    }
 }

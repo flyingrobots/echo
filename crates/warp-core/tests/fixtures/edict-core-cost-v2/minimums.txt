@@ -1,0 +1,7 @@
+# Produced by tests/edict-core-cost-v2-corpus; do not edit.
+# name intent max_steps max_allocated_bytes max_output_bytes
+reads run 22516 58431 32
+fill run 9883 117599 1758
+nested run 25291 272801 28
+matches run 5800 139186 28
+rope splitRope 1324669 11615315 7501

@@ -169,7 +169,7 @@ pub(super) fn package(
             parser.predicate(field(constraint, "predicate")?, 0)?,
         ));
     }
-    let helpers = super::functions::decode(&core, &exports, &mut parser)?;
+    let (helpers, schedule) = super::functions::decode_pure(&core, &exports, &mut parser)?;
     if !array(field(&exports, "effects")?)?.is_empty() {
         return Err(Error::UnsupportedProgram);
     }
@@ -215,6 +215,7 @@ pub(super) fn package(
         helpers,
         result,
         limits,
+        schedule,
     })
 }
 

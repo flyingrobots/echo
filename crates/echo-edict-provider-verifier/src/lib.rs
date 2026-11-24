@@ -20,6 +20,7 @@ pub mod effect_package;
 mod executable_operation;
 mod pure_projection;
 mod pure_relation;
+pub mod refusal_reason;
 mod semantic_resources;
 
 use std::fmt::Write as _;

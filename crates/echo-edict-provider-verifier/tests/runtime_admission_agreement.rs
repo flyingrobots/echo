@@ -214,7 +214,7 @@ fn admit(bytes: &[u8]) -> Result<(), EchoOperationAdmissionError> {
 fn provider_class(refusal: EffectPackageRefusal) -> String {
     match refusal {
         EffectPackageRefusal::Contract(contract) => contract.code().to_owned(),
-        EffectPackageRefusal::UnsupportedProgram => "effect-program".to_owned(),
+        EffectPackageRefusal::UnsupportedProgram(_) => "effect-program".to_owned(),
         EffectPackageRefusal::InvalidEnvelope | EffectPackageRefusal::InvalidBinding => {
             "package".to_owned()
         }

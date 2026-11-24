@@ -76,6 +76,25 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
     -- \
     -D warnings
 
+# The shared edict.core-cost/v2 corpus (flyingrobots/echo#1001) must be exactly
+# what the pinned Amblicit compiler produces at each program's minimum budgets.
+readonly CORPUS_MANIFEST="$ROOT/tests/edict-core-cost-v2-corpus/Cargo.toml"
+readonly CORPUS_TARGET_DIR="$ROOT/target/edict-core-cost-v2-corpus"
+cargo +1.96.0 fmt --manifest-path "$CORPUS_MANIFEST" --all -- --check
+CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
+  cargo +1.96.0 clippy \
+    --manifest-path "$CORPUS_MANIFEST" \
+    --locked \
+    --all-targets \
+    -- \
+    -D warnings
+CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
+  cargo +1.96.0 run \
+    --release \
+    --manifest-path "$CORPUS_MANIFEST" \
+    --locked \
+    -- "$ROOT/crates/warp-core/tests/fixtures/edict-core-cost-v2" --check
+
 # Public compiler witnesses for typed outgoing-edge and guided closure reads,
 # for a flat authored effect program, and for an authored effect program with
 # an effect step under the echo.dpo@2 effect target profile.
@@ -221,6 +240,17 @@ if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; th
     --provider "$ROOT/schemas/edict-provider/package/v1" \
     --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-structured" \
     --work-root "$witness_dir/effect-structured-run" \
+    --check
+
+  # The same witness for a program whose helper comes from a digest-pinned
+  # source module (echo#1009): the compiler sends an edict.source-closure/v1
+  # source and the lowerer checks its `use module` pins.
+  cargo +1.96.0 run --locked -p xtask --example effect_step_publication -- \
+    --name source-module \
+    --compiler "$AMBLICIT_ROOT/bin/amblicit" \
+    --provider "$ROOT/schemas/edict-provider/package/v1" \
+    --fixtures "$ROOT/crates/warp-core/tests/fixtures/edict-effect-source-module" \
+    --work-root "$witness_dir/effect-source-module-run" \
     --check
 
   # The same witness for a program that reads a node's outgoing edges through

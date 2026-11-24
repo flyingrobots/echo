@@ -167,6 +167,29 @@ const WITNESSES: &[(&str, &str)] = &[
         include_str!(
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-empty-executable-operation-package.hex"
         ),
+    ),    (
+        "payload-attempt-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-scalar-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-scalar-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-record-executable-operation-package.hex"
+        ),
     ),
 ];
 
@@ -948,5 +971,22 @@ fn family_four_minimums_equal_the_lowerer_minimums() {
             ("ordered-record-guarded-a-first", (71, 3177), (251, 1681)),
             ("option-value-witness", (88, 2936), (831, 942)),
         ]
+    );
+}
+
+/// Record-valued failure payload fields under the shared-read schedule
+/// (echo#1016): `{ at: { value: n } }` on an `attempt` arm and on a
+/// `require`. The verifier's minimums equal the public compiler's, Amblicit 615d2e59,
+/// which `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
+/// lowerer pins for the lowerer (oracle: the compiler's own reports).
+#[test]
+fn record_valued_failure_payload_minimums_equal_the_compiler_minimum() {
+    assert_eq!(
+        [
+            "payload-attempt-record-v2-admission",
+            "payload-require-record-v2-admission",
+        ]
+        .map(|name| minimum(name, Some(SHARED))),
+        [(151, 2_621), (137, 2_557)]
     );
 }

@@ -1,0 +1,25 @@
+package consumer.typedfail.program@1;
+use lawpack consumer.typedfail@1 digest "sha256:bf38d32d9c07282d6a4e43d1afca4ce689ead8d42fbdd4314b104f5cca6111b8" as fx;
+
+failure Underflow;
+
+type Input = {
+  anchor: Bytes<exact=32>,
+  start: U64,
+  end: U64,
+  node: fx.NodeWrite,
+};
+
+fn distance(start: U64, end: U64) -> U64 fails Underflow {
+  return if start <= end then end - start else fail Underflow;
+}
+
+intent measure(input: Input) returns fx.Written
+  profile fx.graphEffects
+  basis input.anchor
+  budget <= fx.budget
+{
+  require input.start <= input.end else fx.RangeInverted({ at: { value: input.start } });
+  let seeded: fx.Written = fx.ensureNode(input.node);
+  return seeded;
+}

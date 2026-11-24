@@ -67,5 +67,22 @@ first six are byte-identical to the files here.
 the verifier's `effect_program_judgment.rs` pins the verifier's minimums for
 the last two.
 
+The four `payload-*-record-*` and `payload-loop-*` packages were written the
+same way by Amblicit `615d2e59170c4ed82d2c294302dff2a4c24d2440` (main after
+amblicit#349) from their `-source/` directories: the one-field payload as
+`{ at: { value: input.start } }` (schema `Record<at:Record<value:U64>>`) on
+the `attempt` arm and on the `require`, and a `require item <= input.end`
+inside `for item in input.items bounded 3` with the scalar payload
+`{ at: item }` and the record payload `{ at: { value: item } }`. Under
+615d2e59 the eight packages above are byte-identical and their minimums
+unchanged. The compiler reports attempt-record (151, 2621), require-record
+(137, 2557), loop-scalar (306, 3584) and loop-record (324, 4574). Echo's
+lowerer and verifier agree on the first two. On both loop programs Echo
+measures (300, 3200) and (318, 4190): (6, 384) below the compiler, (2, 128)
+per iteration, the same with and without the record field, so the record
+term agrees and the gap is in how the loop or its `require` is charged. It is
+not pinned and no constant was changed; whether warp-core stays within Echo's
+lower figure has not been run.
+
 The packages are private evaluation witnesses. They do not establish
 installation, a causal Tick, WAL retention or a receipt.

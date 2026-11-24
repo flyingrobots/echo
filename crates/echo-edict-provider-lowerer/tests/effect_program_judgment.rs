@@ -198,6 +198,29 @@ const WITNESSES: &[(&str, &str)] = &[
         include_str!(
             "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-empty-executable-operation-package.hex"
         ),
+    ),    (
+        "payload-attempt-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-scalar-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-scalar-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-record-executable-operation-package.hex"
+        ),
     ),
 ];
 fn package(name: &str) -> V {
@@ -686,7 +709,11 @@ fn context(name: &str) -> Context {
         | "payload-attempt-v2-admission"
         | "payload-require-v2-admission"
         | "payload-attempt-two-v2-admission"
-        | "payload-require-empty-v2-admission" => Context {
+        | "payload-require-empty-v2-admission"
+        | "payload-attempt-record-v2-admission"
+        | "payload-require-record-v2-admission"
+        | "payload-loop-scalar-v2-admission"
+        | "payload-loop-record-v2-admission" => Context {
             configuration: include_str!(
                 "../../warp-core/tests/fixtures/edict-effect-typed-failure/typed-configuration.hex"
             ),
@@ -797,15 +824,23 @@ fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
     );
 }
 
-/// The public compiler's shared-read minimums for eight more effect
+/// The public compiler's shared-read minimums for ten more effect
 /// programs, (name, (steps, bytes)), with Echo's `/v3` effect templates, as
 /// `xtask --example effect_v2_admission` reports them for Amblicit
-/// 80b52f956197fb94aeb2776abb844e482d3591e1 (main after amblicit#348, which
-/// charges an effect-body `attempt` its failure arm and a failing `require`
-/// its payload). The first three are unchanged from Amblicit 65dc5362. Each
+/// 615d2e59170c4ed82d2c294302dff2a4c24d2440 (main after amblicit#349, which
+/// sizes a record-valued failure payload field from its value's shape). The
+/// first eight are unchanged from Amblicit 80b52f95, whose checked packages
+/// are byte-identical; the first three are unchanged from 65dc5362. Each
 /// package under `edict-effect-v2-admission/` is byte for byte that
 /// compiler's checked output for its source.
-const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 8] = [
+///
+/// The last two are the record-valued payload cross-check (echo#1016): a
+/// one-field payload `{ at: { value: n } }` in place of `{ at: n }` adds
+/// (6, 330) on an `attempt` arm and on a `require` (the record literal's own
+/// work (4, 197) and encoding `{ value: U64 }` instead of `U64`, (2, 133)).
+/// The same `require` in a loop bounded 3 (`payload-loop-*`) does not agree
+/// yet and is not pinned here; see the fixtures' README.
+const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 10] = [
     ("node-atom-read-v2-admission", (100, 1_631)),
     ("outgoing-edge-read-v2-admission", (244, 8_240)),
     ("mutations-v2-admission", (176, 6_796)),
@@ -820,6 +855,8 @@ const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 8] = [
     ),
     ("payload-attempt-two-v2-admission", (150, 2_493)),
     ("payload-require-empty-v2-admission", (126, 2_031)),
+    ("payload-attempt-record-v2-admission", (151, 2_621)),
+    ("payload-require-record-v2-admission", (137, 2_557)),
 ];
 
 /// Exact admission at the compiler's minimum (echo#1016) for the node-atom

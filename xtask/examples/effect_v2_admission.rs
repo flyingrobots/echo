@@ -350,7 +350,14 @@ fn main() -> Result<()> {
 
     let probe = compile(&arguments, &lawpack, (1, 1), "probe", true)?;
     println!("EFFECT_V2_PROBE {}", summary(&probe));
-    let Some((steps, bytes)) = reported_minimum(&probe) else {
+    // A literal-bound loop is refused before costing when its iteration
+    // count alone exceeds the step budget, so probe again with a step budget
+    // the loop check passes and one byte.
+    let Some((steps, bytes)) = reported_minimum(&probe).or_else(|| {
+        let wide = compile(&arguments, &lawpack, (1 << 20, 1), "wide-probe", true).ok()?;
+        println!("EFFECT_V2_WIDE_PROBE {}", summary(&wide));
+        reported_minimum(&wide)
+    }) else {
         bail!("the compiler reported no minimum");
     };
     println!("EFFECT_V2_COMPILER_MINIMUM {steps} {bytes}");

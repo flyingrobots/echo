@@ -19,6 +19,13 @@
   Modules without the capability are metered and judged exactly as before. A
   shared corpus, produced by the pinned compiler and rechecked in CI, drives
   all three judges.
+- Exact admission of `echo.dpo@2` effect programs at the compiler's
+  shared-read minimum (echo#1016). With Amblicit `65dc5362` and Echo's `/v3`
+  effect templates, the provider lowerer admits the closure-read witness, a
+  node-atom read, an outgoing-edge read with `ensure-edge` and the five
+  mutation intrinsics at exactly the compiler's minimum and refuses one step
+  or byte less. The three new packages are retained under
+  `crates/warp-core/tests/fixtures/edict-effect-v2-admission/`.
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact

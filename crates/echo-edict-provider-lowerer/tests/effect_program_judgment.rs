@@ -140,6 +140,24 @@ const WITNESSES: &[(&str, &str)] = &[
             "../../warp-core/tests/fixtures/edict-option-value/option-executable-operation-package.hex"
         ),
     ),
+    (
+        "node-atom-read-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/read-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "outgoing-edge-read-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/link-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "mutations-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/write-executable-operation-package.hex"
+        ),
+    ),
 ];
 fn package(name: &str) -> V {
     let hex = RETAINED
@@ -467,6 +485,27 @@ fn context(name: &str) -> Context {
             schema: "consumer.effect.exports/v1",
             package: b"package consumer.effect.program@1;\n",
         },
+        "node-atom-read-v2-admission" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-effect-step/read-configuration.hex"
+            ),
+            schema: "consumer.effects.exports/v1",
+            package: b"package consumer.effects.program@1;\n",
+        },
+        "outgoing-edge-read-v2-admission" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-effect-graph-read/link-configuration.hex"
+            ),
+            schema: "consumer.links.exports/v1",
+            package: b"package consumer.links.program@1;\n",
+        },
+        "mutations-v2-admission" => Context {
+            configuration: include_str!(
+                "../../warp-core/tests/fixtures/edict-effect-mutations/write-configuration.hex"
+            ),
+            schema: "consumer.writes.exports/v1",
+            package: b"package consumer.writes.program@1;\n",
+        },
         _ => panic!("no witness {name}"),
     }
 }
@@ -544,15 +583,14 @@ fn closure_read_witness_minimums_under_each_schedule() {
 }
 
 /// The public compiler's own shared-read minimum for the closure-read
-/// witness, (steps, bytes): Amblicit 9f10fb91 with Echo's `/v3` effect
+/// witness, (steps, bytes): Amblicit 65dc5362 with Echo's `/v3` effect
 /// templates, as `xtask --example effect_v2_admission` reports it. The
 /// witness package is byte-identical to that compiler's checked output.
-const COMPILER_SHARED_MINIMUM: (u64, u64) = (10_813, 194_487);
-/// What Echo's lowerer charges above that compiler: one step for the
-/// witness's single effect node, which Amblicit 9f10fb91 omits. Amblicit is
-/// adding it (echo#1016 term 3); with that compiler this is `(0, 0)` and the
-/// compiler's minimum is admitted exactly.
-const COMPILER_RESIDUAL: (u64, u64) = (1, 0);
+const COMPILER_SHARED_MINIMUM: (u64, u64) = (10_814, 194_487);
+/// What Echo's lowerer charges above that compiler: nothing. Amblicit
+/// 9f10fb91 omitted the effect node's step, (1, 0); 65dc5362 charges it
+/// (echo#1016 term 3), so the compiler's minimum is admitted exactly.
+const COMPILER_RESIDUAL: (u64, u64) = (0, 0);
 
 /// Exact admission at the compiler's minimum (echo#1016): Echo's lowerer
 /// minimum for the closure-read witness under the shared-read schedule is
@@ -570,6 +608,51 @@ fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
         ),
         COMPILER_RESIDUAL
     );
+}
+
+/// The public compiler's shared-read minimums for three more effect programs,
+/// (name, (steps, bytes)): Amblicit 65dc5362 with Echo's `/v3` effect
+/// templates, as `xtask --example effect_v2_admission` reports them. Each
+/// package under `edict-effect-v2-admission/` is that compiler's checked
+/// output for the matching `edict-effect-*/source`.
+const COMPILER_V2_MINIMUMS: [(&str, (u64, u64)); 3] = [
+    ("node-atom-read-v2-admission", (100, 1_631)),
+    ("outgoing-edge-read-v2-admission", (244, 8_240)),
+    ("mutations-v2-admission", (176, 6_796)),
+];
+
+/// Exact admission at the compiler's minimum (echo#1016) for the node-atom
+/// read, the outgoing-edge read with `ensure-edge`, and the five mutation
+/// intrinsics: Echo admits each program at exactly the compiler's minimum
+/// and refuses it one unit below on either axis. Oracle: the compiler's own
+/// reports, pinned above.
+#[test]
+fn effect_programs_are_admitted_at_exactly_the_compiler_minimum() {
+    for (name, (steps, bytes_)) in COMPILER_V2_MINIMUMS {
+        assert_eq!(
+            judge_witness(name, &edited(name, Some(SHARED), Some(steps), Some(bytes_))),
+            Ok(()),
+            "{name}: at the compiler minimum"
+        );
+        for (label, below) in [
+            ("steps", (steps - 1, bytes_)),
+            ("bytes", (steps, bytes_ - 1)),
+        ] {
+            assert!(
+                judge_witness(
+                    name,
+                    &edited(name, Some(SHARED), Some(below.0), Some(below.1))
+                )
+                .is_err(),
+                "{name}: one {label} unit below the compiler minimum"
+            );
+        }
+        assert_eq!(
+            witness_minimum(name, Some(SHARED)),
+            (steps, bytes_),
+            "{name}"
+        );
+    }
 }
 
 /// The compiler-produced identity witnesses (all four `echo.dpo@2` identity

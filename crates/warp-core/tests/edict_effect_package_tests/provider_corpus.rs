@@ -1549,6 +1549,8 @@ mod family_four;
 mod identity_witness;
 #[path = "provider_corpus/shared_schedule.rs"]
 mod shared_schedule;
+#[path = "provider_corpus/v2_admission.rs"]
+mod v2_admission;
 
 #[test]
 fn the_retained_provider_corpus_matches_the_runtime_verdicts() {

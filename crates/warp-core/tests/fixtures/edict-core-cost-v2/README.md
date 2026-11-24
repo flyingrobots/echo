@@ -48,6 +48,13 @@ integer call, `min` and `max` in a fold, and the `Option` consumers `isSome`
 and `unwrap`. Its output is total because Echo's intent output has no
 `Option` encoding.
 
+`bytes` is also Echo's own (echo#1016, family 5). It calls every byte
+operation once: `slice`, concatenation, `len`, `count`, `at` and `isUtf8`.
+Its output holds only integers and a flag. Echo's three judges meet its step
+and allocation minimums exactly; its output bound is the ordinary judgment's,
+and Echo's (142 bytes) is wider than the compiler's (79), so the static
+judges' tests set the output budget to Echo's bound.
+
 The rope's intent maps a typed failure with `attempt` (`let … else { … }`).
 Echo admits `attempt` only on the effect-program route, which has no
 shared-read rules, so no Echo judge reads `rope.core.cbor.hex` yet. Its

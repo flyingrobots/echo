@@ -51,23 +51,30 @@ fn a_read_whose_require_fails_obstructs_as_under_the_copying_schedule() {
     );
 }
 
-/// Byte operations have no shared-read charge in Echo yet (echo#1016's last
-/// family), so a program using them is refused before any of its work runs.
+/// Byte operations under the shared schedule (echo#1016, family 5): each
+/// program, given exactly the lowerer's shared minimum (as
+/// `byte_operation_minimums_under_each_schedule` in
+/// `echo-edict-provider-lowerer` pins it), runs to the copying schedule's
+/// result. `typed-failure-control` runs both ways through its `attempt`.
 #[test]
-fn byte_operations_are_refused_under_the_shared_schedule() {
-    let input = encoded(&map([
+fn byte_effects_run_within_the_lowerer_minimum() {
+    let slice = encoded(&map([
         ("at", V::Integer(1)),
         ("other", V::Bytes(b"xy".to_vec())),
         ("text", V::Bytes(b"hello".to_vec())),
     ]));
-    let package = retained("slice-proven");
-    run(&package, &input).expect("the copying schedule runs the slice");
-    assert_eq!(
-        run(&shared(&package), &input),
-        Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
-            EvaluationError::UnsupportedProgram
-        )))
-    );
+    for (name, input, steps, bytes) in [
+        ("slice-proven", slice, 870, 971),
+        ("typed-failure-control", typed_failure_input(0), 373, 1295),
+        ("typed-failure-control", typed_failure_input(2), 373, 1295),
+        ("typed-failure-control", typed_failure_input(9), 373, 1295),
+    ] {
+        let package = retained(name);
+        let frame = Frame::widest(None);
+        let copying = run_on(&package, &input, &frame);
+        let exact = with_allocation(&with_budget(&shared(&package), steps), bytes);
+        assert_eq!(run_on(&exact, &input, &frame), copying, "{name}");
+    }
 }
 
 #[test]

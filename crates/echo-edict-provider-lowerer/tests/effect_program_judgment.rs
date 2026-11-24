@@ -380,17 +380,25 @@ fn effect_programs_are_judged_under_the_shared_read_schedule() {
     }
 }
 
-/// Byte operations have no shared-read rule in Echo yet, so a program using
-/// one is refused under the schedule though the copying schedule admits it.
+/// Effect programs using byte operations under the shared-read schedule
+/// (echo#1016, family 5): `slice-proven` slices and measures its input and
+/// `typed-failure-control` measures one under `attempt`. Each byte call keeps
+/// its copying charge and is charged the value it builds (amblicit#340).
+/// Change-detection goldens that the verifier must equal and the warp-core
+/// test `byte_effects_run_within_the_lowerer_minimum` runs at exactly.
 #[test]
-fn byte_operations_are_refused_under_the_shared_read_schedule() {
+fn byte_operation_minimums_under_each_schedule() {
+    let measured: Vec<_> = ["slice-proven", "typed-failure-control"]
+        .into_iter()
+        .map(|name| (name, minimum(name, None), minimum(name, Some(SHARED))))
+        .collect();
+    // (name, copying (steps, bytes), shared (steps, bytes))
     assert_eq!(
-        judge_effect_program(&edited("slice-proven", None, None, None)),
-        Ok(())
-    );
-    assert_eq!(
-        judge_effect_program(&edited("slice-proven", Some(SHARED), None, None)),
-        Err(EffectPublicationError::UnsupportedProgram)
+        measured,
+        [
+            ("slice-proven", (195, 3383), (870, 971)),
+            ("typed-failure-control", (74, 3312), (373, 1295)),
+        ]
     );
 }
 

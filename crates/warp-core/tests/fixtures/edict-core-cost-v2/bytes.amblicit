@@ -1,0 +1,17 @@
+package cost.adversarial@1;
+type In = { text: Bytes<max=32>, tail: Bytes<max=8>, start: U64, end: U64 };
+type Out = { joined: U64, piece: U64, size: U64, newlines: U64, first: U8, valid: Bool };
+intent run(input: In) returns Out profile p.read basis none budget <= p.b
+  where input.start <= input.end && input.end <= len(input.text)
+{
+  let piece = slice(input.text, input.start, input.end);
+  let joined = input.text + input.tail;
+  return {
+    joined: len(joined),
+    piece: len(piece),
+    size: len(input.text),
+    newlines: count(input.text, b"\n"),
+    first: if 0u64 < len(input.text) then at(input.text, 0u64) else 0u8,
+    valid: isUtf8(piece),
+  };
+}

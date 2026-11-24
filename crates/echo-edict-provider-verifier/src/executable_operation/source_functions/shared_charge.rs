@@ -25,18 +25,21 @@
 //! - unsigned and checked arithmetic and min/max keep their copying charge,
 //!   one tick per operand cell;
 //! - an `Option` constructor (`some`, `none`) or consumer (`isSome`,
-//!   `unwrap`, `default`) keeps its copying charge: one tick per operand cell plus its operand and result bytes;
+//!   `unwrap`, `default`) keeps its copying charge: one tick per operand
+//!   cell plus its operand and result bytes;
+//! - a byte operation (`length`, `slice`, `at`, `count`, `isUtf8`,
+//!   `concat`) keeps the same copying charge and is charged the value it
+//!   builds;
 //! - a comparison scans both operands at their full static size;
 //! - a payload binder costs one tick, and dispatch one per arm plus one;
-//! - the intent's input and output cost two ticks per cell and their bytes.
-//!
+//! - the intent's input and output cost two ticks per cell and their bytes;
 //! - an identity intrinsic costs its catalog rule over its operands'
 //!   sequence maxima, plus its operands copied in and its result copied out
-//!   in full, each as a built value;
+//!   in full, each as a built value.
 //!
-//! Byte intrinsics and imported helpers have no shared-read rule in Echo
-//! yet, so the module is refused. The ordinary audit runs first and alone establishes
-//! typing, totality and depth; this check reads the schemas it recorded.
+//! Imported helpers have no shared-read rule in Echo yet, so the module is
+//! refused. The ordinary audit runs first and alone establishes typing,
+//! totality and depth; this check reads the schemas it recorded.
 use super::{get, members, sequence, string, unsigned, Charge, Check, Checker, Schema, Value};
 use std::collections::BTreeMap;
 
@@ -70,17 +73,23 @@ fn meet(left: &Bounds, right: &Bounds) -> Bounds {
 }
 
 /// Prelude calls that build a new value and are charged it in full
-/// (amblicit#340): integer operations and the `Option` constructors and
-/// readers.
+/// (amblicit#340): integer operations, the `Option` constructors and
+/// readers, and the byte operations.
 fn builds_value(callee: &str) -> bool {
-    callee.starts_with("core.integer.") || is_option_operation(callee)
+    callee.starts_with("core.integer.") || keeps_copying_charge(callee)
 }
 
-/// The `Option` constructors and readers, all charged as under copying.
-fn is_option_operation(callee: &str) -> bool {
+/// The `Option` and byte operations, all charged their copying call work.
+fn keeps_copying_charge(callee: &str) -> bool {
     matches!(
         callee,
-        "core.option.some"
+        "core.bytes.length"
+            | "core.bytes.slice"
+            | "core.bytes.at"
+            | "core.bytes.count"
+            | "core.bytes.isUtf8"
+            | "core.bytes.concat"
+            | "core.option.some"
             | "core.option.none"
             | "core.option.isSome"
             | "core.option.unwrap"
@@ -610,10 +619,10 @@ impl<'a> Checker<'a, '_> {
                 }
                 Ok(ticks(cells))
             }
-            // An Option constructor or consumer keeps its copying charge:
-            // one tick per operand cell plus the bytes of its operands and
+            // An Option or byte operation keeps its copying charge: one
+            // tick per operand cell plus the bytes of its operands and
             // result.
-            _ if is_option_operation(callee) => {
+            _ if keeps_copying_charge(callee) => {
                 let mut charge = self.footprint(node)?.bytes;
                 for argument in arguments {
                     let footprint = self.footprint(argument)?;
@@ -700,6 +709,22 @@ impl<'a> Checker<'a, '_> {
                 Ok(footprint)
             }
             "fail" => Ok(Footprint { cells: 0, bytes: 0 }),
+            // A count's needle is a byte literal the ordinary audit checks
+            // structurally without recording a schema: exactly its bytes.
+            "const" if self.audited(node).is_err() => {
+                let literal = get(node, "value")?;
+                if string(get(literal, "kind")?)? != "bytes" {
+                    return Err(());
+                }
+                let Value::Bytes(octets) = get(literal, "value")? else {
+                    return Err(());
+                };
+                let size = u64::try_from(octets.len()).map_err(|_| ())?;
+                Footprint::of(&Schema::Blob {
+                    low: size,
+                    high: size,
+                })
+            }
             "list" => {
                 let mut footprint = Footprint::CELL;
                 for item in sequence(get(node, "values")?)? {

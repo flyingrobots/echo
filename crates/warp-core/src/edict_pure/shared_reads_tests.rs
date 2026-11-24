@@ -32,6 +32,7 @@ const NESTED: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/neste
 const MATCHES: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/matches.core.cbor.hex");
 const INTEGERS: &str =
     include_str!("../../tests/fixtures/edict-core-cost-v2/integers.core.cbor.hex");
+const BYTES: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/bytes.core.cbor.hex");
 const SHARED: &str = "core.cost.shared-reads/v1";
 
 fn core(hex: &str) -> Value {
@@ -468,4 +469,66 @@ mod generated {
             prop_assert_eq!(Ok(result.output), expected.map(|r| r.output));
         }
     }
+}
+
+fn bytes_input(text: &[u8], tail: &[u8], start: i128, end: i128) -> Value {
+    record(&[
+        ("text", Value::Bytes(text.to_vec())),
+        ("tail", Value::Bytes(tail.to_vec())),
+        ("start", Value::Integer(start)),
+        ("end", Value::Integer(end)),
+    ])
+}
+
+/// The bytes program's output, computed here from its inputs.
+fn bytes_output(text: &[u8], tail: &[u8], start: usize, end: usize) -> Value {
+    let piece = &text[start..end];
+    record(&[
+        ("joined", Value::Integer((text.len() + tail.len()) as i128)),
+        ("piece", Value::Integer(piece.len() as i128)),
+        ("size", Value::Integer(text.len() as i128)),
+        (
+            "newlines",
+            Value::Integer(
+                text.iter()
+                    .fold(0, |count, byte| count + usize::from(*byte == b'\n'))
+                    as i128,
+            ),
+        ),
+        (
+            "first",
+            Value::Integer(i128::from(text.first().copied().unwrap_or(0))),
+        ),
+        ("valid", Value::Bool(std::str::from_utf8(piece).is_ok())),
+    ])
+}
+
+/// Every byte operation runs within the compiler minimum (echo#1016, family
+/// 5): the full 32-byte text with an 8-byte tail, an empty text, and a slice
+/// that cuts a UTF-8 sequence.
+#[test]
+fn byte_operations_run_within_the_compiler_minimum() {
+    let full = b"line one\nline two\nline three\n...";
+    assert_eq!(full.len(), 32);
+    assert_within_minimum(
+        BYTES,
+        &bytes_input(full, b"12345678", 5, 32),
+        &bytes_output(full, b"12345678", 5, 32),
+    );
+    assert_within_minimum(
+        BYTES,
+        &bytes_input(b"", b"", 0, 0),
+        &bytes_output(b"", b"", 0, 0),
+    );
+    let accented = "caf\u{e9}".as_bytes();
+    assert_within_minimum(
+        BYTES,
+        &bytes_input(accented, b"", 0, 4),
+        &bytes_output(accented, b"", 0, 4),
+    );
+}
+
+#[test]
+fn byte_operations_meter_refuses_one_below_its_metered_work() {
+    assert_metered_work_is_enforced(BYTES, &bytes_input(b"a\nb", b"c", 0, 2));
 }

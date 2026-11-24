@@ -5,4 +5,5 @@ fill run 9420 87967 1758
 nested run 24467 220065 28
 matches run 5800 139186 28
 integers run 5962 11531 181
+bytes run 2336 3267 79
 rope splitRope 1326335 11721939 7501

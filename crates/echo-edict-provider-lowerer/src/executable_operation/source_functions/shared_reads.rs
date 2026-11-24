@@ -17,9 +17,9 @@
 //! when one exists (amblicit#336; see `reach`). An identity intrinsic call
 //! is charged its catalog rule on its operands' sequence maxima, plus a full
 //! copy of every operand in and of its result out. An `Option` constructor
-//! keeps its copying charge and is charged the value it builds, as the
-//! readers are. An ordered record charges its shell as the record it builds,
-//! and a `fail` one step and no value. Byte intrinsics and imported helpers
+//! or a byte operation keeps its copying charge and is charged the value it
+//! builds, as the readers are. An ordered record charges its shell as the
+//! record it builds, and a `fail` one step and no value. Imported helpers
 //! have no shared-read rule in Echo yet, so the module is refused.
 //!
 //! The ordinary judgment runs first and alone establishes typing, totality and
@@ -126,26 +126,37 @@ fn join(left: &Reach, right: &Reach) -> Reach {
         .collect()
 }
 
+/// The byte operations, each charged as under the copying schedule.
+const BYTE_OPERATIONS: [&str; 6] = [
+    "core.bytes.length",
+    "core.bytes.slice",
+    "core.bytes.at",
+    "core.bytes.count",
+    "core.bytes.isUtf8",
+    "core.bytes.concat",
+];
+
 /// The prelude calls Echo admits under the shared-read schedule that build a
-/// new value (amblicit#340): integer operations and the `Option` readers.
+/// new value (amblicit#340): integer, `Option` and byte operations.
 fn builds_value(callee: &str) -> bool {
-    matches!(
-        callee,
-        "core.integer.add"
-            | "core.integer.subtract"
-            | "core.integer.checkedAdd"
-            | "core.integer.checkedSub"
-            | "core.integer.checkedMul"
-            | "core.integer.checkedDiv"
-            | "core.integer.checkedRem"
-            | "core.integer.min"
-            | "core.integer.max"
-            | "core.option.some"
-            | "core.option.none"
-            | "core.option.isSome"
-            | "core.option.unwrap"
-            | "core.option.default"
-    )
+    BYTE_OPERATIONS.contains(&callee)
+        || matches!(
+            callee,
+            "core.integer.add"
+                | "core.integer.subtract"
+                | "core.integer.checkedAdd"
+                | "core.integer.checkedSub"
+                | "core.integer.checkedMul"
+                | "core.integer.checkedDiv"
+                | "core.integer.checkedRem"
+                | "core.integer.min"
+                | "core.integer.max"
+                | "core.option.some"
+                | "core.option.none"
+                | "core.option.isSome"
+                | "core.option.unwrap"
+                | "core.option.default"
+        )
 }
 
 /// The `(name, value)` entries of an ordered record, in authored order.
@@ -608,24 +619,15 @@ impl<'a> Judgment<'a> {
                 }
                 Ok(steps(cells))
             }
-            // An Option constructor or consumer keeps its copying charge:
-            // one step per operand cell plus the bytes of its operands and
+            // An Option or byte operation keeps its copying charge: one
+            // step per operand cell plus the bytes of its operands and
             // result.
             "core.option.some"
             | "core.option.none"
             | "core.option.isSome"
             | "core.option.unwrap"
-            | "core.option.default" => {
-                let mut cost = self.size(value)?.bytes;
-                for argument in list(get(value, "args")?)? {
-                    let size = self.size(argument)?;
-                    cost = cost
-                        .checked_add(size.cells)
-                        .and_then(|cost| cost.checked_add(size.bytes))
-                        .ok_or(())?;
-                }
-                Ok(steps(cost))
-            }
+            | "core.option.default" => self.copying_call(value),
+            _ if BYTE_OPERATIONS.contains(&callee) => self.copying_call(value),
             _ if callee.starts_with("core.") => Err(()),
             // A target intrinsic runs outside the shared heap: its catalog
             // rule, plus every operand copied in and its result copied out
@@ -660,6 +662,20 @@ impl<'a> Judgment<'a> {
                 Ok(self.shared_function(callee, arguments)?.0)
             }
         }
+    }
+
+    /// A prelude call's copying charge: one step per operand cell plus the
+    /// bytes of its operands and result (Amblicit's `call`).
+    fn copying_call(&self, value: &Value) -> Check<Cost> {
+        let mut cost = self.size(value)?.bytes;
+        for argument in list(get(value, "args")?)? {
+            let size = self.size(argument)?;
+            cost = cost
+                .checked_add(size.cells)
+                .and_then(|cost| cost.checked_add(size.bytes))
+                .ok_or(())?;
+        }
+        Ok(steps(cost))
     }
 
     /// The longest sequence `value` can evaluate to, as an intrinsic's cost
@@ -705,6 +721,19 @@ impl<'a> Judgment<'a> {
             }
             // A failure returns no value.
             "fail" => Ok(Size { cells: 0, bytes: 0 }),
+            // A count's needle is a byte literal the ordinary judgment checks
+            // structurally without recording a type: it is exactly its bytes.
+            "const" if self.recorded(value).is_err() => {
+                let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? != "bytes" {
+                    return Err(());
+                }
+                let Value::Bytes(bytes) = get(literal, "value")? else {
+                    return Err(());
+                };
+                let length = length(bytes.len())?;
+                type_size(&Ty::Bytes(length, length))
+            }
             "list" => {
                 let mut total = CELL;
                 for item in list(get(value, "values")?)? {

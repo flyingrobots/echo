@@ -129,13 +129,14 @@ pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
         | Expr::Local(_)
         | Expr::Variant { payload: None, .. }
         | Expr::Fail(_) => Ok(()),
-        Expr::Constant(_)
-        | Expr::ByteUtf8 { .. }
-        | Expr::ByteAt { .. }
-        | Expr::ByteLength { .. }
-        | Expr::ByteCount { .. }
-        | Expr::ByteSlice { .. }
-        | Expr::ByteConcat { .. } => Err(Error::UnsupportedProgram),
+        Expr::Constant(_) => Err(Error::UnsupportedProgram),
+        Expr::ByteSlice {
+            value, start, end, ..
+        } => {
+            admit_expression(value)?;
+            admit_expression(start)?;
+            admit_expression(end)
+        }
         Expr::Option { args, .. } | Expr::Identity(_, args) => {
             args.iter().try_for_each(admit_expression)
         }
@@ -144,6 +145,9 @@ pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
             ..
         }
         | Expr::Field(value, _)
+        | Expr::ByteUtf8 { value, .. }
+        | Expr::ByteLength { value, .. }
+        | Expr::ByteCount { value, .. }
         | Expr::ListLength { value, .. }
         | Expr::Fold { initial: value, .. } => admit_expression(value),
         Expr::Match(scrutinee, arms) => {
@@ -164,6 +168,12 @@ pub(crate) fn admit_expression(expr: &Expr) -> Result<(), Error> {
             item: right,
             ..
         }
+        | Expr::ByteAt {
+            value: left,
+            index: right,
+            ..
+        }
+        | Expr::ByteConcat { left, right, .. }
         | Expr::ListConcat { left, right, .. }
         | Expr::UnsignedAdd { left, right, .. }
         | Expr::UnsignedSubtract { left, right, .. }

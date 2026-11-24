@@ -648,7 +648,7 @@ fn an_unused_capability_added_by_the_same_edit_still_verifies() {
 }
 
 /// An effect package that requires the shared-read schedule is audited under
-/// it (echo#1016); byte operations, which have no Echo rule yet, are refused.
+/// it (echo#1016).
 #[test]
 fn effect_packages_are_audited_under_the_shared_read_schedule() {
     for name in SHARED_PROGRAMS {
@@ -658,9 +658,24 @@ fn effect_packages_are_audited_under_the_shared_read_schedule() {
             "{name}"
         );
     }
+}
+
+/// Byte operations under the shared-read schedule (echo#1016, family 5):
+/// the verifier's minimums under both schedules equal the lowerer's, which
+/// `byte_operation_minimums_under_each_schedule` in the lowerer pins
+/// independently (oracle: the other judge).
+#[test]
+fn byte_operation_minimums_equal_the_lowerer_minimums() {
+    let measured: Vec<_> = ["slice-proven", "typed-failure-control"]
+        .into_iter()
+        .map(|name| (name, minimum(name, None), minimum(name, Some(SHARED))))
+        .collect();
     assert_eq!(
-        verify_effect_package(&edited("slice-proven", Some(SHARED), None, None)),
-        Err(EffectPackageRefusal::UnsupportedProgram)
+        measured,
+        [
+            ("slice-proven", (195, 3383), (870, 971)),
+            ("typed-failure-control", (74, 3312), (373, 1295)),
+        ]
     );
 }
 

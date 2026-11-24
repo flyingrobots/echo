@@ -33,7 +33,7 @@ struct Program {
     budget: &'static str,
 }
 
-const PROGRAMS: [Program; 6] = [
+const PROGRAMS: [Program; 7] = [
     Program {
         name: "reads",
         intent: "run",
@@ -60,6 +60,12 @@ const PROGRAMS: [Program; 6] = [
     },
     Program {
         name: "integers",
+        intent: "run",
+        profile: "p.read",
+        budget: "p.b",
+    },
+    Program {
+        name: "bytes",
         intent: "run",
         profile: "p.read",
         budget: "p.b",

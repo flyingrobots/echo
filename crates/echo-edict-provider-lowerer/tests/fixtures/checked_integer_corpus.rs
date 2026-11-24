@@ -743,23 +743,33 @@ pub(crate) fn cases() -> Vec<Case> {
                 false,
             ),
         ] {
-            cases.push(
-                name,
-                accepted.then(|| vec![(0, 0)]),
-                vec![
-                    (
-                        "pair",
-                        function(
-                            vec![param(0, "U32"), param(1, "U32")],
-                            "U32",
-                            guarded("U32", predicate),
+            // The control call stays on the false guard; each accepted
+            // predicate also gets a case that reaches the guarded sum, the
+            // only place the derived bounds are exercised at run time.
+            let calls: &[(&str, u64, u64)] = if accepted {
+                &[("", top, 0), ("_runs_the_guarded_sum", top - 1, top)]
+            } else {
+                &[("", top, 0)]
+            };
+            for (suffix, first, output) in calls {
+                cases.push(
+                    &format!("{name}{suffix}"),
+                    accepted.then(|| vec![(0, *output)]),
+                    vec![
+                        (
+                            "pair",
+                            function(
+                                vec![param(0, "U32"), param(1, "U32")],
+                                "U32",
+                                guarded("U32", predicate.clone()),
+                            ),
                         ),
-                    ),
-                    main_fn("U32", call("pair", vec![int("U32", top), int("U32", 1)])),
-                ],
-                "U32",
-                vec![CAPABILITY],
-            );
+                        main_fn("U32", call("pair", vec![int("U32", *first), int("U32", 1)])),
+                    ],
+                    "U32",
+                    vec![CAPABILITY],
+                );
+            }
         }
     }
     cases.0

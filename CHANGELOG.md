@@ -7,6 +7,11 @@
 
 ### Added
 
+- Benchmark fixture F6, game scenes (`benches/game_scenes.rs`,
+  `benches/support/fixtures/game.rs`, #933): arena, pile and bullets scenes
+  run frame by frame through the trusted host, validated against an
+  in-memory reference and pinned initial-world digests and small-scene roots.
+  Benchmark and test code only; nothing on the runtime path changes.
 - A first-principles guide to bounded worklists
   ([`docs/topics/BoundedWorklists.md`](docs/topics/BoundedWorklists.md),
   #973). It explains list capacity, step bounds and resource budgets, walks

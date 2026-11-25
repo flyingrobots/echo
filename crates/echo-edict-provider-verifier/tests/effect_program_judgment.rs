@@ -1019,7 +1019,7 @@ fn record_valued_failure_payload_minimums_equal_the_compiler_minimum() {
 /// item, a record-valued payload, a nested 3 by 3 loop, a two-field record
 /// item, a bytes item, and a body holding a `let`, a `require` and an
 /// `ensureNode` together. The verifier's minimums equal the public
-/// compiler's, Amblicit e306ecc9, which
+/// compiler's, Amblicit 2b09e4ab (unchanged since e306ecc9), which
 /// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
 /// lowerer pins for the lowerer (oracle: the compiler's own reports).
 #[test]

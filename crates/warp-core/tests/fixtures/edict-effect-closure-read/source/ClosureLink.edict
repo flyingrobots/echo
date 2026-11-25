@@ -1,5 +1,5 @@
 package consumer.closures.program@1;
-use lawpack consumer.closures@1 digest "sha256:49cee50fa25b560b0a1431470fd60b4c4f41b0a2be3e3ce7360c04fa3d05c3e2" as fx;
+use lawpack consumer.closures@1 digest "sha256:f456781ccd9693b42136e7a0c5f711bd4f2f77e0dcb5820125e1041a4290ebea" as fx;
 type Candidate = { guide: fx.Guide, depth: U64, slot: U64, parent: fx.NodeRow, child: fx.NodeRow };
 type Decision = { expand: Bool, guide: fx.Guide, wellFormed: Bool, sufficient: Bool };
 fn select(candidate: Candidate) -> Decision {

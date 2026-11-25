@@ -21,11 +21,11 @@ The runtime inputs are that fixture's: `warp` 03, `nodeType` 07, `atomType`
 The `helper-*.hex` files are the public compiler's outputs for this source,
 not authored Target IR or packages. The `effect_step_publication` example
 produces them with an unmodified Amblicit
-`7dbcbc23d72705c5e224fc994a6c767881958912` binary and the checked provider
+`2b09e4ab1ecf0041b4ff251693dc295ac2b649c2` binary and the checked provider
 package; `scripts/verify-edict-provider-host-v1.sh` reruns it with `--check`,
 and requires the lowerer to refuse the same program under `echo.dpo@1` and
 under a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `helper-executable-operation-package.hex` | `echo:operation-package:v1` `703b0377a51065211576fd86c1521a4305a400bbb7a29c3474b2114fa9311936` |
+| `helper-executable-operation-package.hex` | `echo:operation-package:v1` `b346c00eab5c1fe244531fdb26717546c4726f526db3436323e86de6078ebdc6` |

@@ -160,13 +160,30 @@ fn run_closure(package: &V) -> (Result<Vec<u8>, EffectFrameError>, u64, u64) {
     )
 }
 
-/// The witness with its Core requiring the shared-read schedule and, when
+/// The witness with its Core requiring `capability` (added once) and, when
 /// given, a Core budget of (steps, bytes), repinned in place.
 ///
 /// Unlike `rebuild`, every other part of the public package (its graph
 /// schema, footprint law, graph-read declaration and lowering artifacts) is
 /// kept, since a closure read depends on them.
 pub(super) fn repinned(package: &V, capability: &str, budget: Option<(u64, u64)>) -> V {
+    repinned_with(
+        package,
+        |capabilities| {
+            if !capabilities.contains(&text(capability)) {
+                capabilities.push(text(capability));
+            }
+        },
+        budget,
+    )
+}
+
+/// [`repinned`] with the Core's required capabilities edited by `edit`.
+pub(super) fn repinned_with(
+    package: &V,
+    edit: impl FnOnce(&mut Vec<V>),
+    budget: Option<(u64, u64)>,
+) -> V {
     let mut program = decode(get(package, "program"));
     let mut bundle = decode(get(&program, "compiled_program"));
     let mut core = decode(get(&bundle, "core_artifact"));
@@ -174,7 +191,7 @@ pub(super) fn repinned(package: &V, capability: &str, budget: Option<(u64, u64)>
     let V::Array(capabilities) = value_field_mut(&mut core, "requiredCoreCapabilities") else {
         panic!("capabilities are a list")
     };
-    capabilities.push(text(capability));
+    edit(capabilities);
     if let Some((steps, bytes)) = budget {
         for (axis, value) in [("maxSteps", steps), ("maxAllocatedBytes", bytes)] {
             let value = V::Integer(i128::from(value));

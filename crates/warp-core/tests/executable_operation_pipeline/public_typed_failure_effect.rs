@@ -16,7 +16,7 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-typed-failure/typed-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "a29ebe80798166bedf630833c4a4b91d8cbd518f38da4f0d49e1263884cab5a2";
+const PACKAGE_PIN: &str = "0592572805487095102328d74b969763a1c5dad080c746d2ec96a0f8666d85b9";
 const OPERATION: &str = "consumer.typedfail.program@1.measure";
 const AUTHORITY: &[u8] = b"consumer.typedfail.authority/v1";
 /// The reason as Core names it, in the program's own lawpack alias, as for

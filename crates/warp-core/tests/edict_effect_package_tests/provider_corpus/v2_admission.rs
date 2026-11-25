@@ -4,14 +4,16 @@
 //! shared-read minimum (echo#1016).
 //!
 //! Each package is unchanged public compiler output retained under
-//! `fixtures/edict-effect-v2-admission/`. The budget is the minimum that
-//! Amblicit e306ecc9 reports with Echo's `/v3` templates (unchanged since
-//! 80b52f95 for the read and the mutations) and that
+//! `fixtures/edict-effect-v2-admission/`, compiled by Amblicit 2b09e4ab
+//! through the checked provider at exactly its shared-read minimum. That
+//! minimum, under Echo's packaged `/v3` templates (unchanged since e306ecc9,
+//! and since 80b52f95 for the read and the mutations), is the bound
+//! here, and the one that
 //! `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in
 //! `echo-edict-provider-lowerer` pins. Oracles: the copying executor on the
 //! same package, input and graph (a differential), and that static bound,
 //! which the runtime's charge must not exceed on either axis.
-use super::closure_witness::repinned;
+use super::closure_witness::{repinned, repinned_with};
 use super::*;
 use warp_core::edict_effects::{EffectMutation, TypedNodeRead};
 use warp_core::{
@@ -22,6 +24,10 @@ const READ: &str =
     include_str!("../../fixtures/edict-effect-v2-admission/read-executable-operation-package.hex");
 const WRITE: &str =
     include_str!("../../fixtures/edict-effect-v2-admission/write-executable-operation-package.hex");
+/// The shared-read schedule's Core capability.
+const SHARED: &str = "core.cost.shared-reads/v1";
+/// A Core budget wide enough for every copying run here, (steps, bytes).
+const COPYING_BUDGET: (u64, u64) = (1 << 20, 1 << 24);
 /// The compiler's shared-read minimums, (steps, bytes).
 const READ_MINIMUM: (u64, u64) = (100, 1_631);
 const WRITE_MINIMUM: (u64, u64) = (176, 6_796);
@@ -110,7 +116,14 @@ fn assert_runs_within(
     input: &[u8],
     reads: &[TypedNodeRead],
 ) -> Charged {
-    let copying = run_charged(package, input, reads);
+    // The checked package is compiled under the shared-read schedule at its
+    // minimum; the copying run drops that capability and widens the budget.
+    let copying = repinned_with(
+        package,
+        |capabilities| capabilities.retain(|c| c != &text(SHARED)),
+        Some(COPYING_BUDGET),
+    );
+    let copying = run_charged(&copying, input, reads);
     assert!(
         matches!(
             copying.result,
@@ -119,7 +132,7 @@ fn assert_runs_within(
         "{name}: copying run {:?}",
         copying.result
     );
-    let exact = repinned(package, "core.cost.shared-reads/v1", Some(minimum));
+    let exact = repinned(package, SHARED, Some(minimum));
     let sharing = run_charged(&exact, input, reads);
     assert_eq!(sharing.result, copying.result, "{name}: result");
     assert_eq!(sharing.mutations, copying.mutations, "{name}: mutations");
@@ -222,7 +235,7 @@ fn the_mutation_intrinsics_run_within_the_compiler_minimum() {
 }
 
 /// The loop programs' checked packages and the compiler's shared-read
-/// minimums, which Amblicit e306ecc9 reports and
+/// minimums, which Amblicit 2b09e4ab (unchanged since e306ecc9) reports and
 /// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` pins.
 const LOOPS: [(&str, &str, (u64, u64)); 6] = [
     (

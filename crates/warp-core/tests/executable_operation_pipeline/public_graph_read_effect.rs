@@ -32,7 +32,7 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-graph-read/link-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "31c092bec1c0b3a061232e01ab0fa2943469f22324f5e240f2d30d6fb1dbe4c1";
+const PACKAGE_PIN: &str = "cb362ed3001604563d6487e165d8fbc31e78c9bb87d633c6f8838bcf2fc6f6b3";
 /// The same source compiled by Amblicit 65dc5362, retained for exact
 /// admission (echo#1016), and the shared-read minimum, (steps, bytes), that
 /// Amblicit 80b52f95 reports for it with Echo's `/v3` templates and that
@@ -624,10 +624,24 @@ fn shared_schedule_package() -> (Vec<u8>, [u8; 32]) {
     shared_schedule_package_of(&retained().0, None)
 }
 
+/// The shared-read capability.
+const SHARED: &str = "core.cost.shared-reads/v1";
+
 /// `bytes` with its Core requiring the shared-read schedule and, when given,
-/// a Core budget of (steps, bytes) in Core and its lowered intent alike,
-/// repinned as `shared_schedule_package` describes. SYNTHETIC.
+/// a Core budget, as `schedule_package_of` repins it. SYNTHETIC.
 fn shared_schedule_package_of(bytes: &[u8], budget: Option<(u64, u64)>) -> (Vec<u8>, [u8; 32]) {
+    schedule_package_of(bytes, true, budget)
+}
+
+/// `bytes` with its Core requiring the shared-read schedule (`shared`, added
+/// once) or not requiring it, and, when given, a Core budget of (steps,
+/// bytes) in Core and its lowered intent alike, repinned as
+/// `shared_schedule_package` describes. SYNTHETIC.
+fn schedule_package_of(
+    bytes: &[u8],
+    shared: bool,
+    budget: Option<(u64, u64)>,
+) -> (Vec<u8>, [u8; 32]) {
     let mut package = echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("package");
     let mut program = decoded(publication::get(&package, "program"));
     let mut bundle = decoded(publication::get(&program, "compiled_program"));
@@ -637,7 +651,10 @@ fn shared_schedule_package_of(bytes: &[u8], budget: Option<(u64, u64)>) -> (Vec<
     let Value::Array(capabilities) = entry_mut(&mut core, "requiredCoreCapabilities") else {
         panic!("capabilities")
     };
-    capabilities.push(publication::text("core.cost.shared-reads/v1"));
+    capabilities.retain(|capability| capability != &publication::text(SHARED));
+    if shared {
+        capabilities.push(publication::text(SHARED));
+    }
     if let Some((steps, bytes_)) = budget {
         for (axis, value) in [("maxSteps", steps), ("maxAllocatedBytes", bytes_)] {
             let value = Value::Integer(i128::from(value));
@@ -737,7 +754,6 @@ fn the_shared_schedule_reads_and_links_exactly_as_the_copying_schedule() {
 #[test]
 fn the_shared_schedule_runs_within_the_compiler_minimum() {
     let bytes = hex::decode(V2_ADMISSION_PACKAGE.trim()).expect("retained hex");
-    let identity = publication::hash(b"echo:operation-package:v1\0", &bytes);
     let (steps, bytes_) = V2_ADMISSION_MINIMUM;
     let shapes = [
         (Shape::root(vec![TARGET]), SOURCE),
@@ -752,8 +768,12 @@ fn the_shared_schedule_runs_within_the_compiler_minimum() {
         (Shape::root(vec![TARGET; 5]), SOURCE),
         (Shape::root(vec![TARGET; 9]), SOURCE),
     ];
+    // The retained package is compiled under the shared-read schedule at its
+    // minimum; the copying run drops that capability and widens the budget.
+    let (copying_bytes, copying_identity) =
+        schedule_package_of(&bytes, false, Some((1 << 20, 1 << 24)));
     for (index, (shape, source)) in shapes.iter().enumerate() {
-        let copying = run_package(bytes.clone(), identity, shape, *source);
+        let copying = run_package(copying_bytes.clone(), copying_identity, shape, *source);
         // Cases 3 and 4 overflow the read's bound and obstruct on both
         // schedules; the differential still requires the same obstruction.
         assert_eq!(

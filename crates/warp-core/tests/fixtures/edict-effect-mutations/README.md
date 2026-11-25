@@ -10,12 +10,13 @@ empty failure set and no failure mappings, to `echo.dpo@2.ensure-node`,
 program, `WriteGraph.edict`, that calls them in that order without a failure
 map (flyingrobots/amblicit#311). The coordinates under `consumer.writes` are
 neutral; Echo interprets none of them. The configuration carries the
-`echo.dpo.intrinsics/v2` catalog the profile pins, a graph schema with one node
+`echo.dpo.intrinsics/v3` catalog the profile pins, a graph schema with one node
 type (`0x5b…`) holding one atom type (`0x5c…`) and one edge type (`0x5d…`)
 between such nodes, and a footprint law that reads and writes them.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `0034605467fcace397e7e30e4219a74aca57f183`: the package and
+compiler, Amblicit `0034605467fcace397e7e30e4219a74aca57f183`, recompiled for the
+`/v3` `echo.dpo@2` profile by `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`: the package and
 verifier report it wrote through the checked provider package in
 `schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
 configuration its lawpack build wrote. Nothing here was decoded and
@@ -32,7 +33,7 @@ a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `write-executable-operation-package.hex` | `echo:operation-package:v1` `2c7a1cb173b05bed13cc139fe450342100392c45b34e918288d77dc27b93374f` |
+| `write-executable-operation-package.hex` | `echo:operation-package:v1` `950c880f7be26473e6a54fbf6f0fe4e09b4f8099a6fd7165e50440c9ab3ae436` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_mutation_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

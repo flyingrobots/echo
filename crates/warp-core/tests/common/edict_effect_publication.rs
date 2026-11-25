@@ -244,7 +244,7 @@ pub fn lowering_fixture_inputs(
 pub fn profile_names(namespace: &str) -> (&'static str, &'static str) {
     match namespace {
         "echo.dpo@1" => ("1", "echo.dpo.intrinsics/v1"),
-        "echo.dpo@2" => ("2", "echo.dpo.intrinsics/v2"),
+        "echo.dpo@2" => ("2", "echo.dpo.intrinsics/v3"),
         _ => panic!("fixture namespace"),
     }
 }
@@ -252,9 +252,48 @@ pub fn profile_names(namespace: &str) -> (&'static str, &'static str) {
 pub fn catalog_api(namespace: &str) -> &'static str {
     match namespace {
         "echo.dpo@1" => "edict.target-profile.intrinsics/v1",
-        "echo.dpo@2" => "edict.target-profile.intrinsics/v2",
+        "echo.dpo@2" => "edict.target-profile.intrinsics/v3",
         _ => panic!("fixture namespace"),
     }
+}
+/// Gives a synthetic `echo.dpo@2` catalog the `/v3` cost data of the packaged
+/// catalog: its `parameters` map and, on each effect intrinsic that lacks one,
+/// the packaged `effectCostRule` of the intrinsic with the same local name.
+pub fn with_packaged_cost_rules(catalog: &mut V) {
+    let packaged = echo_edict_canonical::decode_canonical_cbor_v1(include_bytes!(
+        "../../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor"
+    ))
+    .expect("packaged /v3 catalog");
+    upsert(catalog, "parameters", get(&packaged, "parameters").clone());
+    let packaged_intrinsics = get(&packaged, "intrinsics");
+    let mut intrinsics = get(catalog, "intrinsics").clone();
+    let V::Map(entries) = &mut intrinsics else {
+        panic!("catalog intrinsics")
+    };
+    for (name, intrinsic) in entries.iter_mut() {
+        let V::Text(name) = name else {
+            panic!("intrinsic name")
+        };
+        let effect =
+            matches!(get(intrinsic, "intrinsicClass"), V::Text(class) if class == "effect");
+        let V::Map(fields) = intrinsic else {
+            panic!("intrinsic")
+        };
+        let has_rule = fields
+            .iter()
+            .any(|(key, _)| matches!(key, V::Text(key) if key == "effectCostRule"));
+        if effect && !has_rule {
+            // A foreign-namespace name (a refusal fixture) takes the rule of
+            // the `echo.dpo@2` intrinsic with the same local name.
+            let local = name
+                .rsplit_once('.')
+                .map_or(name.as_str(), |(_, local)| local);
+            let packaged_name = format!("echo.dpo@2.{local}");
+            let rule = get(get(packaged_intrinsics, &packaged_name), "effectCostRule").clone();
+            add(intrinsic, "effectCostRule", rule);
+        }
+    }
+    set(catalog, "intrinsics", intrinsics);
 }
 /// [`lowering_fixture_inputs`] under the target profile `namespace` names: the
 /// captured profile takes that coordinate, intrinsic namespace and catalog
@@ -347,8 +386,11 @@ pub fn lowering_fixture_in(
         ])
     });
     let mut catalog = catalog;
-    // The frozen echo.dpo@1 catalog is API v1; echo.dpo@2's is catalog v2.
+    // The frozen echo.dpo@1 catalog is API v1; echo.dpo@2's is catalog v3.
     set(&mut catalog, "apiVersion", text(catalog_api(namespace)));
+    if namespace == "echo.dpo@2" {
+        with_packaged_cost_rules(&mut catalog);
+    }
     let mut target_profile = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/profile.hex"
     ));
@@ -562,6 +604,14 @@ pub fn set(v: &mut V, k: &str, x: V) {
         .find(|(key, _)| key == &text(k))
         .expect("field")
         .1 = x;
+}
+/// Sets `k` when present, otherwise adds it.
+pub fn upsert(v: &mut V, k: &str, x: V) {
+    let V::Map(m) = v else { panic!("map") };
+    match m.iter_mut().find(|(key, _)| key == &text(k)) {
+        Some(entry) => entry.1 = x,
+        None => m.push((text(k), x)),
+    }
 }
 pub fn add(v: &mut V, k: &str, x: V) {
     let V::Map(m) = v else { panic!("map") };

@@ -3,6 +3,20 @@
 
 # Effect programs for exact admission under the shared-read schedule
 
+**Current bytes (echo#1016, `/v3` profile).** Every `*-executable-operation-package.hex`
+here is now the package Amblicit `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`
+wrote through the checked provider package, whose `echo.dpo@2` profile pins
+the `/v3` catalog, compiled under `edict.core-cost/v2` at exactly the
+compiler's own shared-read minimum, with Echo's packaged lowerer and verifier
+accepting it (`xtask --example effect_v2_admission`; Amblicit `aa8c7cbf`
+writes the same bytes). The compiler reads effect templates only from the
+catalog an application names under `target.pureIntrinsics`, so the example
+names the packaged catalog and one pure intrinsic the programs never call
+when the authored application names none. The sixteen minimums are the ones
+below, unchanged. The history that follows describes how each program and
+its number were first established, through a private `/v3` evaluation
+provider and copying-schedule packages that these files replace.
+
 Each file is the checked `executable-operation-package.cbor` that the public
 compiler, Amblicit `65dc53624856f58d21404d65d5256779ce403d49`, wrote for the
 unchanged authored source of an existing effect fixture, through the checked

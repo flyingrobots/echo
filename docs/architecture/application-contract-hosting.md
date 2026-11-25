@@ -722,9 +722,11 @@ outgoing-edge read, the five mutation intrinsics and the guided closure read),
 the four `echo.dpo@2` identity intrinsics, `Option` constructors and readers,
 ordered records, `fail`, byte intrinsics, `attempt`, `require`, the intent's
 input and output, and a shared closure-read selector. Each charge is the one
-Amblicit's `docs/topics/core-cost-schedules/README.md` (Amblicit `e306ecc9`)
-states, with Echo's `/v3` effect cost templates
-(`crates/echo-edict-provider-lowerer/catalogs/resource.target-intrinsics-3.cbor`).
+Amblicit's `docs/topics/core-cost-schedules/README.md` (Amblicit `2b09e4ab`)
+states, with Echo's `/v3` effect cost templates, published in the provider
+package as `generated/resources/resource.target-intrinsics-3.cbor` (the
+catalog the `echo.dpo@2` profile pins) and authored in
+`crates/echo-wesley-gen/src/provider_effect_costs.rs`.
 The effect-body terms, as both sides now charge them:
 
 ```text
@@ -759,8 +761,10 @@ What is pinned, all with the shared-read capability:
 
 - Exact admission against the public compiler.
   `effect_programs_are_admitted_at_exactly_the_compiler_minimum` (lowerer)
-  admits sixteen compiler-produced packages at exactly Amblicit `e306ecc9`'s
-  minimum and refuses one step or one byte below: node-atom read (100, 1631),
+  admits sixteen packages that Amblicit `2b09e4ab` compiled through the
+  checked provider package at exactly its own shared-read minimum (the
+  compiler refuses one unit below, and Echo's packaged lowerer and verifier
+  accept the build at it), and refuses one step or one byte below: node-atom read (100, 1631),
   outgoing-edge read with `ensure-edge` (244, 8240), five mutations
   (176, 6796), typed failure (140, 2095), `attempt` with `{at}` (145, 2291)
   and `{at, until}` (150, 2493), `require` with `{}` (126, 2031) and `{at}`
@@ -782,11 +786,13 @@ What is pinned, all with the shared-read capability:
 
 Known gaps:
 
-- The `/v3` catalog that carries the effect templates is not in Echo's
-  provider package: the checked `echo.dpo@2` profile pins `/v2`. The compiler
-  comparisons use a private evaluation provider
-  (`xtask --example effect_v2_admission`). Publishing a profile that pins
-  `/v3` is an owner decision.
+- The compiler evaluates the `/v3` effect templates only when the
+  application names the catalog under `target.pureIntrinsics`, which needs at
+  least one required pure intrinsic; otherwise it charges its generic effect
+  charge. `xtask --example effect_v2_admission` names the packaged catalog
+  and one unused pure intrinsic for programs whose application names none.
+- The effect frame's ceilings (1,048,576 steps, 16 MiB allocated bytes) are
+  code constants in warp-core, not profile data.
 - Under the copying schedule Echo charges each effect-body `let` its binding
   validations and Amblicit does not. This is unmeasured, and the copying
   schedule is frozen.

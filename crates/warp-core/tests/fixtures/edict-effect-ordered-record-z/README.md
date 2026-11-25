@@ -15,7 +15,7 @@ it ensures one node. Because a field can fail, Amblicit emits the record as an
 The `effect_step_publication` example accepts this directory with the output
 name `ordered-z`. The retained `ordered-z-*.hex` outputs were written by that
 producer with a freshly built Amblicit
-`7dbcbc23d72705c5e224fc994a6c767881958912`; they are not authored Core or
+`2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`; they are not authored Core or
 Target IR. `scripts/verify-edict-provider-host-v1.sh` reruns the producer with
 `--check` and requires the same bytes.
 

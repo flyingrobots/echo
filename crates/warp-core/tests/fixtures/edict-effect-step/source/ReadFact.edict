@@ -1,5 +1,5 @@
 package consumer.effects.program@1;
-use lawpack consumer.effects@1 digest "sha256:3d90cdf320f8d5daad245ca5aa960549fcfc1bb176d68e7ceed31585bc793527" as fx;
+use lawpack consumer.effects@1 digest "sha256:0a022e686f4d29c956b70a1299c446654ffb56324b96487f68a19091edc56fd7" as fx;
 type Input = { anchor: Bytes<exact=32>, address: fx.FactAddress };
 intent read(input: Input) returns fx.FactBytes
   profile fx.graphEffects

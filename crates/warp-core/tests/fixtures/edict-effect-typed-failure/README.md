@@ -14,7 +14,7 @@ The `effect_step_publication` example accepts this directory with the output
 name `typed`. It builds the lawpack, replaces the source import's digest with
 the actual manifest digest, and builds the application twice. The retained
 `typed-*.hex` outputs were written by that producer with a freshly built
-Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`; they are not authored
+Amblicit `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`; they are not authored
 Core or Target IR. `scripts/verify-edict-provider-host-v1.sh` reruns the
 producer with `--check` and requires the same bytes. The producer's controls
 require the same source to be refused under `echo.dpo@1` and under a
@@ -22,7 +22,7 @@ substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `typed-executable-operation-package.hex` | `echo:operation-package:v1` `a29ebe80798166bedf630833c4a4b91d8cbd518f38da4f0d49e1263884cab5a2` |
+| `typed-executable-operation-package.hex` | `echo:operation-package:v1` `0592572805487095102328d74b969763a1c5dad080c746d2ec96a0f8666d85b9` |
 
 The runtime witness
 `crates/warp-core/tests/executable_operation_pipeline/public_typed_failure_effect.rs`

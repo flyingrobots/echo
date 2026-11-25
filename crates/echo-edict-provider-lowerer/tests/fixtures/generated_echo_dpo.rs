@@ -6,9 +6,9 @@
 /// Namespaced generated contract and invocation surface for `a.b@1.t`.
 pub mod echo_dpo {
     use echo_registry_api::{
-        OpKind, ProviderBundleIdentityV1, ProviderDigestIdentityV1, ProviderFootprintIdentityV1,
-        ProviderOperationV1, ProviderRegistryV1, ProviderSchemaIdentityV1,
-        ProviderSemanticIdentityV1, ProviderValueContractV1,
+        OpKind, ProviderBundleIdentityV1, ProviderDigestIdentityV1,
+        ProviderFootprintIdentityV1, ProviderOperationV1, ProviderRegistryV1,
+        ProviderSchemaIdentityV1, ProviderSemanticIdentityV1, ProviderValueContractV1,
     };
     use echo_wasm_abi::codec::{
         decode_from_bytes, encode_to_vec, CodecError, Decode, Encode, Reader, Writer,
@@ -16,9 +16,9 @@ pub mod echo_dpo {
     use echo_wasm_abi::{pack_intent_v1, EnvelopeError};
     use warp_core::{
         matches_eint_op, propose_provider_contract_package_v1, ContractPackageIdentity,
-        GeneratedProviderMutationDispatchV1, GraphView, NodeId, ProviderContractPackageProposalV1,
-        ProviderMutationHooksV1, ProviderMutationImplementationIdentityV1,
-        ProviderPackageProposalError,
+        GeneratedProviderMutationDispatchV1, GraphView, NodeId,
+        ProviderContractPackageProposalV1, ProviderMutationHooksV1,
+        ProviderMutationImplementationIdentityV1, ProviderPackageProposalError,
     };
 
     /// Exact Edict-authored semantic operation coordinate.
@@ -50,22 +50,19 @@ pub mod echo_dpo {
     /// Digest-framing domain for the complete Target IR artifact envelope.
     pub const TARGET_IR_DIGEST_DOMAIN: &str = "edict.target-ir.artifact/v1";
     /// Exact domain-framed identity of the emitted Target IR artifact.
-    pub const TARGET_IR_DIGEST: &str =
-        "sha256:fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399";
+    pub const TARGET_IR_DIGEST: &str = "sha256:fdc5d691663c80f268fcd2ceb7d7cd33e29324d5c0351f454b7e82c91c2a7399";
     /// Exact target-profile coordinate.
     pub const TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
     /// Digest-framing domain for the target-profile artifact.
     pub const TARGET_PROFILE_DIGEST_DOMAIN: &str = "edict.target-profile/v1";
     /// Exact domain-framed identity of the target profile.
-    pub const TARGET_PROFILE_DIGEST: &str =
-        "sha256:2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04";
+    pub const TARGET_PROFILE_DIGEST: &str = "sha256:2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04";
     /// Semantic profile for Echo contract bundles; not a bundle occurrence.
     pub const TARGET_BUNDLE_PROFILE_COORDINATE: &str = "echo.dpo.bundle/v1";
     /// Digest-framing domain for the target-bundle profile artifact.
     pub const TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN: &str = "echo.dpo.bundle/v1";
     /// Exact domain-framed identity of the target-bundle profile.
-    pub const TARGET_BUNDLE_PROFILE_DIGEST: &str =
-        "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
+    pub const TARGET_BUNDLE_PROFILE_DIGEST: &str = "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
     /// Echo contract ABI targeted by this generated helper.
     pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1;
     /// Contract-host helper API targeted by this generated helper.
@@ -74,18 +71,20 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "6fc69f6a1c71aa7ab39601ae0d49bdf889209d6fe5324d025c7dbfd585b9a9da";
+        "b4bee89b831a1a6a4250f7225c1c806f1b23438ea745702725d9d023c36e3ec2";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
-    pub const GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN: &str = "echo.generated-artifact-profile/v1";
+    pub const GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN: &str =
+        "echo.generated-artifact-profile/v1";
     /// Domain-framed identity of the generated-artifact profile.
     pub const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
         "sha256:ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d";
     /// Exact semantic operation profile selected by the authored operation.
     pub const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
     /// Semantic domain owning the selected operation profile.
-    pub const OPERATION_PROFILE_DOMAIN: &str = "echo.edict-provider/operation-profile/v1";
+    pub const OPERATION_PROFILE_DOMAIN: &str =
+        "echo.edict-provider/operation-profile/v1";
     /// Exact operation-profiles document coordinate.
     pub const OPERATION_PROFILES_COORDINATE: &str = "echo.dpo.operation-profiles/v1";
     /// Digest-framing domain for the operation-profiles document.
@@ -109,7 +108,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "6fc69f6a1c71aa7ab39601ae0d49bdf889209d6fe5324d025c7dbfd585b9a9da",
+        "b4bee89b831a1a6a4250f7225c1c806f1b23438ea745702725d9d023c36e3ec2",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {
@@ -588,7 +587,8 @@ pub mod echo_dpo {
             let vars = self
                 .encode_input(input)
                 .map_err(GeneratedInvocationError::Codec)?;
-            pack_intent_v1(self.operation_id(), &vars).map_err(GeneratedInvocationError::Envelope)
+            pack_intent_v1(self.operation_id(), &vars)
+                .map_err(GeneratedInvocationError::Envelope)
         }
     }
 
@@ -650,7 +650,8 @@ pub mod echo_dpo {
             return Err(BindingMismatchKind::TargetProfile);
         }
         if identity.target_bundle_profile_coordinate != TARGET_BUNDLE_PROFILE_COORDINATE
-            || identity.target_bundle_profile_digest_domain != TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN
+            || identity.target_bundle_profile_digest_domain
+                != TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN
             || identity.target_bundle_profile_digest != TARGET_BUNDLE_PROFILE_DIGEST
         {
             return Err(BindingMismatchKind::TargetBundleProfile);
@@ -676,7 +677,8 @@ pub mod echo_dpo {
         if identity.generated_artifact_profile != GENERATED_ARTIFACT_PROFILE
             || identity.generated_artifact_profile_digest_domain
                 != GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN
-            || identity.generated_artifact_profile_digest != GENERATED_ARTIFACT_PROFILE_DIGEST
+            || identity.generated_artifact_profile_digest
+                != GENERATED_ARTIFACT_PROFILE_DIGEST
         {
             return Err(BindingMismatchKind::GeneratedArtifactProfile);
         }

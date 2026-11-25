@@ -1,5 +1,5 @@
 package consumer.identity.program@1;
-use lawpack consumer.identity@1 digest "sha256:dcada43b5b2c56acc1079fe42828a38db7fc0fd88681a0c0ae9ff926ba87cd70" as fx;
+use lawpack consumer.identity@1 digest "sha256:5a977b6719a7d821ce2a2c709bc658677b0fa76e3b66441b94bb53106cc0722b" as fx;
 use module jedit.probe.leaf@1 digest "sha256:83ed90b98bb9664113594df65170ae875082e3c03ef60f267083fcada56d890b" as leaf;
 type Input = { w: Bytes<exact=32>, v: U64 }; type Output = { b: U64 };
 intent go(input: Input) returns Output profile fx.graphEffects basis none budget <= fx.budget {

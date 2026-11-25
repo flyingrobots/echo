@@ -70,26 +70,30 @@
   `edict.core-cost/v2` rules with Echo's `/v3` effect cost templates; the
   effect-body formulas are in `docs/architecture/application-contract-hosting.md`.
   Every runtime test runs the same package under both schedules and requires
-  the same result and mutations. With Amblicit `e306ecc9` (main after
-  amblicit#350) the lowerer admits sixteen compiler-produced effect packages,
-  six of them `require` loops, at
-  exactly the compiler's minimum and refuses one step or byte less, the
+  the same result and mutations. The `echo.dpo@2` profile (revised in place,
+  unreleased) pins the `/v3` intrinsics catalog that carries those templates,
+  with Amblicit's loadable `effect-cost-catalog-v1` contract pack
+  (amblicit#352, cost rules written out to depth 10). Amblicit `2b09e4ab`
+  compiles sixteen effect packages, six of them `require` loops, through the
+  checked provider package at exactly its own minimum, and the lowerer admits
+  each at exactly the compiler's minimum and refuses one step or byte less, the
   verifier measures the same minimums, and the closure-read witness's
   residual is (0, 0). warp-core runs the closure witness, the node-atom read,
   the outgoing-edge read, the mutations and the six loops (on every failing
   item) at exactly that minimum, charging at or below it on both axes. Programs without the capability are run,
   judged and charged exactly as before. The packages are retained under
   `crates/warp-core/tests/fixtures/edict-effect-v2-admission/`. Known gaps:
-  the `/v3` catalog is not in the provider package (its profile pins `/v2`);
-  copying-schedule `let` validations are charged by Echo and not by Amblicit
+  the compiler costs effects by the templates only when the application names
+  the catalog under `target.pureIntrinsics`; the effect frame's ceilings are
+  code constants; copying-schedule `let` validations are charged by Echo and not by Amblicit
   (unmeasured); the shared runtime validates neither `let` nor `attempt`
   bindings, so the `let` validations charged are safe but not tight;
   record-valued failure payload fields are measured on the runtime only in
   a `require` loop; an `attempt` inside a loop is refused by the failure-set
-  check. The provider components are promoted from
-  byte-equal G4 candidates built at `abf9470a` (lowerer `97047fc5`, verifier
-  `c88611f4`); the `/v3` catalog moved to the lowerer's `catalogs/`, since
-  provider generation owns `resources/` exactly.
+  check. Every `echo.dpo@2` witness is recompiled by Amblicit `2b09e4ab`;
+  the `echo.dpo@1` witnesses are byte-identical under it, so
+  `scripts/verify-edict-provider-host-v1.sh` uses that one compiler. The
+  provider components are promoted from byte-equal G4 candidates.
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact

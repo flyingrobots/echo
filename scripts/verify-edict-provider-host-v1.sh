@@ -103,7 +103,10 @@ CARGO_TARGET_DIR="$CORPUS_TARGET_DIR" \
 # separate verifier; the predecessor package must refuse the same source.
 # Building the compiler is heavy, so a local run must opt in explicitly.
 if [[ "${CI:-}" == "true" || "${ECHO_GRAPH_READ_PUBLIC_WITNESS:-}" == "1" ]]; then
-  readonly AMBLICIT_REVISION=7dbcbc23d72705c5e224fc994a6c767881958912
+  # One compiler for both profiles: the echo.dpo@1 witnesses below are
+  # byte-identical under 2b09e4ab and under 7dbcbc23, which wrote them; the
+  # echo.dpo@2 witnesses were recompiled by 2b09e4ab for the /v3 profile.
+  readonly AMBLICIT_REVISION=2b09e4ab1ecf0041b4ff251693dc295ac2b649c2
   readonly OLD_PROVIDER_REVISION=089c849f766d5331835e7d10148a378cdb1237d5
   readonly AMBLICIT_ROOT="$ROOT/target/amblicit-$AMBLICIT_REVISION"
   readonly GRAPH_READ_FIXTURES="$ROOT/crates/warp-core/tests/fixtures/edict-graph-read"

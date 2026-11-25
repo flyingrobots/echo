@@ -2,62 +2,43 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::print_stdout)]
 //! Asks the public compiler for its static minimum budget of an `echo.dpo@2`
-//! effect program under the shared-read schedule (`edict.core-cost/v2`) with
-//! Echo's `/v3` effect cost templates (echo#1016, amblicit#341).
-//!
-//! The checked provider package pins the `/v2` intrinsics catalog, and the
-//! compiler reads effect templates only from the catalog the selected profile
-//! pins. So this builds a private evaluation provider: a copy of the checked
-//! package whose `echo.dpo@2` profile pins Echo's `/v3` catalog (shipped next
-//! to the profile), with the manifest naming the substituted profile. The
-//! lawpack accepts that profile and carries the same catalog in its operation
-//! configuration.
+//! effect program under the shared-read schedule (`edict.core-cost/v2`),
+//! through the checked provider package (echo#1016, amblicit#341). The
+//! packaged `echo.dpo@2` profile pins Echo's `/v3` intrinsics catalog, whose
+//! `effectCostRule` templates the compiler evaluates for each effect.
 //!
 //! The program is compiled with a budget of one step and one byte, so the
 //! compiler refuses it and reports the minimum it needs. The minimum is then
 //! given back as the budget, and one unit below on each axis, and each
-//! outcome is printed. At the minimum the compiler's own admission passes and
-//! the checked Echo lowerer component then refuses the substituted profile
-//! (`UnsupportedTargetProfile`); one unit below, the compiler refuses with
-//! `InvalidBound`. That is the compiler's static minimum, not Echo's.
+//! outcome is printed. At the minimum the whole build passes, Echo's packaged
+//! lowerer and verifier included; one unit below, the compiler refuses with
+//! `InvalidBound`. The package built at the minimum is written to
+//! `checked-package.hex`, which is what `effect_program_judgment.rs` judges.
 //!
-//! Last, the same program is compiled through the checked provider under the
-//! copying schedule (the packaged components do not accept a shared-read
-//! Core yet), and the package is written to `checked-package.hex` so Echo's
-//! judges can be given the shared-read capability and the compiler's
-//! minimum, as `effect_program_judgment.rs` does for its witnesses.
-//!
-//! Usage (any `edict-effect-*` fixture of `warp-core`):
+//! Usage (any `edict-effect-*` fixture of `warp-core`, or a `*-source`
+//! directory under `edict-effect-v2-admission`, as `--fixtures`, whose
+//! `source/` holds the authored lawpack, application and program):
 //!
 //! ```text
 //! cargo run -p xtask --example effect_v2_admission -- \
-//!   --compiler <amblicit 9f10fb91 or later> \
+//!   --compiler <amblicit 2b09e4ab or later> \
 //!   --provider schemas/edict-provider/package/v1 \
-//!   --catalog crates/echo-edict-provider-lowerer/catalogs/resource.target-intrinsics-3.cbor \
 //!   --fixtures crates/warp-core/tests/fixtures/edict-effect-closure-read \
 //!   --work-root <new directory>
 //! ```
 //!
 //! Nothing here rewrites a fixture.
 use anyhow::{bail, ensure, Context, Result};
-use echo_edict_canonical::{
-    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
-    encode_canonical_cbor_v1, CanonicalValueV1 as Value,
-};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const EFFECT_PROFILE: &str = "generated/primary/target-profile.echo-dpo-2.cbor";
-const V3_CATALOG: &str = "generated/resources/resource.target-intrinsics-3.cbor";
-const CATALOG_DOMAIN: &str = "echo.dpo.intrinsics/v2";
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 struct Arguments {
     compiler: PathBuf,
     provider: PathBuf,
-    catalog: PathBuf,
     fixtures: PathBuf,
     work_root: PathBuf,
 }
@@ -82,7 +63,6 @@ fn arguments() -> Result<Arguments> {
     let parsed = Arguments {
         compiler: take("--compiler")?,
         provider: take("--provider")?,
-        catalog: take("--catalog")?,
         fixtures: take("--fixtures")?,
         work_root: take("--work-root")?,
     };
@@ -110,55 +90,6 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn field_mut<'a>(value: &'a mut Value, key: &str) -> Result<&'a mut Value> {
-    let Value::Map(entries) = value else {
-        bail!("expected a map around {key}")
-    };
-    entries
-        .iter_mut()
-        .find(|(name, _)| matches!(name, Value::Text(text) if text == key))
-        .map(|(_, value)| value)
-        .with_context(|| format!("missing {key}"))
-}
-
-fn profile_digest(value: &Value) -> Result<String> {
-    digest_canonical_value_v1("edict.target-profile/v1", value)
-        .map_err(|error| anyhow::anyhow!("profile digest: {error:?}"))
-}
-
-/// A provider copy whose `echo.dpo@2` profile pins `catalog`. Returns the
-/// substituted profile's digest.
-fn evaluation_provider(provider: &Path, catalog: &[u8], copy: &Path) -> Result<String> {
-    copy_tree(provider, copy)?;
-    fs::write(copy.join(V3_CATALOG), catalog)?;
-    let checked = decode_canonical_cbor_v1(&read(&provider.join(EFFECT_PROFILE))?)
-        .map_err(|error| anyhow::anyhow!("checked profile: {error:?}"))?;
-    let mut profile = checked.clone();
-    let catalog_value =
-        decode_canonical_cbor_v1(catalog).map_err(|error| anyhow::anyhow!("catalog: {error:?}"))?;
-    let identity = digest_canonical_value_bytes_v1(CATALOG_DOMAIN, &catalog_value)
-        .map_err(|error| anyhow::anyhow!("catalog digest: {error:?}"))?;
-    let reference = field_mut(&mut profile, "intrinsics")?;
-    *field_mut(reference, "digest")? = Value::Array(vec![
-        Value::Text("sha256".into()),
-        Value::Bytes(identity.to_vec()),
-    ]);
-    let (checked, substituted) = (profile_digest(&checked)?, profile_digest(&profile)?);
-    fs::write(
-        copy.join(EFFECT_PROFILE),
-        encode_canonical_cbor_v1(&profile)
-            .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-    )?;
-    let manifest = copy.join("provider-manifest.echo.json");
-    let text = String::from_utf8(read(&manifest)?)?;
-    ensure!(
-        text.matches(&checked).count() == 1,
-        "the manifest names the checked echo.dpo@2 profile exactly once"
-    );
-    fs::write(&manifest, text.replace(&checked, &substituted))?;
-    Ok(substituted)
 }
 
 struct Build {
@@ -215,7 +146,6 @@ fn compile(
     lawpack: &serde_json::Value,
     budget: (u64, u64),
     label: &str,
-    evaluation: bool,
 ) -> Result<Build> {
     let source = arguments.fixtures.join("source");
     let root = arguments.work_root.join(label);
@@ -271,17 +201,18 @@ fn compile(
     fs::create_dir_all(app.join("src"))?;
     fs::write(app.join("src/Program.edict"), pinned)?;
     copy_tree(&lawpack_root.join(vendor), &app.join(vendor))?;
-    if evaluation {
-        copy_tree(&arguments.work_root.join("provider"), &app.join("provider"))?;
-    } else {
-        copy_tree(&arguments.provider, &app.join("provider"))?;
-    }
+    copy_tree(&arguments.provider, &app.join("provider"))?;
     let mut application: serde_json::Value =
         serde_json::from_slice(&read(&source.join("edict.application.json"))?)?;
-    if evaluation {
-        application["coreCostSchedule"] = "edict.core-cost/v2".into();
+    application["coreCostSchedule"] = "edict.core-cost/v2".into();
+    // The compiler reads the effect cost templates only from the catalog an
+    // application names under `target.pureIntrinsics`, and that block needs
+    // at least one required pure intrinsic; without it the effects are
+    // charged Amblicit's generic effect charge. Name the packaged `/v3`
+    // catalog and one intrinsic it declares, which these programs never call.
+    if application["target"].get("pureIntrinsics").is_none() {
         application["target"]["pureIntrinsics"] = serde_json::json!({
-            "catalog": V3_CATALOG,
+            "catalog": "generated/resources/resource.target-intrinsics-3.cbor",
             "required": [{
                 "coordinate": "echo.dpo@2.slotEdgeId",
                 "contractVersion": "echo.content-address/v1",
@@ -327,34 +258,17 @@ fn main() -> Result<()> {
         "select a new work directory; existing evidence is preserved"
     );
     fs::create_dir_all(&arguments.work_root)?;
-    let catalog = read(&arguments.catalog)?;
-    let profile = evaluation_provider(
-        &arguments.provider,
-        &catalog,
-        &arguments.work_root.join("provider"),
-    )?;
-    let mut lawpack: serde_json::Value = serde_json::from_slice(&read(
+    let lawpack: serde_json::Value = serde_json::from_slice(&read(
         &arguments.fixtures.join("source/edict.lawpack.json"),
     )?)?;
-    let authored = lawpack.clone();
-    lawpack["lawpack"]["targetAdapters"][0]["acceptedTargetProfile"] =
-        serde_json::json!({"id": "echo.dpo@2", "digest": profile});
-    let configuration = lawpack["lawpack"]["localResources"]
-        .as_array_mut()
-        .context("local resources")?
-        .iter_mut()
-        .find(|resource| resource["name"] == "echo-config")
-        .context("echo-config")?;
-    configuration["value"]["intrinsicCatalog"] =
-        serde_json::json!({"$edictBytes": hex::encode(&catalog)});
 
-    let probe = compile(&arguments, &lawpack, (1, 1), "probe", true)?;
+    let probe = compile(&arguments, &lawpack, (1, 1), "probe")?;
     println!("EFFECT_V2_PROBE {}", summary(&probe));
     // A literal-bound loop is refused before costing when its iteration
     // count alone exceeds the step budget, so probe again with a step budget
     // the loop check passes and one byte.
     let Some((steps, bytes)) = reported_minimum(&probe).or_else(|| {
-        let wide = compile(&arguments, &lawpack, (1 << 20, 1), "wide-probe", true).ok()?;
+        let wide = compile(&arguments, &lawpack, (1 << 20, 1), "wide-probe").ok()?;
         println!("EFFECT_V2_WIDE_PROBE {}", summary(&wide));
         reported_minimum(&wide)
     }) else {
@@ -362,23 +276,17 @@ fn main() -> Result<()> {
     };
     println!("EFFECT_V2_COMPILER_MINIMUM {steps} {bytes}");
     for (label, budget) in [
-        ("at-minimum", (steps, bytes)),
         ("steps-below", (steps - 1, bytes)),
         ("bytes-below", (steps, bytes - 1)),
+        ("at-minimum", (steps, bytes)),
     ] {
-        let built = compile(&arguments, &lawpack, budget, label, true)?;
+        let built = compile(&arguments, &lawpack, budget, label)?;
         println!("EFFECT_V2_{label} {}", summary(&built));
     }
-    // The same program through the checked provider (the `/v2` catalog, no
-    // templates), which Echo's lowerer accepts: its package is what Echo judges.
-    let generic = compile(&arguments, &authored, (1, 1), "generic-probe", false)?;
-    println!("EFFECT_V2_GENERIC_MINIMUM {:?}", reported_minimum(&generic));
-    let checked = compile(&arguments, &authored, (1 << 20, 1 << 24), "checked", false)?;
-    println!("EFFECT_V2_checked {}", summary(&checked));
     let package = read(
         &arguments
             .work_root
-            .join("checked/application/application-output/executable-operation-package.cbor"),
+            .join("at-minimum/application/application-output/executable-operation-package.cbor"),
     )?;
     fs::write(
         arguments.work_root.join("checked-package.hex"),

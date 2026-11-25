@@ -26,7 +26,7 @@ type `0x02…` on node type `0x6b…`, because a closure reads each node's atom.
 The budgets and result bound are widened for the closure result.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`, through the
+compiler, Amblicit `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`, through the
 checked provider package in `schemas/edict-provider/package/v1`. Nothing here
 was decoded and re-encoded, and no Core or Target IR was authored by hand.
 `ClosureLink.edict` carries the digest of the lawpack the same compiler built

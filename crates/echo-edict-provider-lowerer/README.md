@@ -320,15 +320,14 @@ the same tolerance the bounded-read route already has.
 The lowerer accepts exactly two target profiles: `echo.dpo@1` and the effect
 profile `echo.dpo@2` (#985). `echo.dpo@2` admits only this route; every other
 route refuses it with `echo.dpo@2 admits only authored effect programs`. Its
-catalog, `echo.dpo.intrinsics/v2`, declares the runtime's effect intrinsics as
+catalog, `echo.dpo.intrinsics/v3`, declares the runtime's effect intrinsics as
 `echo.dpo@2.*` and it names `echo.span-ir/v2`, so effect steps can pass the
 judgment under it. The configuration's catalog must be the one the selected
 profile pins, and the judgment keys its intrinsic tables on the operation below
 either namespace.
 
-`catalogs/resource.target-intrinsics-3.cbor` (outside `resources/`, whose
-contents provider generation owns exactly) is the same catalog as
-`edict.target-profile.intrinsics/v3` (amblicit#341): every effect intrinsic
+That catalog, the package's `generated/resources/resource.target-intrinsics-3.cbor`,
+is an `edict.target-profile.intrinsics/v3` catalog (amblicit#341): every effect intrinsic
 carries an `effectCostRule`, and a top-level `parameters` map declares
 `maxEdgeScans` (`graphReads.maxEdgeScans`, `uint`) and `selector`
 (`graphReads.closureSelector`, `helper`). Under the shared-read schedule a

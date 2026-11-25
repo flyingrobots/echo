@@ -1,5 +1,5 @@
 package consumer.buffers.program@1;
-use lawpack consumer.buffers@1 digest "sha256:72b97016cb839d8a32820148e0d64cbba551db308a2b4453737891e1a18041ac" as fx;
+use lawpack consumer.buffers@1 digest "sha256:ab6e01efff0e7a816080cca86c9dc1a12b9a088c1dd799fefea1c43f139d352e" as fx;
 use target echo.dpo@2 digest "sha256:4e60b1297d4d5e38bb9029d225a7074c9e0a7932792cb8644276cdf7ceeb173c" as echo;
 type Input = { anchor: Bytes<exact=32>, buffer: fx.BufferAddress, next: fx.BufferAtom };
 intent bump(input: Input) returns Bytes<exact=32>

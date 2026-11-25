@@ -852,16 +852,19 @@ fn the_closure_witness_minimum_is_the_compiler_minimum_plus_its_residual() {
     );
 }
 
-/// The public compiler's shared-read minimums for twelve more effect
-/// programs, (name, (steps, bytes)), with Echo's `/v3` effect templates, as
+/// The public compiler's shared-read minimums for sixteen effect programs,
+/// (name, (steps, bytes)), with Echo's `/v3` effect templates, as
 /// `xtask --example effect_v2_admission` reports them for Amblicit
-/// e306ecc9ed22c0eb166351bb9d766150dca617f2 (main after amblicit#350). The
-/// first ten are unchanged from Amblicit 615d2e59 (amblicit#349, which sizes
-/// a record-valued failure payload field from its value's shape), the first
-/// eight from 80b52f95 and the first three from 65dc5362; their checked
-/// packages are byte-identical under e306ecc9. Each
-/// package under `edict-effect-v2-admission/` is byte for byte that
-/// compiler's checked output for its source.
+/// 2b09e4ab1ecf0041b4ff251693dc295ac2b649c2 through the checked provider
+/// package, whose `echo.dpo@2` profile pins the `/v3` catalog (echo#1016).
+/// Each package under `edict-effect-v2-admission/` is byte for byte that
+/// compiler's output at exactly this minimum, under `edict.core-cost/v2`,
+/// with Echo's packaged lowerer and verifier accepting it, and the compiler
+/// refuses one unit below on either axis. The numbers are unchanged from the
+/// private `/v3` evaluation route used before the catalog was packaged
+/// (Amblicit e306ecc9; the first ten from 615d2e59, the first eight from
+/// 80b52f95, the first three from 65dc5362); aa8c7cbf and 2b09e4ab write
+/// byte-identical packages.
 ///
 /// The ninth and tenth are the record-valued payload cross-check (echo#1016): a
 /// one-field payload `{ at: { value: n } }` in place of `{ at: n }` adds

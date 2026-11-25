@@ -98,7 +98,8 @@
   check. Every `echo.dpo@2` witness is recompiled by Amblicit `2b09e4ab`;
   the `echo.dpo@1` witnesses are byte-identical under it, so
   `scripts/verify-edict-provider-host-v1.sh` uses that one compiler. The
-  provider components are promoted from byte-equal G4 candidates.
+  provider components are promoted from byte-equal G4 candidates built at
+  `851e4ee8` (lowerer `6dcba3fe`, verifier `17cbe60a` unchanged).
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact

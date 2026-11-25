@@ -3,7 +3,7 @@
 //! The runtime meter against the shared `edict.core-cost/v2` corpus.
 //!
 //! Oracles: each program's budget is the compiler minimum recorded in the
-//! corpus (Amblicit `da1574f1`, `edict.core-cost/v2`); each expected result is
+//! corpus (Amblicit `26a201e7`, `edict.core-cost/v2`); each expected result is
 //! computed by hand from the program text and also equals the copying
 //! evaluator's result. The copying usages are change-detection goldens
 //! measured with the copying evaluator as it is on `origin/main` at `ed37a03d`;
@@ -30,6 +30,9 @@ const READS: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/reads.
 const FILL: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/fill.core.cbor.hex");
 const NESTED: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/nested.core.cbor.hex");
 const MATCHES: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/matches.core.cbor.hex");
+const INTEGERS: &str =
+    include_str!("../../tests/fixtures/edict-core-cost-v2/integers.core.cbor.hex");
+const BYTES: &str = include_str!("../../tests/fixtures/edict-core-cost-v2/bytes.core.cbor.hex");
 const SHARED: &str = "core.cost.shared-reads/v1";
 
 fn core(hex: &str) -> Value {
@@ -267,6 +270,64 @@ fn variant_state_with_payload_binders_runs_within_the_compiler_minimum() {
     assert_within_minimum(MATCHES, &matches_input(), &matches_output());
 }
 
+fn integers_input(a: u64, b: u64, c: u8) -> Value {
+    record(&[
+        ("a", Value::Integer(a.into())),
+        ("b", Value::Integer(b.into())),
+        ("c", Value::Integer(c.into())),
+    ])
+}
+
+/// Expected by hand from `integers.amblicit`: min/max order the pair, the
+/// total adds `high` each round while it fits, and each checked call is
+/// present unless it overflows, underflows or divides by zero.
+fn integers_output(
+    total: u64,
+    difference: u64,
+    product: u8,
+    quotient: u64,
+    remainder: u64,
+    low: u64,
+    high: u64,
+) -> Value {
+    record(&[
+        ("total", Value::Integer(total.into())),
+        ("difference", Value::Integer(difference.into())),
+        ("product", Value::Integer(product.into())),
+        ("quotient", Value::Integer(quotient.into())),
+        ("remainder", Value::Integer(remainder.into())),
+        ("low", Value::Integer(low.into())),
+        ("high", Value::Integer(high.into())),
+    ])
+}
+
+#[test]
+fn checked_integers_and_min_max_run_within_the_compiler_minimum() {
+    // 17 - 5 = 12, 3 * 3 = 9, 17 / 5 = 3 r 2. The first round adds the
+    // initial high, 5; the seven later rounds add the ordered high, 17.
+    assert_within_minimum(
+        INTEGERS,
+        &integers_input(17, 5, 3),
+        &integers_output(124, 12, 9, 3, 2, 5, 17),
+    );
+}
+
+#[test]
+fn absent_checked_results_run_within_the_compiler_minimum() {
+    // 16 * 16 overflows U8 and the divisor is zero, so three checked results
+    // are absent. The total takes 0, then MAX, and every later add overflows.
+    assert_within_minimum(
+        INTEGERS,
+        &integers_input(u64::MAX, 0, 16),
+        &integers_output(u64::MAX, u64::MAX, 255, 0, 0, 0, u64::MAX),
+    );
+}
+
+#[test]
+fn checked_integers_meter_refuses_one_below_its_metered_work() {
+    assert_metered_work_is_enforced(INTEGERS, &integers_input(17, 5, 3));
+}
+
 #[test]
 fn shared_reads_meter_refuses_one_below_its_metered_work() {
     assert_metered_work_is_enforced(READS, &reads_input());
@@ -321,9 +382,9 @@ fn copying_schedule_is_selected_without_the_capability() {
 }
 
 #[test]
-fn read_and_effect_helper_decoding_refuses_the_shared_schedule() {
-    // `functions::decode` serves the read and effect routes, which have no
-    // shared-read meter; only the pure route admits the capability.
+fn read_route_helper_decoding_refuses_the_shared_schedule() {
+    // `functions::decode` serves the read route, which has no shared-read
+    // meter; the pure and effect routes admit the capability.
     let core = core(READS);
     let mut parser = Parser {
         types: field(&core, "types").unwrap(),
@@ -355,7 +416,8 @@ mod generated {
     //! evaluator's (a differential oracle). Replay a failure with
     //! `PROPTEST_RNG_SEED=<seed> cargo test -p warp-core --lib shared_reads_tests::generated`.
     use super::{
-        copying, core, minimum, record, run, Value, FILL, GENEROUS, MATCHES, NESTED, READS,
+        copying, core, integers_input, minimum, record, run, Value, FILL, GENEROUS, INTEGERS,
+        MATCHES, NESTED, READS,
     };
     use proptest::prelude::*;
 
@@ -378,6 +440,8 @@ mod generated {
             items().prop_map(|items| (READS, record(&[("items", items)]))),
             items().prop_map(|items| (FILL, record(&[("items", items)]))),
             items().prop_map(|items| (MATCHES, record(&[("items", items)]))),
+            (any::<u64>(), any::<u64>(), any::<u8>())
+                .prop_map(|(a, b, c)| (INTEGERS, integers_input(a, b, c))),
             any::<u64>().prop_map(|rounds| {
                 (
                     NESTED,
@@ -405,4 +469,66 @@ mod generated {
             prop_assert_eq!(Ok(result.output), expected.map(|r| r.output));
         }
     }
+}
+
+fn bytes_input(text: &[u8], tail: &[u8], start: i128, end: i128) -> Value {
+    record(&[
+        ("text", Value::Bytes(text.to_vec())),
+        ("tail", Value::Bytes(tail.to_vec())),
+        ("start", Value::Integer(start)),
+        ("end", Value::Integer(end)),
+    ])
+}
+
+/// The bytes program's output, computed here from its inputs.
+fn bytes_output(text: &[u8], tail: &[u8], start: usize, end: usize) -> Value {
+    let piece = &text[start..end];
+    record(&[
+        ("joined", Value::Integer((text.len() + tail.len()) as i128)),
+        ("piece", Value::Integer(piece.len() as i128)),
+        ("size", Value::Integer(text.len() as i128)),
+        (
+            "newlines",
+            Value::Integer(
+                text.iter()
+                    .fold(0, |count, byte| count + usize::from(*byte == b'\n'))
+                    as i128,
+            ),
+        ),
+        (
+            "first",
+            Value::Integer(i128::from(text.first().copied().unwrap_or(0))),
+        ),
+        ("valid", Value::Bool(std::str::from_utf8(piece).is_ok())),
+    ])
+}
+
+/// Every byte operation runs within the compiler minimum (echo#1016, family
+/// 5): the full 32-byte text with an 8-byte tail, an empty text, and a slice
+/// that cuts a UTF-8 sequence.
+#[test]
+fn byte_operations_run_within_the_compiler_minimum() {
+    let full = b"line one\nline two\nline three\n...";
+    assert_eq!(full.len(), 32);
+    assert_within_minimum(
+        BYTES,
+        &bytes_input(full, b"12345678", 5, 32),
+        &bytes_output(full, b"12345678", 5, 32),
+    );
+    assert_within_minimum(
+        BYTES,
+        &bytes_input(b"", b"", 0, 0),
+        &bytes_output(b"", b"", 0, 0),
+    );
+    let accented = "caf\u{e9}".as_bytes();
+    assert_within_minimum(
+        BYTES,
+        &bytes_input(accented, b"", 0, 4),
+        &bytes_output(accented, b"", 0, 4),
+    );
+}
+
+#[test]
+fn byte_operations_meter_refuses_one_below_its_metered_work() {
+    assert_metered_work_is_enforced(BYTES, &bytes_input(b"a\nb", b"c", 0, 2));
 }

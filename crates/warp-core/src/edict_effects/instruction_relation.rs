@@ -364,7 +364,8 @@ impl<'a> Scope<'a> {
             coordinate: text_field(module, "coordinate")?,
             remaining: MAX_PROGRAM_NODES,
         };
-        let helpers = functions::decode(module, exports, &mut parser)?;
+        // Typing is schedule-independent; the executor meters the schedule.
+        let (helpers, _) = functions::decode_pure(module, exports, &mut parser)?;
         let definitions = functions::definitions(module, exports, parser.coordinate)?;
         let mut inventory = BTreeMap::new();
         for local in locals {

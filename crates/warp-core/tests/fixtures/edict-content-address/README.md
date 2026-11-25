@@ -23,7 +23,7 @@ for the ensured node, which the lawpack's graph schema admits.
 The `identity-*.hex` files are the public compiler's outputs for this source,
 not authored Target IR or packages. The `effect_step_publication` example
 produces them with an unmodified Amblicit
-`7dbcbc23d72705c5e224fc994a6c767881958912` binary and the checked provider
+`2b09e4ab1ecf0041b4ff251693dc295ac2b649c2` binary and the checked provider
 package; `scripts/verify-edict-provider-host-v1.sh` reruns it with `--check`.
 That Amblicit revision sizes the provider-host fuel limit for real Echo
 programs (amblicit#326); this program needs more than the earlier 50,000,000

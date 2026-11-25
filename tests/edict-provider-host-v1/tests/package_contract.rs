@@ -173,11 +173,11 @@ struct GeneratedResourceFixture {
 /// to the effect profile, not to the `echo.dpo@1` contract bundle below.
 const EFFECT_PROFILE_RESOURCE_FIXTURES: &[GeneratedResourceFixture] = &[
     GeneratedResourceFixture {
-        path: "resource.target-intrinsics-2.cbor",
-        domain: "echo.dpo.intrinsics/v2",
+        path: "resource.target-intrinsics-3.cbor",
+        domain: "echo.dpo.intrinsics/v3",
         root: "intrinsics-document",
         bytes: include_bytes!(
-            "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor"
+            "../../../schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor"
         ),
     },
     GeneratedResourceFixture {
@@ -1927,6 +1927,35 @@ fn schema_valid_resource_replacement_cannot_cross_the_exact_owner_digest() {
     let error = validate_generated_resource_identity_closure(&lawpack, &target_profile, materials)
         .expect_err("schema validity cannot replace the exact owner-bound resource identity");
     assert_eq!(error, PackageIdentityFailure::DigestMismatch);
+}
+
+/// The packaged schema registry compiles with the `echo.dpo@2` catalog domain
+/// bound and admits the packaged `/v3` catalog. Amblicit's first
+/// `effect-cost-catalog-v1` pack (a21de8c2, #351) wrote cost rules
+/// recursively and the registry refused it with `SchemaCompileFailed` for
+/// this domain; the level-by-level pack (aa8c7cbf, #352) loads.
+#[test]
+fn packaged_registry_binds_and_admits_the_v3_intrinsics_catalog() {
+    const DOMAIN: &str = "echo.dpo.intrinsics/v3";
+    let manifest = checked_manifest();
+    assert!(
+        required_domains(&manifest).contains(&DOMAIN),
+        "the package declares a schema binding for {DOMAIN}"
+    );
+    let registry = declared_package_registry(&manifest);
+    let binding = registry
+        .bindings()
+        .iter()
+        .find(|binding| binding.domain == DOMAIN);
+    assert!(binding.is_some(), "the registry receipt binds {DOMAIN}");
+    let catalog = EFFECT_PROFILE_RESOURCE_FIXTURES
+        .iter()
+        .find(|fixture| fixture.domain == DOMAIN)
+        .expect("the effect profile ships the /v3 catalog");
+    let value = decode_canonical_cbor(catalog.bytes).expect("the /v3 catalog is canonical");
+    registry
+        .validate_canonical_value(DOMAIN, &value)
+        .expect("the packaged /v3 catalog satisfies its schema binding");
 }
 
 #[test]

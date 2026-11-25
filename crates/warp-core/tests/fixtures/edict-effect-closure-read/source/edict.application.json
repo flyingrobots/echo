@@ -1,0 +1,20 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "consumer.closures.program@1",
+  "sources": [
+    "src/Program.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/effect-closure-read/manifest.cbor",
+      "exports": "vendor/effect-closure-read/exports.cbor",
+      "adapter": "vendor/effect-closure-read/adapter.cbor",
+      "targetConfiguration": "vendor/effect-closure-read/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@2",
+    "providerPackage": "provider"
+  },
+  "outputDirectory": "application-output"
+}

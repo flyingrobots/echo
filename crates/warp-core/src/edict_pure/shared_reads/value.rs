@@ -2,7 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! This module owns the shared value representation of `edict.core-cost/v2`.
 //!
-//! Scalars are held inline. Byte strings, lists, records and variants are
+//! Scalars are held inline. An `Option` is absent or a presence around one
+//! shared item. Byte strings, lists, records and variants are
 //! immutable and reference-counted, so a clone is one reference-count update
 //! whatever the value's size: reading a local, field, element or fold state
 //! never copies. Record keys and variant labels borrow the program's own text.
@@ -14,18 +15,22 @@ use std::rc::Rc;
 
 /// One immutable runtime value; `clone` is O(1).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Shared<'p> {
+pub(crate) enum Shared<'p> {
     Bool(bool),
     Integer(i128),
     Bytes(Rc<[u8]>),
     List(Rc<[Shared<'p>]>),
     Record(Rc<[(&'p str, Shared<'p>)]>),
     Variant(Rc<Tagged<'p>>),
+    /// An absent `Option`.
+    Absent,
+    /// A present `Option` around its shared item.
+    Present(Rc<Shared<'p>>),
 }
 
 /// A closed-union value: its type identity, case and optional payload.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Tagged<'p> {
+pub(crate) struct Tagged<'p> {
     pub identity: &'p str,
     pub case: &'p str,
     pub payload: Option<Shared<'p>>,
@@ -33,7 +38,7 @@ pub(super) struct Tagged<'p> {
 
 /// Portable size in 64-byte value cells and bytes, as the schedule counts it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Size {
+pub(crate) struct Size {
     pub cells: u64,
     pub bytes: u64,
 }
@@ -102,9 +107,10 @@ pub(super) fn length(value: usize) -> Result<u64, Error> {
 impl Shared<'_> {
     /// The value's full size, as a comparison or the intent boundary sees it.
     /// The walk visits every cell once.
-    pub(super) fn full_size(&self) -> Result<Size, Error> {
+    pub(crate) fn full_size(&self) -> Result<Size, Error> {
         match self {
-            Self::Bool(_) | Self::Integer(_) => Ok(CELL),
+            // Absence is one cell; a presence is one cell plus its item.
+            Self::Bool(_) | Self::Integer(_) | Self::Absent => Ok(CELL),
             Self::Bytes(bytes) => CELL.plus(Size {
                 cells: 0,
                 bytes: length(bytes.len())?,
@@ -115,6 +121,7 @@ impl Shared<'_> {
             Self::Record(fields) => fields.iter().try_fold(CELL, |total, (key, value)| {
                 total.plus(value.full_size()?)?.field(key)
             }),
+            Self::Present(item) => CELL.plus(item.full_size()?),
             Self::Variant(tagged) => {
                 let payload = match &tagged.payload {
                     Some(payload) => payload.full_size()?,
@@ -126,9 +133,46 @@ impl Shared<'_> {
     }
 }
 
+impl Shared<'_> {
+    /// The canonical value this one stands for, in the representation the
+    /// copying evaluator would hold: a record keeps its own field order, a
+    /// variant is `{ type, case, payload? }` and an `Option` is `null` or a
+    /// one-item array. Effect steps take canonical values; this conversion is
+    /// the boundary work they already charge as an input.
+    pub(crate) fn to_value(&self) -> Value {
+        match self {
+            Self::Bool(value) => Value::Bool(*value),
+            Self::Integer(value) => Value::Integer(*value),
+            Self::Bytes(bytes) => Value::Bytes(bytes.to_vec()),
+            Self::List(items) => Value::Array(items.iter().map(Self::to_value).collect()),
+            Self::Record(fields) => Value::Map(
+                fields
+                    .iter()
+                    .map(|(key, value)| (Value::Text((*key).into()), value.to_value()))
+                    .collect(),
+            ),
+            Self::Variant(tagged) => {
+                let mut entries = vec![
+                    (
+                        Value::Text("type".into()),
+                        Value::Text(tagged.identity.into()),
+                    ),
+                    (Value::Text("case".into()), Value::Text(tagged.case.into())),
+                ];
+                if let Some(payload) = &tagged.payload {
+                    entries.push((Value::Text("payload".into()), payload.to_value()));
+                }
+                Value::Map(entries)
+            }
+            Self::Absent => Value::Null,
+            Self::Present(item) => Value::Array(vec![item.to_value()]),
+        }
+    }
+}
+
 /// Validates a canonical input against its type while sharing it. Keys and
 /// labels are taken from the type, which outlives the evaluation.
-pub(super) fn from_canonical<'p>(
+pub(crate) fn from_canonical<'p>(
     value: &Value,
     ty: &'p RuntimeType,
     depth: usize,
@@ -148,6 +192,15 @@ pub(super) fn from_canonical<'p>(
         {
             Ok(Shared::Bytes(Rc::from(bytes.as_slice())))
         }
+        (Value::Null, RuntimeType::Option(_)) => Ok(Shared::Absent),
+        (Value::Array(items), RuntimeType::Option(item)) => match items.as_slice() {
+            [value] => Ok(Shared::Present(Rc::new(from_canonical(
+                value,
+                item,
+                depth + 1,
+            )?))),
+            _ => Err(Error::InvalidArtifact),
+        },
         (Value::Array(items), RuntimeType::List { item, max }) if length(items.len())? <= *max => {
             let item = item.as_deref().ok_or(Error::InvalidArtifact)?;
             let items = items
@@ -191,7 +244,7 @@ pub(super) fn from_canonical<'p>(
 }
 
 /// Validates a result against its type while materializing it canonically.
-pub(super) fn to_canonical(
+pub(crate) fn to_canonical(
     value: &Shared<'_>,
     ty: &RuntimeType,
     depth: usize,
@@ -210,6 +263,10 @@ pub(super) fn to_canonical(
             if (*min..=*max).contains(&length(bytes.len())?) =>
         {
             Ok(Value::Bytes(bytes.to_vec()))
+        }
+        (Shared::Absent, RuntimeType::Option(_)) => Ok(Value::Null),
+        (Shared::Present(value), RuntimeType::Option(item)) => {
+            Ok(Value::Array(vec![to_canonical(value, item, depth + 1)?]))
         }
         (Shared::List(items), RuntimeType::List { item, max }) if length(items.len())? <= *max => {
             let item = item.as_deref().ok_or(Error::InvalidArtifact)?;

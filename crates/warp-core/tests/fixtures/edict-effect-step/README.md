@@ -8,13 +8,14 @@ the `echo.dpo@2` effect target profile and binds its `readFact` effect to
 `echo.dpo@2.node-atom-read`, and one program, `ReadFact.edict`, that reads one
 atom and returns it, mapping each read failure to a declared obstruction. The
 coordinates under `consumer.effects` are neutral; Echo interprets none of them.
-The configuration carries the `echo.dpo.intrinsics/v2` catalog the profile
+The configuration carries the `echo.dpo.intrinsics/v3` catalog the profile
 pins, a graph schema with one node type (`0x5b…`) holding one atom type
 (`0x5c…`), and a footprint law that reads that node type and writes nothing.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
 compiler, Amblicit `0999db831422f97bd013d3d89a38fbb6f9e8ce96`, and reproduced
-unchanged by `0034605467fcace397e7e30e4219a74aca57f183`: the package and
+unchanged by `0034605467fcace397e7e30e4219a74aca57f183`, then recompiled for the
+`/v3` `echo.dpo@2` profile by `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`: the package and
 verifier report it wrote through the checked provider package in
 `schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
 configuration its lawpack build wrote. Nothing here was decoded and
@@ -31,7 +32,7 @@ substituted `echo.dpo@2` profile, and requires Echo's lowerer to refuse each.
 The lowerer reports every judgment refusal with one message, so these controls
 show that each case is refused, not which check refuses it. The native tests
 in `crates/echo-edict-provider-verifier/tests/public_read_effect.rs` pin that
-the `echo.dpo@1` profile refuses the `echo.dpo.intrinsics/v2` catalog this
+the `echo.dpo@1` profile refuses the `echo.dpo.intrinsics/v3` catalog this
 program's configuration carries. It also compiles
 `controls/zero-failure-read/ReadFact.edict`, which calls the read without a
 failure map, against the same lawpack with every failure removed from its
@@ -45,7 +46,7 @@ failure table for `node-atom-read` disagrees).
 
 | File | Domain-framed digest |
 | --- | --- |
-| `read-executable-operation-package.hex` | `echo:operation-package:v1` `264e6a2a90d1c6141e1b056c048e5a9e00a161cb48ef2e620d0037954004027c` |
+| `read-executable-operation-package.hex` | `echo:operation-package:v1` `1164889d93ac2c674c81593975d62d01f3f5ad4b965c2a126a8a3b13c3d3f772` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_read_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

@@ -139,8 +139,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 802,832-byte checked lowerer component has SHA-256
-`165b41a85d70cfe9f2578cc920ff40e41e2e48d3e1f31410b6b28bea4603e528` and has
+The refreshed 844,846-byte checked lowerer component has SHA-256
+`6dcba3fe5df21ebb26ae3c1b0f10040f69841a756163ca969ed7f548ed101258` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -320,8 +320,24 @@ the same tolerance the bounded-read route already has.
 The lowerer accepts exactly two target profiles: `echo.dpo@1` and the effect
 profile `echo.dpo@2` (#985). `echo.dpo@2` admits only this route; every other
 route refuses it with `echo.dpo@2 admits only authored effect programs`. Its
-catalog, `echo.dpo.intrinsics/v2`, declares the runtime's effect intrinsics as
+catalog, `echo.dpo.intrinsics/v3`, declares the runtime's effect intrinsics as
 `echo.dpo@2.*` and it names `echo.span-ir/v2`, so effect steps can pass the
 judgment under it. The configuration's catalog must be the one the selected
 profile pins, and the judgment keys its intrinsic tables on the operation below
 either namespace.
+
+That catalog, the package's `generated/resources/resource.target-intrinsics-3.cbor`,
+is an `edict.target-profile.intrinsics/v3` catalog (amblicit#341): every effect intrinsic
+carries an `effectCostRule`, and a top-level `parameters` map declares
+`maxEdgeScans` (`graphReads.maxEdgeScans`, `uint`) and `selector`
+(`graphReads.closureSelector`, `helper`). Under the shared-read schedule a
+template replaces the compiler's generic charge of an effect step, so each
+template states exactly what this lowerer charges for the step beyond its input
+expression: the input's validations and the intrinsic's own work. The empty
+obstruction payload (1 step, 64 bytes) stays outside every template, as
+Amblicit charges it. The `cost_templates` unit tests evaluate each template
+over fixture types and require it to equal the lowerer's charge, and keep the
+committed catalog byte-equal to the generated one; the test reads no files
+or environment, so a changed catalog is written by hand from its failure.
+The catalog is not yet part of the provider package: the
+upstream provider contracts have no `/v3` schema rule to validate it against.

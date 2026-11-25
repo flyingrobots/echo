@@ -10,7 +10,11 @@
 use super::value::{Shared, Size, Tagged, CELL};
 use crate::edict_pure::{
     evaluate::Meter,
-    model::{Comparison, Expr, Helper, MatchArm, Predicate, RuntimeType},
+    integer_operations,
+    model::{
+        Comparison, Expr, Helper, IdentityIntrinsic, IntegerOperation, MatchArm, OptionOperation,
+        Predicate, RuntimeType,
+    },
     EvaluationError as Error,
 };
 use echo_edict_canonical::CanonicalValueV1 as Value;
@@ -18,11 +22,11 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 /// The values bound in one lexical frame.
-pub(super) type Locals<'p> = BTreeMap<&'p str, Shared<'p>>;
+pub(crate) type Locals<'p> = BTreeMap<&'p str, Shared<'p>>;
 
-pub(super) struct Evaluator<'p, 'm> {
-    pub helpers: &'p BTreeMap<String, Helper>,
-    pub meter: &'m mut Meter,
+pub(crate) struct Evaluator<'p, 'm> {
+    pub(crate) helpers: &'p BTreeMap<String, Helper>,
+    pub(crate) meter: &'m mut Meter,
 }
 
 impl<'p> Evaluator<'p, '_> {
@@ -32,7 +36,7 @@ impl<'p> Evaluator<'p, '_> {
         self.meter.allocate(size.bytes)
     }
 
-    pub(super) fn expression(
+    pub(crate) fn expression(
         &mut self,
         expr: &'p Expr,
         locals: &mut Locals<'p>,
@@ -72,6 +76,26 @@ impl<'p> Evaluator<'p, '_> {
                 self.build(shell)?;
                 Ok(Shared::Record(Rc::from(values)))
             }
+            Expr::OrderedRecord(fields) => {
+                let mut values = Vec::new();
+                let mut shell = CELL;
+                // Authored order decides which failing field ends the call.
+                for (key, value) in fields {
+                    values.push((key.as_str(), self.expression(value, locals, depth + 1)?));
+                    shell = shell.field(key)?;
+                }
+                self.build(shell)?;
+                // The value is the canonical record, as under copying: keys
+                // shorter first, then bytewise. Names are unique.
+                values.sort_by(|(left, _), (right, _)| {
+                    left.len()
+                        .cmp(&right.len())
+                        .then_with(|| left.as_bytes().cmp(right.as_bytes()))
+                });
+                Ok(Shared::Record(Rc::from(values)))
+            }
+            // A failure returns no value; its step is already charged.
+            Expr::Fail(failure) => Err(Error::UnmappedFailure(failure.clone())),
             Expr::Variant {
                 identity,
                 case,
@@ -122,8 +146,9 @@ impl<'p> Evaluator<'p, '_> {
                 ) else {
                     return Err(Error::InvalidArtifact);
                 };
-                // One step per operand cell; the scalar result is held inline.
+                // One step per operand cell, and the result is a new value.
                 self.meter.charge_steps(2)?;
+                self.build(CELL)?;
                 let limit = i128::from(*max);
                 if !(0..=limit).contains(&left) || !(0..=limit).contains(&right) {
                     return Err(Error::InvalidArtifact);
@@ -139,18 +164,255 @@ impl<'p> Evaluator<'p, '_> {
             | Expr::ListAt { .. }
             | Expr::ListAppend { .. }
             | Expr::ListConcat { .. } => self.list_operation(expr, locals, depth),
-            // Byte intrinsics are refused before evaluation; see `admit`.
+            Expr::Integer {
+                operation,
+                max,
+                left,
+                right,
+            } => {
+                let (Shared::Integer(left), Shared::Integer(right)) = (
+                    self.expression(left, locals, depth + 1)?,
+                    self.expression(right, locals, depth + 1)?,
+                ) else {
+                    return Err(Error::InvalidArtifact);
+                };
+                // One step per operand cell; the result, with a checked
+                // result's presence cell, is a new value charged in full.
+                self.meter.charge_steps(2)?;
+                let word = |value: i128| {
+                    u64::try_from(value)
+                        .ok()
+                        .filter(|value| value <= max)
+                        .ok_or(Error::InvalidArtifact)
+                };
+                let result = integer_operations::apply(*operation, *max, word(left)?, word(right)?)
+                    .map(|value| Shared::Integer(i128::from(value)));
+                let result = if matches!(operation, IntegerOperation::Min | IntegerOperation::Max) {
+                    result.ok_or(Error::InvalidArtifact)?
+                } else {
+                    result.map_or(Shared::Absent, |value| Shared::Present(Rc::new(value)))
+                };
+                self.build(result.full_size()?)?;
+                Ok(result)
+            }
+            Expr::Option {
+                operation, args, ..
+            } => self.option_operation(*operation, args, locals, depth),
+            Expr::Identity(intrinsic, args) => self.identity(*intrinsic, args, locals, depth),
             Expr::ByteUtf8 { .. }
             | Expr::ByteAt { .. }
             | Expr::ByteLength { .. }
             | Expr::ByteCount { .. }
             | Expr::ByteSlice { .. }
-            | Expr::ByteConcat { .. }
-            | Expr::Identity(..)
-            | Expr::Option { .. }
-            | Expr::Fail(_)
-            | Expr::OrderedRecord(_)
-            | Expr::Integer { .. } => Err(Error::UnsupportedProgram),
+            | Expr::ByteConcat { .. } => self.byte_operation(expr, locals, depth),
+        }
+    }
+
+    /// Evaluates a byte operand within its declared length bounds.
+    fn bytes(
+        &mut self,
+        operand: &'p Expr,
+        (min, max): (u64, u64),
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Rc<[u8]>, Error> {
+        let Shared::Bytes(bytes) = self.expression(operand, locals, depth + 1)? else {
+            return Err(Error::InvalidArtifact);
+        };
+        let length = u64::try_from(bytes.len()).map_err(|_| Error::InvalidArtifact)?;
+        if !(min..=max).contains(&length) {
+            return Err(Error::InvalidArtifact);
+        }
+        Ok(bytes)
+    }
+
+    /// Evaluates an unsigned index operand.
+    fn index(
+        &mut self,
+        operand: &'p Expr,
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<usize, Error> {
+        let Shared::Integer(index) = self.expression(operand, locals, depth + 1)? else {
+            return Err(Error::InvalidArtifact);
+        };
+        usize::try_from(index).map_err(|_| Error::InvalidArtifact)
+    }
+
+    /// A byte operation keeps its copying call work, one step per operand
+    /// cell and per operand byte, and its result is a new value charged in
+    /// full (amblicit#340). Each charge is admitted before the work.
+    fn byte_operation(
+        &mut self,
+        expr: &'p Expr,
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Shared<'p>, Error> {
+        let scan = |bytes: &[u8]| {
+            u64::try_from(bytes.len())
+                .ok()
+                .and_then(|length| length.checked_add(1))
+                .ok_or(Error::StepBudgetExceeded)
+        };
+        let result = match expr {
+            Expr::ByteUtf8 { min, max, value } => {
+                let bytes = self.bytes(value, (*min, *max), locals, depth)?;
+                self.meter.charge_steps(scan(&bytes)?)?;
+                Shared::Bool(std::str::from_utf8(&bytes).is_ok())
+            }
+            Expr::ByteLength { min, max, value } => {
+                let bytes = self.bytes(value, (*min, *max), locals, depth)?;
+                self.meter.charge_steps(1)?;
+                Shared::Integer(i128::try_from(bytes.len()).map_err(|_| Error::InvalidArtifact)?)
+            }
+            Expr::ByteCount {
+                min,
+                max,
+                value,
+                needle,
+            } => {
+                let bytes = self.bytes(value, (*min, *max), locals, depth)?;
+                self.meter.charge_steps(scan(&bytes)?)?;
+                let count = bytes
+                    .iter()
+                    .fold(0_usize, |count, byte| count + usize::from(byte == needle));
+                Shared::Integer(i128::try_from(count).map_err(|_| Error::InvalidArtifact)?)
+            }
+            Expr::ByteAt {
+                min,
+                max,
+                value,
+                index,
+            } => {
+                let bytes = self.bytes(value, (*min, *max), locals, depth)?;
+                let index = self.index(index, locals, depth)?;
+                self.meter.charge_steps(2)?;
+                Shared::Integer(i128::from(*bytes.get(index).ok_or(Error::InvalidArtifact)?))
+            }
+            Expr::ByteSlice {
+                min,
+                max,
+                value,
+                start,
+                end,
+            } => {
+                let bytes = self.bytes(value, (*min, *max), locals, depth)?;
+                let start = self.index(start, locals, depth)?;
+                let end = self.index(end, locals, depth)?;
+                let selected = bytes.get(start..end).ok_or(Error::InvalidArtifact)?;
+                self.meter.charge_steps(
+                    scan(selected)?
+                        .checked_add(2)
+                        .ok_or(Error::StepBudgetExceeded)?,
+                )?;
+                Shared::Bytes(Rc::from(selected))
+            }
+            Expr::ByteConcat {
+                left_min,
+                left_max,
+                right_min,
+                right_max,
+                left,
+                right,
+            } => {
+                let left = self.bytes(left, (*left_min, *left_max), locals, depth)?;
+                let right = self.bytes(right, (*right_min, *right_max), locals, depth)?;
+                self.meter.charge_steps(
+                    scan(&left)?
+                        .checked_add(scan(&right)?)
+                        .ok_or(Error::StepBudgetExceeded)?,
+                )?;
+                Shared::Bytes(Rc::from([&left[..], &right[..]].concat()))
+            }
+            _ => return Err(Error::InvalidArtifact),
+        };
+        self.build(result.full_size()?)?;
+        Ok(result)
+    }
+
+    /// An identity intrinsic runs outside the shared heap: every operand is
+    /// copied in and charged at full size, as a target intrinsic is under
+    /// Amblicit's schedule, then the call does its copying-schedule work and
+    /// returns a new 32-byte value.
+    fn identity(
+        &mut self,
+        intrinsic: IdentityIntrinsic,
+        args: &'p [Expr],
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Shared<'p>, Error> {
+        let types = intrinsic.parameter_types();
+        if args.len() != types.len() {
+            return Err(Error::InvalidArtifact);
+        }
+        let mut operands = Vec::new();
+        operands
+            .try_reserve_exact(args.len())
+            .map_err(|_| Error::HostAllocationFailed)?;
+        for (argument, ty) in args.iter().zip(&types) {
+            let shared = self.expression(argument, locals, depth + 1)?;
+            self.build(shared.full_size()?)?;
+            operands.push(super::to_canonical(&shared, ty, depth + 1)?);
+        }
+        let identity = crate::edict_pure::identity::apply(
+            intrinsic,
+            &operands,
+            self.meter,
+            crate::edict_pure::identity::Scratch::InOperandCopy,
+            depth,
+        )?;
+        let Value::Bytes(bytes) = identity else {
+            return Err(Error::InvalidArtifact);
+        };
+        Ok(Shared::Bytes(Rc::from(bytes)))
+    }
+
+    /// An `Option` consumer reads its operands by reference and charges one
+    /// step per operand cell scanned. Constructors are refused by `admit`.
+    fn option_operation(
+        &mut self,
+        operation: OptionOperation,
+        args: &'p [Expr],
+        locals: &mut Locals<'p>,
+        depth: usize,
+    ) -> Result<Shared<'p>, Error> {
+        let mut values = Vec::with_capacity(args.len());
+        let mut cells = 0_u64;
+        for argument in args {
+            let value = self.expression(argument, locals, depth + 1)?;
+            cells = cells
+                .checked_add(value.full_size()?.cells)
+                .ok_or(Error::StepBudgetExceeded)?;
+            values.push(value);
+        }
+        self.meter.charge_steps(cells)?;
+        match (operation, values.as_slice()) {
+            // A constructor builds a new Option, charged in full
+            // (amblicit#340); its payload is shared.
+            (OptionOperation::Some, [item]) => {
+                let result = Shared::Present(Rc::new(item.clone()));
+                self.build(result.full_size()?)?;
+                Ok(result)
+            }
+            (OptionOperation::None, []) => {
+                self.build(Shared::Absent.full_size()?)?;
+                Ok(Shared::Absent)
+            }
+            (OptionOperation::IsSome, [operand]) => {
+                let present = match operand {
+                    Shared::Present(_) => true,
+                    Shared::Absent => false,
+                    _ => return Err(Error::InvalidArtifact),
+                };
+                // The flag is a new value; `unwrap` and `default` share theirs.
+                self.build(CELL)?;
+                Ok(Shared::Bool(present))
+            }
+            // A checked artifact proved presence; absence is a forged artifact.
+            (OptionOperation::Unwrap, [Shared::Present(item)])
+            | (OptionOperation::Default, [Shared::Present(item), _]) => Ok(Shared::clone(item)),
+            (OptionOperation::Default, [Shared::Absent, fallback]) => Ok(fallback.clone()),
+            _ => Err(Error::InvalidArtifact),
         }
     }
 
@@ -350,7 +612,7 @@ impl<'p> Evaluator<'p, '_> {
         }
     }
 
-    pub(super) fn predicate(
+    pub(crate) fn predicate(
         &mut self,
         predicate: &'p Predicate,
         locals: &mut Locals<'p>,
@@ -408,7 +670,11 @@ impl<'p> Evaluator<'p, '_> {
 #[allow(clippy::panic, reason = "test fixtures fail loudly")]
 mod tests {
     use super::{Evaluator, Locals, Shared};
-    use crate::edict_pure::{evaluate::Meter, model::Expr, EvaluationLimits};
+    use crate::edict_pure::{
+        evaluate::Meter,
+        model::{Expr, IntegerOperation},
+        EvaluationLimits,
+    };
     use std::collections::BTreeMap;
     use std::rc::Rc;
 
@@ -420,6 +686,59 @@ mod tests {
             max_allocated_bytes: 0,
             max_output_bytes: 0,
         }
+    }
+
+    fn integer(value: i128) -> Expr {
+        Expr::Constant(echo_edict_canonical::CanonicalValueV1::Integer(value))
+    }
+
+    /// Allocation the meter recorded for evaluating `expr` with no locals.
+    fn allocated(expr: &Expr) -> u64 {
+        let helpers = BTreeMap::new();
+        let mut meter = Meter::new(EvaluationLimits {
+            max_allocated_bytes: 1_000,
+            ..limits()
+        });
+        let mut evaluator = Evaluator {
+            helpers: &helpers,
+            meter: &mut meter,
+        };
+        assert!(
+            evaluator.expression(expr, &mut Locals::new(), 0).is_ok(),
+            "evaluates"
+        );
+        meter.usage().1
+    }
+
+    /// Oracle: amblicit#340. A prelude call that builds a new value is
+    /// charged that value in full: one cell for a word, and a presence cell
+    /// plus its item for a present checked result. The two constant operands
+    /// are one cell each.
+    #[test]
+    fn integer_results_are_charged_as_new_values() {
+        let add = Expr::UnsignedAdd {
+            max: 9,
+            left: Box::new(integer(4)),
+            right: Box::new(integer(5)),
+        };
+        let checked = |operation| Expr::Integer {
+            operation,
+            max: u64::MAX,
+            left: Box::new(integer(4)),
+            right: Box::new(integer(5)),
+        };
+        assert_eq!(allocated(&add), 3 * 64, "unsigned add");
+        assert_eq!(allocated(&checked(IntegerOperation::Min)), 3 * 64, "min");
+        assert_eq!(
+            allocated(&checked(IntegerOperation::CheckedAdd)),
+            4 * 64,
+            "present checked result"
+        );
+        assert_eq!(
+            allocated(&checked(IntegerOperation::CheckedSub)),
+            3 * 64,
+            "absent checked result"
+        );
     }
 
     /// Reads hand back the stored value itself, never a copy: the property

@@ -37,9 +37,9 @@ const NAMESPACES: [Namespace; 2] = [
     },
     Namespace {
         coordinate: "echo.dpo@2",
-        catalog: "echo.dpo.intrinsics/v2",
+        catalog: "echo.dpo.intrinsics/v3",
         structured: true,
-        catalog_api: "edict.target-profile.intrinsics/v2",
+        catalog_api: "edict.target-profile.intrinsics/v3",
     },
 ];
 
@@ -75,7 +75,7 @@ mod tests {
         );
         assert_eq!(
             namespace("echo.dpo@2").map(|n| n.catalog),
-            Some("echo.dpo.intrinsics/v2")
+            Some("echo.dpo.intrinsics/v3")
         );
         assert_eq!(namespace("echo.dpo@3"), None);
         assert_eq!(namespace("echo.dpo"), None);

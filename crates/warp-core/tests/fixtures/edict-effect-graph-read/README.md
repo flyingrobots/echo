@@ -11,14 +11,14 @@ obstructions, and `fx.ensureEdge` to `echo.dpo@2.ensure-edge`; and one program,
 `fromId` to the target of the first edge it read, or to the requested node when
 it read none (flyingrobots/echo#982). The coordinates under `consumer.links`
 are neutral; Echo interprets none of them. The configuration carries the
-`echo.dpo.intrinsics/v2` catalog the profile pins, a graph schema with one
+`echo.dpo.intrinsics/v3` catalog the profile pins, a graph schema with one
 mutable node type (`0x6b…`), one portal-owner type (`0x6c…`) and one edge type
 (`0x6d…`), a footprint law that reads those nodes, scans `E` ranges and writes
 one `E` edge (two write slots: the edge and its source's range), and a
 `graphReads` declaration allowing eight edge scans.
 
 The hexadecimal files are unchanged canonical CBOR written by the public
-compiler, Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`: the package and
+compiler, Amblicit `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`: the package and
 verifier report it wrote through the checked provider package in
 `schemas/edict-provider/package/v1`, and the lawpack manifest, adapter and
 configuration its lawpack build wrote. Nothing here was decoded and
@@ -33,7 +33,7 @@ a substituted `echo.dpo@2` profile.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `link-executable-operation-package.hex` | `echo:operation-package:v1` `31c092bec1c0b3a061232e01ab0fa2943469f22324f5e240f2d30d6fb1dbe4c1` |
+| `link-executable-operation-package.hex` | `echo:operation-package:v1` `cb362ed3001604563d6487e165d8fbc31e78c9bb87d633c6f8838bcf2fc6f6b3` |
 
 `crates/warp-core/tests/executable_operation_pipeline/public_graph_read_effect.rs`
 fixes that pin independently of the bytes, admits the package under the

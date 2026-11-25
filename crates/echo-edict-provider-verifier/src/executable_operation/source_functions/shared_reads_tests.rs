@@ -3,7 +3,7 @@
 //! The verifier's charge check against the shared `edict.core-cost/v2` corpus.
 //!
 //! Oracles: each module's Core budget is the compiler minimum (Amblicit
-//! `da1574f1`, `edict.core-cost/v2`), so the verifier must admit it and refuse
+//! `26a201e7`, `edict.core-cost/v2`), so the verifier must admit it and refuse
 //! one step or one byte less. The copying costs are change-detection goldens
 //! measured with this audit as it is on `origin/main` at `ed37a03d`.
 #![allow(
@@ -22,6 +22,10 @@ const NESTED: &str =
     include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/nested.core.cbor.hex");
 const MATCHES: &str =
     include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/matches.core.cbor.hex");
+const INTEGERS: &str =
+    include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/integers.core.cbor.hex");
+const BYTES: &str =
+    include_str!("../../../../warp-core/tests/fixtures/edict-core-cost-v2/bytes.core.cbor.hex");
 const SHARED: &str = "core.cost.shared-reads/v1";
 
 fn core(hex: &str) -> Value {
@@ -122,6 +126,11 @@ fn variant_state_with_payload_binders_is_judged_at_the_compiler_minimum() {
 }
 
 #[test]
+fn checked_integers_and_min_max_are_judged_at_the_compiler_minimum() {
+    assert_minimum_is_exact(INTEGERS);
+}
+
+#[test]
 fn copying_schedule_judges_the_corpus_exactly_as_before() {
     assert_eq!(copying_cost(READS), (160_635, 7_514_044, 32), "reads");
     assert_eq!(copying_cost(FILL), (131_793, 6_847_227, 1_758), "fill");
@@ -144,4 +153,45 @@ fn shared_capability_admits_only_the_pure_inventory() {
     };
     capabilities.push(Value::Text(SHARED.into()));
     assert!(super::super::capabilities::validate(&duplicated).is_err());
+}
+
+/// The corpus module with its output budget set to `output`.
+fn with_output(mut core: Value, output: i128) -> Value {
+    let budget = entry(
+        entry(entry(&mut core, "intents"), "run"),
+        "coreEvaluationBudget",
+    );
+    *entry(budget, "maxOutputBytes") = Value::Integer(output);
+    core
+}
+
+/// Every byte operation (`len`, `slice`, `count`, `at`, `isUtf8` and
+/// concatenation) under amblicit#340: each call keeps its copying charge and
+/// is charged the value it builds in full (echo#1016, family 5). The step
+/// and allocation minimums are exactly the compiler's.
+///
+/// The output bound is not: it is the ordinary judgment's, the same under
+/// either schedule, and Echo's is 142 bytes where the compiler's is 79. So
+/// this program is judged with Echo's output bound, pinned here.
+#[test]
+fn byte_operations_are_judged_at_the_compiler_minimum() {
+    const ECHO_OUTPUT: i128 = 142;
+    assert!(
+        !admitted(&core(BYTES)),
+        "the compiler's output bound now fits"
+    );
+    let exact = |hex: &str| with_output(core(hex), ECHO_OUTPUT);
+    assert!(admitted(&exact(BYTES)), "refused at the compiler minimum");
+    assert!(
+        !admitted(&with_output(below(BYTES, "maxSteps"), ECHO_OUTPUT)),
+        "admitted one step less"
+    );
+    assert!(
+        !admitted(&with_output(below(BYTES, "maxAllocatedBytes"), ECHO_OUTPUT)),
+        "admitted one byte less"
+    );
+    assert!(
+        !admitted(&with_output(core(BYTES), ECHO_OUTPUT - 1)),
+        "admitted one output byte less than Echo's bound"
+    );
 }

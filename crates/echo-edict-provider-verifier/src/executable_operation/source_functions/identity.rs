@@ -47,6 +47,19 @@ fn ceilings(name: &str) -> Option<Vec<Schema>> {
     })
 }
 
+/// The catalog cost rule the pinned `echo.dpo@2` catalog carries for the
+/// identity intrinsic `name`: base ticks, then the ticks per unit of each
+/// operand's sequence maximum, in operand order.
+pub(super) fn catalog_rule(name: &str) -> Option<(u128, [u128; 5])> {
+    Some(match name {
+        "echo.dpo@2.contentAddress" => (71, [0, 0, 0, 1, 67]),
+        "echo.dpo@2.contentEdgeId" => (70, [0; 5]),
+        "echo.dpo@2.slotEdgeId" => (69, [0; 5]),
+        "echo.dpo@2.attachmentValueDigest" => (68, [0, 1, 0, 0, 0]),
+        _ => return None,
+    })
+}
+
 /// Whether `name` is one of the four identity coordinates.
 pub(super) fn is_identity(name: &str) -> bool {
     ceilings(name).is_some()

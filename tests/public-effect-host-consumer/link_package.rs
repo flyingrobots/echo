@@ -38,7 +38,7 @@ const OTHER_PACKAGE: &str = include_str!(
 );
 /// `echo:operation-package:v1` identity of the retained package bytes,
 /// recorded when the package was published (echo#982).
-const PACKAGE_PIN: &str = "31c092bec1c0b3a061232e01ab0fa2943469f22324f5e240f2d30d6fb1dbe4c1";
+const PACKAGE_PIN: &str = "cb362ed3001604563d6487e165d8fbc31e78c9bb87d633c6f8838bcf2fc6f6b3";
 const OPERATION: &str = "consumer.links.program@1.link";
 const AUTHORITY_LABEL: &[u8] = b"consumer.links.authority/v1";
 const GRANT: [u8; 32] = [9; 32];

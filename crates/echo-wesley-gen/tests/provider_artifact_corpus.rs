@@ -78,7 +78,7 @@ const CORPUS_PATHS: [&str; 25] = [
     "resources/resource.target-bundle-profile.cbor",
     "resources/resource.target-cost-algebra.cbor",
     "resources/resource.target-footprint-algebra.cbor",
-    "resources/resource.target-intrinsics-2.cbor",
+    "resources/resource.target-intrinsics-3.cbor",
     "resources/resource.target-intrinsics.cbor",
     "resources/resource.target-ir-2.cbor",
     "resources/resource.target-ir.cbor",

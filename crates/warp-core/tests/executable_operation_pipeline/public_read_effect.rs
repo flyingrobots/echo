@@ -27,7 +27,7 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-step/read-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "264e6a2a90d1c6141e1b056c048e5a9e00a161cb48ef2e620d0037954004027c";
+const PACKAGE_PIN: &str = "1164889d93ac2c674c81593975d62d01f3f5ad4b965c2a126a8a3b13c3d3f772";
 const OPERATION: &str = "consumer.effects.program@1.read";
 const AUTHORITY_LABEL: &[u8] = b"consumer.effects.authority/v1";
 /// The node and atom types the program's graph schema and footprint law name.

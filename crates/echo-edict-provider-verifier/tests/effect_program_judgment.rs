@@ -113,9 +113,114 @@ const VERDICTS: &str =
 const REASONS: &str =
     include_str!("../../echo-edict-provider-lowerer/tests/fixtures/effect-programs/reasons.txt");
 
+/// Public compiler witnesses kept outside the shared corpus, beside the
+/// runtime tests that run them.
+const WITNESSES: &[(&str, &str)] = &[
+    (
+        "closure-read-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-closure-read/closure-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "identity-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-content-address/identity-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "attachment-digest-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-attachment-digest/bump-executable-operation-package.hex"
+        ),
+    ),    (
+        "option-value-witness",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-option-value/option-executable-operation-package.hex"
+        ),
+    ),    (
+        "typed-failure-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/typed-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-attempt-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-attempt-two-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-two-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-empty-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-empty-executable-operation-package.hex"
+        ),
+    ),    (
+        "payload-attempt-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-attempt-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-require-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-require-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-scalar-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-scalar-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-record-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-record-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-nested-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-nested-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-entry-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-entry-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-bytes-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-bytes-executable-operation-package.hex"
+        ),
+    ),
+    (
+        "payload-loop-mixed-v2-admission",
+        include_str!(
+            "../../warp-core/tests/fixtures/edict-effect-v2-admission/payload-loop-mixed-executable-operation-package.hex"
+        ),
+    ),
+];
+
 fn package_bytes(name: &str) -> Vec<u8> {
     let hex = RETAINED
         .iter()
+        .chain(WITNESSES)
         .find_map(|(entry, hex)| (*entry == name).then_some(*hex))
         .expect(name);
     hex::decode(hex.trim()).expect("hex")
@@ -594,28 +699,55 @@ fn an_undeclared_adapter_class_is_named_as_the_adapter() {
     }
 }
 
-/// The admitted `read-control` package with one more required Core
-/// capability, every Core and Target IR pin recomputed.
-fn read_control_with_capability(capability: &str) -> Vec<u8> {
+/// A retained package edited and repinned: its Core requires `capability` as
+/// well, when given, and its intent's Core budget (in Core and Target IR
+/// alike) is set on the axes given. Every Core and Target IR pin is
+/// recomputed.
+fn edited(
+    name: &str,
+    capability: Option<&str>,
+    steps: Option<u64>,
+    bytes_: Option<u64>,
+) -> Vec<u8> {
     let bytes_of = |value: &V| {
         let V::Bytes(bytes) = value else {
             panic!("bytes")
         };
         bytes.clone()
     };
-    let mut package = decode(&package_bytes("read-control")).expect("package");
+    let mut package = decode(&package_bytes(name)).expect("package");
     let mut program = decode(&bytes_of(field_mut(&mut package, "program"))).expect("program");
     let mut bundle =
         decode(&bytes_of(field_mut(&mut program, "compiled_program"))).expect("compiler bundle");
-    let mut module = decode(&bytes_of(field_mut(&mut bundle, "core_artifact"))).expect("Core");
-    let V::Array(capabilities) = field_mut(&mut module, "requiredCoreCapabilities") else {
-        panic!("capabilities")
+    let V::Text(intent) = field_mut(&mut bundle, "intent").clone() else {
+        panic!("intent")
     };
-    capabilities.push(V::Text(capability.into()));
-    let core_identity =
-        digest_canonical_value_bytes_v1("edict.core.module/v1", &module).expect("Core identity");
+    let mut module = decode(&bytes_of(field_mut(&mut bundle, "core_artifact"))).expect("Core");
+    if let Some(capability) = capability {
+        let V::Array(capabilities) = field_mut(&mut module, "requiredCoreCapabilities") else {
+            panic!("capabilities")
+        };
+        capabilities.push(V::Text(capability.into()));
+    }
     let mut target =
         decode(&bytes_of(field_mut(&mut bundle, "target_ir_artifact"))).expect("Target IR");
+    for (axis, value) in [("maxSteps", steps), ("maxAllocatedBytes", bytes_)] {
+        let Some(value) = value else { continue };
+        let value = V::Integer(i128::from(value));
+        *field_mut(
+            field_mut(
+                field_mut(field_mut(&mut module, "intents"), &intent),
+                "coreEvaluationBudget",
+            ),
+            axis,
+        ) = value.clone();
+        let V::Map(intents) = field_mut(&mut target, "intents") else {
+            panic!("Target IR intents")
+        };
+        *field_mut(field_mut(&mut intents[0].1, "coreEvaluationBudget"), axis) = value;
+    }
+    let core_identity =
+        digest_canonical_value_bytes_v1("edict.core.module/v1", &module).expect("Core identity");
     *field_mut(
         field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore"),
         "digest",
@@ -638,23 +770,277 @@ fn read_control_with_capability(capability: &str) -> Vec<u8> {
     encode(&package).expect("package")
 }
 
-/// The effect route has no shared-read meter, so the verifier refuses a
-/// module that requires `core.cost.shared-reads/v1`, as the runtime does.
+const SHARED: &str = "core.cost.shared-reads/v1";
+
+/// Programs whose expressions all have a shared-read rule in Echo.
+const SHARED_PROGRAMS: [&str; 5] = [
+    "read-control",
+    "ensure-node-control",
+    "structured-loop-control",
+    "structured-branch-control",
+    "structured-nested-control",
+];
+
+/// The smallest step and allocation budgets the verifier admits, each
+/// searched with the other axis ample.
+fn minimum(name: &str, capability: Option<&str>) -> (u64, u64) {
+    const AMPLE: u64 = 1 << 40;
+    let search = |admits: &dyn Fn(u64) -> bool| {
+        assert!(admits(AMPLE), "{name}: refused even with an ample budget");
+        let (mut low, mut high) = (0_u64, AMPLE);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if admits(middle) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        high
+    };
+    let steps = search(&|steps| {
+        verify_effect_package(&edited(name, capability, Some(steps), Some(AMPLE))).is_ok()
+    });
+    let bytes_ = search(&|bytes_| {
+        verify_effect_package(&edited(name, capability, Some(AMPLE), Some(bytes_))).is_ok()
+    });
+    (steps, bytes_)
+}
+
+/// Control for the repinning: an unused capability added the same way still
+/// verifies.
 #[test]
-fn effect_packages_refuse_the_shared_read_schedule() {
-    // Control: an unused capability with the same re-pinning still verifies.
+fn an_unused_capability_added_by_the_same_edit_still_verifies() {
     assert_eq!(
-        verify_effect_package(&read_control_with_capability("core.variant/v1")),
+        verify_effect_package(&edited("read-control", Some("core.variant/v1"), None, None)),
         Ok(())
     );
-    match verify_effect_package(&read_control_with_capability("core.cost.shared-reads/v1")) {
-        Err(EffectPackageRefusal::UnsupportedProgram(refusal)) => assert_eq!(
-            (refusal.reason().code(), refusal.path()),
-            (
-                "effect-program.shared-read-schedule",
-                "/core/requiredCoreCapabilities"
-            )
-        ),
-        other => panic!("expected the shared-read schedule check, got {other:?}"),
+}
+
+/// An effect package that requires the shared-read schedule is audited under
+/// it (echo#1016).
+#[test]
+fn effect_packages_are_audited_under_the_shared_read_schedule() {
+    for name in SHARED_PROGRAMS {
+        assert_eq!(
+            verify_effect_package(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}"
+        );
     }
+}
+
+/// Byte operations under the shared-read schedule (echo#1016, family 5):
+/// the verifier's minimums under both schedules equal the lowerer's, which
+/// `byte_operation_minimums_under_each_schedule` in the lowerer pins
+/// independently (oracle: the other judge).
+#[test]
+fn byte_operation_minimums_equal_the_lowerer_minimums() {
+    let measured: Vec<_> = ["slice-proven", "typed-failure-control"]
+        .into_iter()
+        .map(|name| (name, minimum(name, None), minimum(name, Some(SHARED))))
+        .collect();
+    assert_eq!(
+        measured,
+        [
+            ("slice-proven", (195, 3383), (873, 971)),
+            ("typed-failure-control", (74, 3312), (374, 1231)),
+        ]
+    );
+}
+
+/// The verifier's minimums under both schedules equal the lowerer's, which
+/// `effect_program_minimums_under_each_schedule` in the lowerer pins
+/// independently (oracle: the other judge).
+#[test]
+fn effect_package_minimums_equal_the_lowerer_minimums() {
+    let measured: Vec<_> = SHARED_PROGRAMS
+        .iter()
+        .map(|name| (*name, minimum(name, None), minimum(name, Some(SHARED))))
+        .collect();
+    assert_eq!(
+        measured,
+        [
+            (
+                "read-control",
+                (2_097_226, 9_441_348),
+                (2_097_261, 4_195_841)
+            ),
+            ("ensure-node-control", (41, 4258), (34, 2301)),
+            ("structured-loop-control", (173, 18_325), (122, 6903)),
+            ("structured-branch-control", (179, 18_453), (192, 7031)),
+            ("structured-nested-control", (456, 48_136), (284, 13_742)),
+        ]
+    );
+}
+
+/// The typed-failure program's `attempt` under the shared-read schedule
+/// (echo#1016, amblicit#341): the verifier's minimum equals the lowerer's,
+/// which `an_attempt_is_charged_what_the_shared_runtime_charges` in the
+/// lowerer pins independently (oracle: the other judge).
+#[test]
+fn an_attempt_minimum_equals_the_lowerer_minimum() {
+    assert_eq!(
+        minimum("typed-failure-v2-admission", Some(SHARED)),
+        (140, 2_095)
+    );
+}
+
+/// A one-field failure payload `{ at: input.start }` under the shared-read
+/// schedule (echo#1016), as an `attempt` arm's and as a `require`'s: the
+/// verifier's minimums equal the lowerer's, which
+/// `a_failure_payload_field_is_charged_what_the_shared_runtime_charges` in
+/// the lowerer pins independently (oracle: the other judge).
+#[test]
+fn a_failure_payload_field_minimum_equals_the_lowerer_minimum() {
+    assert_eq!(
+        [
+            minimum("payload-attempt-v2-admission", Some(SHARED)),
+            minimum("payload-require-v2-admission", Some(SHARED)),
+        ],
+        [(145, 2_291), (131, 2_227)]
+    );
+}
+
+/// A two-field failure payload `{ at: input.start, until: input.end }` on an
+/// `attempt` arm, and a `require` with an empty payload, under the
+/// shared-read schedule (echo#1016): the verifier's minimums equal the public
+/// compiler's, Amblicit 80b52f95, which
+/// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
+/// lowerer pins for the lowerer (oracle: the compiler's own reports).
+#[test]
+fn two_field_and_empty_failure_payload_minimums_equal_the_compiler_minimum() {
+    assert_eq!(
+        [
+            minimum("payload-attempt-two-v2-admission", Some(SHARED)),
+            minimum("payload-require-empty-v2-admission", Some(SHARED)),
+        ],
+        [(150, 2_493), (126, 2_031)]
+    );
+}
+
+/// The identity witnesses (all four `echo.dpo@2` identity intrinsics) are
+/// audited under the shared-read schedule (echo#1016, family 3), and the
+/// verifier's minimums under both schedules equal the lowerer's, which
+/// `identity_witness_minimums_under_each_schedule` in the lowerer pins
+/// independently (oracle: the other judge).
+#[test]
+fn identity_witness_minimums_equal_the_lowerer_minimums() {
+    let mut measured = Vec::new();
+    for name in ["identity-witness", "attachment-digest-witness"] {
+        assert_eq!(
+            verify_effect_package(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}: shared"
+        );
+        measured.push((name, minimum(name, None), minimum(name, Some(SHARED))));
+    }
+    assert_eq!(
+        measured,
+        [
+            ("identity-witness", (1898, 71_061), (1262, 11_580)),
+            ("attachment-digest-witness", (371, 11_334), (289, 3209)),
+        ]
+    );
+}
+
+/// The compiler-produced closure-read witness is audited under the
+/// shared-read schedule, and the verifier's minimums under both schedules
+/// equal the lowerer's, which `closure_read_witness_minimums_under_each_schedule`
+/// in the lowerer pins independently (oracle: the other judge). Under the
+/// shared schedule the declared selector is charged at its shared-read call
+/// charge (echo#1016).
+#[test]
+fn closure_read_witness_minimums_equal_the_lowerer_minimums() {
+    let name = "closure-read-witness";
+    assert_eq!(
+        verify_effect_package(&edited(name, Some(SHARED), None, None)),
+        Ok(()),
+        "shared"
+    );
+    assert_eq!(
+        (minimum(name, None), minimum(name, Some(SHARED))),
+        ((15_367, 932_374), (10_814, 194_487))
+    );
+}
+
+/// Family 4 (`Option` constructors, ordered records whose fields `fail`,
+/// called under `attempt`) is audited under the shared-read schedule
+/// (echo#1016), and the verifier's minimums under both schedules equal the
+/// lowerer's, which `family_four_minimums_under_each_schedule` in the
+/// lowerer pins independently (oracle: the other judge).
+#[test]
+fn family_four_minimums_equal_the_lowerer_minimums() {
+    let mut measured = Vec::new();
+    for name in [
+        "ordered-record-z-first",
+        "ordered-record-a-first",
+        "ordered-record-guarded-z-first",
+        "ordered-record-guarded-a-first",
+        "option-value-witness",
+    ] {
+        assert_eq!(
+            verify_effect_package(&edited(name, Some(SHARED), None, None)),
+            Ok(()),
+            "{name}: shared"
+        );
+        measured.push((name, minimum(name, None), minimum(name, Some(SHARED))));
+    }
+    assert_eq!(
+        measured,
+        [
+            ("ordered-record-z-first", (57, 2793), (111, 1425)),
+            ("ordered-record-a-first", (57, 2793), (111, 1425)),
+            ("ordered-record-guarded-z-first", (71, 3177), (251, 1681)),
+            ("ordered-record-guarded-a-first", (71, 3177), (251, 1681)),
+            ("option-value-witness", (88, 2936), (831, 942)),
+        ]
+    );
+}
+
+/// Record-valued failure payload fields under the shared-read schedule
+/// (echo#1016): `{ at: { value: n } }` on an `attempt` arm and on a
+/// `require`. The verifier's minimums equal the public compiler's, Amblicit 615d2e59,
+/// which `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
+/// lowerer pins for the lowerer (oracle: the compiler's own reports).
+#[test]
+fn record_valued_failure_payload_minimums_equal_the_compiler_minimum() {
+    assert_eq!(
+        [
+            "payload-attempt-record-v2-admission",
+            "payload-require-record-v2-admission",
+        ]
+        .map(|name| minimum(name, Some(SHARED))),
+        [(151, 2_621), (137, 2_557)]
+    );
+}
+
+/// Loops of `require` under the shared-read schedule (echo#1016): a scalar
+/// item, a record-valued payload, a nested 3 by 3 loop, a two-field record
+/// item, a bytes item, and a body holding a `let`, a `require` and an
+/// `ensureNode` together. The verifier's minimums equal the public
+/// compiler's, Amblicit 2b09e4ab (unchanged since e306ecc9), which
+/// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in the
+/// lowerer pins for the lowerer (oracle: the compiler's own reports).
+#[test]
+fn loop_minimums_equal_the_compiler_minimum() {
+    assert_eq!(
+        [
+            "payload-loop-scalar-v2-admission",
+            "payload-loop-record-v2-admission",
+            "payload-loop-nested-v2-admission",
+            "payload-loop-entry-v2-admission",
+            "payload-loop-bytes-v2-admission",
+            "payload-loop-mixed-v2-admission",
+        ]
+        .map(|name| minimum(name, Some(SHARED))),
+        [
+            (300, 3_200),
+            (318, 4_190),
+            (783, 5_144),
+            (336, 3_998),
+            (1_134, 3_608),
+            (339, 4_232),
+        ]
+    );
 }

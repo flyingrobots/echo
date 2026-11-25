@@ -158,23 +158,50 @@ pub(super) fn evaluate(
     meter: &mut Meter,
     depth: usize,
 ) -> Result<Value, Error> {
-    let types = intrinsic.parameter_types();
-    if args.len() != types.len() {
+    if args.len() != intrinsic.parameter_types().len() {
         return Err(Error::InvalidArtifact);
     }
     let mut operands = Vec::new();
     operands
         .try_reserve_exact(args.len())
         .map_err(|_| Error::HostAllocationFailed)?;
-    for (argument, ty) in args.iter().zip(&types) {
-        let value = expression(argument, locals, helpers, meter, depth + 1)?;
-        validate(&value, ty, meter, depth + 1)?;
-        operands.push(value);
+    for argument in args {
+        operands.push(expression(argument, locals, helpers, meter, depth + 1)?);
+    }
+    apply(intrinsic, &operands, meter, Scratch::Charged, depth)
+}
+
+/// Whether a call charges its canonical-order edge list separately.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Scratch {
+    /// The copying schedule: each edge's place is charged as scratch.
+    Charged,
+    /// The shared-read schedule: every operand was charged a full copy in,
+    /// and the edge operand's copy (at least one 64-byte cell per edge)
+    /// already covers the 64-byte place each edge takes in that list.
+    InOperandCopy,
+}
+
+/// Validates evaluated `operands`, charges the call's work and computes its
+/// identity. The result is charged as a new 32-byte value.
+pub(super) fn apply(
+    intrinsic: IdentityIntrinsic,
+    operands: &[Value],
+    meter: &mut Meter,
+    scratch: Scratch,
+    depth: usize,
+) -> Result<Value, Error> {
+    let types = intrinsic.parameter_types();
+    if operands.len() != types.len() {
+        return Err(Error::InvalidArtifact);
+    }
+    for (value, ty) in operands.iter().zip(&types) {
+        validate(value, ty, meter, depth + 1)?;
     }
     meter.charge_steps(CALL_STEPS)?;
-    let identity = match (intrinsic, operands.as_slice()) {
+    let identity = match (intrinsic, operands) {
         (IdentityIntrinsic::ContentAddress, [warp, node_type, atom_type, atom, edges]) => {
-            let outgoing = outgoing_edges(atom, edges, meter)?;
+            let outgoing = outgoing_edges(atom, edges, meter, scratch)?;
             content_node_id(
                 WarpId(id(warp)?),
                 TypeId(id(node_type)?),
@@ -213,6 +240,7 @@ fn outgoing_edges(
     atom: &Value,
     edges: &Value,
     meter: &mut Meter,
+    scratch: Scratch,
 ) -> Result<Vec<OutgoingEdge>, Error> {
     let Value::Array(items) = edges else {
         return Err(Error::InvalidArtifact);
@@ -225,11 +253,13 @@ fn outgoing_edges(
             .checked_mul(count)
             .ok_or(Error::StepBudgetExceeded)?,
     )?;
-    meter.allocate(
-        EDGE_SCRATCH_BYTES
-            .checked_mul(count)
-            .ok_or(Error::AllocationBudgetExceeded)?,
-    )?;
+    if scratch == Scratch::Charged {
+        meter.allocate(
+            EDGE_SCRATCH_BYTES
+                .checked_mul(count)
+                .ok_or(Error::AllocationBudgetExceeded)?,
+        )?;
+    }
     let mut outgoing = Vec::new();
     outgoing
         .try_reserve_exact(items.len())

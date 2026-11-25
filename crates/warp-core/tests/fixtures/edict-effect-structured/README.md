@@ -15,13 +15,13 @@ source carries the digest that producer computed,
 `sha256:91e70586671551d04d877fa998b83f82ff6223022e408bdcc0816ea0e171ae1d`.
 The five retained `structured-*.hex` outputs, including
 `structured-executable-operation-package.hex`, were written by that producer
-with Amblicit `7dbcbc23d72705c5e224fc994a6c767881958912`; they are not authored
+with Amblicit `2b09e4ab1ecf0041b4ff251693dc295ac2b649c2`; they are not authored
 Target IR. `scripts/verify-edict-provider-host-v1.sh` reruns the producer with
 `--check` and requires the same bytes.
 
 | File | Domain-framed digest |
 | --- | --- |
-| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `e0ef84bda3c14b8675c10ab5a81dabc1c64fed1b2756ad4e0cc24887b45f0096` |
+| `structured-executable-operation-package.hex` | `echo:operation-package:v1` `4c85550661f0ab6071e62bc7eab33bf5adf24d096554ad0f2e229477a7e6cb1b` |
 
 The intended runtime input sets `initial` to node A and supplies two items:
 `{create: true, node: B}`, then `{create: false, node: A}`. A successful private

@@ -4,9 +4,11 @@
 //! expression evaluator and recorded reads.
 use super::mutations::{EffectMutation, MutationKind};
 use super::{EffectFrameError, EffectGraphSchema, RecordedNodeAccess};
+mod shared;
+
 use crate::edict_pure::{
     evaluate::{expression, predicate, validate, Meter, VALUE_CELL_BYTES},
-    functions,
+    functions::{self, CostSchedule},
     model::{Expr, Helper, Predicate, RuntimeType, MAX_PROGRAM_NODES},
     syntax::Parser,
     values::{array, bytes, field, map, number, text, text_field},
@@ -91,6 +93,8 @@ pub(super) struct Program {
     result: Expr,
     limits: EvaluationLimits,
     graph_reads: Option<GraphReads>,
+    /// The Core cost schedule the module requires.
+    schedule: CostSchedule,
 }
 impl Program {
     // The existing ordered relation and lowering/ABI validator establish authority.
@@ -108,7 +112,7 @@ impl Program {
             coordinate: text_field(module, "coordinate")?,
             remaining: MAX_PROGRAM_NODES,
         };
-        let helpers = functions::decode(module, exports, &mut parser)?;
+        let (helpers, schedule) = functions::decode_pure(module, exports, &mut parser)?;
         let budget = field(intent, "coreEvaluationBudget")?;
         limits.max_steps = limits.max_steps.min(number(field(budget, "maxSteps")?)?);
         limits.max_allocated_bytes = limits
@@ -133,7 +137,7 @@ impl Program {
         let body = field(intent, "body")?;
         let instructions = decode_block(body, &steps, &mut parser, 0)?;
         declared_graph_reads(&instructions, &helpers, graph_reads)?;
-        Ok(Self {
+        let program = Self {
             input: parser.ty(text_field(intent, "input")?, 0)?,
             output: parser.ty(text_field(intent, "output")?, 0)?,
             basis: field(intent, "basis")
@@ -146,7 +150,12 @@ impl Program {
             result: parser.expr(field(body, "result")?, 0)?,
             limits,
             graph_reads: graph_reads.cloned(),
-        })
+            schedule,
+        };
+        if schedule == CostSchedule::SharedReads {
+            shared::admit(&program)?;
+        }
+        Ok(program)
     }
     pub(super) fn run(
         &self,
@@ -155,8 +164,9 @@ impl Program {
         schema: &EffectGraphSchema,
         meter: &mut Meter,
     ) -> Result<Evaluation, EffectFrameError> {
-        meter.with_component(self.limits, |meter| {
-            self.run_body(input, access, schema, meter)
+        meter.with_component(self.limits, |meter| match self.schedule {
+            CostSchedule::Copying => self.run_body(input, access, schema, meter),
+            CostSchedule::SharedReads => shared::run_body(self, input, access, schema, meter),
         })
     }
     fn run_body(
@@ -422,6 +432,7 @@ impl Program {
             meter: &mut *run.meter,
             usage: &mut run.usage,
             limits: &limits,
+            shared: false,
         };
         let outcome = match read {
             GraphRead::Edges { max_edges } => edge_read(*max_edges, &input, &mut session)?,
@@ -529,7 +540,7 @@ struct Run<'p, 'm, 'a, 'b> {
 }
 /// Removes the locals `instructions` bound, so none outlives its block.
 /// Nested blocks have already forgotten their own.
-fn forget(instructions: &[Instruction], locals: &mut BTreeMap<&str, Value>) {
+fn forget<T>(instructions: &[Instruction], locals: &mut BTreeMap<&str, T>) {
     for instruction in instructions {
         match instruction {
             Instruction::Let(binding)

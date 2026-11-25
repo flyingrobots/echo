@@ -16,7 +16,7 @@
     "profile": "echo.dpo@2",
     "providerPackage": "provider",
     "pureIntrinsics": {
-      "catalog": "generated/resources/resource.target-intrinsics-2.cbor",
+      "catalog": "generated/resources/resource.target-intrinsics-3.cbor",
       "required": [
         {
           "coordinate": "echo.dpo@2.contentAddress",

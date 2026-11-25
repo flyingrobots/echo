@@ -166,9 +166,9 @@ impl<'a> Checker<'a, '_> {
         audit: &mut Audit<'_, 'a>,
     ) -> Check<Tally> {
         exact(node, &["kind", "binder", "iter", "bound", "body"])?;
-        let iterable = audit.within("iter", R::Expression, |_| {
-            self.expression(get(node, "iter")?, frame, 0)
-        })?;
+        let iter = get(node, "iter")?;
+        let iterable = audit.within("iter", R::Expression, |_| self.expression(iter, frame, 0))?;
+        let iterable_charge = self.effect_value(iter, iterable.charge)?;
         audit.trail.mark(R::LoopBound);
         let Schema::Sequence { element, bound } = iterable.schema.representation().clone() else {
             return Err(());
@@ -209,7 +209,7 @@ impl<'a> Checker<'a, '_> {
         audit.trail.leave();
         audit.trail.mark(R::CostOverflow);
         let mut tally = Tally {
-            charge: iterable.charge,
+            charge: iterable_charge,
             ..Tally::default()
         };
         tally.add(iteration.repeated(count)?)?;
@@ -224,9 +224,11 @@ impl<'a> Checker<'a, '_> {
     ) -> Check<Tally> {
         exact(node, &["kind", "predicate", "then", "else"])?;
         // The predicate proves nothing for either arm.
-        let (charge, _) = audit.within("predicate", R::Expression, |_| {
-            self.predicate(get(node, "predicate")?, frame, 0)
+        let condition = get(node, "predicate")?;
+        let (copying, _) = audit.within("predicate", R::Expression, |_| {
+            self.predicate(condition, frame, 0)
         })?;
+        let charge = self.effect_condition(condition, copying)?;
         let then_block = get(node, "then")?;
         let else_block = get(node, "else")?;
         audit.trail.enter("then");
@@ -260,8 +262,9 @@ impl<'a> Checker<'a, '_> {
         match kind {
             "let" => {
                 exact(node, &["kind", "binding", "value"])?;
+                let node_value = get(node, "value")?;
                 let value = audit.within("value", R::Expression, |_| {
-                    self.expression(get(node, "value")?, frame, 0)
+                    self.expression(node_value, frame, 0)
                 })?;
                 let local = get(node, "binding")?;
                 audit.trail.mark(R::BindingType);
@@ -270,9 +273,12 @@ impl<'a> Checker<'a, '_> {
                     return Err(());
                 }
                 audit.trail.mark(R::Expression);
-                self.record_bound(local, get(node, "value")?, &expected)?;
+                self.record_bound(local, node_value, &expected)?;
                 audit.trail.mark(R::CostOverflow);
-                tally.charge.append(value.charge)?;
+                tally
+                    .charge
+                    .append(self.effect_value(node_value, value.charge)?)?;
+                self.effect_bound(local, node_value)?;
                 tally.charge.append(Charge {
                     ticks: expected.measure()?.checks,
                     storage: 0,
@@ -293,8 +299,9 @@ impl<'a> Checker<'a, '_> {
                     tally.obstruction_output = tally.obstruction_output.max(encoded);
                 }
                 audit.trail.leave();
+                let node_value = get(node, "value")?;
                 let value = audit.within("value", R::Expression, |_| {
-                    self.expression(get(node, "value")?, frame, 0)
+                    self.expression(node_value, frame, 0)
                 })?;
                 let local = get(node, "binding")?;
                 audit.trail.mark(R::BindingType);
@@ -304,12 +311,20 @@ impl<'a> Checker<'a, '_> {
                 }
                 audit.trail.mark(R::CostOverflow);
                 // The call runs, then either its result is checked or exactly
-                // one arm's payload is built: charge the larger.
-                tally.charge.append(value.charge)?;
+                // one arm's payload is built: charge the larger. The shared
+                // executor binds the result unchecked: success adds nothing.
+                tally
+                    .charge
+                    .append(self.effect_value(node_value, value.charge)?)?;
+                self.effect_bound(local, node_value)?;
                 tally.charge.append(Charge::choice(
                     worst,
                     Charge {
-                        ticks: expected.measure()?.checks,
+                        ticks: if self.types.shared {
+                            0
+                        } else {
+                            expected.measure()?.checks
+                        },
                         storage: 0,
                     },
                 ))?;
@@ -320,10 +335,15 @@ impl<'a> Checker<'a, '_> {
             "require" => {
                 exact(node, &["kind", "predicate", "onFailure"])?;
                 // Refuses later work; proves nothing for it.
-                let predicate = audit.within("predicate", R::Expression, |_| {
-                    self.predicate(get(node, "predicate")?, frame, 0)
-                })?;
-                tally.charge.append(predicate.0)?;
+                let condition = get(node, "predicate")?;
+                let copying = audit
+                    .within("predicate", R::Expression, |_| {
+                        self.predicate(condition, frame, 0)
+                    })?
+                    .0;
+                tally
+                    .charge
+                    .append(self.effect_condition(condition, copying)?)?;
                 audit.trail.enter("onFailure");
                 audit.trail.mark(R::Require);
                 let failure = get(node, "onFailure")?;
@@ -339,15 +359,16 @@ impl<'a> Checker<'a, '_> {
                 // On failure the runtime builds this record and encodes it as
                 // the obstruction payload, under the result's output ceiling.
                 let mut fields = BTreeMap::new();
-                tally.charge.append(Charge {
+                let mut building = Charge {
                     ticks: 1,
                     storage: 64,
-                })?;
-                for (name, value) in members(get(reason, "payload")?)? {
+                };
+                let entries = members(get(reason, "payload")?)?;
+                for (name, value) in entries {
                     let name = string(name)?;
                     let checked = self.expression(value, frame, 0)?;
-                    tally.charge.append(checked.charge)?;
-                    tally.charge.append(Charge {
+                    building.append(checked.charge)?;
+                    building.append(Charge {
                         ticks: 0,
                         storage: 64 + name.len() as u128,
                     })?;
@@ -355,6 +376,10 @@ impl<'a> Checker<'a, '_> {
                         return Err(());
                     }
                 }
+                if let Some(shared) = self.effect_payload(entries)? {
+                    building = shared;
+                }
+                tally.charge.append(building)?;
                 let payload = Schema::Fields(fields).measure()?;
                 tally.charge.append(payload.copy)?;
                 tally.obstruction_output = payload.encoded;
@@ -381,8 +406,9 @@ impl<'a> Checker<'a, '_> {
             &["kind", "binding", "effect", "input", "obstructionMap"],
         )?;
         let mut tally = Tally::default();
+        let input_value = get(node, "input")?;
         let value = audit.within("input", R::Expression, |_| {
-            self.expression(get(node, "input")?, frame, 0)
+            self.expression(input_value, frame, 0)
         })?;
         audit.trail.mark(R::EffectInput);
         let input = self.types.resolve(&site.input, 0)?;
@@ -431,7 +457,9 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         audit.trail.mark(R::CostOverflow);
-        tally.charge.append(value.charge)?;
+        tally
+            .charge
+            .append(self.effect_value(input_value, value.charge)?)?;
         tally.charge.append(Charge {
             ticks: input.measure()?.checks,
             storage: 0,

@@ -6,7 +6,7 @@ use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
 use sha2::{Digest as _, Sha256};
 
 #[test]
-fn current_admission_accepts_the_upstream_typed_failure_publication() {
+fn current_admission_accepts_the_upstream_effect_cost_catalog_publication() {
     let schema =
         include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
     let manifest = include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
@@ -59,6 +59,12 @@ fn current_admission_refuses_all_historical_and_crossed_pairs() {
             include_bytes!("fixtures/historical-contract-packs/function-preconditions-v1/manifest.json").as_slice(),
             "d83bb51133f7b7fc03f94dde4d3cc6dee165da31db77c6f82570b468223e1a1f",
             "31ebc222b80be213d4b240a7dee85d0c6e781851706294965d8d025684910d62",
+        ),
+        (
+            include_bytes!("fixtures/historical-contract-packs/typed-failures-v1/edict-provider-contracts.cddl").as_slice(),
+            include_bytes!("fixtures/historical-contract-packs/typed-failures-v1/manifest.json").as_slice(),
+            "ed60e6ad6e0a80e23f915a8f791342b9e97cadd03034541865e754ef30352233",
+            "ef57e32542bea8c07f4629e54174c1598fb1852378dc147ee2da505fdaf069fa",
         ),
     ] {
         assert_eq!(hex::encode(Sha256::digest(schema)), schema_hash, "historical schema provenance");

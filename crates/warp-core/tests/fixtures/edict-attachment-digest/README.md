@@ -13,7 +13,7 @@ digest. The program does not encode the Buffer itself: the caller supplies the
 next encoding, as jedit's codec modules do in Edict.
 
 The lawpack `consumer.buffers@1` binds those two effects under the
-`echo.dpo@2` profile. Its configuration carries the `echo.dpo.intrinsics/v2`
+`echo.dpo@2` profile. Its configuration carries the `echo.dpo.intrinsics/v3`
 catalog the profile pins, a graph schema with one mutable node type (`7b…`)
 holding one atom type (`02…`, the frozen `attachment-new.hex` vector's atom
 type), and a footprint law that reads and writes that node type. The
@@ -31,7 +31,7 @@ evaluates, and Echo's derivation refuses its `ReplaceAtom` with
 The `bump-*.hex` and `controls/unread-bytes/unread-*.hex` files are the public
 compiler's outputs for these sources, written through the checked provider
 package by the `effect_step_publication` example with an unmodified Amblicit
-`7dbcbc23d72705c5e224fc994a6c767881958912` binary. Amblicit
+`2b09e4ab1ecf0041b4ff251693dc295ac2b649c2` binary. Amblicit
 `738d3da7` reproduces the same bytes. `scripts/verify-edict-provider-host-v1.sh`
 reruns both with `--check`, which also requires the program to be refused
 under `echo.dpo@1` and under a substituted `echo.dpo@2` profile.

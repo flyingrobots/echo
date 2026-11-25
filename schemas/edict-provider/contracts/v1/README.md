@@ -4,25 +4,38 @@
 # Current upstream provider contract pack
 
 This is the exact schema/manifest pair from Amblicit merge
-`0734b499adb7c79ddbf6b8290256c83d5240731e`, [PR #317](https://github.com/flyingrobots/amblicit/pull/317), published upstream as `typed-failures-v1`. The bytes are unchanged at
-Amblicit `da1574f169cda98206440e4d8f785b1ea9e01fcf`, whose own current-pack test
-asserts them.
+`aa8c7cbface8816cd930dca57252487eaa86f008`, [PR #352](https://github.com/flyingrobots/amblicit/pull/352), published upstream as `effect-cost-catalog-v1`.
+PR #352 replaced the first publication of that pack (`a21de8c2`, PR #351),
+whose recursive cost-rule schema the provider artifact-schema registry refused
+(`SchemaCompileFailed` for `echo.dpo.intrinsics/v3`). The #351 pair never
+shipped on Echo `main`, so it is not kept as a rejection fixture.
 The API and coordinate remain `edict.provider-contract-pack/v1` and
 `edict.provider-contract-pack.cddl@1`; exact bytes identify this publication.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `edict-provider-contracts.cddl` | `ed60e6ad6e0a80e23f915a8f791342b9e97cadd03034541865e754ef30352233` |
-| `manifest.json` | `ef57e32542bea8c07f4629e54174c1598fb1852378dc147ee2da505fdaf069fa` |
+| `edict-provider-contracts.cddl` | `ca33e99928edf8e0eaebdd3032ca1782c07eb84fd9e733a138711d7fcb4e53b8` |
+| `manifest.json` | `6837fbf0b3fdc5ece9be31b5b4e1c4cb6017fa8dc002789c394691091c4ade96` |
 
 Both files are Apache-2.0 upstream inputs. Replace them together; do not edit
 one independently. The sole production admission API pins this pair, its
-92,284-byte manifest ceiling, twelve contracts, eight domains and five resources.
+114,170-byte manifest ceiling, twelve contracts, eight domains and five resources.
 Earlier pairs are rejected. Historical bytes survive only in Git and test-only
 rejection fixtures, without a production selector or historical decoder.
 
-Relative to `function-preconditions-v1` (Amblicit `1196396b`, PR #318, now a
-rejection fixture), this publication adds intrinsic catalog v2 and typed
+Relative to `typed-failures-v1` (Amblicit `0734b499`, PR #317, now a
+rejection fixture), this publication changes one root: `intrinsics-document`
+also admits `edict.target-profile.intrinsics/v3` catalogs (amblicit#341). A
+`/v3` catalog is the `/v2` shape plus a required `effectCostRule`
+(`{ steps, bytes }` cost expressions) on every effect intrinsic and an
+optional `parameters` map naming where each template parameter lives in the
+operation configuration. Cost rules are written out level by level to a
+nesting depth of 10, the same limit the compiler's decoder enforces; Echo's
+catalog nests to level 6. `echo.dpo@2` pins a `/v3` catalog; Echo publishes no
+`/v2` catalog.
+
+The typed-failures publication, relative to `function-preconditions-v1` (Amblicit `1196396b`, PR #318, also a
+rejection fixture), added intrinsic catalog v2 and typed
 failures. Catalog v2 (`intrinsics-document`) requires API
 `edict.target-profile.intrinsics/v2`, a complete monomorphic contract
 (`contractVersion`, `costRule`) for every pure intrinsic, and an optional

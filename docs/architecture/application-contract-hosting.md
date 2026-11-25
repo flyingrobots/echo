@@ -646,7 +646,7 @@ local affected-test routing select the same feature explicitly.
 
 A pure Core module that requires the capability `core.cost.shared-reads/v1`
 is metered and judged under Amblicit's shared-read schedule,
-`edict.core-cost/v2` (amblicit#324, Amblicit `da1574f1`). Every module without
+`edict.core-cost/v2` (amblicit#324, #336 and #340; Amblicit `26a201e7`). Every module without
 the capability keeps the copying schedule described above, exactly as before.
 
 The schedule is only sound if reads really are cheap, so the runtime runs such
@@ -665,12 +665,22 @@ evaluator is unchanged. Under the schedule:
   plus key and label bytes; shared children are not charged again;
 - `listAt` costs nothing more and does not rescan the list; `listLen` costs
   one fresh cell; `listAppend` and `listConcat` cost a new shell with one cell
-  per result item;
+  per result item. Statically, that shell is sized by the result's provable
+  length when one exists (amblicit#336): bounds come from list literals,
+  appends and concatenations and flow through locals, record fields, branches
+  (only when both arms prove one), calls and folds; a fold is charged round by
+  round until its bounds stop changing. Any other list is charged at its
+  declared maximum;
 - a call costs one step per parameter plus two, and a fold one step per
   iteration plus the call; arguments, results and fold state are passed by
   reference;
-- unsigned arithmetic costs one step per operand cell, and its scalar result
-  is held inline;
+- unsigned, checked and `min`/`max` integer operations cost one step per
+  operand cell, and the `Option` readers `isSome`, `unwrap` and `default`
+  one step per operand cell plus their operand and result bytes; each such
+  prelude call is also charged its result's full size as a new value, in
+  steps and bytes (amblicit#340). At runtime a word, a checked result with
+  its presence cell, or an `isSome` flag is charged as it is built, while
+  `unwrap` and `default` share their item;
 - a match costs one step per arm plus one, and one more for a payload binder;
 - a comparison scans both operands in full;
 - the intent's input and output are validated and converted at full size, two
@@ -690,21 +700,119 @@ establish typing, totality and depth; the cost pass reads the types they
 recorded. A module whose copying cost overflows `u64` is therefore still
 refused.
 
-Echo admits the capability on the pure route only. The read, graph-read and
-effect routes have no shared-read rules: the runtime's shared helper decoder
-refuses the capability there, and the lowerer and verifier refuse it on those
-routes too. Under the schedule, byte intrinsics and imported helpers are
-refused by all three, because the schedule leaves the storage of a computed
-byte string uncharged. Identity intrinsics, `Option` operations, ordered
-records, checked integer operations and `fail` have no shared-read rule in
-Echo either, and the runtime refuses them; a pure
-intent cannot call a failing helper, because only an effect program's
-`attempt` maps failures.
+Echo admits the capability on the pure route and on the effect-program route
+(next section). The read and graph-read routes have no shared-read rules: the
+runtime's shared helper decoder refuses the capability there, and the lowerer
+and verifier refuse it on those routes too. A pure intent cannot call a
+failing helper, because only an effect program's `attempt` maps failures.
+
+#### Shared-read effect programs (v2 effect execution, echo#1016)
+
+An effect program whose Core requires `core.cost.shared-reads/v1` is run by
+warp-core's shared executor (`edict_effects/execution/shared.rs`) and judged
+under the same schedule by the provider lowerer and verifier. A program
+without the capability is run, judged and charged by the copying executor
+exactly as before; no copying minimum moved. Requiring the capability changes
+how a program is metered, never what it computes: every runtime test runs
+the same package both ways and requires the same result, obstruction and
+mutations.
+
+Under the schedule the three judges support effect steps (node-atom read,
+outgoing-edge read, the five mutation intrinsics and the guided closure read),
+the four `echo.dpo@2` identity intrinsics, `Option` constructors and readers,
+ordered records, `fail`, byte intrinsics, `attempt`, `require`, the intent's
+input and output, and a shared closure-read selector. Each charge is the one
+Amblicit's `docs/topics/core-cost-schedules/README.md` (Amblicit `2b09e4ab`)
+states, with Echo's `/v3` effect cost templates, published in the provider
+package as `generated/resources/resource.target-intrinsics-3.cbor` (the
+catalog the `echo.dpo@2` profile pins) and authored in
+`crates/echo-wesley-gen/src/provider_effect_costs.rs`.
+The effect-body terms, as both sides now charge them:
+
+```text
+effect step = input expression + template + (1, 0)
+            + (1, 64) if any obstruction arm is mapped
+let         = (1, 0) + value expression + validations(binding type)
+attempt     = (1, 0) + value expression
+            + max over arms of [ payload field expressions
+                                 + (2 + n, 64 + sum of (64 + key length))
+                                 + copying size of the payload record type ]
+require     = (1, 0) + predicate
+            + payload field expressions
+            + (2 + n, 64 + sum of (64 + key length))
+            + copying size of the payload record type
+```
+
+`n` is the number of payload fields. The `(2 + n, ...)` term is the payload
+record's expression step plus its shell, one cell and one keyed cell per
+field; the copying size of the record's type is its encoding into the
+obstruction payload. An empty payload is therefore (3, 128). An `attempt`'s
+success path adds nothing, because the shared executor binds the call's
+result without validating it; a `require`'s passing path adds nothing after
+the predicate. A literal-bound loop charges each iteration one item step,
+the binder type's validations and its body; since amblicit#350 the compiler
+no longer adds the binder copy bytes or the body's `Null` result, which the
+shared executor never charges. These terms were taken from warp-core's own meter on each path,
+not tuned: the lowerer and the verifier each moved one step for the record's
+expression step (counted twice before) and (1, 64) per payload field (two
+cells charged per field before).
+
+What is pinned, all with the shared-read capability:
+
+- Exact admission against the public compiler.
+  `effect_programs_are_admitted_at_exactly_the_compiler_minimum` (lowerer)
+  admits sixteen packages that Amblicit `2b09e4ab` compiled through the
+  checked provider package at exactly its own shared-read minimum (the
+  compiler refuses one unit below, and Echo's packaged lowerer and verifier
+  accept the build at it), and refuses one step or one byte below: node-atom read (100, 1631),
+  outgoing-edge read with `ensure-edge` (244, 8240), five mutations
+  (176, 6796), typed failure (140, 2095), `attempt` with `{at}` (145, 2291)
+  and `{at, until}` (150, 2493), `require` with `{}` (126, 2031) and `{at}`
+  (131, 2227), the record payload `{at: {value}}` on an `attempt` (151, 2621)
+  and a `require` (137, 2557), and six `require` loops bounded 3: scalar
+  item (300, 3200), record payload (318, 4190), nested 3 by 3 (783, 5144),
+  two-field record item (336, 3998), bytes item (1134, 3608), and a body of
+  `let`, `require` and `ensureNode` (339, 4232). The closure-read witness's minimum is the compiler's,
+  (10814, 194487), plus a residual of (0, 0). The verifier measures the same
+  minimums. The packages live in
+  [`edict-effect-v2-admission/`](../../crates/warp-core/tests/fixtures/edict-effect-v2-admission/README.md).
+- Runtime at the static bound. warp-core runs the closure witness, the
+  node-atom read, the outgoing-edge read (five graph shapes) and the mutations
+  at exactly the compiler's minimum, and the six loops with every item
+  passing and with the first, second or third failing, with the same result
+  as the copying
+  executor and a charge at or below the bound on both axes; the byte,
+  family-four and structured programs run at the lowerer's minimum.
+
+Known gaps:
+
+- The compiler evaluates the `/v3` effect templates only when the
+  application names the catalog under `target.pureIntrinsics`, which needs at
+  least one required pure intrinsic; otherwise it charges its generic effect
+  charge. `xtask --example effect_v2_admission` names the packaged catalog
+  and one unused pure intrinsic for programs whose application names none.
+- The effect frame's ceilings (1,048,576 steps, 16 MiB allocated bytes) are
+  code constants in warp-core, not profile data.
+- Under the copying schedule Echo charges each effect-body `let` its binding
+  validations and Amblicit does not. This is unmeasured, and the copying
+  schedule is frozen.
+- Under the shared schedule the runtime validates neither `let` nor `attempt`
+  bindings, so the `let` validations both sides charge are safe but not
+  tight.
+- Record-valued failure payload fields are measured on the runtime only in
+  the `require` loop, not on an `attempt` arm.
+- An `attempt` inside a loop is refused by all three judges' failure-set
+  check, which accepts `attempt` only as a top-level intent node; the
+  compiler gives (342, 3392) for one. Whether to accept it is open.
+- A budget that the static judges refuse at admission is not evidence of
+  how the runtime refuses an over-budget run; refusal at run time is tested
+  separately.
 
 The [shared corpus](../../crates/warp-core/tests/fixtures/edict-core-cost-v2/README.md)
 holds Core modules that the pinned compiler produced at their minimum budgets,
 together with their producer. All three judges read the same bytes. For each
-of Amblicit's four adversarial programs that Echo admits, the lowerer and
+of Amblicit's four adversarial programs that Echo admits, and Echo's own
+`integers` program, the lowerer and
 verifier admit the compiler minimum and refuse one step, one allocated byte or
 one output byte less. The runtime runs the worst-case input within the minimum
 and refuses one step or byte below its own metered work. Generated inputs stay

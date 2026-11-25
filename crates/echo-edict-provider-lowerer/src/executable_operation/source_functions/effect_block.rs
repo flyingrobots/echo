@@ -162,9 +162,11 @@ impl<'a> Judgment<'a> {
         walk: &mut Walk<'_, '_>,
     ) -> Check<Totals> {
         exact(node, &["kind", "binder", "iter", "bound", "body"])?;
+        let iter = get(node, "iter")?;
         let iterable = walk.within("iter", R::Expression, |_| {
-            self.expression(get(node, "iter")?, scope, true, 0)
+            self.expression(iter, scope, true, 0)
         })?;
+        let iterable_cost = self.effect_value(iter, iterable.cost)?;
         walk.trail.mark(R::LoopBound);
         let Ty::List(item, max) = iterable.ty.representation().clone() else {
             return Err(());
@@ -199,7 +201,7 @@ impl<'a> Judgment<'a> {
             bytes: 0,
         })
         .then(body)?;
-        Totals::costing(iterable.cost).then(iteration.times(bound)?)
+        Totals::costing(iterable_cost).then(iteration.times(bound)?)
     }
 
     /// `if predicate { then } else { else }`: each arm in its own scope; the
@@ -212,9 +214,11 @@ impl<'a> Judgment<'a> {
     ) -> Check<Totals> {
         exact(node, &["kind", "predicate", "then", "else"])?;
         // A branch predicate is not a fact for either arm.
-        let (predicate, _) = walk.within("predicate", R::Expression, |_| {
-            self.predicate(get(node, "predicate")?, scope, true, 0)
+        let condition = get(node, "predicate")?;
+        let (copying, _) = walk.within("predicate", R::Expression, |_| {
+            self.predicate(condition, scope, true, 0)
         })?;
+        let predicate = self.effect_condition(condition, copying)?;
         let mut arms = Vec::with_capacity(2);
         for arm in ["then", "else"] {
             let body = get(node, arm)?;
@@ -255,8 +259,9 @@ impl<'a> Judgment<'a> {
                 }
                 walk.trail.mark(R::LocalClaim);
                 claim(get(node, "binding")?, pending, walk)?;
+                let value = get(node, "value")?;
                 let fact = walk.within("value", R::Expression, |_| {
-                    self.expression(get(node, "value")?, scope, true, 0)
+                    self.expression(value, scope, true, 0)
                 })?;
                 walk.trail.mark(R::BindingType);
                 let ty = self.declaration(get(node, "binding")?, scope)?;
@@ -264,9 +269,11 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
                 walk.trail.mark(R::Expression);
-                self.record_bound(get(node, "binding")?, get(node, "value")?, &ty)?;
+                self.record_bound(get(node, "binding")?, value, &ty)?;
+                let work = self.effect_value(value, fact.cost)?;
+                self.effect_bound(get(node, "binding")?, value)?;
                 walk.trail.mark(R::CostOverflow);
-                Ok(Totals::costing(fact.cost.plus(Cost {
+                Ok(Totals::costing(work.plus(Cost {
                     steps: shape(&ty)?.1,
                     bytes: 0,
                 })?))
@@ -289,20 +296,26 @@ impl<'a> Judgment<'a> {
                     obstruction_output = obstruction_output.max(encoded);
                 }
                 walk.trail.leave();
+                let value = get(node, "value")?;
                 let fact = walk.within("value", R::Expression, |_| {
-                    self.expression(get(node, "value")?, scope, true, 0)
+                    self.expression(value, scope, true, 0)
                 })?;
                 walk.trail.mark(R::BindingType);
                 let ty = self.declaration(get(node, "binding")?, scope)?;
                 if !includes(&ty, &fact.ty) {
                     return Err(());
                 }
+                let work = self.effect_value(value, fact.cost)?;
+                self.effect_bound(get(node, "binding")?, value)?;
                 walk.trail.mark(R::CostOverflow);
                 // The call runs, then either its result is validated or
                 // exactly one arm's payload is built: charge the larger.
+                // The shared executor binds the result without validating
+                // it, so under the schedule success adds nothing.
+                let validations = if self.shared { 0 } else { shape(&ty)?.1 };
                 Ok(Totals {
-                    cost: fact.cost.plus(worst.maximum(Cost {
-                        steps: shape(&ty)?.1,
+                    cost: work.plus(worst.maximum(Cost {
+                        steps: validations,
                         bytes: 0,
                     }))?,
                     mutations: 0,
@@ -315,11 +328,13 @@ impl<'a> Judgment<'a> {
                     return Err(());
                 }
                 // A require refuses later work; it is not a proof for it.
-                let mut cost = walk
+                let condition = get(node, "predicate")?;
+                let copying = walk
                     .within("predicate", R::Expression, |_| {
-                        self.predicate(get(node, "predicate")?, scope, true, 0)
+                        self.predicate(condition, scope, true, 0)
                     })?
                     .0;
+                let mut cost = self.effect_condition(condition, copying)?;
                 walk.trail.enter("onFailure");
                 walk.trail.mark(R::Require);
                 let failure = get(node, "onFailure")?;
@@ -339,7 +354,8 @@ impl<'a> Judgment<'a> {
                     steps: 1,
                     bytes: 64,
                 };
-                for (name, value) in members(get(reason, "payload")?)? {
+                let entries = members(get(reason, "payload")?)?;
+                for (name, value) in entries {
                     let name = string(name)?;
                     let fact = self.expression(value, scope, true, 0)?;
                     payload = payload.plus(fact.cost)?.plus(Cost {
@@ -349,6 +365,10 @@ impl<'a> Judgment<'a> {
                     if fields.insert(name.to_owned(), fact.ty).is_some() {
                         return Err(());
                     }
+                }
+                let pairs: Vec<_> = entries.iter().map(|(name, value)| (name, value)).collect();
+                if let Some(shared) = self.effect_payload(&pairs)? {
+                    payload = shared;
                 }
                 let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
                 cost = cost.plus(payload)?.plus(scratch)?;
@@ -376,8 +396,9 @@ impl<'a> Judgment<'a> {
             node,
             &["kind", "binding", "effect", "input", "obstructionMap"],
         )?;
+        let input = get(node, "input")?;
         let fact = walk.within("input", R::Expression, |_| {
-            self.expression(get(node, "input")?, scope, true, 0)
+            self.expression(input, scope, true, 0)
         })?;
         walk.trail.mark(R::EffectInput);
         let expected = self.ty(&site.input, 0)?;
@@ -421,9 +442,10 @@ impl<'a> Judgment<'a> {
         if declared != output {
             return Err(());
         }
+        let work = self.effect_value(input, fact.cost)?;
         walk.trail.mark(R::CostOverflow);
         cost = cost
-            .plus(fact.cost)?
+            .plus(work)?
             .plus(Cost {
                 steps: shape(&expected)?.1,
                 bytes: 0,
@@ -466,7 +488,8 @@ impl<'a> Judgment<'a> {
             steps: 1,
             bytes: 64,
         };
-        for (name, value) in members(get(reason, "payload")?)? {
+        let entries = members(get(reason, "payload")?)?;
+        for (name, value) in entries {
             let name = string(name)?;
             let fact = self.expression(value, scope, true, 0)?;
             payload = payload.plus(fact.cost)?.plus(Cost {
@@ -476,6 +499,10 @@ impl<'a> Judgment<'a> {
             if fields.insert(name.to_owned(), fact.ty).is_some() {
                 return Err(());
             }
+        }
+        let pairs: Vec<_> = entries.iter().map(|(name, value)| (name, value)).collect();
+        if let Some(shared) = self.effect_payload(&pairs)? {
+            payload = shared;
         }
         let (scratch, _, encoded, _) = shape(&Ty::Record(fields))?;
         Ok((payload.plus(scratch)?, encoded))

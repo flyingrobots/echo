@@ -45,13 +45,15 @@ enum SharedReadAdmission {
     Admit,
 }
 
-/// Collect the one current source/imported helper signature authority.
+/// Collect the one current source/imported helper signature authority, for
+/// the effect route's typing relation. Typing does not depend on the cost
+/// schedule, so the shared-read capability is admitted here.
 pub(crate) fn definitions<'a>(
     core: &'a Value,
     exports: &'a Value,
     coordinate: &str,
 ) -> Result<BTreeMap<String, Definition<'a>>, Error> {
-    Ok(admitted_definitions(core, exports, coordinate, SharedReadAdmission::Refuse)?.0)
+    Ok(admitted_definitions(core, exports, coordinate, SharedReadAdmission::Admit)?.0)
 }
 
 fn admitted_definitions<'a>(
@@ -196,19 +198,24 @@ fn admitted_definitions<'a>(
 /// dominate it. An unsigned binding proven below its width carries that
 /// ceiling to the later bindings of the same body.
 ///
-/// The read and effect routes use this entry and have no shared-read meter, so
-/// it refuses `core.cost.shared-reads/v1`.
+/// The read route uses this entry and has no shared-read meter, so it refuses
+/// `core.cost.shared-reads/v1`.
 pub(crate) fn decode(
     core: &Value,
     exports: &Value,
     parser: &mut Parser<'_>,
 ) -> Result<BTreeMap<String, Helper>, Error> {
-    let definitions = definitions(core, exports, parser.coordinate)?;
+    let (definitions, _) = admitted_definitions(
+        core,
+        exports,
+        parser.coordinate,
+        SharedReadAdmission::Refuse,
+    )?;
     decode_definitions(core, exports, &definitions, parser)
 }
 
-/// The pure-package entry: also admits the shared-read schedule and returns
-/// the schedule the module requires.
+/// The pure-package and effect-program entry: also admits the shared-read
+/// schedule and returns the schedule the module requires.
 pub(crate) fn decode_pure(
     core: &Value,
     exports: &Value,

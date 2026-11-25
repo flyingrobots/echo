@@ -80,12 +80,6 @@ pub(in crate::executable_operation) fn judge(
         }
     }
     let mut types = Types::new(core);
-    // Effect bodies are charged by the copying schedule only; the runtime's
-    // effect route refuses the shared-read schedule, so the verifier does too.
-    trail.at(R::SharedReadSchedule, &["core", "requiredCoreCapabilities"]);
-    if types.shared {
-        return Err(());
-    }
     let (definitions, summaries) = prepare(core, exports, &mut types, 0, identity, trail)?;
     Checker {
         types: &mut types,
@@ -100,6 +94,29 @@ pub(in crate::executable_operation) fn judge(
         identity,
     }
     .effect_intent(intent_name, intent, sites, graph, trail)
+}
+
+impl Checker<'_, '_> {
+    /// What converting the intent's input or output costs at its boundary:
+    /// a copy and its validations under the copying schedule; under the
+    /// shared-read schedule two ticks per cell and the value's storage, as
+    /// for a pure intent (`shared_charge`).
+    fn boundary(&self, schema: &Schema) -> Check<Charge> {
+        if self.types.shared {
+            let footprint = super::shared_charge::Footprint::of(schema)?;
+            return Ok(Charge {
+                ticks: footprint.cells.checked_mul(2).ok_or(())?,
+                storage: footprint.bytes,
+            });
+        }
+        let size = schema.measure()?;
+        let mut charge = size.copy;
+        charge.append(Charge {
+            ticks: size.checks,
+            storage: 0,
+        })?;
+        Ok(charge)
+    }
 }
 
 impl<'a> Checker<'a, '_> {
@@ -120,6 +137,7 @@ impl<'a> Checker<'a, '_> {
         self.path.clear();
         self.bound.clear();
         trail.at(R::BlockLocals, &["core", "intents", intent_name, "body"]);
+        self.effect_start();
         let body = get(intent, "body")?;
         exact(body, &["locals", "nodes", "result"])?;
         let mut frame = Frame::new(sequence(get(body, "locals")?)?, self.types)?;
@@ -129,12 +147,7 @@ impl<'a> Checker<'a, '_> {
             return Err(());
         }
         let input_type = self.types.local(input)?;
-        let size = input_type.measure()?;
-        let mut charge = size.copy;
-        charge.append(Charge {
-            ticks: size.checks,
-            storage: 0,
-        })?;
+        let mut charge = self.boundary(&input_type)?;
         frame.define(input, input_type)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
             trail.at(R::Basis, &["core", "intents", intent_name, "basis"]);
@@ -143,7 +156,7 @@ impl<'a> Checker<'a, '_> {
             if checked.schema.representation() != &(Schema::Blob { low: 32, high: 32 }) {
                 return Err(());
             }
-            charge.append(checked.charge)?;
+            charge.append(self.effect_value(basis, checked.charge)?)?;
         }
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
@@ -163,7 +176,9 @@ impl<'a> Checker<'a, '_> {
                 return Err(());
             }
             string(get(constraint, "coordinate")?)?;
-            charge.append(self.predicate(get(constraint, "predicate")?, &frame, 0)?.0)?;
+            let predicate = get(constraint, "predicate")?;
+            let copying = self.predicate(predicate, &frame, 0)?.0;
+            charge.append(self.effect_condition(predicate, copying)?)?;
             trail.leave();
         }
         for constraint in constraints {
@@ -191,7 +206,9 @@ impl<'a> Checker<'a, '_> {
         let mutations = tally.mutations;
         trail.enter("result");
         trail.mark(R::Expression);
-        let output = self.expression(get(body, "result")?, &frame, 0)?;
+        let result = get(body, "result")?;
+        let output = self.expression(result, &frame, 0)?;
+        let result_charge = self.effect_value(result, output.charge)?;
         trail.at(R::ResultType, &["core", "intents", intent_name, "output"]);
         let expected = self.types.resolve(string(get(intent, "output")?)?, 0)?;
         if !expected.encloses(&output.schema) {
@@ -202,12 +219,8 @@ impl<'a> Checker<'a, '_> {
             &["core", "intents", intent_name, "coreEvaluationBudget"],
         );
         let size = expected.measure()?;
-        charge.append(output.charge)?;
-        charge.append(size.copy)?;
-        charge.append(Charge {
-            ticks: size.checks,
-            storage: 0,
-        })?;
+        charge.append(result_charge)?;
+        charge.append(self.boundary(&expected)?)?;
         let ceiling = get(intent, "coreEvaluationBudget")?;
         exact(
             ceiling,
@@ -446,7 +459,7 @@ impl Checker<'_, '_> {
     /// frame records. Each graph read pays the whole allowance, as on the
     /// bounded-read route.
     pub(super) fn graph_read_charge(
-        &self,
+        &mut self,
         read: &str,
         input: &Schema,
         output: &Schema,
@@ -455,7 +468,30 @@ impl Checker<'_, '_> {
         let graph = graph.ok_or(())?;
         let input = fields_of(input)?;
         let scans = graph.max_edge_scans;
-        let mut charge = super::read_charge::read_charge(output, self.summaries, scans)?;
+        // Under the shared-read schedule a closure charges its declared
+        // selector, the only helper the runtime calls, at its shared-read
+        // call charge, since the runtime runs it on the shared evaluator; the
+        // copying schedule keeps the costliest helper of the module at its
+        // copying charge.
+        let selected: BTreeMap<String, _>;
+        let summaries = if self.types.shared {
+            let module = string(get(self.types.module, "coordinate")?)?;
+            let declared = graph.selector.map(|name| format!("{module}.{name}"));
+            let mut chosen = BTreeMap::new();
+            if let Some(declared) = declared {
+                if let Some(summary) = self.summaries.get(&declared).copied() {
+                    // The candidate passes by reference with no proven list
+                    // bounds.
+                    let charge = self.shared_helper(&declared, vec![BTreeMap::new()])?.0;
+                    chosen.insert(declared, super::Summary { charge, ..summary });
+                }
+            }
+            selected = chosen;
+            &selected
+        } else {
+            self.summaries
+        };
+        let mut charge = super::read_charge::read_charge(output, summaries, scans)?;
         charge.append(Charge {
             ticks: 0,
             storage: u128::from(scans) * SECOND_ROW_BYTES,
@@ -545,7 +581,8 @@ impl<'a> Checker<'a, '_> {
             ticks: 1,
             storage: 64,
         };
-        for (name, value) in members(get(reason, "payload")?)? {
+        let entries = members(get(reason, "payload")?)?;
+        for (name, value) in entries {
             let name = string(name)?;
             let checked = self.expression(value, frame, 0)?;
             charge.append(checked.charge)?;
@@ -556,6 +593,9 @@ impl<'a> Checker<'a, '_> {
             if fields.insert(name.to_owned(), checked.schema).is_some() {
                 return Err(());
             }
+        }
+        if let Some(shared) = self.effect_payload(entries)? {
+            charge = shared;
         }
         let payload = Schema::Fields(fields).measure()?;
         charge.append(payload.copy)?;

@@ -78,7 +78,7 @@ const EXPECTED_PACKAGE_PATHS: [&str; EXPECTED_FILE_COUNT] = [
     "generated/resources/resource.target-bundle-profile.cbor",
     "generated/resources/resource.target-cost-algebra.cbor",
     "generated/resources/resource.target-footprint-algebra.cbor",
-    "generated/resources/resource.target-intrinsics-2.cbor",
+    "generated/resources/resource.target-intrinsics-3.cbor",
     "generated/resources/resource.target-intrinsics.cbor",
     "generated/resources/resource.target-ir-2.cbor",
     "generated/resources/resource.target-ir.cbor",
@@ -1991,7 +1991,7 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
             "echo.dpo.intrinsics/v1",
             "echo-frozen-catalog-v1-intrinsics-document",
         ),
-        ("echo.dpo.intrinsics/v2", "intrinsics-document"),
+        ("echo.dpo.intrinsics/v3", "intrinsics-document"),
         ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
         ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),
         (

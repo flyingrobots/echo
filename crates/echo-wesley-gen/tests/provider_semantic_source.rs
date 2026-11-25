@@ -645,7 +645,7 @@ fn checked_echo_provider_semantic_source_validates() {
                 "echo.dpo.intrinsics/v1",
                 "echo-frozen-catalog-v1-intrinsics-document"
             ),
-            ("echo.dpo.intrinsics/v2", "intrinsics-document"),
+            ("echo.dpo.intrinsics/v3", "intrinsics-document"),
             ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
             ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),
             (

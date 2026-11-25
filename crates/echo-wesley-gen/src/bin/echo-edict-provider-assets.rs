@@ -162,9 +162,9 @@ const ASSETS: [AssetSpec; 42] = [
         "schemas/edict-provider/generated/v1/resources/resource.target-footprint-algebra.cbor",
     ),
     AssetSpec::corroborated(
-        "edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor",
-        "schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-2.cbor",
-        "schemas/edict-provider/generated/v1/resources/resource.target-intrinsics-2.cbor",
+        "edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor",
+        "schemas/edict-provider/package/v1/generated/resources/resource.target-intrinsics-3.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-intrinsics-3.cbor",
     ),
     AssetSpec::corroborated(
         "edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor",

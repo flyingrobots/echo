@@ -156,8 +156,8 @@ fn echo_dpo_2_names_its_own_catalog_and_the_ordered_target_ir() {
     assert_eq!(text(field(value, "version")), "2");
     assert_eq!(text(field(value, "intrinsicNamespace")), "echo.dpo@2");
 
-    let catalog = output(&artifacts, "resource.target-intrinsics-2");
-    assert_eq!(catalog.digest_domain(), "echo.dpo.intrinsics/v2");
+    let catalog = output(&artifacts, "resource.target-intrinsics-3");
+    assert_eq!(catalog.digest_domain(), "echo.dpo.intrinsics/v3");
     assert_eq!(
         reference(field(value, "intrinsics")),
         reference_to(catalog),
@@ -208,13 +208,45 @@ fn echo_dpo_2_shares_every_other_reference_and_doctrine_with_echo_dpo_1() {
     );
 }
 
+/// amblicit#341: `echo.dpo@2`'s only catalog is `/v3`, so every effect
+/// intrinsic carries its `effectCostRule` and the catalog names where each
+/// template parameter lives in the operation configuration. Pure intrinsics
+/// keep their `/v2` shape.
+#[test]
+fn echo_dpo_2_catalog_carries_a_cost_template_for_every_effect() {
+    let artifacts = generate();
+    let catalog = output(&artifacts, "resource.target-intrinsics-3").canonical_value();
+    let mut templated = 0;
+    for (name, intrinsic) in entries(field(catalog, "intrinsics")) {
+        let class = text(field(intrinsic, "intrinsicClass"));
+        let has_rule = entries(intrinsic)
+            .iter()
+            .any(|(key, _)| text(key) == "effectCostRule");
+        assert_eq!(has_rule, class == "effect", "{}", text(name));
+        if has_rule {
+            let rule = field(intrinsic, "effectCostRule");
+            let mut halves: Vec<_> = entries(rule).iter().map(|(key, _)| text(key)).collect();
+            halves.sort_unstable();
+            assert_eq!(halves, ["bytes", "steps"], "{}", text(name));
+            templated += 1;
+        }
+    }
+    assert_eq!(templated, RUNTIME_INTRINSICS.len());
+    let parameters = field(catalog, "parameters");
+    let declared: Vec<_> = entries(parameters)
+        .iter()
+        .map(|(key, value)| (text(key), text(field(value, "kind"))))
+        .collect();
+    assert_eq!(declared, [("maxEdgeScans", "uint"), ("selector", "helper")]);
+}
+
 #[test]
 fn echo_dpo_2_catalog_declares_exactly_the_runtime_intrinsics() {
     let artifacts = generate();
-    let catalog = output(&artifacts, "resource.target-intrinsics-2").canonical_value();
+    let catalog = output(&artifacts, "resource.target-intrinsics-3").canonical_value();
     assert_eq!(
         text(field(catalog, "apiVersion")),
-        "edict.target-profile.intrinsics/v2"
+        "edict.target-profile.intrinsics/v3"
     );
     let declared = entries(field(catalog, "intrinsics"));
     let mut expected: Vec<_> = RUNTIME_INTRINSICS
@@ -292,7 +324,7 @@ const PURE_INTRINSICS: [(&str, &[&str], u64, &[u64]); 4] = [
 #[test]
 fn echo_dpo_2_catalog_publishes_the_identity_contracts() {
     let artifacts = generate();
-    let catalog = output(&artifacts, "resource.target-intrinsics-2").canonical_value();
+    let catalog = output(&artifacts, "resource.target-intrinsics-3").canonical_value();
     let ints = |values: &[u64]| {
         Value::Array(
             values

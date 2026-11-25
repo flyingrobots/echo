@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest as _, Sha256};
 
 const EXPECTED_PROVIDER_DIGEST: &str =
-    "sha256:96b0c415d679f4db03aa343dce2d0c5e79271cef115f60c64981fd274221c1b1";
+    "sha256:0681c758b8f437ce8d9e13aaf8717fdfbe2e7db8f435705ec290b9697abff25d";
 const EXPECTED_MANIFEST_RAW_SHA256: &str =
-    "4b1adefe92e38862fcb35a7a542cac227fbe281cc60e6a2e80be7975dec75ad2";
+    "8dba48517c9e4bd57e51043caacfe3026fbcf1faf9f4f3e882f150bc6abde492";
 
 const PACKAGE_PATHS: [&str; 28] = [
     "components/lowerer.echo-dpo.component.wasm",
@@ -35,7 +35,7 @@ const PACKAGE_PATHS: [&str; 28] = [
     "generated/resources/resource.target-bundle-profile.cbor",
     "generated/resources/resource.target-cost-algebra.cbor",
     "generated/resources/resource.target-footprint-algebra.cbor",
-    "generated/resources/resource.target-intrinsics-2.cbor",
+    "generated/resources/resource.target-intrinsics-3.cbor",
     "generated/resources/resource.target-intrinsics.cbor",
     "generated/resources/resource.target-ir-2.cbor",
     "generated/resources/resource.target-ir.cbor",

@@ -264,7 +264,7 @@ fn infer_expression(value: &Value, work: usize) -> super::Check<()> {
         edge_scans: 0,
         shared: false,
         types: super::BTreeMap::new(),
-        shared_costs: super::BTreeMap::new(),
+        shared_costs: super::shared_reads::Reachable::default(),
         identity: false,
     };
     judgment

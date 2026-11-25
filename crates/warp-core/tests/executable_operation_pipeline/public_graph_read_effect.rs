@@ -32,7 +32,15 @@ use warp_core::{
 const PACKAGE: &str =
     include_str!("../fixtures/edict-effect-graph-read/link-executable-operation-package.hex");
 /// `echo:operation-package:v1` identity of the retained package bytes.
-const PACKAGE_PIN: &str = "31c092bec1c0b3a061232e01ab0fa2943469f22324f5e240f2d30d6fb1dbe4c1";
+const PACKAGE_PIN: &str = "cb362ed3001604563d6487e165d8fbc31e78c9bb87d633c6f8838bcf2fc6f6b3";
+/// The same source compiled by Amblicit 65dc5362, retained for exact
+/// admission (echo#1016), and the shared-read minimum, (steps, bytes), that
+/// Amblicit 80b52f95 reports for it with Echo's `/v3` templates and that
+/// `effect_programs_are_admitted_at_exactly_the_compiler_minimum` in
+/// `echo-edict-provider-lowerer` pins.
+const V2_ADMISSION_PACKAGE: &str =
+    include_str!("../fixtures/edict-effect-v2-admission/link-executable-operation-package.hex");
+const V2_ADMISSION_MINIMUM: (u64, u64) = (244, 8_240);
 const OPERATION: &str = "consumer.links.program@1.link";
 const AUTHORITY_LABEL: &[u8] = b"consumer.links.authority/v1";
 /// The node, portal-owner and edge types the program's schema and law name.
@@ -253,6 +261,8 @@ fn application_basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
 struct Run {
     host: EffectPackageHost,
     output: Result<Vec<u8>, EffectFrameError>,
+    /// The steps and bytes the frame charged.
+    charged: (u64, u64),
     completed: Option<(
         warp_core::AdmittedEchoOperationInvocation,
         warp_core::edict_effects::CompletedEffectEvaluation,
@@ -310,6 +320,12 @@ fn invocation(
 /// then evaluates it for `source` over `shape`'s graph.
 fn run(shape: &Shape, source: NodeId) -> Run {
     let (bytes, identity) = retained();
+    run_package(bytes, identity, shape, source)
+}
+
+/// Admits, installs and evaluates `bytes` under the exact policy for
+/// `identity`, as `run` does for the retained package.
+fn run_package(bytes: Vec<u8>, identity: [u8; 32], shape: &Shape, source: NodeId) -> Run {
     let (mut host, head) = host(state(shape));
     let policy = EchoOperationAdmissionPolicy::exact(identity, OPERATION, authority(), budget());
     let admitted = host
@@ -334,7 +350,7 @@ fn run(shape: &Shape, source: NodeId) -> Run {
         )
         .expect("invocation");
     // The frame borrows the host, so it ends inside this block.
-    let (output, completed) = {
+    let (output, charged, completed) = {
         let mut frame = host
             .effect_evaluation_frame_v1(parent, &[EDGE_TYPE], 8, budget(), limits())
             .expect("frame")
@@ -350,6 +366,7 @@ fn run(shape: &Shape, source: NodeId) -> Run {
                 }],
             )
             .map(<[u8]>::to_vec);
+        let charged = (frame.consumed().steps(), frame.allocated_bytes());
         let completed = if output.is_ok() {
             Some(
                 frame
@@ -359,11 +376,12 @@ fn run(shape: &Shape, source: NodeId) -> Run {
         } else {
             None
         };
-        (output, completed)
+        (output, charged, completed)
     };
     Run {
         host,
         output,
+        charged,
         completed: completed.map(|completed| (invocation, completed)),
     }
 }
@@ -571,4 +589,216 @@ fn another_package_is_refused_under_the_public_graph_read_effect_policy() {
             .kind(),
         EchoOperationAdmissionErrorKind::PackageIdentityMismatch
     );
+}
+
+fn decoded(value: &Value) -> Value {
+    let Value::Bytes(bytes) = value else {
+        panic!("embedded canonical bytes")
+    };
+    echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("canonical")
+}
+
+fn entry_mut<'v>(value: &'v mut Value, key: &str) -> &'v mut Value {
+    let Value::Map(fields) = value else {
+        panic!("map around {key}")
+    };
+    &mut fields
+        .iter_mut()
+        .find(|(name, _)| *name == publication::text(key))
+        .unwrap_or_else(|| panic!("missing {key}"))
+        .1
+}
+
+fn identity_of(domain: &str, value: &Value) -> Value {
+    Value::Bytes(
+        echo_edict_canonical::digest_canonical_value_bytes_v1(domain, value)
+            .expect("digest")
+            .to_vec(),
+    )
+}
+
+/// The retained package with its Core requiring the shared-read schedule
+/// (echo#1016), every pin of the Core and Target IR recomputed, and its own
+/// new package identity. SYNTHETIC: a repinned copy of the public output.
+fn shared_schedule_package() -> (Vec<u8>, [u8; 32]) {
+    shared_schedule_package_of(&retained().0, None)
+}
+
+/// The shared-read capability.
+const SHARED: &str = "core.cost.shared-reads/v1";
+
+/// `bytes` with its Core requiring the shared-read schedule and, when given,
+/// a Core budget, as `schedule_package_of` repins it. SYNTHETIC.
+fn shared_schedule_package_of(bytes: &[u8], budget: Option<(u64, u64)>) -> (Vec<u8>, [u8; 32]) {
+    schedule_package_of(bytes, true, budget)
+}
+
+/// `bytes` with its Core requiring the shared-read schedule (`shared`, added
+/// once) or not requiring it, and, when given, a Core budget of (steps,
+/// bytes) in Core and its lowered intent alike, repinned as
+/// `shared_schedule_package` describes. SYNTHETIC.
+fn schedule_package_of(
+    bytes: &[u8],
+    shared: bool,
+    budget: Option<(u64, u64)>,
+) -> (Vec<u8>, [u8; 32]) {
+    let mut package = echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("package");
+    let mut program = decoded(publication::get(&package, "program"));
+    let mut bundle = decoded(publication::get(&program, "compiled_program"));
+    let mut core = decoded(publication::get(&bundle, "core_artifact"));
+    let mut target = decoded(publication::get(&bundle, "target_ir_artifact"));
+    let old_core = identity_of("edict.core.module/v1", &core);
+    let Value::Array(capabilities) = entry_mut(&mut core, "requiredCoreCapabilities") else {
+        panic!("capabilities")
+    };
+    capabilities.retain(|capability| capability != &publication::text(SHARED));
+    if shared {
+        capabilities.push(publication::text(SHARED));
+    }
+    if let Some((steps, bytes_)) = budget {
+        for (axis, value) in [("maxSteps", steps), ("maxAllocatedBytes", bytes_)] {
+            let value = Value::Integer(i128::from(value));
+            for artifact in [&mut core, &mut target] {
+                let Value::Map(intents) = entry_mut(artifact, "intents") else {
+                    panic!("intents")
+                };
+                publication::set(
+                    entry_mut(&mut intents[0].1, "coreEvaluationBudget"),
+                    axis,
+                    value.clone(),
+                );
+            }
+        }
+    }
+    let new_core = identity_of("edict.core.module/v1", &core);
+    *entry_mut(
+        entry_mut(entry_mut(&mut target, "semanticClosure"), "sourceCore"),
+        "digest",
+    ) = Value::Array(vec![publication::text("sha256"), new_core.clone()]);
+    let new_target = identity_of("edict.target-ir.artifact/v1", &target);
+    publication::set(
+        &mut bundle,
+        "core_artifact",
+        Value::Bytes(publication::encoded(&core)),
+    );
+    publication::set(
+        &mut bundle,
+        "target_ir_artifact",
+        Value::Bytes(publication::encoded(&target)),
+    );
+    publication::set(
+        &mut program,
+        "compiled_program",
+        Value::Bytes(publication::encoded(&bundle)),
+    );
+    publication::set(&mut program, "target_ir_identity", new_target.clone());
+    publication::set(
+        &mut package,
+        "program",
+        Value::Bytes(publication::encoded(&program)),
+    );
+    let closure = entry_mut(&mut package, "semantic_closure");
+    publication::set(closure, "core_identity", new_core.clone());
+    publication::set(closure, "target_ir_identity", new_target);
+    if *publication::get(closure, "canonical_meaning_identity") == old_core {
+        publication::set(closure, "canonical_meaning_identity", new_core);
+    }
+    let bytes = publication::encoded(&package);
+    let identity = publication::hash(b"echo:operation-package:v1\0", &bytes);
+    (bytes, identity)
+}
+
+/// Requiring the shared-read schedule changes how the program is metered,
+/// never what it reads, writes or returns. Oracle: the retained package run
+/// by the copying executor over the same graphs (a differential).
+#[test]
+fn the_shared_schedule_reads_and_links_exactly_as_the_copying_schedule() {
+    let shapes = [
+        (Shape::root(vec![TARGET]), SOURCE),
+        (Shape::root(vec![]), SOURCE),
+        (
+            Shape {
+                child_warp: true,
+                targets: vec![TARGET, OTHER_TARGET],
+            },
+            SOURCE,
+        ),
+        (Shape::root(vec![TARGET; 5]), SOURCE),
+        (Shape::root(vec![TARGET; 9]), SOURCE),
+        (Shape::root(vec![TARGET]), NodeId([0x70; 32])),
+    ];
+    for (index, (shape, source)) in shapes.iter().enumerate() {
+        let copying = run(shape, *source);
+        let (bytes, identity) = shared_schedule_package();
+        let sharing = run_package(bytes, identity, shape, *source);
+        assert_eq!(sharing.output, copying.output, "case {index}: output");
+        assert_eq!(
+            sharing
+                .completed
+                .as_ref()
+                .map(|(_, completed)| completed.mutations().to_vec()),
+            copying
+                .completed
+                .as_ref()
+                .map(|(_, completed)| completed.mutations().to_vec()),
+            "case {index}: mutations"
+        );
+    }
+}
+
+/// Given exactly the compiler's shared-read minimum as its Core budget, the
+/// exact-admission package reads and links as the copying schedule does on
+/// every graph above, and the runtime's charge stays at or below that static
+/// bound on both axes (echo#1016). Oracles: the same package under the
+/// copying schedule (a differential) and the compiler's minimum.
+#[test]
+fn the_shared_schedule_runs_within_the_compiler_minimum() {
+    let bytes = hex::decode(V2_ADMISSION_PACKAGE.trim()).expect("retained hex");
+    let (steps, bytes_) = V2_ADMISSION_MINIMUM;
+    let shapes = [
+        (Shape::root(vec![TARGET]), SOURCE),
+        (Shape::root(vec![]), SOURCE),
+        (
+            Shape {
+                child_warp: true,
+                targets: vec![TARGET, OTHER_TARGET],
+            },
+            SOURCE,
+        ),
+        (Shape::root(vec![TARGET; 5]), SOURCE),
+        (Shape::root(vec![TARGET; 9]), SOURCE),
+    ];
+    // The retained package is compiled under the shared-read schedule at its
+    // minimum; the copying run drops that capability and widens the budget.
+    let (copying_bytes, copying_identity) =
+        schedule_package_of(&bytes, false, Some((1 << 20, 1 << 24)));
+    for (index, (shape, source)) in shapes.iter().enumerate() {
+        let copying = run_package(copying_bytes.clone(), copying_identity, shape, *source);
+        // Cases 3 and 4 overflow the read's bound and obstruct on both
+        // schedules; the differential still requires the same obstruction.
+        assert_eq!(
+            copying.output.is_ok(),
+            index < 3,
+            "case {index}: copying run"
+        );
+        let (exact, exact_identity) = shared_schedule_package_of(&bytes, Some((steps, bytes_)));
+        let sharing = run_package(exact, exact_identity, shape, *source);
+        assert_eq!(sharing.output, copying.output, "case {index}: output");
+        assert_eq!(
+            sharing
+                .completed
+                .as_ref()
+                .map(|(_, completed)| completed.mutations().to_vec()),
+            copying
+                .completed
+                .as_ref()
+                .map(|(_, completed)| completed.mutations().to_vec()),
+            "case {index}: mutations"
+        );
+        let (charged_steps, charged_bytes) = sharing.charged;
+        assert!(
+            charged_steps <= steps && charged_bytes <= bytes_,
+            "case {index}: runtime charge ({charged_steps}, {charged_bytes}) exceeds the static bound ({steps}, {bytes_})"
+        );
+    }
 }

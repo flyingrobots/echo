@@ -81,12 +81,6 @@ pub(in crate::executable_operation) fn judge(
             }
         }
     }
-    // Effect bodies are charged by the copying schedule only; the runtime's
-    // effect route refuses the shared-read schedule, so lowering does too.
-    trail.at(R::SharedReadSchedule, &["core", "requiredCoreCapabilities"]);
-    if super::shared_reads::required(core)? {
-        return Err(());
-    }
     judged(core, exports, 0, identity, trail)?.effect_intent(
         intent_name,
         intent,
@@ -114,6 +108,7 @@ impl<'a> Judgment<'a> {
         self.path.clear();
         self.bound.clear();
         trail.at(R::BlockLocals, &["core", "intents", intent_name, "body"]);
+        self.effect_start();
         let body = get(intent, "body")?;
         let mut pending = self.block_locals(body)?;
         let mut walk = Walk {
@@ -132,11 +127,7 @@ impl<'a> Judgment<'a> {
         walk.trail.mark(R::InputBinding);
         let mut scope = BTreeMap::new();
         let ty = self.declaration(input, &mut scope)?;
-        let (copy, validation, _, _) = shape(&ty)?;
-        let mut cost = copy.plus(Cost {
-            steps: validation,
-            bytes: 0,
-        })?;
+        let mut cost = self.boundary(&ty)?;
         if let Some(basis) = super::super::map_field(intent, "basis") {
             walk.trail
                 .at(R::Basis, &["core", "intents", intent_name, "basis"]);
@@ -145,7 +136,7 @@ impl<'a> Judgment<'a> {
             if fact.ty.representation() != &Ty::Bytes(32, 32) {
                 return Err(());
             }
-            cost = cost.plus(fact.cost)?;
+            cost = cost.plus(self.effect_value(basis, fact.cost)?)?;
         }
         // Each input constraint is judged with no facts, as the runtime does;
         // only then do they all dominate the body. One constraint never
@@ -165,10 +156,9 @@ impl<'a> Judgment<'a> {
                 return Err(());
             }
             string(get(constraint, "coordinate")?)?;
-            cost = cost.plus(
-                self.predicate(get(constraint, "predicate")?, &scope, true, 0)?
-                    .0,
-            )?;
+            let predicate = get(constraint, "predicate")?;
+            let copying = self.predicate(predicate, &scope, true, 0)?.0;
+            cost = cost.plus(self.effect_condition(predicate, copying)?)?;
             walk.trail.leave();
         }
         for constraint in constraints {
@@ -187,7 +177,9 @@ impl<'a> Judgment<'a> {
         cost = cost.plus(totals.cost)?;
         walk.trail.enter("result");
         walk.trail.mark(R::Expression);
-        let result = self.expression(get(body, "result")?, &scope, true, 0)?;
+        let result_value = get(body, "result")?;
+        let result = self.expression(result_value, &scope, true, 0)?;
+        let result_cost = self.effect_value(result_value, result.cost)?;
         walk.trail
             .at(R::ResultType, &["core", "intents", intent_name, "output"]);
         let expected = self.ty(string(get(intent, "output")?)?, 0)?;
@@ -198,11 +190,8 @@ impl<'a> Judgment<'a> {
             R::CostOverflow,
             &["core", "intents", intent_name, "coreEvaluationBudget"],
         );
-        let (scratch, validations, output, _) = shape(&expected)?;
-        cost = cost.plus(result.cost)?.plus(scratch)?.plus(Cost {
-            steps: validations,
-            bytes: 0,
-        })?;
+        let output = shape(&expected)?.2;
+        cost = cost.plus(result_cost)?.plus(self.boundary(&expected)?)?;
         let budget = get(intent, "coreEvaluationBudget")?;
         exact(budget, &["maxSteps", "maxAllocatedBytes", "maxOutputBytes"])?;
         let max_output = number(get(budget, "maxOutputBytes")?)?;
@@ -423,6 +412,19 @@ fn times(cost: Cost, count: u64) -> Check<Cost> {
 }
 
 impl Judgment<'_> {
+    /// The charge for converting the intent's input or output at its
+    /// boundary. The copying schedule copies and validates the value; the
+    /// shared-read schedule charges two steps per cell and the value's bytes,
+    /// the rule its pure programs use (`shared_intent_cost`).
+    fn boundary(&self, ty: &Ty) -> Check<Cost> {
+        let (copy, validations, _, _) = shape(ty)?;
+        // A copy charges one step per cell, so the shared rule adds one more.
+        let steps = if self.shared { copy.steps } else { validations };
+        copy.plus(Cost { steps, bytes: 0 })
+    }
+}
+
+impl Judgment<'_> {
     /// Checks a graph read's ABI and returns the work a recording frame
     /// charges for it on root-warp storage: the plain view's charge for the
     /// declared scan allowance and the result (`read_cost`), plus what the
@@ -437,37 +439,32 @@ impl Judgment<'_> {
         graph: Option<GraphReads<'_>>,
     ) -> Check<Cost> {
         let graph = graph.ok_or(())?;
-        let fields = record(input)?;
-        let scans = graph.max_edge_scans;
-        let records = if read == "outgoing-edge-read" {
-            edge_abi(fields, output)?;
-            Cost {
-                steps: 1,
-                bytes: RANGE_RECORDS,
-            }
-        } else {
-            let closure = closure_abi(fields, output)?;
+        if read == "closure-read" {
+            let closure = closure_abi(record(input)?, output)?;
             self.selector(graph.selector, closure.node, closure.guide)?;
-            let ranges = closure
-                .occurrences
-                .checked_mul(closure.edge_types)
-                .ok_or(())?;
-            let node = Cost {
-                steps: 2,
-                bytes: NODE_RECORDS.checked_add(closure.atom).ok_or(())?,
-            };
-            let range = Cost {
-                steps: 1,
-                bytes: RANGE_RECORDS,
-            };
-            times(node, closure.nodes)?.plus(times(range, ranges)?)?
+        }
+        // Under the shared-read schedule a closure charges its declared
+        // selector, the only helper the runtime calls, at its shared-read
+        // call cost: the runtime evaluates it with the shared evaluator. The
+        // copying schedule keeps the costliest helper of the module at its
+        // copying cost.
+        let selected: BTreeMap<String, super::Fact>;
+        let helpers = if self.shared {
+            let coordinate = string(get(self.core, "coordinate")?)?;
+            let declared = graph.selector.map(|name| format!("{coordinate}.{name}"));
+            let mut chosen = BTreeMap::new();
+            if let Some(declared) = declared {
+                if let Some(fact) = self.completed.get(&declared).cloned() {
+                    let cost = self.shared_selector(&declared)?;
+                    chosen.insert(declared, super::Fact { cost, ..fact });
+                }
+            }
+            selected = chosen;
+            &selected
+        } else {
+            &self.completed
         };
-        super::read_cost::read_cost(output, &self.completed, scans)?
-            .plus(records)?
-            .plus(Cost {
-                steps: 0,
-                bytes: scans.checked_mul(RECORDED_EDGE_BYTES).ok_or(())?,
-            })
+        graph_charge(read, input, output, graph.max_edge_scans, helpers)
     }
 
     /// The declared selector is one of the module's own source helpers,
@@ -505,4 +502,45 @@ impl Judgment<'_> {
             Err(())
         }
     }
+}
+
+/// The work one graph read costs once its ABI and selector are judged: its
+/// declared scan allowance and result (`read_cost`), plus what the frame
+/// records. `helpers` are the source helpers the read may call.
+pub(super) fn graph_charge(
+    read: &str,
+    input: &Ty,
+    output: &Ty,
+    scans: u64,
+    helpers: &BTreeMap<String, super::Fact>,
+) -> Check<Cost> {
+    let fields = record(input)?;
+    let records = if read == "outgoing-edge-read" {
+        edge_abi(fields, output)?;
+        Cost {
+            steps: 1,
+            bytes: RANGE_RECORDS,
+        }
+    } else {
+        let closure = closure_abi(fields, output)?;
+        let ranges = closure
+            .occurrences
+            .checked_mul(closure.edge_types)
+            .ok_or(())?;
+        let node = Cost {
+            steps: 2,
+            bytes: NODE_RECORDS.checked_add(closure.atom).ok_or(())?,
+        };
+        let range = Cost {
+            steps: 1,
+            bytes: RANGE_RECORDS,
+        };
+        times(node, closure.nodes)?.plus(times(range, ranges)?)?
+    };
+    super::read_cost::read_cost(output, helpers, scans)?
+        .plus(records)?
+        .plus(Cost {
+            steps: 0,
+            bytes: scans.checked_mul(RECORDED_EDGE_BYTES).ok_or(())?,
+        })
 }

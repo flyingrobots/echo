@@ -60,11 +60,46 @@
   element and fold-state reads are O(1) and charge one step; construction
   charges only its shell. Both providers judge the module with the compiler's
   own static rules, so they admit exactly the compiler's minimum budget and
-  refuse one step or byte less. The read, graph-read and effect routes refuse
-  the capability, and so do byte intrinsics and imported helpers under it.
+  refuse one step or byte less. The read and graph-read routes refuse the
+  capability; effect programs gain it in the entry below (echo#1016).
   Modules without the capability are metered and judged exactly as before. A
   shared corpus, produced by the pinned compiler and rechecked in CI, drives
   all three judges.
+- Shared-read (v2) effect execution (echo#1016). An `echo.dpo@2` effect
+  program whose Core requires `core.cost.shared-reads/v1` is run by
+  warp-core's shared executor and judged under the same schedule by the
+  provider lowerer and verifier: effect steps (atom, edge and closure reads
+  and the five mutations), identity intrinsics, `Option`, ordered records,
+  `fail`, byte intrinsics, `attempt`, `require`, the closure-read selector
+  and the intent's input and output. Each charge matches Amblicit's
+  `edict.core-cost/v2` rules with Echo's `/v3` effect cost templates; the
+  effect-body formulas are in `docs/architecture/application-contract-hosting.md`.
+  Every runtime test runs the same package under both schedules and requires
+  the same result and mutations. The `echo.dpo@2` profile (revised in place,
+  unreleased) pins the `/v3` intrinsics catalog that carries those templates,
+  with Amblicit's loadable `effect-cost-catalog-v1` contract pack
+  (amblicit#352, cost rules written out to depth 10). Amblicit `2b09e4ab`
+  compiles sixteen effect packages, six of them `require` loops, through the
+  checked provider package at exactly its own minimum, and the lowerer admits
+  each at exactly the compiler's minimum and refuses one step or byte less, the
+  verifier measures the same minimums, and the closure-read witness's
+  residual is (0, 0). warp-core runs the closure witness, the node-atom read,
+  the outgoing-edge read, the mutations and the six loops (on every failing
+  item) at exactly that minimum, charging at or below it on both axes. Programs without the capability are run,
+  judged and charged exactly as before. The packages are retained under
+  `crates/warp-core/tests/fixtures/edict-effect-v2-admission/`. Known gaps:
+  the compiler costs effects by the templates only when the application names
+  the catalog under `target.pureIntrinsics`; the effect frame's ceilings are
+  code constants; copying-schedule `let` validations are charged by Echo and not by Amblicit
+  (unmeasured); the shared runtime validates neither `let` nor `attempt`
+  bindings, so the `let` validations charged are safe but not tight;
+  record-valued failure payload fields are measured on the runtime only in
+  a `require` loop; an `attempt` inside a loop is refused by the failure-set
+  check. Every `echo.dpo@2` witness is recompiled by Amblicit `2b09e4ab`;
+  the `echo.dpo@1` witnesses are byte-identical under it, so
+  `scripts/verify-edict-provider-host-v1.sh` uses that one compiler. The
+  provider components are promoted from byte-equal G4 candidates built at
+  `851e4ee8` (lowerer `6dcba3fe`, verifier `17cbe60a` unchanged).
 - `EffectPackageHost` (#1017) runs an authored effect package on generic
   Echo with `trusted_runtime` alone, without the internal
   `native_rule_bootstrap` feature. It admits the exact package under an exact
@@ -434,6 +469,28 @@
 
 ### Fixed
 
+- Under the shared-read schedule an `attempt` in an effect body is charged
+  what warp-core's shared executor charges (echo#1016, amblicit#341). An
+  obstruction payload's record expression step was counted twice, once on
+  its own and once in its shell's evaluation; it is now counted once, in the
+  lowerer and the verifier alike, for `attempt` arms and `require` payloads.
+  An `attempt`'s success path no longer adds the binding's validations, which
+  the shared executor never performs. Shared step minimums fall by one for
+  `typed-failure-control` (375), `read-control` (2,097,261) and the four
+  ordered-record programs (112, 252); bytes and every copying minimum are
+  unchanged, and warp-core runs each program at its new minimum. The
+  compiler's typed-failure package is retained beside the other exact
+  admission packages.
+- Under the shared-read schedule each field of an obstruction payload adds
+  one keyed cell to the payload record's shell, (1, 64 + key length), as
+  warp-core's shared evaluator builds it (echo#1016). The lowerer and the
+  verifier added two cells per field, (1, 64) more than the runtime. Shared
+  minimums fall by (1, 64) for `typed-failure-control` (374, 1231) and the
+  four ordered-record programs (111, 1425; 251, 1681); every copying minimum
+  and every empty payload are unchanged. Two compiler packages with a
+  one-field payload, as an `attempt` arm's and as a `require`'s, are retained
+  beside the exact admission packages with their sources.
+
 - A commit that fails, by returning an error or because a rule panics, now
   closes its transaction: applying to it or committing it again returns
   `EngineError::UnknownTx`, and its reservations are released. The failed
@@ -485,6 +542,7 @@
   admits. Every binding refusal also names its artifact by domain and its
   failed check in a second diagnostic, `<code>.artifact-binding.<check>`,
   where the check is `reference`, `decode`, `canonical-form` or `digest`.
+
 - A failure in an imported lawpack helper can no longer escape unmapped
   (#1006). The runtime, the lowerer and the verifier accepted a forged package
   whose intent called an exported pure helper whose body fails, outright or in

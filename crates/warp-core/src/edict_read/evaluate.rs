@@ -82,6 +82,7 @@ fn run_body<A: NodeAtomAccess>(
                             meter: &mut *meter,
                             usage: &mut usage,
                             limits: &program.limits,
+                            shared: false,
                         };
                         let outcome = if let ReadKind::Closure(shape) = kind {
                             graph::closure(shape, &input, &mut session)?

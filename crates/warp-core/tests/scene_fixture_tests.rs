@@ -4,7 +4,9 @@
 //!
 //! These run in the ordinary test suite: generator vectors, the separation of
 //! workload and expectation identities, C1 parity with `action_scene`, one
-//! validated F5-S execution, and validator canaries that must be invalid.
+//! validated F5-S execution, validator canaries that must be invalid, small
+//! validated F6 scenes, and hand-computed F6 scenes that check collision,
+//! despawn and contact edges independently of the game's own step.
 #![cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 #![allow(missing_docs, dead_code, clippy::expect_used, clippy::panic)]
 
@@ -16,7 +18,7 @@ mod fixtures;
 use fixtures::manifest::hex32;
 use fixtures::outcome::ResultClass;
 use fixtures::prng::SplitMix64;
-use fixtures::{star, think_append};
+use fixtures::{game, star, think_append};
 
 /// SplitMix64 from seed 1234567: the reference sequence, cross-checked with
 /// an independent Python implementation of Vigna's code.
@@ -244,4 +246,529 @@ fn f5_rejects_missing_or_failed_application_root_parity() {
             "accepted missing or failed application-root parity {parity:?}: {class:?}"
         );
     }
+}
+
+/// The scaled F6 scenes the hosted conformance test runs.
+const SMALL_SCENES: [game::Scene; 3] = [
+    game::ARENA.scaled(1, 8, 30),
+    game::PILE.scaled(1, 16, 110),
+    game::BULLETS.scaled(1, 8, 70),
+];
+
+/// Pinned live roots of the small scenes at seed 6, as `hex32`. They are
+/// declared through `with_live_root`, so a moved root makes the run invalid.
+/// Repin (the failure lists every observed root) after any intended change
+/// to `step`, the generator, the graph layout, or Echo's state-root encoding.
+const SMALL_SCENE_ROOTS: [&str; SMALL_SCENES.len()] = [
+    "1b695925daf1a57b0a53575c0aada90843607a7eb2cc48aae5e9a653185e5f62",
+    "ab7d68e48574b543b1ee02ae190a9d822cd41b7fc18a51bdc05d62698dcb5871",
+    "7d501ee4ee2296265d7a10df49be06d50cf2f085fdca886d5dc3c4ae365aa57c",
+];
+
+/// Pinned initial-world digests (`game::world_digest`) of the full-size
+/// scenes at seed 6. Repin (the failure lists every observed digest) after
+/// any intended generator change, and bump `FIXTURE_VERSION` with it.
+const INITIAL_WORLD_DIGESTS: [&str; game::SCENES.len()] = [
+    "7b9e8ef71826e3fe1780c0bd88ccc5fd1709f830dac6e5b66c615b2533726aec",
+    "7591afdce979db78db3d3ee249ee0ab8ff5f26d3af230372fc59af97d143cb44",
+    "41b6e8748f009e3a09f4a940c130044257e091b98e3266edc3e55f9f37381176",
+];
+
+/// Small F6 scenes run validly in a debug build, where footprint enforcement
+/// checks that the footprint declares every read and write the step makes.
+/// Each run's expectation also declares its pinned live root. The pile runs
+/// long enough to land and pile up, so contact edges are added (the hand
+/// scenes below check removal); the bullets run past a projectile lifetime,
+/// so bodies despawn. Each scene runs once.
+#[test]
+fn f6_small_scenes_run_validly() {
+    let mut observations = std::collections::BTreeMap::new();
+    let mut moved = Vec::new();
+    for (scene, pinned) in SMALL_SCENES.into_iter().zip(SMALL_SCENE_ROOTS) {
+        let obs = game::run(scene, 6);
+        assert!(obs.rendered > 0, "{} rendered nothing", scene.name);
+        let expect = game::with_live_root(game::expectation(scene, 6), pinned);
+        match game::validate(scene, &expect, &obs) {
+            ResultClass::Valid => {}
+            class => moved.push(format!(
+                "{}: live root is {} ({class:?})",
+                scene.name,
+                hex32(&obs.live_root)
+            )),
+        }
+        observations.insert(scene.name, obs);
+    }
+    assert!(
+        moved.is_empty(),
+        "small scenes invalid; repin only if the change is intended:\n{}",
+        moved.join("\n")
+    );
+    assert!(
+        observations["pile"].peak_contacts > 0,
+        "the pile never made contact"
+    );
+    let bullets = &observations["bullets"].reference_world;
+    assert!(
+        bullets.next_id as usize > bullets.bodies.len(),
+        "no projectile despawned"
+    );
+}
+
+/// Each full-size scene's generated initial world matches its pinned digest,
+/// so a generator change cannot pass unnoticed; the digest is also declared
+/// in the scene's expectation, so `expectation_id` moves with it.
+#[test]
+fn f6_initial_worlds_match_their_pinned_digests() {
+    let mut moved = Vec::new();
+    for (scene, pinned) in game::SCENES.into_iter().zip(INITIAL_WORLD_DIGESTS) {
+        let digest = hex32(&game::world_digest(&game::initial_world(scene, 6)));
+        if digest != pinned {
+            moved.push(format!("{}: initial world digest is {digest}", scene.name));
+        }
+    }
+    assert!(
+        moved.is_empty(),
+        "initial worlds moved; repin if the change is intended:\n{}",
+        moved.join("\n")
+    );
+}
+
+type Canary = (&'static str, fn(&mut game::Observation));
+
+/// The validator refuses each kind of hosting failure it declares: leftover
+/// graph state, an unreadable or different graph world, a replay that does
+/// not reproduce the live root, a different submitted script, and a moved
+/// live root.
+#[test]
+fn f6_canaries_are_invalid() {
+    let scene = SMALL_SCENES[0];
+    let obs = game::run(scene, 6);
+    let expect = game::expectation(scene, 6);
+    assert_eq!(game::validate(scene, &expect, &obs), ResultClass::Valid);
+    let canaries: [Canary; 5] = [
+        ("leftover graph state", |o| {
+            o.graph_holds_only_the_world = false;
+        }),
+        ("unreadable graph world", |o| o.final_world = None),
+        ("replay differs", |o| o.replay_root = Some([0; 32])),
+        ("different script", |o| o.executed_script_digest = [0; 32]),
+        ("different start", |o| o.initial_world_digest = [0; 32]),
+    ];
+    for (name, mutate) in canaries {
+        let mut bad = obs.clone();
+        mutate(&mut bad);
+        assert!(
+            matches!(
+                game::validate(scene, &expect, &bad),
+                ResultClass::Invalid(_)
+            ),
+            "{name} was accepted"
+        );
+    }
+    let wrong_root = game::with_live_root(expect, &hex32(&[0; 32]));
+    assert!(matches!(
+        game::validate(scene, &wrong_root, &obs),
+        ResultClass::Invalid(_)
+    ));
+}
+
+/// The graph reader refuses a misplaced member edge, and the accounting
+/// check notices a node the world does not explain.
+#[test]
+fn f6_reader_and_accounting_refuse_stray_graph_state() {
+    let scene = SMALL_SCENES[0];
+    let world = game::initial_world(scene, 6);
+    let store = game::initial_store(scene, &world);
+    assert_eq!(game::world_in(&store, scene).as_ref(), Some(&world));
+    assert!(game::holds_only(&store, scene, &world));
+
+    let body = world.bodies.values().next().expect("a body");
+    let home = (0..scene_cells(scene))
+        .find(|&cell| {
+            let mut probe = game::initial_store(scene, &world);
+            probe.insert_edge(
+                game::cell_node_id(cell),
+                game::member_edge_record(body.id, cell),
+            );
+            game::world_in(&probe, scene).is_some()
+        })
+        .expect("the body's own cell");
+    let elsewhere = (home + 1) % scene_cells(scene);
+    let mut misplaced = game::initial_store(scene, &world);
+    // Remove the body's correct home edge first, so only the placement check
+    // (not duplicate-body detection) can refuse the graph.
+    assert!(misplaced.delete_edge_exact(
+        game::cell_node_id(home),
+        game::member_edge_record(body.id, home).id
+    ));
+    misplaced.insert_edge(
+        game::cell_node_id(elsewhere),
+        game::member_edge_record(body.id, elsewhere),
+    );
+    assert_eq!(
+        game::world_in(&misplaced, scene),
+        None,
+        "misplaced member edge"
+    );
+
+    let mut leftover = game::initial_store(scene, &world);
+    // A body node no cell reaches, as a despawn that kept the node would leave.
+    leftover.insert_node(
+        warp_core::make_node_id("f6-test/orphan"),
+        warp_core::NodeRecord {
+            ty: warp_core::make_type_id("bench/f6/body"),
+        },
+    );
+    assert_eq!(game::world_in(&leftover, scene).as_ref(), Some(&world));
+    assert!(!game::holds_only(&leftover, scene, &world), "orphan node");
+}
+
+fn scene_cells(scene: game::Scene) -> u32 {
+    let grid = scene.world / scene.cell;
+    u32::try_from(grid * grid).expect("cells fit u32")
+}
+
+/// Every scene's world is a whole number of cells, and every cell is at least
+/// twice the radius, the rule the broadphase relies on to find every touching
+/// pair in a 3x3 neighbourhood.
+#[test]
+fn f6_scenes_satisfy_the_cell_rule() {
+    for scene in game::SCENES.into_iter().chain([HAND]) {
+        assert_eq!(
+            scene.world % scene.cell,
+            0,
+            "{}: world is not whole cells",
+            scene.name
+        );
+        assert!(
+            scene.cell >= 2 * scene.radius,
+            "{}: cell {} is smaller than twice the radius {}",
+            scene.name,
+            scene.cell,
+            scene.radius
+        );
+    }
+}
+
+/// The step intent's variables round-trip: `parse` reads back exactly what
+/// `vars` packed, for every scene, so adding a field cannot silently skew the
+/// hand-computed offsets.
+#[test]
+fn f6_step_vars_round_trip() {
+    for scene in game::SCENES.into_iter().chain([HAND]) {
+        let (parsed, seed, frame, input) =
+            game::parse(&game::vars(scene, 6, 17, [3, -5])).expect("vars parse");
+        assert_eq!((seed, frame, input), (6, 17, [3, -5]), "{}", scene.name);
+        // The name is resolved from the index, so a hand scene parses back
+        // with the indexed scene's name; every dimension must round-trip.
+        let expected = game::Scene {
+            name: parsed.name,
+            ..scene
+        };
+        assert_eq!(
+            format!("{parsed:?}"),
+            format!("{expected:?}"),
+            "{}",
+            scene.name
+        );
+    }
+}
+
+/// Every full-size F6 scene places its bodies without overlap. The lattice
+/// comment in `initial_world` is load-bearing for the pile, whose 2,048
+/// bodies once overflowed a 512-unit world onto the floor, so it is checked
+/// at the real dimensions rather than the scaled ones the hosted test uses.
+#[test]
+fn f6_full_size_initial_worlds_do_not_overlap() {
+    for scene in game::SCENES {
+        let world = game::initial_world(scene, 6);
+        let bodies: Vec<_> = world.bodies.values().collect();
+        assert_eq!(
+            bodies.len(),
+            (scene.bodies + scene.emitters) as usize,
+            "{}",
+            scene.name
+        );
+        for (i, a) in bodies.iter().enumerate() {
+            for b in &bodies[i + 1..] {
+                let dx = i128::from(b.pos[0] - a.pos[0]);
+                let dy = i128::from(b.pos[1] - a.pos[1]);
+                let reach = i128::from(a.radius + b.radius);
+                assert!(
+                    dx * dx + dy * dy >= reach * reach,
+                    "{}: bodies {} and {} overlap at the start",
+                    scene.name,
+                    a.id,
+                    b.id
+                );
+            }
+        }
+    }
+}
+
+/// A 64-unit box with 16-unit cells, no gravity, fully elastic, no player
+/// and no emitters: the dimensions of the hand-computed F6 scenes below. It
+/// shares ARENA's index: `parse` names a scene by index, and every dimension
+/// that matters travels in the intent.
+const HAND: game::Scene = game::Scene {
+    name: "hand",
+    index: 0,
+    bodies: 0,
+    radius: 1,
+    world: 64,
+    cell: 16,
+    gravity: 0,
+    restitution: 256,
+    initial_speed: 0,
+    player: false,
+    emitters: 0,
+    spawn_per_emitter: 0,
+    projectile_ttl: 0,
+    projectile_speed: 0,
+    frames: 0,
+};
+
+fn hand_body(id: u32, kind: game::Kind, pos: [i64; 2], vel: [i64; 2], radius: i64) -> game::Body {
+    game::Body {
+        id,
+        kind,
+        pos,
+        vel,
+        radius,
+        ttl: 0,
+    }
+}
+
+fn hand_world(
+    frame: u64,
+    next_id: u32,
+    bodies: &[game::Body],
+    contacts: &[(u32, u32)],
+) -> game::World {
+    game::World {
+        frame,
+        next_id,
+        bodies: bodies.iter().map(|body| (body.id, *body)).collect(),
+        contacts: contacts.iter().copied().collect(),
+    }
+}
+
+/// Checks `expected` frame by frame, independently of `game::step`: the
+/// expected worlds are worked out by hand from the physics, not by running
+/// the step. Each prefix also runs hosted in Echo (a debug build, so with
+/// footprint enforcement) and the world read back from the graph, including
+/// its contact edges, must equal the hand-computed one.
+fn check_hand_scene(start: &game::World, expected: &[game::World]) {
+    let mut world = start.clone();
+    for (frame, want) in expected.iter().enumerate() {
+        world = game::step(HAND, 0, &world, [0, 0]);
+        assert_eq!(&world, want, "step, frame {}", frame + 1);
+        let scene = game::Scene {
+            frames: frame as u64 + 1,
+            ..HAND
+        };
+        let obs = game::run_from_world(scene, 0, start.clone());
+        assert_eq!(
+            game::validate(scene, &game::expectation_from(scene, 0, start), &obs),
+            ResultClass::Valid,
+            "frame {}",
+            frame + 1
+        );
+        assert_eq!(
+            obs.final_world.as_ref(),
+            Some(want),
+            "graph, frame {}",
+            frame + 1
+        );
+    }
+}
+
+/// Two equal unit circles approach head-on at one unit per frame each. After
+/// integration their centres are one unit apart against a reach of two: they
+/// touch. The correction moves each half the overlap apart (to 10.5 and
+/// 12.5), and a fully elastic impulse between equal bodies swaps their
+/// velocities. The contact edge appears; one frame later they have moved
+/// apart to 9.5 and 13.5 and the edge is gone.
+#[test]
+fn f6_hand_collision_swaps_velocities_and_adds_then_removes_the_contact() {
+    use game::{Kind::Dynamic, ONE};
+    let y = 10 * ONE;
+    let start = hand_world(
+        0,
+        2,
+        &[
+            hand_body(0, Dynamic, [10 * ONE, y], [ONE, 0], ONE),
+            hand_body(1, Dynamic, [13 * ONE, y], [-ONE, 0], ONE),
+        ],
+        &[],
+    );
+    let touching = hand_world(
+        1,
+        2,
+        &[
+            hand_body(0, Dynamic, [10 * ONE + ONE / 2, y], [-ONE, 0], ONE),
+            hand_body(1, Dynamic, [12 * ONE + ONE / 2, y], [ONE, 0], ONE),
+        ],
+        &[(0, 1)],
+    );
+    let parted = hand_world(
+        2,
+        2,
+        &[
+            hand_body(0, Dynamic, [9 * ONE + ONE / 2, y], [-ONE, 0], ONE),
+            hand_body(1, Dynamic, [13 * ONE + ONE / 2, y], [ONE, 0], ONE),
+        ],
+        &[],
+    );
+    check_hand_scene(&start, &[touching, parted]);
+}
+
+/// A resting unit circle and a resting half-unit projectile one unit apart
+/// overlap by half a unit; each moves a quarter unit away and, at rest, no
+/// impulse applies. The projectile starts with two frames to live: it ages
+/// to one and stays, in contact. Next frame it ages to zero and despawns
+/// before integration, taking its contact edge with it; its number is not
+/// reused.
+#[test]
+fn f6_hand_projectile_despawns_and_drops_its_contact() {
+    use game::{
+        Kind::{Dynamic, Projectile},
+        ONE,
+    };
+    let y = 30 * ONE;
+    let projectile = |pos, ttl| game::Body {
+        ttl,
+        ..hand_body(1, Projectile, pos, [0, 0], ONE / 2)
+    };
+    let start = hand_world(
+        0,
+        2,
+        &[
+            hand_body(0, Dynamic, [30 * ONE, y], [0, 0], ONE),
+            projectile([31 * ONE, y], 2),
+        ],
+        &[],
+    );
+    let resting = hand_body(0, Dynamic, [30 * ONE - ONE / 4, y], [0, 0], ONE);
+    let aged = hand_world(
+        1,
+        2,
+        &[resting, projectile([31 * ONE + ONE / 4, y], 1)],
+        &[(0, 1)],
+    );
+    let despawned = hand_world(2, 2, &[resting], &[]);
+    check_hand_scene(&start, &[aged, despawned]);
+}
+
+/// The world digest covers everything the world carries: a changed frame, a
+/// changed next body number or a changed contact set each move it.
+#[test]
+fn f6_world_digest_covers_frame_next_id_and_contacts() {
+    use game::{Kind::Dynamic, ONE};
+    let body = hand_body(0, Dynamic, [10 * ONE, 10 * ONE], [0, 0], ONE);
+    let base = hand_world(0, 1, &[body], &[]);
+    let digest = game::world_digest(&base);
+    assert_ne!(
+        digest,
+        game::world_digest(&hand_world(1, 1, &[body], &[])),
+        "frame"
+    );
+    assert_ne!(
+        digest,
+        game::world_digest(&hand_world(0, 2, &[body], &[])),
+        "next_id"
+    );
+    assert_ne!(
+        digest,
+        game::world_digest(&hand_world(0, 1, &[body], &[(0, 1)])),
+        "contacts"
+    );
+}
+
+/// `holds_only` checks the root-to-world edge's endpoints, not only the edge
+/// counts: an edge of the right type pointing at the wrong node is refused.
+#[test]
+fn f6_holds_only_refuses_a_misdirected_root_edge() {
+    use game::{Kind::Dynamic, ONE};
+    let world = hand_world(
+        0,
+        1,
+        &[hand_body(0, Dynamic, [10 * ONE, 10 * ONE], [0, 0], ONE)],
+        &[],
+    );
+    let mut store = game::initial_store(HAND, &world);
+    assert!(game::holds_only(&store, HAND, &world));
+    let ty = warp_core::make_type_id("bench/f6/world-of");
+    let (from, edge) = store
+        .iter_edges()
+        .flat_map(|(from, out)| out.iter().map(move |edge| (*from, edge.clone())))
+        .find(|(_, edge)| edge.ty == ty)
+        .expect("the root-to-world edge");
+    assert!(store.delete_edge_exact(from, edge.id));
+    store.insert_edge(
+        from,
+        warp_core::EdgeRecord {
+            to: game::cell_node_id(0),
+            ..edge
+        },
+    );
+    assert!(!game::holds_only(&store, HAND, &world), "misdirected edge");
+}
+
+/// Contact correction cannot push a circle through a wall: two resting unit
+/// circles at x = 1 and x = 2 are corrected half a unit each, which would put
+/// the first at 0.5; it stays at the wall, 1. The second moves to 2.5.
+#[test]
+fn f6_contact_correction_keeps_circles_inside_the_walls() {
+    use game::{Kind::Dynamic, ONE};
+    let y = 10 * ONE;
+    let start = hand_world(
+        0,
+        2,
+        &[
+            hand_body(0, Dynamic, [ONE, y], [0, 0], ONE),
+            hand_body(1, Dynamic, [2 * ONE, y], [0, 0], ONE),
+        ],
+        &[],
+    );
+    let after = hand_world(
+        1,
+        2,
+        &[
+            hand_body(0, Dynamic, [ONE, y], [0, 0], ONE),
+            hand_body(1, Dynamic, [2 * ONE + ONE / 2, y], [0, 0], ONE),
+        ],
+        &[(0, 1)],
+    );
+    check_hand_scene(&start, &[after]);
+}
+
+/// The pair search sees bodies where earlier corrections left them: the same
+/// four crowded circles step to the same world whether the grid has one cell
+/// (every pair is searched) or small cells.
+#[test]
+fn f6_pair_search_does_not_depend_on_the_grid_cell_size() {
+    use game::{Kind::Dynamic, ONE};
+    let y = 4 * ONE;
+    let world = hand_world(
+        0,
+        4,
+        &[
+            hand_body(0, Dynamic, [ONE, y], [0, 0], ONE),
+            hand_body(1, Dynamic, [3 * ONE, y], [0, 0], ONE),
+            hand_body(2, Dynamic, [3 * ONE + 3 * ONE / 4, y], [0, 0], ONE),
+            hand_body(3, Dynamic, [ONE + 7 * ONE / 8, y], [0, 0], ONE),
+        ],
+        &[],
+    );
+    let whole = game::Scene {
+        world: 8,
+        cell: 8,
+        ..HAND
+    };
+    let fine = game::Scene { cell: 2, ..whole };
+    assert_eq!(
+        game::step(whole, 0, &world, [0, 0]),
+        game::step(fine, 0, &world, [0, 0])
+    );
 }

@@ -804,38 +804,168 @@ effect-cost-parameter = {
   kind: "uint" / "helper",
 }
 
-; Closed u64 expressions; admission refuses depth above 16, evaluation
-; refuses overflow. This schema does not bound nesting depth; the decoder is
-; stricter there and is authoritative. The schema requires `effectCostRule` on
-; every effect intrinsic of a v3 catalog, while the compiler reads it only for
-; the effects a program uses.
+; Closed u64 expressions. Expressions, measures and types share one nesting
+; level: `steps` and `bytes` are level 0 and each nested expression, measure,
+; type or record field is one level deeper. Depth limit: level 10
+; (`TARGET_EFFECT_COST_MAX_DEPTH`), for expressions, measures and types alike.
+; The rules below are written out level by level to that depth, because the
+; provider artifact-schema registry refuses these rules when they are
+; recursive. Effect-cost admission (the decoder) uses the same limit. The
+; schema applies it to every rule in the catalog; the compiler applies it to
+; every rule it reads, which are those of the effects the program uses.
+; Evaluation refuses overflow.
+; The schema requires `effectCostRule` on every effect intrinsic of a v3
+; catalog, while the compiler reads it only for the effects a program uses.
 effect-cost-rule = {
-  steps: effect-cost-expr,
-  bytes: effect-cost-expr,
+  steps: effect-cost-expr-0,
+  bytes: effect-cost-expr-0,
 }
-
-effect-cost-expr = { const: uint }
-                 / { sum: [2*16 effect-cost-expr] }
-                 / { product: [effect-cost-expr, effect-cost-expr] }
-                 / { measure: effect-cost-measure }
 
 effect-cost-half = "steps" / "bytes"
 
-effect-cost-measure = { bytesMax: effect-cost-type }
-                    / { listMax: effect-cost-type }
-                    / { validations: effect-cost-type }
-                    / { copy: effect-cost-type, of: effect-cost-half }
-                    / { parameter: nonempty-text }
-                    / { helper: { parameter: nonempty-text }, of: effect-cost-half }
-                    / { costliestHelper: effect-cost-half }
+; BEGIN GENERATED effect-cost levels (cargo xtask provider-contract-pack --write)
+; Do not edit. Level n is the decoder's nesting depth: steps and bytes are
+; level 0 and each nested expression, measure, type or record field is one
+; level deeper, up to 10. A deeper value has no rule here.
+effect-cost-expr-0 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-1] }
+                   / { product: [2*2 effect-cost-expr-1] }
+                   / { measure: effect-cost-measure-1 }
+effect-cost-expr-1 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-2] }
+                   / { product: [2*2 effect-cost-expr-2] }
+                   / { measure: effect-cost-measure-2 }
+effect-cost-expr-2 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-3] }
+                   / { product: [2*2 effect-cost-expr-3] }
+                   / { measure: effect-cost-measure-3 }
+effect-cost-expr-3 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-4] }
+                   / { product: [2*2 effect-cost-expr-4] }
+                   / { measure: effect-cost-measure-4 }
+effect-cost-expr-4 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-5] }
+                   / { product: [2*2 effect-cost-expr-5] }
+                   / { measure: effect-cost-measure-5 }
+effect-cost-expr-5 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-6] }
+                   / { product: [2*2 effect-cost-expr-6] }
+                   / { measure: effect-cost-measure-6 }
+effect-cost-expr-6 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-7] }
+                   / { product: [2*2 effect-cost-expr-7] }
+                   / { measure: effect-cost-measure-7 }
+effect-cost-expr-7 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-8] }
+                   / { product: [2*2 effect-cost-expr-8] }
+                   / { measure: effect-cost-measure-8 }
+effect-cost-expr-8 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-9] }
+                   / { product: [2*2 effect-cost-expr-9] }
+                   / { measure: effect-cost-measure-9 }
+effect-cost-expr-9 = { const: uint }
+                   / { sum: [2*16 effect-cost-expr-10] }
+                   / { product: [2*2 effect-cost-expr-10] }
+                   / { measure: effect-cost-measure-10 }
+effect-cost-expr-10 = { const: uint }
+effect-cost-measure-1 = { bytesMax: effect-cost-type-2 }
+                      / { listMax: effect-cost-type-2 }
+                      / { validations: effect-cost-type-2 }
+                      / { copy: effect-cost-type-2, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-2 = { bytesMax: effect-cost-type-3 }
+                      / { listMax: effect-cost-type-3 }
+                      / { validations: effect-cost-type-3 }
+                      / { copy: effect-cost-type-3, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-3 = { bytesMax: effect-cost-type-4 }
+                      / { listMax: effect-cost-type-4 }
+                      / { validations: effect-cost-type-4 }
+                      / { copy: effect-cost-type-4, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-4 = { bytesMax: effect-cost-type-5 }
+                      / { listMax: effect-cost-type-5 }
+                      / { validations: effect-cost-type-5 }
+                      / { copy: effect-cost-type-5, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-5 = { bytesMax: effect-cost-type-6 }
+                      / { listMax: effect-cost-type-6 }
+                      / { validations: effect-cost-type-6 }
+                      / { copy: effect-cost-type-6, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-6 = { bytesMax: effect-cost-type-7 }
+                      / { listMax: effect-cost-type-7 }
+                      / { validations: effect-cost-type-7 }
+                      / { copy: effect-cost-type-7, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-7 = { bytesMax: effect-cost-type-8 }
+                      / { listMax: effect-cost-type-8 }
+                      / { validations: effect-cost-type-8 }
+                      / { copy: effect-cost-type-8, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-8 = { bytesMax: effect-cost-type-9 }
+                      / { listMax: effect-cost-type-9 }
+                      / { validations: effect-cost-type-9 }
+                      / { copy: effect-cost-type-9, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-9 = { bytesMax: effect-cost-type-10 }
+                      / { listMax: effect-cost-type-10 }
+                      / { validations: effect-cost-type-10 }
+                      / { copy: effect-cost-type-10, of: effect-cost-half }
+                      / { parameter: nonempty-text }
+                      / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                      / { costliestHelper: effect-cost-half }
+effect-cost-measure-10 = { parameter: nonempty-text }
+                       / { helper: { parameter: nonempty-text }, of: effect-cost-half }
+                       / { costliestHelper: effect-cost-half }
+effect-cost-type-2 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-3 } }
+effect-cost-type-3 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-4 } }
+effect-cost-type-4 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-5 } }
+effect-cost-type-5 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-6 } }
+effect-cost-type-6 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-7 } }
+effect-cost-type-7 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-8 } }
+effect-cost-type-8 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-9 } }
+effect-cost-type-9 = { path: effect-cost-path }
+                   / { word: null }
+                   / { record: { * tstr => effect-cost-type-10 } }
+effect-cost-type-10 = { path: effect-cost-path }
+                    / { word: null }
+                    / { record: {} }
+; END GENERATED effect-cost levels
 
-; A type in the effect's signature (record fields, then `item` list-item
-; steps, then optional fields inside the item), the u64 word, or a
-; synthesized record. `then` needs at least one item step.
-effect-cost-type = { path: effect-cost-path }
-                 / { word: null }
-                 / { record: { * tstr => effect-cost-type } }
-
+; `path` names a type in the effect's signature (record fields, then `item` list-item
+; steps, then optional fields inside the item); `word` is the u64 word and
+; `record` a synthesized record. `then` needs at least one item step.
 effect-cost-path = {
   side: "input" / "output",
   fields: [* tstr],

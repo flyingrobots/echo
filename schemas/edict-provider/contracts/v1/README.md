@@ -4,18 +4,22 @@
 # Current upstream provider contract pack
 
 This is the exact schema/manifest pair from Amblicit merge
-`a21de8c2de59249bc4e79174b967af67ab012d4d`, [PR #351](https://github.com/flyingrobots/amblicit/pull/351), published upstream as `effect-cost-catalog-v1`.
+`aa8c7cbface8816cd930dca57252487eaa86f008`, [PR #352](https://github.com/flyingrobots/amblicit/pull/352), published upstream as `effect-cost-catalog-v1`.
+PR #352 replaced the first publication of that pack (`a21de8c2`, PR #351),
+whose recursive cost-rule schema the provider artifact-schema registry refused
+(`SchemaCompileFailed` for `echo.dpo.intrinsics/v3`). The #351 pair never
+shipped on Echo `main`, so it is not kept as a rejection fixture.
 The API and coordinate remain `edict.provider-contract-pack/v1` and
 `edict.provider-contract-pack.cddl@1`; exact bytes identify this publication.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `edict-provider-contracts.cddl` | `66f28b74bfa236a534455c36cc12e4dce106e1a3346880638f73b827ffa57a82` |
-| `manifest.json` | `7eadeaba705879a09f826bf6cbdadb0f8a25d4c3b05e2f720c040bb4013196fa` |
+| `edict-provider-contracts.cddl` | `ca33e99928edf8e0eaebdd3032ca1782c07eb84fd9e733a138711d7fcb4e53b8` |
+| `manifest.json` | `6837fbf0b3fdc5ece9be31b5b4e1c4cb6017fa8dc002789c394691091c4ade96` |
 
 Both files are Apache-2.0 upstream inputs. Replace them together; do not edit
 one independently. The sole production admission API pins this pair, its
-98,574-byte manifest ceiling, twelve contracts, eight domains and five resources.
+114,170-byte manifest ceiling, twelve contracts, eight domains and five resources.
 Earlier pairs are rejected. Historical bytes survive only in Git and test-only
 rejection fixtures, without a production selector or historical decoder.
 
@@ -25,7 +29,9 @@ also admits `edict.target-profile.intrinsics/v3` catalogs (amblicit#341). A
 `/v3` catalog is the `/v2` shape plus a required `effectCostRule`
 (`{ steps, bytes }` cost expressions) on every effect intrinsic and an
 optional `parameters` map naming where each template parameter lives in the
-operation configuration. `echo.dpo@2` pins a `/v3` catalog; Echo publishes no
+operation configuration. Cost rules are written out level by level to a
+nesting depth of 10, the same limit the compiler's decoder enforces; Echo's
+catalog nests to level 6. `echo.dpo@2` pins a `/v3` catalog; Echo publishes no
 `/v2` catalog.
 
 The typed-failures publication, relative to `function-preconditions-v1` (Amblicit `1196396b`, PR #318, also a
